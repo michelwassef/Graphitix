@@ -1,3 +1,4 @@
+const { selectReplicateMode, clickExampleButton } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
@@ -40,9 +41,8 @@ test('Box grouped traces exclude spare blank AG Grid rows', async ({ page }) => 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
 
-  const boxPage = page.locator('#boxPage:not([hidden])');
-  await boxPage.locator('#boxTableFormat').selectOption('grouped');
-  await boxPage.locator('#boxLoadExample').click();
+  await selectReplicateMode(page, 'box', 'grouped');
+  await clickExampleButton(page, 'box');
 
   await expect.poll(() => page.evaluate(() => {
     const traces = window.Components?.box?.__getState?.()?.cachedDrawInput?.traces || [];

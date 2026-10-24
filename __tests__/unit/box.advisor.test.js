@@ -13,6 +13,115 @@ const ensureBoxModule = () => {
 };
 
 describe('Box plot statistics advisor', () => {
+  test('paired advisor diagnostics share the engine target and subject-row alignment', () => {
+    const box = ensureBoxModule();
+    const traces = [
+      { name: 'A', rawY: [1, 2, 3, 4], rowIndices: [1, 2, 3, 4] },
+      { name: 'B', rawY: [12, 14, 16, 18], rowIndices: [2, 3, 4, 5] }
+    ];
+    const result = box.__testHooks.computeAdvisorDiagnostics(traces, [0, 1], { paired: 'paired', distribution: 'normal' });
+    expect(result.normalityTarget).toBe('within-subject-contrasts');
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0]).toMatchObject({ size: 3, label: expect.stringContaining('paired differences') });
+    const ratio = box.__testHooks.computeAdvisorDiagnostics(traces, [0, 1], { paired: 'paired', distribution: 'lognormal' });
+    expect(ratio.normalityTarget).toBe('within-subject-log-ratios');
+    expect(ratio.groups[0].size).toBe(3);
+  });
+
+  test('log-scale advisor diagnostics do not discard nonpositive observations', () => {
+    const box = ensureBoxModule();
+    expect(box.__testHooks.computeAdvisorDiagnostics([
+      { name: 'A', rawY: [0, 1, 2] }, { name: 'B', rawY: [1, 2, 3] }
+    ], [0, 1], { distribution: 'lognormal', paired: 'unpaired' })).toBeNull();
+  });
+
+  test('advisor diagnostic signatures include values, row identity and the proposed analysis', () => {
+    const box = ensureBoxModule();
+    const signature = box.__testHooks.buildAdvisorDiagnosticSignature;
+    const traces = [{ name: 'A', rawY: [1, 2, 3], rowIndices: [1, 2, 3] }];
+    const answers = { paired: 'unpaired', distribution: 'normal' };
+    const original = signature(traces, [0], answers);
+    traces[0].rawY[1] = 4;
+    expect(signature(traces, [0], answers)).not.toBe(original);
+    traces[0].rawY[1] = 2;
+    traces[0].rowIndices[1] = 5;
+    expect(signature(traces, [0], answers)).not.toBe(original);
+    traces[0].rowIndices[1] = 2;
+    expect(signature(traces, [0], { ...answers, paired: 'paired' })).not.toBe(original);
+    expect(signature(traces, [0], { ...answers, distribution: 'lognormal' })).not.toBe(original);
+    expect(signature(traces, [0], answers)).toBe(original);
+  });
+
+  test.each([
+    [2, 'unpaired', 'normal', 'all', 'welchT'],
+    [2, 'unpaired', 'nonnormal', 'all', 'mannWhitney'],
+    [2, 'paired', 'nonnormal', 'all', 'wilcoxonSignedRank'],
+    [3, 'unpaired', 'nonnormal', 'all', 'kruskalWallis'],
+    [3, 'paired', 'nonnormal', 'all', 'friedman'],
+    [3, 'unpaired', 'nonnormal', 'custom', 'mannWhitney'],
+    [3, 'paired', 'lognormal', 'custom', 'ratioT']
+  ])('the recommendation selects the promised engine test (%s %s %s %s)', (groupCount, paired, distribution, mode, id) => {
+    const box = ensureBoxModule();
+    const recommendation = box.getAdvisorRecommendation({
+      groups: groupCount === 2 ? 'two' : 'threePlus', paired, distribution
+    }, {
+      groupCount, currentMode: mode, sampleSizes: Array(groupCount).fill(5),
+      minimumValues: Array(groupCount).fill(1), pairedRowCount: 5
+    });
+    expect(recommendation.ready).toBe(true);
+    expect(recommendation.canApply).not.toBe(false);
+    const plan = window.Shared.boxStatsModel.resolveSingleAnalysisPlan({
+      statsMode: mode, statsTest: recommendation.statsTest, statsPaired: recommendation.paired,
+      statsParametricVariant: recommendation.parametricVariant,
+      // A previous manual choice must never survive a different recommendation.
+      statsNonParametricVariant: recommendation.nonParametricVariant || 'kolmogorovSmirnov'
+    }, groupCount);
+    expect(plan).toMatchObject({ ok: true, id });
+  });
+
+  test.each([
+    ['perCondition', 0, 2], ['perCondition', 1, 2],
+    ['interaction', 1, 2], ['interaction', 4, 1]
+  ])('grouped %s requires estimable data (%s rows, %s conditions)', (goal, rowCount, conditionCount) => {
+    const recommendation = ensureBoxModule().getAdvisorRecommendation({
+      groupedGoal: goal, groupedRepeated: 'no', groupedRowFactor: 'no'
+    }, { format: 'grouped', groupCount: 2, rowCount, conditionCount, ok: rowCount > 0 });
+    expect(recommendation.ready).toBe(false);
+  });
+
+  test('per-condition Welch guidance requires independent groups', () => {
+    const box = ensureBoxModule();
+    const context = { format: 'grouped', groupCount: 2, rowCount: 4, conditionCount: 2, partialRowsSkipped: 0, ok: true };
+    expect(box.getAdvisorRecommendation({ groupedGoal: 'perCondition' }, context).ready).toBe(false);
+    expect(box.getAdvisorRecommendation({ groupedGoal: 'perCondition', groupedRepeated: 'yes' }, context).ready).toBe(false);
+    expect(box.getAdvisorRecommendation({ groupedGoal: 'perCondition', groupedRepeated: 'withinGroups' }, context))
+      .toMatchObject({ ready: true, analysis: 'rowTTests', recommendedCorrection: 'holm' });
+    expect(box.getAdvisorRecommendation({ groupedGoal: 'interaction', groupedRepeated: 'withinGroups' }, context))
+      .toMatchObject({ ready: true, analysis: 'nestedRepeatedTwoWay' });
+    expect(box.getAdvisorRecommendation({ groupedGoal: 'interaction', groupedRepeated: 'withinGroups' }, {
+      ...context, conditionCount: 3
+    })).toMatchObject({ ready: false, message: expect.stringContaining('exactly two conditions') });
+    expect(box.getAdvisorRecommendation({ groupedGoal: 'interaction', groupedRepeated: 'withinGroups' }, {
+      ...context, partialRowsSkipped: 1
+    })).toMatchObject({ ready: false, message: expect.stringContaining('complete data') });
+  });
+
+  test('requires matching subject rows for paired guidance',()=>{
+    const box=ensureBoxModule();
+    const answers={groups:'two',paired:'paired',distribution:'normal'};
+    expect(box.getAdvisorRecommendation(answers,{groupCount:2,sampleSizes:[2,2],pairedRowCount:0})).toMatchObject({ready:false});
+    expect(box.getAdvisorRecommendation(answers,{groupCount:2,sampleSizes:[2,2],pairedRowCount:2})).toMatchObject({ready:true,paired:true});
+  });
+  test.each([
+    [{ groups:'two', paired:'unpaired', distribution:'normal' }, { groupCount:6 }, /does not match/],
+    [{ groups:'threePlus', paired:'unpaired', distribution:'normal' }, { groupCount:2 }, /does not match/],
+    [{ groups:'two', paired:'unpaired', distribution:'normal' }, { groupCount:2, sampleSizes:[1,5] }, /at least two/],
+    [{ groups:'two', paired:'paired', distribution:'lognormal' }, { groupCount:2, sampleSizes:[5,5], minimumValues:[0,1] }, /strictly positive/]
+  ])('blocks a recommendation that disagrees with current included data (%j)', (answers,context,message) => {
+    const recommendation=ensureBoxModule().getAdvisorRecommendation(answers,context);
+    expect(recommendation.ready).toBe(false);
+    expect(recommendation.message).toMatch(message);
+  });
   test('suggests Welch t-test for two normal independent groups', () => {
     const box = ensureBoxModule();
     expect(box).toBeTruthy();
@@ -43,9 +152,16 @@ describe('Box plot statistics advisor', () => {
     expect(recommendation.ready).toBe(true);
     expect(recommendation.statsTest).toBe('parametric');
     expect(recommendation.parametricVariant).toBe('welch');
-    expect(recommendation.postHoc).toBe('gamesHowell');
+    expect(recommendation.postHoc).toBe('auto');
+    expect(box.__testHooks.resolvePostHocProcedure(recommendation.postHoc, {
+      test: recommendation.statsTest,
+      variant: recommendation.parametricVariant,
+      groupCount: 4,
+      varianceConcern: true
+    }).effectiveProcedure).toBe('gamesHowell');
     expect(recommendation.summary).toMatch(/Welch ANOVA/i);
-    expect(recommendation.summary).toMatch(/Games–Howell/i);
+    expect(recommendation.summary).toMatch(/automatic post-hoc/i);
+    expect(recommendation.rationale.join(' ')).toMatch(/Games–Howell/i);
   });
 
   test('recommends ratio t test for paired lognormal two-group data', () => {
@@ -108,7 +224,7 @@ describe('Box plot statistics advisor', () => {
   test('grouped advisor recommends row-wise t-tests for per-condition goal', () => {
     const box = ensureBoxModule();
     const recommendation = box.getAdvisorRecommendation({
-      groupedGoal: 'perCondition'
+      groupedGoal: 'perCondition', groupedRepeated: 'no'
     }, {
       format: 'grouped',
       groupCount: 3,

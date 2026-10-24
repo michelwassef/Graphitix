@@ -30,14 +30,32 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const header = document.createElement('div');
     header.className = 'ag-header-cell';
     header.setAttribute('col-id', 'c1');
+    header.tabIndex = -1;
     container.appendChild(header);
 
+    header.focus();
     const evt = new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
     header.dispatchEvent(evt);
 
-    const menu = document.querySelector('.ag-hot-menu');
+    let menu = document.querySelector('.ag-hot-menu');
     expect(menu).toBeTruthy();
-    const labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(menu.getAttribute('role')).toBe('menu');
+    expect(menu.getAttribute('aria-label')).toBe('Table actions');
+    const menuItems = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    const enabledMenuItems = Array.from(menu.querySelectorAll('[role="menuitem"]:not(:disabled)'));
+    expect(menuItems.length).toBeGreaterThan(0);
+    expect(menuItems.every(item => item.tagName === 'BUTTON')).toBe(true);
+    expect(menu.querySelector('[role="separator"]')).toBeTruthy();
+    expect(document.activeElement).toBe(enabledMenuItems[0]);
+    enabledMenuItems[0].dispatchEvent(new global.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(enabledMenuItems[1]);
+    enabledMenuItems[1].dispatchEvent(new global.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(document.querySelector('.ag-hot-menu')).toBeNull();
+    expect(document.activeElement).toBe(header);
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+    menu = document.querySelector('.ag-hot-menu');
+    const labels = Array.from(menu.querySelectorAll('[role="menuitem"]')).map(node => node.textContent).filter(Boolean);
     expect(labels).toContain('Insert 2 column(s) before');
     expect(labels).toContain('Insert 2 column(s) after');
     expect(labels).toContain('Delete 2 column(s)');
@@ -46,7 +64,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(labels).toContain('Paste into columns');
     expect(labels).not.toContain('Include columns in analysis');
 
-    const deleteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Delete 2 column(s)');
+    const deleteEntry = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(node => node.textContent === 'Delete 2 column(s)');
     expect(deleteEntry).toBeTruthy();
     deleteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
 
@@ -95,7 +113,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const menu = document.querySelector('.ag-hot-menu');
     expect(menu).toBeTruthy();
 
-    const insertAboveEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Insert 1 row(s) above');
+    const insertAboveEntry = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(node => node.textContent === 'Insert 1 row(s) above');
     expect(insertAboveEntry).toBeTruthy();
     insertAboveEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
 
@@ -135,18 +153,18 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
     let menu = document.querySelector('.ag-hot-menu');
     expect(menu).toBeTruthy();
-    let labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    let labels = Array.from(menu.querySelectorAll('[role="menuitem"]')).map(node => node.textContent).filter(Boolean);
     expect(labels).toContain('Exclude column from analysis');
     expect(labels).not.toContain('Include column in analysis');
 
-    const excludeEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Exclude column from analysis');
+    const excludeEntry = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(node => node.textContent === 'Exclude column from analysis');
     expect(excludeEntry).toBeTruthy();
     excludeEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
 
     header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 12, clientY: 12 }));
     menu = document.querySelector('.ag-hot-menu');
     expect(menu).toBeTruthy();
-    labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    labels = Array.from(menu.querySelectorAll('[role="menuitem"]')).map(node => node.textContent).filter(Boolean);
     expect(labels).toContain('Include column in analysis');
   });
 
@@ -180,7 +198,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
     let menu = document.querySelector('.ag-hot-menu');
     expect(menu).toBeTruthy();
-    const copyEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Copy column');
+    const copyEntry = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(node => node.textContent === 'Copy column');
     expect(copyEntry).toBeTruthy();
     copyEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -189,7 +207,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 21, clientY: 21 }));
     menu = document.querySelector('.ag-hot-menu');
-    const cutEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Cut column');
+    const cutEntry = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(node => node.textContent === 'Cut column');
     expect(cutEntry).toBeTruthy();
     cutEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -200,7 +218,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 22, clientY: 22 }));
     menu = document.querySelector('.ag-hot-menu');
-    const pasteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Paste into column');
+    const pasteEntry = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(node => node.textContent === 'Paste into column');
     expect(pasteEntry).toBeTruthy();
     pasteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -362,12 +380,12 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     const menu = document.querySelector('.ag-hot-menu');
     expect(menu).toBeTruthy();
-    const labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    const labels = Array.from(menu.querySelectorAll('[role="menuitem"]')).map(node => node.textContent).filter(Boolean);
     expect(labels).toContain('Insert 2 row(s) above');
     expect(labels).toContain('Insert 2 row(s) below');
     expect(labels).toContain('Delete 2 row(s)');
 
-    const deleteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Delete 2 row(s)');
+    const deleteEntry = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(node => node.textContent === 'Delete 2 row(s)');
     expect(deleteEntry).toBeTruthy();
     deleteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
 
@@ -698,6 +716,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       centerViewport.appendChild(row);
     }
 
+    fixture.mountNativeSelectionPanes(container);
     const header = document.createElement('div');
     header.className = 'ag-header-cell';
     header.setAttribute('col-id', 'c1');
@@ -711,10 +730,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
     expect(outline).toBeTruthy();
     expect(outline.style.display).toBe('block');
-    expect(outline.style.borderTopColor).toBe('transparent');
-    expect(outline.style.borderLeftColor).not.toBe('transparent');
-    expect(outline.style.borderRightColor).not.toBe('transparent');
-    expect(outline.style.zIndex).toBe('7');
+    expect(outline.style.zIndex).toBe('5');
     expect(outline.querySelector('.hot-selection-outline-edge[data-edge="top"]').style.display).toBe('none');
     expect(outline.querySelector('.hot-selection-outline-edge[data-edge="left"]').style.display).toBe('block');
     expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('block');
@@ -728,7 +744,6 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     await fixture.waitForNextFrame();
 
     expect(hot.getSelectedLast()).toEqual([0, 0, 3, hot.countCols() - 1]);
-    expect(outline.style.borderTopColor).not.toBe('transparent');
     expect(outline.querySelector('.hot-selection-outline-edge[data-edge="top"]').style.display).toBe('block');
 
     global.window.navigator.clipboard = { writeText: jest.fn().mockResolvedValue(undefined) };
@@ -841,6 +856,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       centerViewport.appendChild(row);
     }
 
+    fixture.mountNativeSelectionPanes(container);
     const header = document.createElement('div');
     header.className = 'ag-header-cell';
     header.setAttribute('col-id', 'c1');
@@ -1199,6 +1215,64 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(undoClearResult.reached).toBe(true);
     const redoClearResult = fixture.redoUntil(undoManager, () => hot.countRows() === 5);
     expect(redoClearResult.reached).toBe(true);
+  });
+
+  test('column filter models stay with their table instance', () => {
+    const createFilteredTable = (id, values, label) => {
+      const container = document.createElement('div');
+      container.id = id;
+      document.body.appendChild(container);
+      const hot = fixture.createTable(
+        container,
+        { rows: values.length + 1, cols: 2 },
+        () => {},
+        {
+          debugLabel: id,
+          data: [['Label', 'Group'], ...values.map((value, index) => [`row-${index}`, value])]
+        }
+      );
+      const colDef = fixture.capturedGridOptions?.columnDefs?.find(col => col.colId === 'c1');
+      const header = new colDef.headerComponent();
+      header.init({
+        api: { addEventListener: jest.fn(), removeEventListener: jest.fn() },
+        column: {
+          getColId: () => 'c1',
+          getSort: () => '',
+          getColDef: () => ({ headerName: label })
+        },
+        displayName: label
+      });
+      const headerGui = header.getGui();
+      container.appendChild(headerGui);
+      return { hot, filterButton: headerGui.querySelector('.hot-header-action') };
+    };
+    const applySearch = (table, search) => {
+      table.filterButton.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+      const menu = document.querySelector('.ag-hot-filter-menu');
+      expect(menu).toBeTruthy();
+      const input = menu.querySelector('.ag-hot-filter-menu__search');
+      input.value = search;
+      input.dispatchEvent(new global.window.Event('input', { bubbles: true }));
+      menu.querySelector('.ag-hot-filter-menu__button').dispatchEvent(
+        new global.window.MouseEvent('click', { bubbles: true, cancelable: true })
+      );
+    };
+
+    const first = createFilteredTable('agFilterOwnerFirst', ['alpha', 'beta', 'gamma'], 'First group');
+    applySearch(first, 'al');
+    expect(first.hot.countRows()).toBe(2);
+    expect(JSON.stringify(first.hot.__hotExportFilters())).toContain('alpha');
+
+    const second = createFilteredTable('agFilterOwnerSecond', ['delta', 'epsilon', 'zeta'], 'Second group');
+    expect(second.hot.countRows()).toBe(4);
+    expect(second.hot.__hotExportFilters().columns).toEqual({});
+    applySearch(second, 'ep');
+
+    expect(second.hot.countRows()).toBe(2);
+    expect(JSON.stringify(second.hot.__hotExportFilters())).toContain('epsilon');
+    expect(first.hot.countRows()).toBe(2);
+    expect(JSON.stringify(first.hot.__hotExportFilters())).toContain('alpha');
+    expect(JSON.stringify(first.hot.__hotExportFilters())).not.toContain('epsilon');
   });
 
   test('clicking row header selects the full row', () => {

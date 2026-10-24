@@ -34,6 +34,24 @@ async function openVennWithSummary(page, first){
   await expect(summary).toBeVisible({ timeout:30_000 });
   await summary.check();
   await expect(page.locator('#vennPage:not([hidden]) #stage g[data-stats-figure-summary="1"]')).toHaveCount(1, { timeout:30_000 });
+  await expect(page.locator('#vennPage:not([hidden]) .graph-controls-header svg.resizer-options-icon')).toHaveAttribute('viewBox', '0 0 24 24');
+  return activeTabId(page);
+}
+
+async function openVennWithPlotStats(page, first, enableStats = true){
+  await openComponentFromWelcome(page, { type:'venn', pageId:'vennPage' }, { first });
+  await clickExpectedExampleButton(page, 'sample');
+  await page.waitForFunction(() => document.querySelector('#vennPage:not([hidden]) #stage [data-venn-trace-id]'));
+  await page.locator('#significanceSection').evaluate(node => { node.open = true; });
+  await page.locator('#totalGenes').fill('25000');
+  await page.locator('#calcSignificance').click();
+  await expect(page.locator('#significanceResults')).toContainText(/hypergeometric|overlap enrichment/i, { timeout:45_000 });
+  const stats = page.locator('#vennPage:not([hidden]) #vennShowPlotStats');
+  await expect(stats).toBeEnabled({ timeout:30_000 });
+  if(enableStats){
+    await stats.check();
+    await expect(page.locator('#vennPage:not([hidden]) #stage [data-venn-plot-stats="1"]')).toHaveCount(1, { timeout:30_000 });
+  }
   return activeTabId(page);
 }
 
@@ -77,7 +95,7 @@ async function resizeActiveVenn(page, delta){
   await page.mouse.down();
   await page.mouse.move(x, y + delta, { steps:8 });
   await page.mouse.up();
-  await waitForComponentOwnerReady(page, 'box', {
+  await waitForComponentOwnerReady(page, 'venn', {
     requireMountedRoot: true,
     requirePublished: true,
     requireIdle: true,
@@ -132,5 +150,37 @@ test('Venn summary stays below the graph when the other Venn tab is resized', as
   expect(summaryAfter?.summaryTop).toBeGreaterThanOrEqual(summaryAfter?.circleBottom - 2);
   expect(summaryAfter?.summaryBottom).toBeLessThanOrEqual(summaryAfter?.stageBottom + 2);
   expect(otherTab).not.toBe(summaryTab);
+  expect(issues.critical).toEqual([]);
+});
+
+test('Venn plot statistics stay with their owner tab', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil:'domcontentloaded' });
+
+  const first = await openVennWithPlotStats(page, true);
+  const firstStatsControl = page.locator('#vennPage:not([hidden]) #vennShowPlotStats');
+  await page.locator('#totalGenes').fill('25001');
+  await expect(firstStatsControl).toBeDisabled();
+  await expect(page.locator('#vennPage:not([hidden]) #stage [data-venn-plot-stats="1"]')).toHaveCount(0, { timeout:30_000 });
+  await page.locator('#calcSignificance').click();
+  await expect(firstStatsControl).toBeEnabled({ timeout:30_000 });
+  await expect(page.locator('#vennPage:not([hidden]) #stage [data-venn-plot-stats="1"]')).toHaveCount(1, { timeout:30_000 });
+  const firstPayloadSetting = await page.evaluate(() => {
+    const activeTabId = window.Main?.session?.workspaceState?.activeTabId;
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item.id === activeTabId);
+    return tab?.payload?.config?.showPlotStats ?? null;
+  });
+  expect(firstPayloadSetting).toBe(true);
+
+  const second = await openVennWithPlotStats(page, false, false);
+  expect(second).not.toBe(first);
+  await expect(page.locator('#vennPage:not([hidden]) #vennShowPlotStats')).not.toBeChecked();
+  await expect(page.locator('#vennPage:not([hidden]) #stage [data-venn-plot-stats="1"]')).toHaveCount(0);
+
+  await activate(page, first);
+  await expect(page.locator('#vennPage:not([hidden]) #vennShowPlotStats')).toBeChecked();
+  await expect(page.locator('#vennPage:not([hidden]) #stage [data-venn-plot-stats="1"]')).toHaveCount(1, { timeout:30_000 });
   expect(issues.critical).toEqual([]);
 });

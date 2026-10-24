@@ -4,6 +4,8 @@ describe('exporter Save As downloads', () => {
   function mountSvgDownload() {
     document.body.innerHTML = '<div id="exports"></div><svg id="chart" viewBox="0 0 10 10"><circle cx="5" cy="5" r="2"/></svg>';
     jest.resetModules();
+    require('../../js/shared/menuKeyboard.js');
+    require('../../js/shared/menuPosition.js');
     require('../../js/shared/exporter.js');
     window.Shared.exporter.mountSvgControls({
       container: '#exports',
@@ -11,12 +13,11 @@ describe('exporter Save As downloads', () => {
       fileName: 'my-chart',
       contextLabel: 'save-picker-test'
     });
-    return document.querySelector('.export-select-wrapper[data-action-key="download"] select');
+    return document.querySelector('.export-select-wrapper[data-action-key="download"]');
   }
 
-  async function choose(select, format) {
-    select.value = format;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+  async function choose(menu, format) {
+    menu.querySelector(`[data-format="${format}"]`).click();
     await new Promise(resolve => setTimeout(resolve, 0));
     await new Promise(resolve => setTimeout(resolve, 0));
   }
@@ -32,9 +33,9 @@ describe('exporter Save As downloads', () => {
     const close = jest.fn();
     const createWritable = jest.fn().mockResolvedValue({ write, close });
     window.showSaveFilePicker = jest.fn().mockResolvedValue({ createWritable });
-    const select = mountSvgDownload();
+    const menu = mountSvgDownload();
 
-    await choose(select, 'svg');
+    await choose(menu, 'svg');
 
     expect(window.showSaveFilePicker).toHaveBeenCalledWith({
       suggestedName: 'my-chart.svg',
@@ -50,11 +51,32 @@ describe('exporter Save As downloads', () => {
     abort.name = 'AbortError';
     window.showSaveFilePicker = jest.fn().mockRejectedValue(abort);
     const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    const select = mountSvgDownload();
+    const menu = mountSvgDownload();
 
-    await choose(select, 'png');
+    await choose(menu, 'png');
 
     expect(clickSpy).not.toHaveBeenCalled();
+  });
+
+  test('a delayed picker cannot export another tab after an owner switch', async () => {
+    const originalMain = window.Main;
+    const first = { id: 'first' };
+    let active = first;
+    let finishPicker;
+    const createWritable = jest.fn();
+    window.showSaveFilePicker = jest.fn(() => new Promise(resolve => { finishPicker = resolve; }));
+    try {
+      window.Main = { session: { getActiveTab: () => active } };
+      const menu = mountSvgDownload();
+      menu.querySelector('button.export-select').click();
+      menu.querySelector('[data-format="svg"]').click();
+      active = { id: 'second' };
+      finishPicker({ createWritable });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(createWritable).not.toHaveBeenCalled();
+    } finally {
+      window.Main = originalMain;
+    }
   });
 
   test('uses the desktop Save As dialog and selected path', async () => {
@@ -63,9 +85,9 @@ describe('exporter Save As downloads', () => {
       showSaveDialog: jest.fn().mockResolvedValue({ canceled: false, filePath: 'C:\\Exports\\renamed.svg' }),
       writeFile: jest.fn().mockResolvedValue(undefined)
     };
-    const select = mountSvgDownload();
+    const menu = mountSvgDownload();
 
-    await choose(select, 'svg');
+    await choose(menu, 'svg');
 
     expect(window.desktop.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
       defaultPath: 'my-chart.svg'

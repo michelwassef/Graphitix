@@ -3,6 +3,143 @@ const path = require('node:path');
 const { findFunctions, findNodes, memberPath, readScriptAst } = require('../../test-support/sourceAst');
 let lc;
 
+describe('componentLifecycle — internal runtime projection ownership', () => {
+  let component;
+  let live;
+  let roots;
+  let tabs;
+  let readLive;
+
+  beforeEach(() => {
+    jest.resetModules();
+    delete window.Shared;
+    document.body.innerHTML = '';
+    tabs = ['tab-a', 'tab-b', 'tab-empty'].map(id => ({ id, type: 'box' }));
+    window.Main = { session: {
+      workspaceState: { tabs, activeTabId: 'tab-a' },
+      getActiveTab: () => tabs.find(tab => tab.id === window.Main.session.workspaceState.activeTabId)
+    } };
+    require('../../js/shared/componentLifecycle.js');
+    require('../../js/shared/workspaceTabs.js');
+    lc = window.Shared.componentLifecycle;
+    roots = Object.fromEntries(tabs.map(tab => {
+      const root = document.createElement('div');
+      root.dataset.workspaceTabId = tab.id;
+      document.body.appendChild(root);
+      return [tab.id, root];
+    }));
+    window.Shared.workspaceTabs.getMountedRoot = id => roots[id] || null;
+    live = { title: 'Owner A', settings: { fontSize: 12 } };
+    readLive = jest.fn(() => live);
+    component = { __boundTabId: 'tab-a', captureRuntimeState: () => ({}), applyRuntimeState: () => true };
+  });
+
+  test.each(['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'])(
+    '%s stores inactive internal state without reading or projecting the active owner', type => {
+      tabs.forEach(tab => { tab.type = type; });
+      const bridge = lc.installInternalStateBridge(component, {
+        componentKey: type, targets: [{ key: 'state', get: readLive }]
+      });
+      const a = component.captureRuntimeState({ tabId: 'tab-a' });
+      window.Main.session.workspaceState.activeTabId = 'tab-b';
+      component.__boundTabId = 'tab-b';
+      live.title = 'Owner B';
+      live.settings.fontSize = 24;
+      component.captureRuntimeState({ tabId: 'tab-b' });
+      readLive.mockClear();
+
+      a.__internalState.targets.state.title = 'Restored A';
+      expect(component.applyRuntimeState(a, { tabId: 'tab-a' })).toBe(true);
+      expect(live).toEqual({ title: 'Owner B', settings: { fontSize: 24 } });
+      const inactive = component.captureRuntimeState({ tabId: 'tab-a' });
+      expect(inactive.__internalState.targets.state.title).toBe('Restored A');
+      expect(readLive).not.toHaveBeenCalled();
+      expect(bridge.capture({ tabId: 'tab-empty' })).toBeNull();
+      inactive.__internalState.targets.state.title = 'Mutated copy';
+      expect(bridge.capture({ tabId: 'tab-a' }).targets.state.title).toBe('Restored A');
+
+      window.Main.session.workspaceState.activeTabId = 'tab-a';
+      component.__boundTabId = 'tab-a';
+      expect(component.applyRuntimeState(a, { tabId: 'tab-a' })).toBe(true);
+      expect(live).toEqual({ title: 'Restored A', settings: { fontSize: 12 } });
+      expect(bridge.capture({ tabId: 'tab-b' }).targets.state.title).toBe('Owner B');
+    }
+  );
+
+  test('a failed native restore cannot publish internal state', () => {
+    component.applyRuntimeState = () => false;
+    lc.installInternalStateBridge(component, { componentKey: 'box', targets: [{ key: 'state', get: readLive }] });
+    const snapshot = component.captureRuntimeState({ tabId: 'tab-a' });
+    snapshot.__internalState.targets.state.title = 'Rejected';
+    expect(component.applyRuntimeState(snapshot, { tabId: 'tab-a' })).toBe(false);
+    expect(live.title).toBe('Owner A');
+  });
+
+  test('a mismatched nested owner is rejected before native restore', () => {
+    const restore = jest.fn(() => true);
+    component.applyRuntimeState = restore;
+    lc.installInternalStateBridge(component, { componentKey: 'box', targets: [{ key: 'state', get: readLive }] });
+    const snapshot = component.captureRuntimeState({ tabId: 'tab-a' });
+    snapshot.__internalState.tabId = 'tab-b';
+    expect(component.applyRuntimeState(snapshot, { tabId: 'tab-a' })).toBe(false);
+    expect(restore).not.toHaveBeenCalled();
+    expect(live.title).toBe('Owner A');
+  });
+
+  test.each([true, false])('async restore rechecks projection ownership after settlement (%s)', async accepted => {
+    let settle;
+    component.applyRuntimeState = () => new Promise(resolve => { settle = resolve; });
+    const bridge = lc.installInternalStateBridge(component, { componentKey: 'box', targets: [{ key: 'state', get: readLive }] });
+    const snapshot = component.captureRuntimeState({ tabId: 'tab-a' });
+    snapshot.__internalState.targets.state.title = 'Async A';
+    const pending = component.applyRuntimeState(snapshot, { tabId: 'tab-a' });
+    expect(live.title).toBe('Owner A');
+    window.Main.session.workspaceState.activeTabId = 'tab-b';
+    component.__boundTabId = 'tab-b';
+    live.title = 'Owner B';
+    readLive.mockClear();
+    settle(accepted);
+    expect(await pending).toBe(accepted);
+    expect(live.title).toBe('Owner B');
+    expect(readLive).not.toHaveBeenCalled();
+    expect(bridge.capture({ tabId: 'tab-a' }).targets.state.title).toBe(accepted ? 'Async A' : 'Owner A');
+  });
+
+  test('an owner with a mismatched mounted root cannot read or overwrite live targets', () => {
+    const bridge = lc.installInternalStateBridge(component, { componentKey: 'box', targets: [{ key: 'state', get: readLive }] });
+    const snapshot = component.captureRuntimeState({ tabId: 'tab-a' });
+    roots['tab-a'].dataset.workspaceTabId = 'tab-b';
+    readLive.mockClear();
+    snapshot.__internalState.targets.state.title = 'Stored A';
+    expect(component.applyRuntimeState(snapshot, { tabId: 'tab-a' })).toBe(true);
+    expect(bridge.capture({ tabId: 'tab-a' }).targets.state.title).toBe('Stored A');
+    expect(live.title).toBe('Owner A');
+    expect(readLive).not.toHaveBeenCalled();
+  });
+
+  test('async capture retains its owner snapshot across a tab switch', async () => {
+    let settle;
+    component.captureRuntimeState = () => new Promise(resolve => { settle = resolve; });
+    const bridge = lc.installInternalStateBridge(component, { componentKey: 'box', targets: [{ key: 'state', get: readLive }] });
+    bridge.capture({ tabId: 'tab-a' });
+    const pending = component.captureRuntimeState({ tabId: 'tab-a' });
+    window.Main.session.workspaceState.activeTabId = 'tab-b';
+    component.__boundTabId = 'tab-b';
+    live.title = 'Owner B';
+    readLive.mockClear();
+    settle({ tabId: 'tab-a' });
+    expect((await pending).__internalState.targets.state.title).toBe('Owner A');
+    expect(readLive).not.toHaveBeenCalled();
+  });
+
+  test('a native null capture remains absent without manufacturing internal state', () => {
+    component.captureRuntimeState = () => null;
+    lc.installInternalStateBridge(component, { componentKey: 'box', targets: [{ key: 'state', get: readLive }] });
+    expect(component.captureRuntimeState({ tabId: 'tab-empty' })).toBeNull();
+    expect(readLive).not.toHaveBeenCalled();
+  });
+});
+
 describe('componentLifecycle — createRuntimeOwner', () => {
   let tabs;
 
@@ -270,6 +407,12 @@ describe('componentLifecycle — createRuntimeOwner', () => {
   });
 
   test('internal state bridge preserves sparse indexed models and repeated aliases', () => {
+    tabs.forEach(tab => { tab.type = 'survival'; });
+    window.Main.session.workspaceState.activeTabId = 'tab-a';
+    const root = document.createElement('div');
+    root.dataset.workspaceTabId = 'tab-a';
+    document.body.appendChild(root);
+    window.Shared.workspaceTabs.getMountedRoot = () => root;
     const shared = { key: 'comparison', label: 'Comparison' };
     const metaRow = new Array(5);
     metaRow[4] = { pValueRaw: 0.01 };
@@ -278,7 +421,7 @@ describe('componentLifecycle — createRuntimeOwner', () => {
       second: shared,
       cellMetaRows: [metaRow]
     };
-    const component = { __componentKey: 'survival' };
+    const component = { __componentKey: 'survival', __boundTabId: 'tab-a' };
     const bridge = lc.installInternalStateBridge(component, {
       componentKey: 'survival',
       targets: [{ key: 'state', get: () => state }]
@@ -585,17 +728,37 @@ describe('workspaceTabs teardown contract', () => {
   test('disposeTab cancels component async scope for the disposed tab', () => {
     const tab = { id: 'tab-a', type: 'box', sharedState: { runtime: {} } };
     tabs[0] = tab;
-    const scope = lc.createAsyncScope('box');
-    window.Components.box.__asyncScope = scope;
-    const token = scope.nextToken({ tabId: 'tab-a', reason: 'worker' });
-
-    expect(scope.isCurrent(token)).toBe(true);
+    const scopes = ['__asyncScope', '__drawAsyncScope', '__statsAsyncScope'].map(key => {
+      const scope = lc.createAsyncScope(`box-${key}`);
+      window.Components.box[key] = scope;
+      const token = scope.nextToken({ tabId: 'tab-a', reason: 'worker' });
+      const siblingToken = scope.nextToken({ tabId: 'tab-b', reason: 'worker' });
+      expect(scope.isCurrent(token)).toBe(true);
+      expect(scope.isCurrent(siblingToken)).toBe(true);
+      return { scope, token, siblingToken };
+    });
 
     window.Shared.workspaceTabs.disposeTab(tab, {
       type: 'box',
       reason: 'unit-dispose'
     });
 
-    expect(scope.isCurrent(token)).toBe(false);
+    scopes.forEach(({ scope, token, siblingToken }) => {
+      expect(scope.isCurrent(token)).toBe(false);
+      expect(scope.isCurrent(siblingToken)).toBe(true);
+    });
+  });
+
+  test('workspace deactivation notifies owner-scoped shared style panels', () => {
+    const tab = tabs[0];
+    window.Shared.additionalLineControls = { deactivateTab: jest.fn() };
+    window.Shared.gridControls = { deactivateTab: jest.fn() };
+    window.Shared.dendrogramControls = { deactivateTab: jest.fn() };
+
+    expect(window.Shared.workspaceTabs.deactivateWorkspace(tab, {}, { reason: 'tab-switch' })).toBe(true);
+
+    for (const control of [window.Shared.additionalLineControls, window.Shared.gridControls, window.Shared.dendrogramControls]) {
+      expect(control.deactivateTab).toHaveBeenCalledWith('tab-a', { reason: 'tab-switch' });
+    }
   });
 });

@@ -1,8 +1,10 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { clickExampleButton } = require('../helpers/uiDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
+const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
 const COMPONENT = { type: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample' };
 const TOOLBAR_PANEL = '.font-toolbar-host[data-font-toolbar-scope="line"] .line-uncertainty-inline-panel:visible';
@@ -137,7 +139,51 @@ async function readLineUncertaintyState(page) {
   });
 }
 
-test('grouped Line uncertainty toolbar and presentation stay isolated between same-component tabs', async ({ page }, testInfo) => {
+async function readLineAdvisorState(page, tabId) {
+  return page.evaluate(id => {
+    const session = window.Components?.line?.__testHooks?.getSessionForTab?.(id) || null;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id, 'line') || session?.root || null;
+    const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id) || null;
+    const advisor = session?.state?.advisorState || {};
+    return {
+      tabId: session?.tabId || null,
+      open: advisor.open === true,
+      payloadOpen: tab?.payload?.config?.advisorState?.open === true,
+      answers: { ...(advisor.answers || {}) },
+      lastApplied: advisor.lastApplied ? { ...advisor.lastApplied } : null,
+      payloadAnswer: tab?.payload?.config?.advisorState?.answers?.measurement || null,
+      selectedMeasurement: root?.querySelector('input[name="line-advisor-measurement"]:checked')?.value || null,
+      statType: root?.querySelector('#lineStatType')?.value || null
+    };
+  }, tabId);
+}
+
+async function setLineAdvisorMeasurement(page, tabId, value) {
+  const advisor = page.locator('#linePage:not([hidden]) #lineStatsAdvisor');
+  const toggle = advisor.locator('.stats-advisor__toggle');
+  if (await advisor.locator('.stats-advisor').getAttribute('data-open') !== '1') {
+    await toggle.click();
+  }
+  const before = await readLineAdvisorState(page, tabId);
+  await advisor.locator(`input[name="line-advisor-measurement"][value="${value}"]`).check();
+  await page.waitForFunction(({ id, expected }) => {
+    const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id) || null;
+    return tab?.payload?.config?.advisorState?.answers?.measurement === expected;
+  }, { id: tabId, expected: value }, { timeout: 20_000 });
+  return before;
+}
+
+async function applyLineAdvisor(page, tabId, expectedMethod) {
+  await page.locator('#linePage:not([hidden]) #lineStatsAdvisor .stats-advisor__actions button:not(.stats-advisor__reset)').click();
+  await page.waitForFunction(({ id, method }) => {
+    const session = window.Components?.line?.__testHooks?.getSessionForTab?.(id) || null;
+    return session?.state?.advisorState?.lastApplied?.statsMethod === method
+      && window.Main?.session?.workspaceState?.activeTabId === id;
+  }, { id: tabId, method: expectedMethod }, { timeout: 30_000 });
+  await waitForComponentOwnerReady(page, 'line', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
+}
+
+test('grouped Line uncertainty and advisor state stay isolated across tab switches and reopen', async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -147,6 +193,9 @@ test('grouped Line uncertainty toolbar and presentation stay isolated between sa
   const firstTabId = await openLineTab(page, { first: true });
   await configureViaToolbar(page, 'band', 65);
   const firstConfigured = await readLineUncertaintyState(page);
+  const firstAdvisorDefault = await setLineAdvisorMeasurement(page, firstTabId, 'ordinal');
+  await applyLineAdvisor(page, firstTabId, 'spearman');
+  const firstAdvisorConfigured = await readLineAdvisorState(page, firstTabId);
 
   const secondTabId = await openLineTab(page, { first: false });
   expect(secondTabId).not.toBe(firstTabId);
@@ -159,24 +208,111 @@ test('grouped Line uncertainty toolbar and presentation stay isolated between sa
   // make a stale tab-1 closure or projection immediately observable.
   await configureViaToolbar(page, 'band', 35);
   const secondConfigured = await readLineUncertaintyState(page);
+  const secondAdvisorDefault = await setLineAdvisorMeasurement(page, secondTabId, 'continuousNormal');
+  await applyLineAdvisor(page, secondTabId, 'pearson');
+  const secondAdvisorConfigured = await readLineAdvisorState(page, secondTabId);
+  await page.locator('#linePage:not([hidden]) #lineStatsAdvisor .stats-advisor__toggle').click();
+  await page.waitForFunction(id => {
+    const session = window.Components?.line?.__testHooks?.getSessionForTab?.(id) || null;
+    const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id) || null;
+    return session?.state?.advisorState?.open === false && tab?.payload?.config?.advisorState?.open === false;
+  }, secondTabId, { timeout: 20_000 });
+  const secondAdvisorClosed = await readLineAdvisorState(page, secondTabId);
 
   await activateLineTab(page, firstTabId);
+  const firstAdvisorAfterReturn = await readLineAdvisorState(page, firstTabId);
+  expect(firstAdvisorAfterReturn.answers.measurement).toBe('ordinal');
+  expect(firstAdvisorAfterReturn.payloadAnswer).toBe('ordinal');
+  expect(firstAdvisorAfterReturn.open).toBe(true);
+  expect(firstAdvisorAfterReturn.payloadOpen).toBe(true);
+  expect(firstAdvisorAfterReturn.selectedMeasurement).toBe('ordinal');
+  expect(firstAdvisorAfterReturn.lastApplied.statsMethod).toBe('spearman');
+  expect(firstAdvisorAfterReturn.statType).toBe('spearman');
   await openUncertaintyToolbar(page);
   await waitForUncertaintyState(page, 'band', 65);
   const firstAfterReturn = await readLineUncertaintyState(page);
 
   await activateLineTab(page, secondTabId);
+  const secondAdvisorAfterReturn = await readLineAdvisorState(page, secondTabId);
+  expect(secondAdvisorAfterReturn.answers.measurement).toBe('continuousNormal');
+  expect(secondAdvisorAfterReturn.payloadAnswer).toBe('continuousNormal');
+  expect(secondAdvisorAfterReturn.open).toBe(false);
+  expect(secondAdvisorAfterReturn.payloadOpen).toBe(false);
+  expect(secondAdvisorAfterReturn.lastApplied.statsMethod).toBe('pearson');
+  expect(secondAdvisorAfterReturn.statType).toBe('pearson');
   await openUncertaintyToolbar(page);
   await waitForUncertaintyState(page, 'band', 35);
   const secondAfterReturn = await readLineUncertaintyState(page);
 
-  await testInfo.attach('line-uncertainty-band-tab-isolation.json', {
+  await activateLineTab(page, firstTabId);
+  // The inferred defaults never use "ordinal". Reset A, then verify that it
+  // returns to its own inferred choice while B keeps its applied recommendation.
+  await page.locator('#linePage:not([hidden]) #lineStatsAdvisor .stats-advisor__actions .stats-advisor__reset').click();
+  await page.waitForFunction(id => {
+    const session = window.Components?.line?.__testHooks?.getSessionForTab?.(id) || null;
+    const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id) || null;
+    return tab?.payload?.config?.advisorState?.answers?.measurement
+      === session?.state?.advisorState?.answers?.measurement;
+  }, firstTabId, { timeout: 20_000 });
+  const firstAfterReset = await readLineAdvisorState(page, firstTabId);
+  expect(firstAfterReset.answers.measurement).not.toBe('ordinal');
+  expect(firstAfterReset.selectedMeasurement).toBe(firstAfterReset.answers.measurement);
+  const secondAfterSiblingReset = await readLineAdvisorState(page, secondTabId);
+  expect(secondAfterSiblingReset.answers.measurement).toBe('continuousNormal');
+  expect(secondAfterSiblingReset.lastApplied.statsMethod).toBe('pearson');
+  expect(firstAfterReset.payloadAnswer).toBe(firstAfterReset.answers.measurement);
+  await setLineAdvisorMeasurement(page, firstTabId, 'ordinal');
+  await applyLineAdvisor(page, firstTabId, 'spearman');
+
+  await activateLineTab(page, firstTabId);
+  const archivePath = testInfo.outputPath('line-advisor-tab-isolation.graph');
+  await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-line-advisor-tab-isolation'
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+  await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
+  await page.waitForFunction(() => (
+    (window.Main?.session?.workspaceState?.tabs || []).filter(tab => tab?.type === 'line').length === 2
+  ), null, { timeout: 60_000 });
+  const [reopenedA, reopenedB] = await getLineTabIds(page);
+  await activateLineTab(page, reopenedA);
+  const reopenedAdvisorA = await readLineAdvisorState(page, reopenedA);
+  expect(reopenedAdvisorA.answers.measurement).toBe('ordinal');
+  expect(reopenedAdvisorA.payloadAnswer).toBe('ordinal');
+  expect(reopenedAdvisorA.open).toBe(true);
+  expect(reopenedAdvisorA.payloadOpen).toBe(true);
+  expect(reopenedAdvisorA.lastApplied.statsMethod).toBe('spearman');
+  await activateLineTab(page, reopenedB);
+  const reopenedAdvisorB = await readLineAdvisorState(page, reopenedB);
+  expect(reopenedAdvisorB.answers.measurement).toBe('continuousNormal');
+  expect(reopenedAdvisorB.payloadAnswer).toBe('continuousNormal');
+  expect(reopenedAdvisorB.open).toBe(false);
+  expect(reopenedAdvisorB.payloadOpen).toBe(false);
+  expect(reopenedAdvisorB.lastApplied.statsMethod).toBe('pearson');
+
+  await testInfo.attach('line-uncertainty-and-advisor-tab-isolation.json', {
     body: Buffer.from(JSON.stringify({
       firstTabId,
       secondTabId,
       firstConfigured,
+      firstAdvisorDefault,
+      firstAdvisorConfigured,
+      firstAdvisorAfterReturn,
       secondDefault,
       secondConfigured,
+      secondAdvisorDefault,
+      secondAdvisorConfigured,
+      secondAdvisorAfterReturn,
+      secondAdvisorClosed,
+      firstAfterReset,
+      secondAfterSiblingReset,
+      reopenedAdvisorA,
+      reopenedAdvisorB,
       firstAfterReturn,
       secondAfterReturn
     }, null, 2), 'utf8'),

@@ -40,13 +40,39 @@ for (const component of COMPONENTS) {
     expect(before.tableWidth).toBeGreaterThan(0);
     expect(before.graphWidth).toBeGreaterThan(0);
 
+    const readLiveGraph = () => page.evaluate(graph => {
+      const panel = document.getElementById(graph);
+      const panelRect = panel?.getBoundingClientRect?.();
+      const candidates = Array.from(panel?.querySelectorAll?.('svg') || []);
+      const visibleSvg = candidates.find(svg => {
+        const rect = svg.getBoundingClientRect();
+        const style = getComputedStyle(svg);
+        return rect.width > 24 && rect.height > 24
+          && style.display !== 'none' && style.visibility !== 'hidden'
+          && Number(style.opacity) > 0;
+      });
+      const marks = visibleSvg?.querySelectorAll?.('path, line, rect, circle, ellipse, polygon, polyline, text').length || 0;
+      return {
+        panelWidth: panelRect?.width || 0,
+        svgVisible: !!visibleSvg,
+        marks
+      };
+    }, ids.graph);
+
     const handle = page.locator(`#${ids.resizer}`);
     const handleBox = await handle.boundingBox();
     const y = handleBox.y + Math.max(2, handleBox.height / 2);
     await page.mouse.move(handleBox.x + handleBox.width / 2, y);
     await page.mouse.down();
-    await page.mouse.move(handleBox.x + handleBox.width / 2 + 220, y, { steps: 10 });
+    const liveGraph = [];
+    for (let step = 1; step <= 10; step += 1) {
+      await page.mouse.move(handleBox.x + handleBox.width / 2 + step * 22, y);
+      liveGraph.push(await readLiveGraph());
+    }
     await page.mouse.up();
+
+    expect(liveGraph.every(frame => frame.svgVisible && frame.marks > 0)).toBe(true);
+    expect(liveGraph.at(-1).panelWidth).toBeLessThan(before.graphWidth - 150);
 
     const draggedGeometry = await page.evaluate(({ table, graph }) => {
       const tableWidth = document.getElementById(table)?.getBoundingClientRect?.().width || 0;

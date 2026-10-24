@@ -19,7 +19,7 @@ async function startBoxFormulaEditing(page, rowIndex) {
   return editorInput;
 }
 
-test('box formula references highlight correct cells and resolve on first enter', async ({ page }) => {
+test('box formula references highlight correct cells and resolve on first enter', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -108,6 +108,63 @@ test('box formula references highlight correct cells and resolve on first enter'
   expect(classSnapshot.aHasRef1).toBe(true);
   expect(classSnapshot.bHasRef2).toBe(true);
   expect(classSnapshot.cHasRef2).toBe(false);
+
+  const referenceStroke = await page.evaluate(() => {
+    const outline = document.querySelector('#hot .hot-formula-ref-outline');
+    if (!outline) return null;
+    const style = getComputedStyle(outline);
+    const greenEdge = document.querySelector('#hot .hot-selection-outline-edge');
+    return { radius: style.borderTopLeftRadius, width: style.borderTopWidth,
+      selectionWidth: greenEdge?.getBoundingClientRect().height || 0,
+      expectedWidth: `${Math.max(1, Math.round(window.devicePixelRatio)) / window.devicePixelRatio}px` };
+  });
+  expect(referenceStroke?.radius).toBe('0px');
+  expect(referenceStroke?.width).toBe(referenceStroke?.expectedWidth);
+  expect(referenceStroke?.selectionWidth).toBeGreaterThan(0);
+  expect(parseFloat(referenceStroke.width)).toBe(referenceStroke.selectionWidth);
+
+  const nativeAnchor = await page.evaluate(() => {
+    const root = document.querySelector('#hot');
+    const outline = root?.querySelector('.hot-formula-ref-outline[data-row="1"][data-col="1"]');
+    const outlineRect = outline?.getBoundingClientRect();
+    const cell = Array.from(root?.querySelectorAll('.ag-row .ag-cell[col-id="c1"]') || []).find(candidate => {
+      const rect = candidate.getBoundingClientRect();
+      return outlineRect && Math.abs(outlineRect.left - rect.left - 1) < 0.5
+        && Math.abs(outlineRect.top - rect.top - 1) < 0.5;
+    });
+    const viewportX = root?.querySelector('.ag-center-cols-viewport');
+    const viewportY = root?.querySelector('.ag-body-viewport');
+    if (!outline || !cell || !viewportX || !viewportY) return null;
+    const measure = () => {
+      const outlineRect = outline.getBoundingClientRect();
+      const cellRect = cell.getBoundingClientRect();
+      return { left: outlineRect.left - cellRect.left, top: outlineRect.top - cellRect.top };
+    };
+    const before = measure();
+    const pane = cell.closest('.ag-row')?.parentElement;
+    const layer = outline.parentElement;
+    const maxX = Math.max(0, viewportX.scrollWidth - viewportX.clientWidth);
+    const maxY = Math.max(0, viewportY.scrollHeight - viewportY.clientHeight);
+    const previousX = viewportX.scrollLeft;
+    const previousY = viewportY.scrollTop;
+    viewportX.scrollLeft = Math.min(maxX, previousX + 16);
+    viewportY.scrollTop = Math.min(maxY, previousY + 16);
+    return {
+      native: layer?.classList.contains('hot-grid-selection-layer') && layer.parentElement === pane,
+      detachedOverlayExists: !!root.querySelector('.hot-formula-ref-overlay'),
+      horizontalScrollChanged: viewportX.scrollLeft > previousX,
+      verticalScrollChanged: viewportY.scrollTop > previousY,
+      before,
+      after: measure()
+    };
+  });
+  expect(nativeAnchor?.native).toBe(true);
+  expect(nativeAnchor?.detachedOverlayExists).toBe(false);
+  expect(nativeAnchor?.horizontalScrollChanged).toBe(true);
+  expect(nativeAnchor?.verticalScrollChanged).toBe(true);
+  expect(nativeAnchor?.after.left).toBeCloseTo(nativeAnchor.before.left, 1);
+  expect(nativeAnchor?.after.top).toBeCloseTo(nativeAnchor.before.top, 1);
+  await page.locator('#hot').screenshot({ path: testInfo.outputPath('formula-reference-outline.png') });
 
   await editorInput.press('Enter');
 

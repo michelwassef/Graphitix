@@ -177,7 +177,7 @@ function expectSurvivalState(actual, expected) {
   if (expected.showHazardRatios) {
     expect(actual.stats.hazardText).toMatch(/Hazard Ratio|Relative hazard|Reporting and reproducibility/i);
   } else {
-    expect(`${actual.stats.hazardText}\n${actual.stats.coxText}\n${actual.stats.reportText}`).toMatch(/Show Hazard Ratios:\s*No/i);
+    expect(actual.stats.hazardText).toMatch(/Enable "Show hazard ratios" above to compute pairwise comparisons\./i);
   }
   if (expected.fitCoxModel) {
     expect(actual.stats.coxText).toMatch(/Cox Model|Reporting and reproducibility/i);

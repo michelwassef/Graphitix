@@ -153,6 +153,43 @@ describe('UI events: Venn', () => {
     }
   });
 
+  test('manual Venn species selection wins over an automatic detection already in flight', async () => {
+    await activateWorkspace('venn');
+    const venn = window.Components?.venn;
+    expect(venn).toBeTruthy();
+    setVennListValue(document.getElementById('listA'), 'BRCA1');
+    setVennListValue(document.getElementById('listB'), '');
+    setVennListValue(document.getElementById('listC'), '');
+
+    let resolveFetch;
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn(() => new Promise(resolve => {
+      resolveFetch = () => resolve({
+        ok: true,
+        json: async () => ({ hits: [{ symbol: 'BRCA1', taxid: '10090' }] })
+      });
+    }));
+
+    try {
+      const detection = venn.recognizeSpeciesFromInput({ reason: 'automatic-selection-race' });
+      await flushAsyncWork();
+      expect(resolveFetch).toBeInstanceOf(Function);
+
+      const select = document.getElementById('speciesSelect');
+      select.value = 'hsapiens';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      resolveFetch();
+      await expect(detection).rejects.toHaveProperty('name', 'AbortError');
+      await flushAsyncWork();
+
+      expect(select.value).toBe('hsapiens');
+      const activeTab = window.Main.session.getActiveTab();
+      expect(activeTab.payload.analysis.speciesValue).toBe('hsapiens');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   test('Venn species detection cancels in-flight requests when superseded', async () => {
     await activateWorkspace('venn');
     const venn = window.Components?.venn;

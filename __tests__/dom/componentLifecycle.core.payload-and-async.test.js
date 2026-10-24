@@ -202,6 +202,33 @@ describe('componentLifecycle — createAsyncScope', () => {
     }
   });
 
+  test('resize draws stay live through pointer start and move phases', () => {
+    jest.useFakeTimers();
+    const originalRequestAnimationFrame = global.requestAnimationFrame;
+    const originalCancelAnimationFrame = global.cancelAnimationFrame;
+    global.requestAnimationFrame = cb => setTimeout(cb, 0);
+    global.cancelAnimationFrame = id => clearTimeout(id);
+    try{
+      const callback = jest.fn();
+      const debounced = lc.createTabScopedFrameDebouncer({ __componentKey: 'scatter' }, 'scatter', callback);
+
+      debounced({ tabId: 'tab-a', reason: 'resize', resizePhase: 'start' });
+      jest.runOnlyPendingTimers();
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(callback).toHaveBeenLastCalledWith(expect.objectContaining({ resizePhase: 'start' }));
+
+      debounced({ tabId: 'tab-a', reason: 'resize', resizePhase: 'move' });
+      jest.runOnlyPendingTimers();
+
+      expect(callback).toHaveBeenCalledTimes(2);
+      expect(callback).toHaveBeenLastCalledWith(expect.objectContaining({ resizePhase: 'move' }));
+    }finally{
+      global.requestAnimationFrame = originalRequestAnimationFrame;
+      global.cancelAnimationFrame = originalCancelAnimationFrame;
+      jest.useRealTimers();
+    }
+  });
+
   test('tab-scoped frame debouncer reports terminal stale discards to the owner', () => {
     jest.useFakeTimers();
     const originalRequestAnimationFrame = global.requestAnimationFrame;

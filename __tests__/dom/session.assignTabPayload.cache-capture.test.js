@@ -72,7 +72,7 @@ describe('session.assignTabPayload: cache capture', () => {
     expect(restoreRenderCache).toHaveBeenCalledWith(
       expect.objectContaining({
         __graphitixRenderCache: expect.objectContaining({
-          version: 2,
+          version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
           component: 'box',
           type: 'box',
           tabId: tab.id,
@@ -92,12 +92,12 @@ describe('session.assignTabPayload: cache capture', () => {
   });
 
   test.each([
-    ['wrong owner', { version: 2, component: 'box', type: 'box', tabId: 'workspace-other', complete: true }],
-    ['wrong component', { version: 2, component: 'scatter', type: 'scatter', tabId: null, complete: true }],
-    ['conflicting component aliases', { version: 2, component: 'box', type: 'scatter', tabId: null, complete: true }],
-    ['missing owner', { version: 2, component: 'box', type: 'box', tabId: null, complete: true, omitOwner: true }],
-    ['missing component', { version: 2, tabId: null, complete: true }],
-    ['incomplete cache', { version: 2, component: 'box', type: 'box', tabId: null, complete: false }],
+    ['wrong owner', { component: 'box', type: 'box', tabId: 'workspace-other', complete: true }],
+    ['wrong component', { component: 'scatter', type: 'scatter', tabId: null, complete: true }],
+    ['conflicting component aliases', { component: 'box', type: 'scatter', tabId: null, complete: true }],
+    ['missing owner', { component: 'box', type: 'box', tabId: null, complete: true, omitOwner: true }],
+    ['missing component', { tabId: null, complete: true }],
+    ['incomplete cache', { component: 'box', type: 'box', tabId: null, complete: false }],
     ['missing metadata', null]
   ])('rejects %s before render-cache normalization and rolls detached DOM back only', (_label, metadataTemplate) => {
     const tab = createTabWithPayload();
@@ -112,7 +112,7 @@ describe('session.assignTabPayload: cache capture', () => {
     const existingArchive = {
       plot: { count: 1, owner: tab.id },
       __graphitixRenderCache: {
-        version: 2,
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: tab.id,
@@ -127,6 +127,7 @@ describe('session.assignTabPayload: cache capture', () => {
     if (metadataTemplate) {
       const { omitOwner, ...metadata } = metadataTemplate;
       rawCache.__graphitixRenderCache = {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
         ...metadata,
         ...(omitOwner ? {} : { tabId: metadataTemplate.tabId || tab.id })
       };
@@ -164,7 +165,7 @@ describe('session.assignTabPayload: cache capture', () => {
     expect(restoreRenderCache).toHaveBeenCalledTimes(1);
     expect(restoreRenderCache.mock.calls[0][0]).toEqual(expect.objectContaining({
       __graphitixRenderCache: expect.objectContaining({
-        version: 2,
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: tab.id,
@@ -192,7 +193,7 @@ describe('session.assignTabPayload: cache capture', () => {
     const rawCache = {
       plot: { count: 1, owner: tab.id },
       __graphitixRenderCache: {
-        version: 2,
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: tab.id,
@@ -227,7 +228,7 @@ describe('session.assignTabPayload: cache capture', () => {
 
     expect(rawCache).toEqual(rawSnapshot);
     expect(tab.renderCache?.cache?.__graphitixRenderCache).toEqual(expect.objectContaining({
-      version: 2,
+      version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
       component: 'box',
       type: 'box',
       tabId: tab.id,
@@ -235,7 +236,7 @@ describe('session.assignTabPayload: cache capture', () => {
       componentOwnedMarker: 'preserve-me'
     }));
     expect(tab.archiveRenderCache?.__graphitixRenderCache).toEqual(expect.objectContaining({
-      version: 2,
+      version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
       component: 'box',
       type: 'box',
       tabId: tab.id,
@@ -257,7 +258,7 @@ describe('session.assignTabPayload: cache capture', () => {
     const rawCache = {
       plot: { count: 1, owner: tab.id },
       __graphitixRenderCache: {
-        version: 2,
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: tab.id,
@@ -316,7 +317,7 @@ describe('session.assignTabPayload: cache capture', () => {
     const captureRenderCache = jest.fn(() => ({
       plot: { count: 1, owner: tab.id },
       __graphitixRenderCache: {
-        version: 2, component: 'box', type: 'box', tabId: tab.id, complete: true
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION, component: 'box', type: 'box', tabId: tab.id, complete: true
       }
     }));
     window.Main.components = {
@@ -366,7 +367,7 @@ describe('session.assignTabPayload: cache capture', () => {
     const captureRenderCache = jest.fn(() => ({
       plot: { count: 1, owner: tab.id },
       __graphitixRenderCache: {
-        version: 2, component: 'box', type: 'box', tabId: tab.id, complete: true
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION, component: 'box', type: 'box', tabId: tab.id, complete: true
       }
     }));
     window.Main.components = {
@@ -403,7 +404,10 @@ describe('session.assignTabPayload: cache capture', () => {
     tab.layoutState = { version: 1, component: 'box', width: 468, height: 456 };
     tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
     tab.archiveRenderCache = {
-      __graphitixRenderCache: { tabId: tab.id, component: tab.type, complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: tab.id, component: tab.type, complete: true
+      },
       plot: { owner: tab.id }
     };
     tab.archiveRenderCacheSignature = tab.payloadSignature;
@@ -455,7 +459,10 @@ describe('session.assignTabPayload: cache capture', () => {
     };
     tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
     tab.archiveRenderCache = {
-      __graphitixRenderCache: { tabId: tab.id, component: tab.type, complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: tab.id, component: tab.type, complete: true
+      },
       plot: { owner: tab.id }
     };
     tab.archiveRenderCacheSignature = tab.payloadSignature;

@@ -4,15 +4,11 @@
   const Shared = global.Shared = global.Shared || {};
   const namespace = Shared.colorSchemes = Shared.colorSchemes || {};
 
-  const DEFAULT_SCHEME_ID = 'scientific';
+  const DEFAULT_SCHEME_ID = 'normal';
   const CUSTOM_SCHEME_ID = 'custom';
   const COLOR_SCHEME_DATA_KEY_SCAN_ROW_LIMIT = 5000;
-  const BASE_SCHEME_OPTION_IDS = Object.freeze(['scientific', 'soft', 'normal', 'grayscale', 'colorblind', 'dark']);
+  const BASE_SCHEME_OPTION_IDS = Object.freeze(['normal', 'scientific', 'soft', 'grayscale', 'colorblind-8', 'dark']);
   const SURFACE_SCHEME_OPTION_IDS = Object.freeze(['surface-viridis', 'surface-plasma', 'surface-magma', 'surface-turbo', 'surface-bluered', 'surface-grayscale', 'dark']);
-  const TYPE_DEFAULT_SCHEME_IDS = Object.freeze({
-    box: 'grayscale',
-    surface: 'surface-viridis'
-  });
   const DEFAULT_CLASSIC_CATEGORICAL = (() => {
     const fromShared = Array.isArray(Shared?.palette?.DEFAULT_SCATTER_COLORS) && Shared.palette.DEFAULT_SCATTER_COLORS.length
       ? Shared.palette.DEFAULT_SCATTER_COLORS
@@ -137,10 +133,11 @@
     ])
   });
 
-  const SCHEMES = Object.freeze({
+  // Existing IDs retain their exact definitions for archive compatibility.
+  const LEGACY_SCHEMES = Object.freeze({
     scientific: Object.freeze({
       id: 'scientific',
-      label: 'Color (high contrast)',
+      label: 'Color (vivid)',
       categorical: Object.freeze(DEFAULT_CLASSIC_CATEGORICAL),
       sequential: Object.freeze(['#0000ff', '#4f4fff', '#ff0000', '#00aa00', '#ff8c00', '#800080']),
       diverging: DEFAULT_HEATMAP_DIVERGING,
@@ -161,9 +158,9 @@
     normal: Object.freeze({
       id: 'normal',
       label: 'Color (normal)',
-      categorical: Object.freeze(['#377eb8', '#e41a1c', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf', '#999999']),
-      sequential: Object.freeze(['#377eb8', '#e41a1c', '#4daf4a', '#984ea3', '#ff7f00', '#a65628']),
-      diverging: Object.freeze({ negative: '#377eb8', zero: '#f7f7f7', positive: '#e41a1c' }),
+      categorical: Object.freeze(['#1f77b4', '#e41a1c', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf', '#999999']),
+      sequential: Object.freeze(['#1f77b4', '#e41a1c', '#4daf4a', '#984ea3', '#ff7f00', '#a65628']),
+      diverging: Object.freeze({ negative: '#1f77b4', zero: '#f7f7f7', positive: '#e41a1c' }),
       tokens: Object.freeze({ axisColor: '#111111', gridColor: '#d4d4d4', borderColor: '#111111', textColor: '#111111', background: '#ffffff' }),
       densityPalette: 'viridis',
       surfaceRamp: 'viridis'
@@ -180,7 +177,8 @@
     }),
     colorblind: Object.freeze({
       id: 'colorblind',
-      label: 'Color Blind Safe',
+      // Retained for graphs saved before the eight-color preset was introduced.
+      label: 'Colorblind-friendly (saved)',
       categorical: Object.freeze(['#0072b2', '#d55e00', '#009e73', '#cc79a7', '#e69f00', '#56b4e9', '#000000', '#999999', '#f0e442']),
       sequential: Object.freeze(['#00204c', '#17355e', '#3d5a73', '#657f88', '#91a79c', '#c1d1af', '#f6fbd1']),
       diverging: Object.freeze({ negative: '#0072b2', zero: '#f7f7f7', positive: '#d55e00' }),
@@ -190,7 +188,7 @@
     }),
     dark: Object.freeze({
       id: 'dark',
-      label: 'Dark Theme',
+      label: 'Pastel',
       categorical: Object.freeze(['#4db6ff', '#ffb74d', '#81c784', '#ef9a9a', '#ba68c8', '#4dd0e1', '#ffd54f', '#f48fb1', '#aed581']),
       sequential: Object.freeze(['#132b43', '#1d4e89', '#2a9d8f', '#52b788', '#95d5b2', '#d8f3dc']),
       diverging: Object.freeze({ negative: '#4f83cc', zero: '#303030', positive: '#ef6f6c' }),
@@ -260,6 +258,60 @@
     })
   });
 
+  // Paired appearances are explicit catalog entries, not runtime HSL transforms.
+  // The persisted ID fully identifies both choices, so component captures and
+  // old archives need no new state field or inferred migration.
+  const SCHEMES = Object.freeze((() => {
+    const schemes = {
+      ...LEGACY_SCHEMES,
+      'colorblind-8': Object.freeze({
+        ...LEGACY_SCHEMES.colorblind,
+        id: 'colorblind-8',
+        label: 'Colorblind-friendly',
+        categorical: Object.freeze(['#0072b2', '#d55e00', '#009e73', '#cc79a7', '#e69f00', '#56b4e9', '#000000', '#f0e442'])
+      })
+    };
+    Object.entries(schemes).forEach(([id, scheme]) => {
+      if(id === 'dark') return;
+      schemes[`${id}-dark`] = Object.freeze({
+        ...scheme,
+        id: `${id}-dark`,
+        paletteId: id,
+        appearance: 'dark',
+        categorical: scheme.categorical,
+        tokens: LEGACY_SCHEMES.dark.tokens
+      });
+    });
+    schemes['dark-light'] = Object.freeze({
+      ...LEGACY_SCHEMES.dark,
+      id: 'dark-light',
+      paletteId: 'dark',
+      appearance: 'light',
+      categorical: LEGACY_SCHEMES.dark.categorical,
+      tokens: LEGACY_SCHEMES.normal.tokens
+    });
+    return schemes;
+  })());
+
+  function schemeIdentity(id){
+    const key = String(id || '').trim().toLowerCase();
+    const scheme = SCHEMES[key];
+    return {
+      paletteId: scheme?.paletteId || (scheme ? key : DEFAULT_SCHEME_ID),
+      appearance: scheme?.appearance || (key === 'dark' ? 'dark' : 'light')
+    };
+  }
+
+  function isDarkScheme(id){
+    return schemeIdentity(id).appearance === 'dark';
+  }
+
+  function composeSchemeId(paletteId, appearance){
+    const base = schemeIdentity(paletteId).paletteId;
+    if(base === 'dark') return appearance === 'dark' ? 'dark' : 'dark-light';
+    return appearance === 'dark' ? `${base}-dark` : base;
+  }
+
   const TYPE_TO_PAGE = Object.freeze({
     venn: { pageId: 'vennPage', panelSelector: '.config-panel' },
     box: { pageId: 'boxPage', panelSelector: '.config-panel' },
@@ -285,10 +337,20 @@
     darkTextObservers: new WeakMap()
   };
   let openPaletteMenu = null;
+  let openPaletteMenuOwnerTabId = null;
   let pendingPaletteChoice = null;
 
   function getDefaultSchemeIdForType(type){
-    return TYPE_DEFAULT_SCHEME_IDS[type] || DEFAULT_SCHEME_ID;
+    const catalog = Shared.themeCatalog;
+    const catalogDefault = typeof catalog?.getTypeDefault === 'function'
+      ? catalog.getTypeDefault(type)
+      : null;
+    const schemeId = typeof catalogDefault === 'string'
+      ? catalogDefault.trim().toLowerCase()
+      : '';
+    return schemeId && getScheme(schemeId).id === schemeId
+      ? schemeId
+      : DEFAULT_SCHEME_ID;
   }
 
   const colorSchemeAsyncOwners = {};
@@ -432,10 +494,10 @@
   }
 
   function getScheme(id){
-    const key = typeof id === 'string' ? id.toLowerCase() : '';
+    const key = typeof id === 'string' ? id.trim().toLowerCase() : '';
     const catalog = Shared.themeCatalog;
     const fromCatalog = (catalog && typeof catalog.getScheme === 'function')
-      ? catalog.getScheme(key, DEFAULT_SCHEME_ID)
+      ? catalog.getScheme(key, null)
       : null;
     return fromCatalog || SCHEMES[key] || SCHEMES[DEFAULT_SCHEME_ID];
   }
@@ -463,11 +525,11 @@
 
   function normalizeSurfaceSchemeId(id){
     const normalized = normalizePresetSchemeId(id, 'surface');
-    return SURFACE_SCHEME_OPTION_IDS.includes(normalized) ? normalized : 'surface-viridis';
+    return SURFACE_SCHEME_OPTION_IDS.includes(schemeIdentity(normalized).paletteId) ? normalized : 'surface-viridis';
   }
 
   function isScientificScheme(scheme){
-    return String(scheme?.id || '').toLowerCase() === 'scientific';
+    return schemeIdentity(scheme?.id).paletteId === 'scientific';
   }
 
   function getScientificDefaults(type){
@@ -475,6 +537,7 @@
   }
 
   function resolveCategoricalPalette(type, scheme){
+    if(type === 'box' && schemeIdentity(scheme.id).paletteId === 'grayscale') return DEFAULT_BOX_GRAYSCALE_CATEGORICAL;
     const base = ensureArray(scheme?.categorical);
     if(!base.length){
       return [];
@@ -538,19 +601,46 @@
     return swatches;
   }
 
-  function closePaletteMenu(){
+  function closePaletteMenu(options = {}){
     if(!openPaletteMenu) return;
     const menu = openPaletteMenu;
     openPaletteMenu = null;
+    openPaletteMenuOwnerTabId = null;
     menu.hidden = true;
-    const owner = menu.__pickerOwner || null;
+    const owner = menu.closest('.color-scheme-picker');
+    const button = owner?.querySelector('.color-scheme-picker__button') || null;
+    global.Shared?.toolbarOverflow?.clearPopup?.(menu);
     if(owner){
       owner.classList.remove('is-open');
-      const button = owner.querySelector('.color-scheme-picker__button');
       if(button){
         button.setAttribute('aria-expanded', 'false');
       }
     }
+    if(options.restoreFocus && button?.isConnected){
+      button.focus();
+    }
+  }
+
+  function createSchemeOption(doc, type, id, label, disabled = false){
+    const option = doc.createElement('button');
+    option.type = 'button';
+    option.className = 'color-scheme-picker__option';
+    option.setAttribute('role', 'option');
+    option.setAttribute('tabindex', '-1');
+    option.dataset.schemeId = id;
+    option.dataset.componentType = type;
+    option.disabled = disabled;
+    option.appendChild(renderSchemeSwatches(doc, id, { limit: 4 }));
+    const text = doc.createElement('span');
+    text.className = 'color-scheme-picker__option-label';
+    text.textContent = label;
+    option.appendChild(text);
+    const selection = doc.createElement('span');
+    selection.className = 'color-scheme-picker__selection';
+    selection.setAttribute('aria-hidden', 'true');
+    selection.textContent = '\u2713';
+    option.appendChild(selection);
+    return option;
   }
 
   function syncPickerElement(select, displayedSchemeId){
@@ -565,6 +655,8 @@
       ? normalizeSurfaceSchemeId(displayedSchemeId || select.value)
       : String(displayedSchemeId || select.value || '').trim();
     const value = safeDisplayed === CUSTOM_SCHEME_ID ? CUSTOM_SCHEME_ID : getScheme(safeDisplayed).id;
+    const actualId = value === CUSTOM_SCHEME_ID ? readActiveSchemeForType(type) : value;
+    const identity = schemeIdentity(actualId);
     const picker = select.closest('.config-panel__label')?.querySelector?.('.color-scheme-picker')
       || select.parentElement?.querySelector?.('.color-scheme-picker')
       || null;
@@ -578,16 +670,25 @@
     if(buttonLabel){
       buttonLabel.textContent = value === CUSTOM_SCHEME_ID ? 'Custom' : (scheme?.label || 'Color');
     }
+    const button = picker.querySelector('.color-scheme-picker__button');
+    if(button){
+      button.setAttribute('aria-label', `Palette: ${value === CUSTOM_SCHEME_ID ? 'Custom' : (scheme?.label || 'Color')}`);
+    }
     if(buttonSwatches && buttonSwatches.ownerDocument){
       buttonSwatches.className = 'color-scheme-picker__current-swatches';
-      if(value === 'dark'){
-        buttonSwatches.classList.add('color-scheme-picker__current-swatches--dark-theme');
-      }
       buttonSwatches.replaceChildren(renderSchemeSwatches(buttonSwatches.ownerDocument, value, { limit: 4 }));
     }
     if(menu){
       menu.querySelectorAll('.color-scheme-picker__option').forEach(node => {
-        const selected = node.dataset?.schemeId === value;
+        const selected = node.dataset?.schemeId === (value === CUSTOM_SCHEME_ID ? CUSTOM_SCHEME_ID : identity.paletteId);
+        if(node.dataset?.schemeId === 'colorblind'){
+          node.hidden = identity.paletteId !== 'colorblind';
+        }
+        const swatches = node.querySelector('.color-scheme-picker__swatches');
+        if(swatches && node.dataset.schemeId !== CUSTOM_SCHEME_ID){
+          swatches.replaceWith(renderSchemeSwatches(node.ownerDocument,
+            composeSchemeId(node.dataset.schemeId, identity.appearance), { limit: 4 }));
+        }
         if(selected){
           node.setAttribute('aria-selected', 'true');
           node.classList.add('is-selected');
@@ -597,9 +698,26 @@
         }
       });
     }
+    const fieldset = select.closest('[data-color-scheme-fieldset="1"]');
+    const appearanceSelect = fieldset?.querySelector('[data-color-appearance-select="1"]');
+    if(appearanceSelect) appearanceSelect.value = identity.appearance;
   }
 
-  function openPickerMenu(menu){
+  function getPaletteOptions(menu){
+    return Array.from(menu?.querySelectorAll?.('.color-scheme-picker__option') || [])
+      .filter(option => !option.hidden && !option.disabled && option.getAttribute('aria-disabled') !== 'true');
+  }
+
+  function focusPaletteOption(menu, index){
+    const options = getPaletteOptions(menu);
+    if(!options.length) return false;
+    const boundedIndex = Math.max(0, Math.min(index, options.length - 1));
+    options.forEach(option => { option.tabIndex = -1; });
+    options[boundedIndex].focus();
+    return true;
+  }
+
+  function openPickerMenu(menu, options = {}){
     if(!menu){
       return;
     }
@@ -607,7 +725,8 @@
       closePaletteMenu();
     }
     openPaletteMenu = menu;
-    const owner = menu.__pickerOwner || menu.closest?.('.color-scheme-picker') || null;
+    openPaletteMenuOwnerTabId = String(getActiveTab()?.id || '').trim() || null;
+    const owner = menu.closest('.color-scheme-picker');
     if(owner){
       owner.classList.add('is-open');
       const button = owner.querySelector('.color-scheme-picker__button');
@@ -616,6 +735,22 @@
       }
     }
     menu.hidden = false;
+    const button = owner?.querySelector('.color-scheme-picker__button') || null;
+    if(button){
+      global.Shared?.toolbarOverflow?.positionPopup?.(menu, button, {
+        align: 'start',
+        offset: 2,
+        matchAnchorWidth: true,
+        maxHeight: 260,
+        zIndex: 70
+      });
+    }
+    if(options.focusSelected){
+      const paletteOptions = getPaletteOptions(menu);
+      const selectedIndex = paletteOptions.findIndex(option => option.getAttribute('aria-selected') === 'true');
+      const targetIndex = selectedIndex >= 0 ? selectedIndex : (options.focusEnd ? paletteOptions.length - 1 : 0);
+      focusPaletteOption(menu, targetIndex);
+    }
   }
 
   function togglePickerMenu(button){
@@ -639,7 +774,7 @@
     pendingPaletteChoice = null;
     pending.popover.hidden = true;
     if(options?.restore !== false){
-      const displayed = resolveDisplayedSchemeIdForType(pending.type, { preferWorkspace: true });
+      const displayed = resolveDisplayedSchemeIdForType(pending.type, { captureLive: true });
       pending.select.value = displayed;
       syncPickerElement(pending.select, displayed);
     }
@@ -668,7 +803,7 @@
       popover,
       tabId: getActiveTab()?.id || null
     };
-    const displayed = resolveDisplayedSchemeIdForType(type, { preferWorkspace: true });
+    const displayed = resolveDisplayedSchemeIdForType(type, { captureLive: true });
     select.value = displayed;
     syncPickerElement(select, displayed);
     popover.hidden = false;
@@ -692,7 +827,7 @@
       colorMode: mode
     });
     const displayed = applied
-      ? resolveDisplayedSchemeIdForType(pending.type, { preferWorkspace: true })
+      ? resolveDisplayedSchemeIdForType(pending.type, { captureLive: true })
       : resolveDisplayedSchemeIdForType(pending.type);
     pending.select.value = displayed;
     syncPickerElement(pending.select, displayed);
@@ -700,11 +835,15 @@
   }
 
   function requestPaletteSelection(type, schemeId, select){
-    const scheme = getScheme(schemeId);
     // Palette changes start from the active owner's current session. The tab
     // payload can lag a just-committed style edit until the normal persistence
     // boundary runs, which would incorrectly hide the custom-color choice.
-    const sourcePayload = getComparisonPayload(type);
+    const sourcePayload = getComparisonPayload(type, { captureLive: true });
+    const sourceSchemeId = sourcePayload
+      ? getPayloadColorSchemeId(type, sourcePayload)
+      : readActiveSchemeForType(type);
+    const appearance = schemeIdentity(sourceSchemeId).appearance;
+    const scheme = getScheme(composeSchemeId(schemeId, appearance));
     const hasCustomDatasetColors = sourcePayload
       ? collectCustomDatasetColorSlots(type, sourcePayload).length > 0
       : false;
@@ -715,7 +854,7 @@
       recordUndo: true,
       colorMode: 'replace'
     });
-    const displayed = resolveDisplayedSchemeIdForType(type, { preferWorkspace: true });
+    const displayed = resolveDisplayedSchemeIdForType(type, { captureLive: true });
     select.value = displayed;
     syncPickerElement(select, displayed);
     return applied;
@@ -758,7 +897,7 @@
           return;
         }
         const menu = optionButton.closest('.color-scheme-picker__menu');
-        const owner = menu?.__pickerOwner || menu?.closest?.('.color-scheme-picker') || null;
+        const owner = menu?.closest?.('.color-scheme-picker') || null;
         const select = owner?.parentElement?.querySelector?.('select[data-color-scheme-select="1"]') || null;
         if(select){
           requestPaletteSelection(String(select.dataset?.componentType || ''), nextScheme, select);
@@ -784,20 +923,71 @@
         if(pendingPaletteChoice){
           closePaletteChoice({ focus: true });
         }else if(openPaletteMenu){
+          evt.preventDefault();
+          closePaletteMenu({ restoreFocus: true });
+        }
+        return;
+      }
+
+      const target = evt.target instanceof global.Element ? evt.target : null;
+      const toggleButton = target?.closest?.('[data-color-scheme-toggle="1"]') || null;
+      if(toggleButton && (evt.key === 'ArrowDown' || evt.key === 'ArrowUp')){
+        const picker = toggleButton.closest('.color-scheme-picker');
+        const menu = picker?.querySelector('.color-scheme-picker__menu') || null;
+        if(menu){
+          evt.preventDefault();
+          openPickerMenu(menu, { focusSelected: true, focusEnd: evt.key === 'ArrowUp' });
+        }
+        return;
+      }
+
+      const optionButton = target?.closest?.('.color-scheme-picker__option') || null;
+      const menu = optionButton?.closest?.('.color-scheme-picker__menu') || null;
+      if(!optionButton || menu !== openPaletteMenu){
+        if(evt.key === 'Tab' && openPaletteMenu){
           closePaletteMenu();
         }
+        return;
+      }
+      const options = getPaletteOptions(menu);
+      const index = options.indexOf(optionButton);
+      if(index < 0) return;
+      if(evt.key === 'ArrowDown' || evt.key === 'ArrowUp'){
+        evt.preventDefault();
+        const direction = evt.key === 'ArrowDown' ? 1 : -1;
+        focusPaletteOption(menu, (index + direction + options.length) % options.length);
+      }else if(evt.key === 'Home'){
+        evt.preventDefault();
+        focusPaletteOption(menu, 0);
+      }else if(evt.key === 'End'){
+        evt.preventDefault();
+        focusPaletteOption(menu, options.length - 1);
+      }else if(evt.key === 'Tab'){
+        closePaletteMenu();
       }
     });
 
     doc.addEventListener('change', evt => {
       const select = evt.target instanceof global.Element
-        ? evt.target.closest('select[data-color-scheme-select="1"]')
+        ? evt.target.closest('select[data-color-scheme-select="1"],select[data-color-appearance-select="1"]')
         : null;
       if(!select){
         return;
       }
       const type = String(select.dataset?.componentType || '').trim();
       if(!type){
+        return;
+      }
+      const active = getActiveTab();
+      const ownerId = select.closest('[data-workspace-tab-id]')?.dataset.workspaceTabId;
+      if(!select.isConnected || active?.type !== type
+        || (ownerId && String(ownerId) !== String(active.id))) return;
+      if(select.dataset.colorAppearanceSelect === '1'){
+        closePaletteMenu();
+        closePaletteChoice();
+        const nextId = composeSchemeId(readActiveSchemeForType(type), select.value);
+        applySchemeToActiveTab(type, nextId, { appearanceOnly: true, recordUndo: true });
+        syncActiveTabVisuals('color-appearance-change');
         return;
       }
       if(type === 'surface'){
@@ -817,6 +1007,23 @@
 
     state.controlListenersBound = true;
   }
+
+  Shared.closeColorSchemePopupsForTab = function closeColorSchemePopupsForTab(tabLike){
+    const tabId = String(tabLike?.id || tabLike?.tabId || tabLike || '').trim();
+    if(!tabId){
+      return false;
+    }
+    let closed = false;
+    if(openPaletteMenu && openPaletteMenuOwnerTabId === tabId){
+      closePaletteMenu();
+      closed = true;
+    }
+    if(pendingPaletteChoice && String(pendingPaletteChoice.tabId || '') === tabId){
+      closePaletteChoice();
+      closed = true;
+    }
+    return closed;
+  };
 
   function uniqueStrings(values){
     const out = [];
@@ -899,6 +1106,12 @@
     return names;
   }
 
+  function inferRocSeriesNames(matrix){
+    const rows = ensureArray(matrix);
+    if(!rows.length || !Array.isArray(rows[0])) return [];
+    return uniqueStrings(rows[0].slice(1));
+  }
+
   function inferPcaSampleLabelKeys(matrix, config){
     const rows = ensureArray(matrix);
     const cfg = ensureObject(config);
@@ -965,12 +1178,11 @@
     return keys;
   }
 
-  function inferSeriesCountFromHeader(matrix){
+  function inferBoxSeriesCountFromHeader(matrix){
     const rows = ensureArray(matrix);
     if(!rows.length || !Array.isArray(rows[0])) return 0;
     const width = rows[0].length;
-    if(!Number.isFinite(width) || width <= 1) return 0;
-    return Math.max(0, width - 1);
+    return Number.isFinite(width) ? width : 0;
   }
 
   function patchStyleColorFields(style, options){
@@ -1173,19 +1385,31 @@
 
   const NO_PREVIOUS_FILL = '__none__';
 
-  function applyDarkTextTheme(svg, color){
-    const nodes = svg.querySelectorAll('text,tspan');
-    nodes.forEach(node => {
-      if(node.getAttribute('data-color-scheme-text-themed') !== '1'){
-        if(node.hasAttribute('fill')){
-          node.setAttribute('data-color-scheme-prev-fill', node.getAttribute('fill') || '');
-        }else{
-          node.setAttribute('data-color-scheme-prev-fill', NO_PREVIOUS_FILL);
-        }
-        node.setAttribute('data-color-scheme-text-themed', '1');
+  function applyDarkTextNodeFallback(node, color){
+    if(node.getAttribute('data-color-scheme-text-themed') === '1'){
+      const previouslyApplied = node.getAttribute('data-color-scheme-applied-fill');
+      if(previouslyApplied && node.getAttribute('fill') !== previouslyApplied){
+        node.removeAttribute('data-color-scheme-prev-fill');
+        node.removeAttribute('data-color-scheme-text-themed');
+        node.removeAttribute('data-color-scheme-applied-fill');
+        return;
       }
       node.setAttribute('fill', color);
-    });
+      node.setAttribute('data-color-scheme-applied-fill', color);
+      return;
+    }
+    const fill = (node.getAttribute('fill') || '').trim().toLowerCase();
+    if(fill && !['black', '#000', '#000000', '#111', '#111111', '#333', '#333333',
+      'rgb(0,0,0)', 'rgb(0, 0, 0)'].includes(fill)) return;
+    node.setAttribute('data-color-scheme-prev-fill', node.hasAttribute('fill')
+      ? node.getAttribute('fill') : NO_PREVIOUS_FILL);
+    node.setAttribute('data-color-scheme-text-themed', '1');
+    node.setAttribute('data-color-scheme-applied-fill', color);
+    node.setAttribute('fill', color);
+  }
+
+  function applyDarkTextTheme(svg, color){
+    svg.querySelectorAll('text,tspan').forEach(node => applyDarkTextNodeFallback(node, color));
   }
 
   function disconnectDarkTextObserver(svg){
@@ -1216,60 +1440,17 @@
           mutation.addedNodes.forEach(node => {
             if(!node || node.nodeType !== 1){ return; }
             const tag = String(node.nodeName || '').toLowerCase();
-            if(tag === 'text' || tag === 'tspan'){
-              if(node.getAttribute('data-color-scheme-text-themed') !== '1'){
-                if(node.hasAttribute('fill')){
-                  node.setAttribute('data-color-scheme-prev-fill', node.getAttribute('fill') || '');
-                }else{
-                  node.setAttribute('data-color-scheme-prev-fill', NO_PREVIOUS_FILL);
-                }
-                node.setAttribute('data-color-scheme-text-themed', '1');
-              }
-              if(node.getAttribute('fill') !== nextColor){
-                node.setAttribute('fill', nextColor);
-              }
-            }
+            if(tag === 'text' || tag === 'tspan') applyDarkTextNodeFallback(node, nextColor);
             if(typeof node.querySelectorAll === 'function'){
-              const nested = node.querySelectorAll('text,tspan');
-              nested.forEach(textNode => {
-                if(textNode.getAttribute('data-color-scheme-text-themed') !== '1'){
-                  if(textNode.hasAttribute('fill')){
-                    textNode.setAttribute('data-color-scheme-prev-fill', textNode.getAttribute('fill') || '');
-                  }else{
-                    textNode.setAttribute('data-color-scheme-prev-fill', NO_PREVIOUS_FILL);
-                  }
-                  textNode.setAttribute('data-color-scheme-text-themed', '1');
-                }
-                if(textNode.getAttribute('fill') !== nextColor){
-                  textNode.setAttribute('fill', nextColor);
-                }
-              });
+              node.querySelectorAll('text,tspan').forEach(textNode => applyDarkTextNodeFallback(textNode, nextColor));
             }
           });
-        }else if(mutation.type === 'attributes'){
-          const node = mutation.target;
-          if(!node || node.nodeType !== 1){ continue; }
-          const tag = String(node.nodeName || '').toLowerCase();
-          if(tag !== 'text' && tag !== 'tspan'){ continue; }
-          if(node.getAttribute('data-color-scheme-text-themed') !== '1'){
-            if(node.hasAttribute('fill')){
-              node.setAttribute('data-color-scheme-prev-fill', node.getAttribute('fill') || '');
-            }else{
-              node.setAttribute('data-color-scheme-prev-fill', NO_PREVIOUS_FILL);
-            }
-            node.setAttribute('data-color-scheme-text-themed', '1');
-          }
-          if(node.getAttribute('fill') !== nextColor){
-            node.setAttribute('fill', nextColor);
-          }
         }
       }
     });
     observer.observe(svg, {
       subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ['fill']
+      childList: true
     });
     observerState.observer = observer;
     state.darkTextObservers.set(svg, observerState);
@@ -1286,65 +1467,44 @@
       }
       node.removeAttribute('data-color-scheme-prev-fill');
       node.removeAttribute('data-color-scheme-text-themed');
+      node.removeAttribute('data-color-scheme-applied-fill');
     });
   }
 
 
 
-  function applySvgVisualTheme(svg, scheme){
+  function applySvgVisualTheme(svg, scheme, componentType){
     if(!svg || typeof svg.querySelector !== 'function') return;
-    const tokens = scheme.tokens || {};
-    const isDark = scheme.id === 'dark';
-    const background = tokens.background || '#ffffff';
-    svg.setAttribute('data-color-scheme', scheme.id);
     const is3dView = String(svg.dataset?.viewMode || '').toLowerCase() === '3d';
     if(svg.style){
-      svg.style.removeProperty('background-color');
       svg.style.removeProperty('color');
+      svg.style.removeProperty('background-color');
     }
 
-    let backgroundRect = svg.querySelector('[data-color-scheme-background="1"]');
-    if(is3dView){
-      // Keep 3D interaction surfaces untouched; draw code handles interactive backgrounds.
-      disconnectDarkTextObserver(svg);
-      removeNode(backgroundRect);
-      restoreTextTheme(svg);
-      const styleNode3d = svg.querySelector('[data-color-scheme-style="1"]');
-      removeNode(styleNode3d);
-      if(svg.style){
-        svg.style.removeProperty('background-color');
-      }
-      svg.removeAttribute('data-color-scheme-bg-color');
-      return;
-    }
-    removeNode(backgroundRect);
-    if(isDark){
-      svg.setAttribute('data-color-scheme-bg-color', background);
-      if(svg.style){
-        svg.style.backgroundColor = background;
-      }
-      if(Shared.themeRuntime && typeof Shared.themeRuntime.applySvgTheme === 'function'){
-        Shared.themeRuntime.applySvgTheme(svg, scheme);
-      }else{
+    if(typeof Shared.themeRuntime?.applySvgTheme === 'function'){
+      Shared.themeRuntime.applySvgTheme(svg, scheme, { componentType, preserveBackground: is3dView });
+    }else{
+      const tokens = scheme.tokens || {};
+      const isDark = isDarkScheme(scheme.id);
+      const background = tokens.background || '#ffffff';
+      svg.setAttribute('data-color-scheme', scheme.id);
+      if(!is3dView) removeNode(svg.querySelector('[data-color-scheme-background="1"]'));
+      if(isDark){
+        if(!is3dView){
+          svg.setAttribute('data-color-scheme-bg-color', background);
+          if(svg.style) svg.style.backgroundColor = background;
+        }
         const textColor = tokens.textColor || '#f2f2f2';
         applyDarkTextTheme(svg, textColor);
         ensureDarkTextObserver(svg, textColor);
-      }
-    }else{
-      if(Shared.themeRuntime && typeof Shared.themeRuntime.applySvgTheme === 'function'){
-        Shared.themeRuntime.applySvgTheme(svg, scheme);
       }else{
         disconnectDarkTextObserver(svg);
         restoreTextTheme(svg);
       }
-      svg.removeAttribute('data-color-scheme-bg-color');
-      if(svg.style){
-        svg.style.removeProperty('background-color');
-      }
+      if(is3dView || !isDark) svg.removeAttribute('data-color-scheme-bg-color');
     }
 
-    const styleNode = svg.querySelector('[data-color-scheme-style="1"]');
-    removeNode(styleNode);
+    removeNode(svg.querySelector('[data-color-scheme-style="1"]'));
   }
 
   function resolveTabScopedRoot(type, tabLike, options){
@@ -1411,19 +1571,16 @@
     const boxes = getPrimarySvgBoxes(root);
     boxes.forEach(box => {
       if(!box || !box.style) return;
-      const graphStack = box.parentElement;
-      if(graphStack?.style){
-        graphStack.style.setProperty('--graph-export-seam-color', tokens.background || '#ffffff');
-      }
       box.setAttribute('data-color-scheme', scheme.id);
-      if(scheme.id === 'dark'){
+      if(isDarkScheme(scheme.id)){
         box.style.backgroundColor = tokens.background || '#000000';
       }else{
         box.style.removeProperty('background-color');
       }
       box.style.removeProperty('color');
+      Shared.resizer?.syncGraphFramePresentation?.(box);
       const svgs = box.querySelectorAll ? Array.from(box.querySelectorAll('svg')) : [];
-      svgs.forEach(svg => applySvgVisualTheme(svg, scheme));
+      svgs.forEach(svg => applySvgVisualTheme(svg, scheme, type));
     });
     return boxes.length > 0;
   }
@@ -1454,12 +1611,6 @@
     }
     applyRenderedTheme(type, schemeId, { tabId, tab: active });
     return true;
-  }
-
-  function syncSharedScatterPalette(type, scheme){
-    // Keep shared palette defaults immutable at runtime.
-    // Per-tab/theme palette selection must be resolved from payload/theme state.
-    return resolveCategoricalPalette(type, scheme);
   }
 
   function legacyApplySchemeToPayload(type, payload, scheme, options){
@@ -1512,9 +1663,7 @@
       cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
       const scatterDataLabelKeys = collectUniqueColumnValues(next.data, 0, { startRow: 1 });
       const scatterConfiguredLabelKeys = Object.keys(ensureMap(cfg.labelColors));
-      const scatterLabelKeys = uniqueStrings(
-        scatterDataLabelKeys.concat(scatterConfiguredLabelKeys)
-      );
+      const scatterLabelKeys = uniqueStrings(scatterDataLabelKeys.concat(scatterConfiguredLabelKeys));
       cfg.labelColors = buildColorMap(scatterLabelKeys, categorical);
       const scatterStyleKeys = uniqueStrings(
         scatterLabelKeys.concat(Object.keys(ensureObject(cfg.labelStyles)))
@@ -1546,7 +1695,7 @@
         color: (scientificDefaults && scientificDefaults.overlayPrediction)
           || pickSequentialColor(scheme, 4, categorical[2] || ensureObject(cfg.overlayStyles.prediction).color)
       };
-      cfg.densityPalette = scheme.densityPalette || cfg.densityPalette;
+      // Density is an independent quantitative scale, not a category palette.
       applyAxisTokens(cfg, scheme);
       return next;
     }
@@ -1586,7 +1735,7 @@
         const groupStyles = ensureObject(scopes.groups);
         const groupKeys = Object.keys(groupStyles);
         scopes.groups = recolorStyleMap(groupStyles, groupKeys, categorical, {
-          force: true,
+          force: !opts.appearanceOnly,
           fillFields: ['fill', 'color'],
           stroke: tokens.borderColor || null,
           strokeFields: ['borderColor', 'stroke']
@@ -1594,7 +1743,7 @@
         const pointStyles = ensureObject(scopes.points);
         const pointKeys = Object.keys(pointStyles);
         scopes.points = recolorStyleMap(pointStyles, pointKeys, categorical, {
-          force: true,
+          force: !opts.appearanceOnly,
           fillFields: ['fill', 'color'],
           stroke: tokens.borderColor || null,
           strokeFields: ['borderColor', 'stroke']
@@ -1613,7 +1762,7 @@
     if(type === 'line'){
       cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
       const names = inferLineSeriesNames(next.data);
-      const lineKeys = uniqueStrings(Object.keys(ensureMap(cfg.labelColors)).concat(names));
+      const lineKeys = uniqueStrings(names.concat(Object.keys(ensureMap(cfg.labelColors))));
       cfg.labelColors = buildColorMap(lineKeys, categorical);
       const existingSeriesStyles = ensureObject(cfg.seriesStyles);
       const seriesStyleKeys = uniqueStrings(Object.keys(existingSeriesStyles).concat(lineKeys));
@@ -1634,44 +1783,34 @@
     }
 
     if(type === 'box'){
-      const grayscaleMode = scheme.id === 'grayscale';
-      const darkMode = scheme.id === 'dark';
-      const darkContrastColor = '#ffffff';
+      const grayscaleMode = schemeIdentity(scheme.id).paletteId === 'grayscale';
       const boxScientificPalette = scientificDefaults ? ensureArray(scientificDefaults.categorical).slice() : [];
       const boxPalette = grayscaleMode
         ? DEFAULT_BOX_GRAYSCALE_CATEGORICAL.slice()
         : (boxScientificPalette.length
           ? boxScientificPalette
           : buildBoxPalette(scheme, categorical, cfg.fill));
-      const primaryFill = darkMode
-        ? darkContrastColor
-        : (grayscaleMode
-          ? DEFAULT_BOX_GRAYSCALE_FILL
-          : ((scientificDefaults && scientificDefaults.fill) || boxPalette[0] || categorical[0] || cfg.fill));
-      const resolvedBoxPaletteBase = boxPalette.length
+      const primaryFill = grayscaleMode
+        ? DEFAULT_BOX_GRAYSCALE_FILL
+        : ((scientificDefaults && scientificDefaults.fill) || boxPalette[0] || categorical[0] || cfg.fill);
+      const resolvedBoxPalette = boxPalette.length
         ? boxPalette
         : (categorical.length ? categorical : [primaryFill || '#666666']);
-      const resolvedBoxPalette = darkMode ? [darkContrastColor] : resolvedBoxPaletteBase;
-      const unifiedBorder = darkMode
-        ? darkContrastColor
-        : (grayscaleMode
+      const unifiedBorder = grayscaleMode
         ? '#000000'
-        : deriveDarkerBorderColor(primaryFill, tokens.borderColor || cfg.border));
+        : deriveDarkerBorderColor(primaryFill, tokens.borderColor || cfg.border);
       cfg.fill = primaryFill || cfg.fill;
       cfg.border = unifiedBorder || cfg.border;
       const currentLen = Math.max(
         ensureArray(cfg.colors).length,
         ensureArray(cfg.borderColors).length,
-        inferSeriesCountFromHeader(next.data),
+        inferBoxSeriesCountFromHeader(next.data),
         1
       );
       cfg.colors = Array.from({ length: currentLen }, (_, i) => resolvedBoxPalette[i % resolvedBoxPalette.length]);
       cfg.borderColors = cfg.colors.map(color => (
-        darkMode
-          ? darkContrastColor
-          : (grayscaleMode
-          ? '#000000'
-          : deriveDarkerBorderColor(color, tokens.borderColor || darken(color, 0.22)))
+        grayscaleMode ? '#000000'
+          : deriveDarkerBorderColor(color, tokens.borderColor || darken(color, 0.22))
       ));
       cfg.shapeGlobalStyle = forceColors
         ? clearStyleColorFields(cfg.shapeGlobalStyle, {
@@ -1767,7 +1906,10 @@
     }
 
     if(type === 'roc' || type === 'survival'){
-      const keys = Object.keys(ensureMap(cfg.labelColors)).concat(collectUniqueColumnValues(next.data, 0, { startRow: 1 }));
+      const currentSeriesKeys = type === 'roc'
+        ? inferRocSeriesNames(next.data)
+        : collectUniqueColumnValues(next.data, 0, { startRow: 1 });
+      const keys = currentSeriesKeys.concat(Object.keys(ensureMap(cfg.labelColors)));
       cfg.labelColors = buildColorMap(keys, categorical);
       applyAxisTokens(cfg, scheme);
       return next;
@@ -1785,6 +1927,7 @@
       }else if(tokens.axisColor){
         cfg.dendrogram.color = tokens.axisColor;
       }
+      applyAxisTokens(cfg, scheme);
       return next;
     }
 
@@ -1835,19 +1978,92 @@
     return next;
   }
 
+  // Appearance is a view property, not a palette operation. Recompiling the
+  // legacy palette adapter here would overwrite every component's data colors,
+  // including explicit user overrides and Box's unified/individual colors.
+  // Only migrate presentation tokens that still carry the previous preset value.
+  function applyAppearanceOnlyToPayload(type, payload, scheme){
+    const next = cloneThemePayload(payload, type);
+    const previous = getScheme(getPayloadColorSchemeId(type, payload));
+    const oldTokens = ensureObject(previous.tokens);
+    const newTokens = ensureObject(scheme.tokens);
+    const replaceToken = (owner, key, tokenKey) => {
+      if(!owner || typeof owner !== 'object') return;
+      const current = owner[key];
+      const oldValue = oldTokens[tokenKey];
+      const newValue = newTokens[tokenKey];
+      // An absent or custom value is not owned by the appearance preset.
+      if(typeof current === 'string' && typeof oldValue === 'string'
+        && typeof newValue === 'string' && current.toLowerCase() === oldValue.toLowerCase()){
+        owner[key] = newValue;
+      }
+    };
+    if(type === 'venn'){
+      const style = next.style = ensureObject(next.style);
+      style.colorScheme = scheme.id;
+      replaceToken(style.upset, 'gridColor', 'gridColor');
+      replaceToken(style.upset, 'axisColor', 'axisColor');
+      return next;
+    }
+    const cfg = next.config = ensureObject(next.config);
+    cfg.colorScheme = scheme.id;
+    replaceToken(cfg.axis, 'color', 'axisColor');
+    replaceToken(cfg.gridStyle, 'color', 'gridColor');
+    replaceToken(cfg, 'backgroundColor', 'background');
+    replaceToken(cfg, 'textColor', 'textColor');
+    if(type === 'heatmap'){
+      replaceToken(cfg.dendrogram, 'color', 'axisColor');
+    }
+    if(type === 'surface'){
+      const settings = cfg.settings = ensureObject(cfg.settings);
+      settings.colorScheme = scheme.id;
+      replaceToken(settings, 'axisColor', 'axisColor');
+      replaceToken(settings, 'textColor', 'textColor');
+      replaceToken(settings, 'backgroundColor', 'background');
+      // settings.colorRamp remains invariant, even for non-default ramps.
+    }
+    return next;
+  }
+
   function applySchemeToPayload(type, payload, scheme, options){
+    if(options?.appearanceOnly === true){
+      return applyAppearanceOnlyToPayload(type, payload, scheme);
+    }
     const compiler = Shared.themeCompiler;
+    let next;
     if(compiler && typeof compiler.compilePayload === 'function' && compiler.hasAdapter && compiler.hasAdapter(type)){
-      const compiled = compiler.compilePayload(type, payload, scheme, {
+      next = compiler.compilePayload(type, payload, scheme, {
         options: ensureObject(options),
         legacyApply: legacyApplySchemeToPayload,
         type
       });
-      if(compiled && typeof compiled === 'object'){
-        return compiled;
-      }
     }
-    return legacyApplySchemeToPayload(type, payload, scheme, options);
+    if(!next || typeof next !== 'object'){
+      next = legacyApplySchemeToPayload(type, payload, scheme, options);
+    }
+    remapPresetDatasetColors(type, payload, next, scheme);
+    return next;
+  }
+
+  function remapPresetDatasetColors(type, source, target, scheme){
+    if(type === 'heatmap' || type === 'surface') return;
+    const previous = getScheme(getPayloadColorSchemeId(type, source));
+    if(['grayscale', 'dark'].includes(schemeIdentity(previous.id).paletteId)) return;
+    const previousPalette = resolveCategoricalPalette(type, previous).map(normalizeHexColor);
+    const nextPalette = resolveCategoricalPalette(type, scheme);
+    if(!previousPalette.length || !nextPalette.length) return;
+    const targetById = new Map(collectDatasetColorSlots(type, target).map(slot => [slot.id, slot]));
+    collectDatasetColorSlots(type, source).forEach(slot => {
+      // Borders are theme presentation, not category identity. Line strokes
+      // have their own field and remain part of the dataset color contract.
+      if(/\.(?:border|borderColor|borderColors|stroke|markerStroke)(?:\.|$)/.test(slot.id)) return;
+      const nextSlot = targetById.get(slot.id);
+      if(!nextSlot) return;
+      const index = previousPalette.indexOf(slot.color);
+      if(index >= 0){
+        nextSlot.setColor(nextPalette[index % nextPalette.length]);
+      }
+    });
   }
 
   const DATASET_STYLE_COLOR_FIELDS = Object.freeze([
@@ -1907,13 +2123,18 @@
     });
   }
 
-  function collectDatasetColorSlots(type, payload){
+  function collectDatasetColorSlots(type, payload, options){
     const slots = [];
     if(type === 'venn'){
       const style = ensureObject(payload?.style);
       ['colorA', 'colorB', 'colorC'].forEach(key => {
         addDatasetColorSlot(slots, `style.${key}`, style, key, 'categorical');
       });
+      if(options?.includeScopes){
+        ['barColor', 'setBarColor', 'dotColor'].forEach(key => {
+          addDatasetColorSlot(slots, `style.upset.${key}`, style.upset, key);
+        });
+      }
       return slots;
     }
 
@@ -1929,9 +2150,13 @@
       addDatasetColorArray(slots, 'config.grouped.colors', cfg.grouped?.colors);
       const individualPointStyles = Object.fromEntries(
         Object.entries(ensureObject(cfg.pointStyleScopes?.points))
-          .filter(([key]) => String(key).startsWith('column:'))
+          .filter(([key]) => options?.includeScopes || String(key).startsWith('column:'))
       );
       addDatasetStyleMap(slots, 'config.pointStyleScopes.points', individualPointStyles);
+      if(options?.includeScopes){
+        addDatasetStyleSlots(slots, 'config.pointStyleScopes.global', cfg.pointStyleScopes?.global);
+        addDatasetStyleMap(slots, 'config.pointStyleScopes.groups', cfg.pointStyleScopes?.groups);
+      }
     }else if(type === 'line'){
       addDatasetColorMap(slots, 'config.labelColors', cfg.labelColors);
       addDatasetStyleMap(slots, 'config.seriesStyles', cfg.seriesStyles);
@@ -2210,11 +2435,17 @@
     const cfg = ensureObject(config);
     const refCfg = referenceConfig && typeof referenceConfig === 'object' ? referenceConfig : null;
     const out = {};
-    const axisColor = projectColorScalar(cfg.axis, 'color', refCfg?.axis);
+    const axisReference = refCfg
+      ? (refCfg.axis && typeof refCfg.axis === 'object' ? refCfg.axis : {})
+      : null;
+    const gridReference = refCfg
+      ? (refCfg.gridStyle && typeof refCfg.gridStyle === 'object' ? refCfg.gridStyle : {})
+      : null;
+    const axisColor = projectColorScalar(cfg.axis, 'color', axisReference);
     if(axisColor !== null){
       out.axis = { color: axisColor };
     }
-    const gridColor = projectColorScalar(cfg.gridStyle, 'color', refCfg?.gridStyle);
+    const gridColor = projectColorScalar(cfg.gridStyle, 'color', gridReference);
     if(gridColor !== null){
       out.gridStyle = { color: gridColor };
     }
@@ -2394,15 +2625,22 @@
     if(!active || active.type !== type){
       return null;
     }
-    const workspace = options?.captureLive === true
+    const captureLive = options?.captureLive === true || options?.preferWorkspace === true;
+    const workspace = captureLive
       ? global.Main?.components?.get?.(type)
       : null;
-    const livePayload = typeof workspace?.getPayload === 'function'
-      ? workspace.getPayload({
-          tabId: active.id,
-          reason: 'color-scheme-owner-payload'
-        })
-      : null;
+    const captureOptions = {
+      tabId: active.id,
+      type,
+      reason: 'color-scheme-owner-payload'
+    };
+    // Palette checks need only an owner-checked color snapshot; full payload
+    // capture can also serialize tables and data views.
+    const livePayload = typeof workspace?.getColorSchemePayload === 'function'
+      ? workspace.getColorSchemePayload(captureOptions)
+      : (typeof workspace?.getPayload === 'function'
+        ? workspace.getPayload(captureOptions)
+        : null);
     return createColorComparisonPayload(type, livePayload || active.payload);
   }
 
@@ -2410,7 +2648,20 @@
     if(!payload) return true;
     const actualSchemeId = normalizePresetSchemeId(schemeId, type);
     const scheme = getScheme(actualSchemeId);
-    const expected = applySchemeToPayload(type, payload, scheme, { forceColors: true });
+    const identity = schemeIdentity(actualSchemeId);
+    const paletteScheme = getScheme(composeSchemeId(identity.paletteId, 'light'));
+    const paletteSource = cloneThemePayload(payload, type);
+    if(type === 'venn'){
+      paletteSource.style = ensureObject(paletteSource.style);
+      paletteSource.style.colorScheme = paletteScheme.id;
+    }else{
+      paletteSource.config = ensureObject(paletteSource.config);
+      paletteSource.config.colorScheme = paletteScheme.id;
+    }
+    const paletteExpected = applySchemeToPayload(type, paletteSource, paletteScheme, { forceColors: true });
+    const expected = identity.appearance === 'dark'
+      ? applyAppearanceOnlyToPayload(type, paletteExpected, scheme)
+      : paletteExpected;
     if(buildPayloadColorSignature(type, payload, payload) === buildPayloadColorSignature(type, expected, payload)){
       return true;
     }
@@ -2537,7 +2788,15 @@
       applyRenderedThemeForTab(type, appliedSchemeId, tab.id, `${reason}-delayed-40`);
     }, 40);
     scheduleColorSchemeTimeout(type, tab.id, `${reason}-delayed-180`, () => {
-      applyRenderedThemeForTab(type, appliedSchemeId, tab.id, `${reason}-delayed-180`);
+      if(!applyRenderedThemeForTab(type, appliedSchemeId, tab.id, `${reason}-delayed-180`)) return;
+      // Capture the appearance only after the owning chart has been projected
+      // and themed. An earlier preview may contain the pre-change paint.
+      const config = global.Main?.components?.registry?.[type];
+      if(config && global.Main?.previews?.updateTabPreviewFromWorkspace){
+        global.Main.previews.updateTabPreviewFromWorkspace(tab, config, {
+          reason: 'color-appearance-settled', forceCapture: true
+        });
+      }
     }, 180);
     syncActiveTabVisuals(reason);
     return true;
@@ -2566,7 +2825,27 @@
     }
 
     const undoManager = Shared.undoManager || null;
+    if(typeof session.persistActiveTabState === 'function'){
+      session.persistActiveTabState(tab, {
+        reason: `color-scheme-${type}-source`,
+        origin: 'user',
+        captureRenderCache: false,
+        snapshotIntent: {
+          captureLivePayload: true,
+          allowSkipLivePayloadCapture: false,
+          lifecycleSnapshot: false,
+          reasonSkippable: false
+        }
+      });
+    }
     let payloadBeforeScheme = tab.payload || null;
+    if(!payloadBeforeScheme && typeof workspace.getPayload === 'function'){
+      payloadBeforeScheme = workspace.getPayload({
+        tabId: tab.id,
+        type,
+        reason: `color-scheme-${type}-source`
+      });
+    }
     if(!payloadBeforeScheme){
       payloadBeforeScheme = typeof workspace.createEmptyPayload === 'function'
         ? workspace.createEmptyPayload()
@@ -2590,13 +2869,12 @@
     }
 
     let nextPayload = applySchemeToPayload(type, sourcePayload, scheme, {
-      forceColors: opts.colorMode !== 'match'
+      forceColors: !opts.appearanceOnly && opts.colorMode !== 'match',
+      appearanceOnly: opts.appearanceOnly === true
     });
     if(opts.colorMode === 'match'){
       nextPayload = applyMatchedDatasetColors(type, sourcePayload, nextPayload, scheme);
     }
-    syncSharedScatterPalette(type, scheme);
-
     if(!commitAndProjectColorSchemePayload(type, tab.id, nextPayload, {
       reason: `color-scheme-${type}`,
       source: 'color-scheme'
@@ -2665,23 +2943,35 @@
     return normalizePresetSchemeId(active.payload.config?.colorScheme, type);
   }
 
-  function resolveDisplayedSchemeIdForType(type, options){
+  function resolveDisplayedSchemeStateForType(type, options){
     if(type === 'surface'){
-      return normalizeSurfaceSchemeId(readActiveSchemeForType(type));
+      const schemeId = normalizeSurfaceSchemeId(readActiveSchemeForType(type));
+      return { schemeId, displayedSchemeId: schemeId, payload: null };
     }
-    const actualSchemeId = readActiveSchemeForType(type);
     const payload = getComparisonPayload(type, options);
+    const schemeId = payload
+      ? getPayloadColorSchemeId(type, payload)
+      : readActiveSchemeForType(type);
     if(!payload){
-      return actualSchemeId;
+      return { schemeId, displayedSchemeId: schemeId, payload: null };
     }
-    return payloadMatchesPreset(type, payload, actualSchemeId) ? actualSchemeId : CUSTOM_SCHEME_ID;
+    return {
+      schemeId,
+      displayedSchemeId: payloadMatchesPreset(type, payload, schemeId) ? schemeId : CUSTOM_SCHEME_ID,
+      payload
+    };
+  }
+
+  function resolveDisplayedSchemeIdForType(type, options){
+    return resolveDisplayedSchemeStateForType(type, options).displayedSchemeId;
   }
 
   function getActiveSignature(){
     const tab = getActiveTab();
     if(!tab || !tab.type || tab.isWelcome) return null;
-    const schemeId = readActiveSchemeForType(tab.type) || DEFAULT_SCHEME_ID;
-    const displayedSchemeId = resolveDisplayedSchemeIdForType(tab.type) || schemeId;
+    const schemeState = resolveDisplayedSchemeStateForType(tab.type, { captureLive: true });
+    const schemeId = schemeState.schemeId || DEFAULT_SCHEME_ID;
+    const displayedSchemeId = schemeState.displayedSchemeId || schemeId;
     return `${tab.id}::${tab.type}::${schemeId}::${displayedSchemeId}`;
   }
 
@@ -2725,7 +3015,7 @@
       if(!isManualColorEditTarget(evt?.target)){
         return;
       }
-      scheduleActiveVisualSync('manual-color-edit', { preferWorkspace: true });
+      scheduleActiveVisualSync('manual-color-edit', { captureLive: true });
     };
     doc.addEventListener('input', handlePotentialColorEdit, true);
     doc.addEventListener('change', handlePotentialColorEdit, true);
@@ -2734,8 +3024,9 @@
   function syncActiveTabVisuals(reason, options){
     const tab = getActiveTab();
     if(!tab || !tab.type || tab.isWelcome) return;
-    const schemeId = readActiveSchemeForType(tab.type) || DEFAULT_SCHEME_ID;
-    const displayedSchemeId = resolveDisplayedSchemeIdForType(tab.type, options) || schemeId;
+    const schemeState = resolveDisplayedSchemeStateForType(tab.type, options);
+    const schemeId = schemeState.schemeId || DEFAULT_SCHEME_ID;
+    const displayedSchemeId = schemeState.displayedSchemeId || schemeId;
     const scopedRoot = resolveTabScopedRoot(tab.type, tab, { allowPageFallback: false });
     const controls = scopedRoot && typeof scopedRoot.querySelectorAll === 'function'
       ? Array.from(scopedRoot.querySelectorAll(`select[data-color-scheme-select="1"][data-component-type="${tab.type}"]`))
@@ -2756,7 +3047,6 @@
         syncPickerElement(fallbackControl, displayedSchemeId);
       }
     }
-    syncSharedScatterPalette(tab.type, getScheme(schemeId));
     applyRenderedThemeForTab(tab.type, schemeId, tab.id, reason || 'sync-active-visuals');
     debugLog('Debug: colorSchemes visuals synced', { reason, tabId: tab.id, type: tab.type, scheme: schemeId, displayedScheme: displayedSchemeId });
   }
@@ -2778,7 +3068,7 @@
       if(!signature){
         return;
       }
-      scheduleActiveVisualSync('tab-change', { preferWorkspace: true });
+      scheduleActiveVisualSync('tab-change', { captureLive: true });
     };
     state.activeTabObserver = new global.MutationObserver(syncForActiveTabChange);
     state.activeTabObserver.observe(tabList, {
@@ -2829,9 +3119,9 @@
         if(String(current.id) !== expectedTabId || String(current.type || '') !== expectedType){
           return;
         }
-        syncActiveTabVisuals(`lifecycle-${detail.action}-${phase}`, { preferWorkspace: true });
+        syncActiveTabVisuals(`lifecycle-${detail.action}-${phase}`, { captureLive: true });
       };
-      scheduleActiveVisualSync(`lifecycle-${detail.action}-queued`, { preferWorkspace: true });
+      scheduleActiveVisualSync(`lifecycle-${detail.action}-queued`, { captureLive: true });
       scheduleColorSchemeFrame(expectedType, expectedTabId, 'color-scheme-lifecycle-sync-raf', () => runSync('raf'));
       scheduleColorSchemeTimeout(expectedType, expectedTabId, 'color-scheme-lifecycle-sync-delay-90', () => runSync('delay-90'), 90);
       scheduleColorSchemeTimeout(expectedType, expectedTabId, 'color-scheme-lifecycle-sync-delay-220', () => runSync('delay-220'), 220);
@@ -2862,10 +3152,10 @@
     fieldset.appendChild(legend);
 
     const row = doc.createElement('div');
-    row.className = 'control config-panel__line';
+    row.className = 'control config-panel__line color-scheme-picker__row';
 
-    const label = doc.createElement('label');
-    label.className = 'config-panel__label';
+    const label = doc.createElement('span');
+    label.className = 'config-panel__label color-scheme-picker__title';
     label.textContent = 'Palette';
 
     const select = doc.createElement('select');
@@ -2876,7 +3166,16 @@
     const schemeIds = (type === 'surface')
       ? SURFACE_SCHEME_OPTION_IDS
       : BASE_SCHEME_OPTION_IDS;
-    schemeIds.forEach(id => {
+    const persistedIds = schemeIds.flatMap(base => Object.keys(SCHEMES)
+      .filter(id => schemeIdentity(id).paletteId === base));
+    // Keep the old ID available to state synchronization for already-opened
+    // graphs, while exposing the versioned eight-color preset as the new choice.
+    if(type !== 'surface'){
+      ['colorblind', 'colorblind-dark'].forEach(id => {
+        if(!persistedIds.includes(id)) persistedIds.push(id);
+      });
+    }
+    persistedIds.forEach(id => {
       const option = doc.createElement('option');
       option.value = id;
       option.textContent = SCHEMES[id].label;
@@ -2893,6 +3192,8 @@
     const initialDisplayedSchemeId = resolveDisplayedSchemeIdForType(type);
     select.value = initialDisplayedSchemeId;
     select.classList.add('visually-hidden');
+    select.setAttribute('aria-hidden', 'true');
+    select.tabIndex = -1;
 
     const picker = doc.createElement('div');
     picker.className = 'color-scheme-picker';
@@ -2904,6 +3205,7 @@
     pickerButton.dataset.componentType = type;
     pickerButton.setAttribute('aria-haspopup', 'listbox');
     pickerButton.setAttribute('aria-expanded', 'false');
+    pickerButton.setAttribute('aria-label', `Palette: ${SCHEMES[initialDisplayedSchemeId]?.label || 'Color'}`);
 
     const pickerButtonLabel = doc.createElement('span');
     pickerButtonLabel.className = 'color-scheme-picker__label';
@@ -2913,51 +3215,31 @@
 
     const pickerButtonCaret = doc.createElement('span');
     pickerButtonCaret.className = 'color-scheme-picker__caret';
-    pickerButtonCaret.textContent = '\u25be';
+    pickerButtonCaret.setAttribute('aria-hidden', 'true');
 
-    pickerButton.appendChild(pickerButtonLabel);
     pickerButton.appendChild(pickerButtonSwatches);
+    pickerButton.appendChild(pickerButtonLabel);
     pickerButton.appendChild(pickerButtonCaret);
 
     const pickerMenu = doc.createElement('div');
+    pickerMenu.id = `${select.id}Menu`;
     pickerMenu.className = 'color-scheme-picker__menu';
     pickerMenu.setAttribute('role', 'listbox');
+    pickerMenu.setAttribute('aria-label', 'Color schemes');
     pickerMenu.dataset.colorSchemeMenu = '1';
     pickerMenu.dataset.componentType = type;
     pickerMenu.hidden = true;
-    pickerMenu.__pickerOwner = picker;
+    pickerButton.setAttribute('aria-controls', pickerMenu.id);
 
-    schemeIds.forEach(id => {
-      const optionButton = doc.createElement('button');
-      optionButton.type = 'button';
-      optionButton.className = 'color-scheme-picker__option';
-      if(id === 'dark'){
-        optionButton.classList.add('color-scheme-picker__option--dark-theme');
-      }
-      optionButton.setAttribute('role', 'option');
-      optionButton.dataset.schemeId = id;
-      optionButton.dataset.componentType = type;
-      optionButton.appendChild(renderSchemeSwatches(doc, id, { limit: 4 }));
-      const optionLabel = doc.createElement('span');
-      optionLabel.className = 'color-scheme-picker__option-label';
-      optionLabel.textContent = SCHEMES[id].label;
-      optionButton.appendChild(optionLabel);
-      pickerMenu.appendChild(optionButton);
+    const menuSchemeIds = [...schemeIds, ...(type !== 'surface' ? ['colorblind'] : [])];
+    menuSchemeIds.forEach(id => {
+      const label = id === 'colorblind' ? 'Colorblind-friendly (saved)' : SCHEMES[id].label;
+      const option = createSchemeOption(doc, type, id, label);
+      option.hidden = id === 'colorblind';
+      pickerMenu.appendChild(option);
     });
     if(type !== 'surface'){
-      const customButton = doc.createElement('button');
-      customButton.type = 'button';
-      customButton.className = 'color-scheme-picker__option';
-      customButton.setAttribute('role', 'option');
-      customButton.dataset.schemeId = CUSTOM_SCHEME_ID;
-      customButton.dataset.componentType = type;
-      customButton.disabled = true;
-      customButton.appendChild(renderSchemeSwatches(doc, CUSTOM_SCHEME_ID, { limit: 4 }));
-      const customLabel = doc.createElement('span');
-      customLabel.className = 'color-scheme-picker__option-label';
-      customLabel.textContent = 'Custom';
-      customButton.appendChild(customLabel);
-      pickerMenu.appendChild(customButton);
+      pickerMenu.appendChild(createSchemeOption(doc, type, CUSTOM_SCHEME_ID, 'Custom', true));
     }
 
     const choice = doc.createElement('div');
@@ -3008,15 +3290,26 @@
 
     syncPickerElement(select, initialDisplayedSchemeId);
 
-    label.appendChild(select);
-    label.appendChild(picker);
     row.appendChild(label);
+    row.appendChild(select);
+    row.appendChild(picker);
 
-    const hint = doc.createElement('div');
-    hint.className = 'idx-inline-048';
-
+    const appearanceSelect = doc.createElement('select');
+    appearanceSelect.id = `${type}ColorAppearanceSelect`;
+    appearanceSelect.dataset.colorAppearanceSelect = '1';
+    appearanceSelect.dataset.componentType = type;
+    appearanceSelect.className = 'color-scheme-picker__appearance';
+    appearanceSelect.setAttribute('aria-label', 'Color appearance');
+    appearanceSelect.setAttribute('data-undo-ignore', '1');
+    ['light', 'dark'].forEach(value => {
+      const option = doc.createElement('option');
+      option.value = value;
+      option.textContent = value === 'light' ? 'Light' : 'Dark';
+      appearanceSelect.appendChild(option);
+    });
+    appearanceSelect.value = schemeIdentity(readActiveSchemeForType(type)).appearance;
+    row.appendChild(appearanceSelect);
     fieldset.appendChild(row);
-    fieldset.appendChild(hint);
 
     if(type === 'box'){
       const modeRow = doc.createElement('div');
@@ -3060,7 +3353,7 @@
         ? (colorModeRow.closest('.config-panel__line') || colorModeRow.parentElement)
         : null;
       if(colorModeLine && colorModeLine.parentNode !== fieldset){
-        fieldset.insertBefore(colorModeLine, hint);
+        fieldset.appendChild(colorModeLine);
         debugLog('Debug: colorSchemes attached scatter color mode row', { type });
       }
     }
@@ -3094,7 +3387,7 @@
       Shared.formControls.autoSizeSelect(select);
     }
 
-    state.controlsByType[type] = { select };
+    state.controlsByType[type] = { select, appearanceSelect };
     debugLog('Debug: colorSchemes control mounted', { type, pageId: descriptor.pageId });
   }
 
@@ -3118,6 +3411,13 @@
     return readActiveSchemeForType(type) || getDefaultSchemeIdForType(type);
   };
 
+  namespace.isDarkScheme = isDarkScheme;
+  namespace.getSchemeIdentity = schemeIdentity;
+  namespace.applyAppearanceToPayload = function applyAppearanceToPayload(type, payload, appearance){
+    const id = composeSchemeId(getPayloadColorSchemeId(type, payload), appearance);
+    return applySchemeToPayload(type, payload, getScheme(id), { appearanceOnly: true });
+  };
+
   namespace.resolveDisplayedSchemeIdForType = function resolveDisplayedSchemeIdForTypeExport(type, options){
     return resolveDisplayedSchemeIdForType(type, options);
   };
@@ -3132,15 +3432,16 @@
     const rawScheme = safeType === 'venn'
       ? source?.style?.colorScheme
       : source?.config?.colorScheme;
+    const fallbackScheme = source ? getDefaultSchemeIdForType(safeType) : readActiveSchemeForType(safeType);
     const schemeId = safeType === 'surface'
-      ? normalizeSurfaceSchemeId(rawScheme || readActiveSchemeForType(safeType))
-      : normalizePresetSchemeId(rawScheme || readActiveSchemeForType(safeType), safeType);
+      ? normalizeSurfaceSchemeId(rawScheme || fallbackScheme)
+      : normalizePresetSchemeId(rawScheme || fallbackScheme, safeType);
     const scheme = getScheme(schemeId);
     const tokens = ensureObject(scheme?.tokens);
     return {
       type: safeType || null,
       schemeId,
-      isDark: schemeId === 'dark',
+      isDark: isDarkScheme(schemeId),
       textColor: String(tokens.textColor || '#000000'),
       background: String(tokens.background || '#ffffff'),
       axisColor: String(tokens.axisColor || '#000000'),
@@ -3159,7 +3460,7 @@
     const schemeId = safeType === 'surface'
       ? normalizeSurfaceSchemeId(requestedScheme)
       : normalizePresetSchemeId(requestedScheme, safeType);
-    applySvgVisualTheme(svg, getScheme(schemeId));
+    applySvgVisualTheme(svg, getScheme(schemeId), safeType);
     return true;
   };
 
@@ -3214,11 +3515,6 @@
     try{
       if(Shared.themeCatalog && typeof Shared.themeCatalog.registerAll === 'function'){
         Shared.themeCatalog.registerAll(SCHEMES);
-      }
-      if(Shared.themeCatalog && typeof Shared.themeCatalog.setTypeDefault === 'function'){
-        Object.keys(TYPE_DEFAULT_SCHEME_IDS).forEach(type => {
-          Shared.themeCatalog.setTypeDefault(type, TYPE_DEFAULT_SCHEME_IDS[type]);
-        });
       }
       if(Shared.themeCatalog && typeof Shared.themeCatalog.setTypeOptions === 'function'){
         Object.keys(TYPE_TO_PAGE).forEach(type => {

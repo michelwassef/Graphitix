@@ -1,9 +1,158 @@
 function loadModule() {
   jest.resetModules();
   delete window.Shared;
+  require('../../js/shared/theme/themeCatalog.js');
   require('../../js/shared/colorSchemes.js');
+  window.Shared.themeCatalog.registerAll(window.Shared.colorSchemes.getSchemes());
   return window.Shared.colorSchemes;
 }
+
+describe('colorSchemes — independent appearance and category identity', () => {
+  let cs;
+  beforeEach(() => { cs = loadModule(); });
+
+  const cases = [
+    ['venn', { style: {} }, payload => [payload.style.colorA, payload.style.colorB, payload.style.colorC]],
+    ['box', { data: [['A', 'B'], [1, 2]], config: { colorMode: 'individual' } }, payload => payload.config.colors],
+    ['scatter', { data: [['Label', 'X', 'Y'], ['A', 1, 2], ['B', 2, 3]] }, payload => payload.config.labelColors],
+    ['pca', { data: [['Variable', 'A', 'B'], ['Var1', 1, 2]] }, payload => payload.config.labelColors],
+    ['line', { data: [['X', 'A', 'B'], [0, 1, 2]] }, payload => payload.config.labelColors],
+    ['hist', { data: [['A', 'B'], [1, 2]] }, payload => payload.config.seriesColors],
+    ['pie', { data: [['Label', 'Value'], ['A', 1], ['B', 2]] }, payload => payload.config.colors],
+    ['roc', { data: [['Label', 'A', 'B'], [0, 1, 2]] }, payload => payload.config.labelColors],
+    ['survival', { data: [['Group', 'Time', 'Event'], ['A', 1, 1], ['B', 2, 0]] }, payload => payload.config.labelColors],
+    ['heatmap', { config: { colors: { negative: '#123456', zero: '#abcdef', positive: '#fedcba' } } }, payload => payload.config.colors],
+    ['surface', { config: { settings: { colorRamp: 'plasma' } } }, payload => payload.config.settings.colorRamp]
+  ];
+
+  test.each(cases)('%s preserves its palette/value scale through a serialized dark/light round trip', (type, input, colors) => {
+    const scheme = type === 'surface' ? 'surface-plasma' : 'normal';
+    const original = cs.applyToPayload(type, { type, ...input }, scheme);
+    const before = JSON.stringify(original);
+    const dark = cs.applyAppearanceToPayload(type, original, 'dark');
+    const stored = JSON.parse(JSON.stringify(dark));
+    expect(cs.getSchemeIdentity(type === 'venn' ? stored.style.colorScheme : stored.config.colorScheme))
+      .toEqual({ paletteId: scheme, appearance: 'dark' });
+    expect(cs.resolveThemeState(type, stored).isDark).toBe(true);
+    if(['heatmap', 'surface'].includes(type)) expect(colors(stored)).toEqual(colors(original));
+    const restored = cs.applyAppearanceToPayload(type, stored, 'light');
+    expect(colors(restored)).toEqual(colors(original));
+    expect(cs.resolveThemeState(type, restored).isDark).toBe(false);
+    expect(JSON.stringify(original)).toBe(before);
+  });
+
+  test.each(['line', 'roc', 'survival', 'scatter', 'pca', 'pie'])('%s keeps existing category assignments after data reorder or filtering and another palette choice', type => {
+    const entry = cases.find(item => item[0] === type);
+    const original = cs.applyToPayload(type, { type, ...entry[1] }, 'normal');
+    if(['line', 'roc', 'pca'].includes(type)){
+      original.data = original.data.map(row => [row[0], ...row.slice(1).reverse()]);
+    }else{
+      original.data = [original.data[0], ...original.data.slice(1).reverse().slice(0, 1)];
+    }
+    const changed = cs.applyToPayload(type, original, 'soft');
+    const sourceColors = entry[2](original);
+    const nextColors = entry[2](changed);
+    const normal = cs.getSchemes().normal.categorical;
+    const soft = cs.getSchemes().soft.categorical;
+    Object.keys(sourceColors).forEach(key => {
+      expect(nextColors[key]).toBe(soft[normal.indexOf(sourceColors[key])]);
+    });
+  });
+
+  test('appearance preserves custom fills, transparency, and a separately selected density scale', () => {
+    const source = {
+      type: 'scatter',
+      config: { colorScheme: 'normal', densityPalette: 'magma', fill: '#123456',
+        labelColors: { A: '#abcdef' }, labelStyles: { A: { fill: '#abcdef', opacity: 0.38, size: 4 } } }
+    };
+    const dark = cs.applyAppearanceToPayload('scatter', source, 'dark');
+    expect(dark.config.fill).toBe('#123456');
+    expect(dark.config.labelColors.A).toBe('#abcdef');
+    expect(dark.config.labelStyles.A).toMatchObject({ fill: '#abcdef', opacity: 0.38, size: 4 });
+    expect(dark.config.densityPalette).toBe('magma');
+    expect(cs.applyToPayload('scatter', dark, 'soft').config.densityPalette).toBe('magma');
+  });
+
+  test('a moved Box dataset retains its palette position when appearance changes', () => {
+    const source = cs.applyToPayload('box', { data: [['A', 'B'], [1, 2]], config: {} }, 'normal');
+    source.data = [['B', 'A'], [2, 1]];
+    source.config.colors.reverse();
+    const dark = cs.applyAppearanceToPayload('box', source, 'dark');
+    const palette = cs.getSchemes()['normal-dark'].categorical;
+    expect(dark.config.colors).toEqual([palette[1], palette[0]]);
+    expect(cs.applyAppearanceToPayload('box', dark, 'light').config.colors).toEqual(source.config.colors);
+  });
+
+  test('PCA appearance retains custom group and point fills without altering their other styles', () => {
+    const source = cs.applyToPayload('pca', { data: [['Variable', 'A'], ['V1', 1]] }, 'normal');
+    source.config.pointStyleScopes = {
+      global: { fill: '#123456', size: 5 },
+      groups: { 'group-A': { fill: '#abcdef', opacity: 0.4 } },
+      points: { 'label:A': { fill: '#765432', borderWidth: 2 } }
+    };
+    const dark = cs.applyAppearanceToPayload('pca', source, 'dark');
+    expect(dark.config.pointStyleScopes.global).toMatchObject(source.config.pointStyleScopes.global);
+    expect(dark.config.pointStyleScopes.groups).toEqual(source.config.pointStyleScopes.groups);
+    expect(dark.config.pointStyleScopes.points).toEqual(source.config.pointStyleScopes.points);
+  });
+
+  test('UpSet data paints survive appearance changes, including deliberate black', () => {
+    const source = { type: 'venn', style: { colorScheme: 'scientific',
+      upset: { barColor: '#000000', setBarColor: '#123456', dotColor: '#000000' } } };
+    const dark = cs.applyAppearanceToPayload('venn', source, 'dark');
+    expect(dark.style.upset.barColor).toBe('#000000');
+    expect(dark.style.upset.dotColor).toBe('#000000');
+    expect(dark.style.upset.setBarColor).toBe('#123456');
+    expect(cs.applyAppearanceToPayload('venn', dark, 'light').style.upset).toMatchObject(source.style.upset);
+  });
+
+  test('paired dark and light appearances expose identical categorical palettes', () => {
+    const schemes = cs.getSchemes();
+    for(const paletteId of ['normal', 'soft', 'scientific', 'colorblind', 'grayscale',
+      'dark', 'surface-viridis', 'surface-plasma', 'surface-magma', 'surface-turbo',
+      'surface-bluered', 'surface-grayscale']){
+      const darkId = paletteId === 'dark' ? 'dark' : `${paletteId}-dark`;
+      const lightId = paletteId === 'dark' ? 'dark-light' : paletteId;
+      expect(schemes[darkId].categorical).toEqual(schemes[lightId].categorical);
+      expect(schemes[darkId].sequential).toEqual(schemes[lightId].sequential);
+      expect(schemes[darkId].diverging).toEqual(schemes[lightId].diverging);
+    }
+    expect(cs.resolveCategoricalPaletteForType('box', { schemeId: 'grayscale-dark' }))
+      .toEqual(cs.resolveCategoricalPaletteForType('box', { schemeId: 'grayscale' }));
+  });
+
+  test.each(cases)('%s never modifies non-presentation graph state on appearance change', (type, input) => {
+    const schemeId = type === 'surface' ? 'surface-plasma' : 'normal';
+    const initial = cs.applyToPayload(type, { type, ...input }, schemeId);
+    const snapshot = JSON.parse(JSON.stringify(initial));
+    const dark = cs.applyAppearanceToPayload(type, initial, 'dark');
+    const restored = cs.applyAppearanceToPayload(type, dark, 'light');
+    expect(restored).toEqual(snapshot);
+    expect(initial).toEqual(snapshot);
+  });
+
+  test('dark appearance does not normalize explicit data colors or column-specific Box overrides', () => {
+    const original = {
+      type: 'box',
+      data: [['A', 'B'], [4, 8]],
+      config: {
+        colorScheme: 'grayscale',
+        fill: '#000000', border: '#fefefe',
+        colors: ['#000000', '#abcdef'], borderColors: ['#222222', '#010203'],
+        shapeStyles: { 0: { fill: '#fedcba', opacity: 0.4 } },
+        pointStyles: { 1: { markerFill: '#caad00', borderColor: '#234567' } },
+        summaryStyles: { 0: { color: '#010203' } },
+        significanceStyle: { color: '#101010' }
+      }
+    };
+    const dark = cs.applyAppearanceToPayload('box', original, 'dark');
+    expect(dark.config).toMatchObject({
+      ...original.config, colorScheme: 'grayscale-dark'
+    });
+    expect(cs.applyAppearanceToPayload('box', dark, 'light')).toEqual(original);
+  });
+
+});
 
 describe('colorSchemes — getSchemes()', () => {
   let cs;
@@ -32,6 +181,13 @@ describe('colorSchemes — getSchemes()', () => {
     const b = cs.getSchemes();
     expect(b.scientific).not.toBeNull();
   });
+
+  test('normal scheme uses the same darker blue across palette variants', () => {
+    const normal = cs.getSchemes().normal;
+    expect(normal.categorical[0]).toBe('#1f77b4');
+    expect(normal.sequential[0]).toBe('#1f77b4');
+    expect(normal.diverging.negative).toBe('#1f77b4');
+  });
 });
 
 describe('colorSchemes — getDefaultSchemeId()', () => {
@@ -46,12 +202,20 @@ describe('colorSchemes — getDefaultSchemeId()', () => {
     expect(cs.getDefaultSchemeId('surface')).toBe('surface-viridis');
   });
 
-  test('scatter → scientific (global default)', () => {
-    expect(cs.getDefaultSchemeId('scatter')).toBe('scientific');
+  test.each(['venn', 'scatter', 'pca', 'line', 'heatmap', 'roc', 'survival', 'hist', 'pie'])('%s → normal (global default)', type => {
+    expect(cs.getDefaultSchemeId(type)).toBe('normal');
   });
 
-  test('unknown type → scientific (global default)', () => {
-    expect(cs.getDefaultSchemeId('unknown-xyz')).toBe('scientific');
+  test('unknown type → normal (global default)', () => {
+    expect(cs.getDefaultSchemeId('unknown-xyz')).toBe('normal');
+  });
+
+  test('uses ThemeCatalog as the authoritative type-default resolver', () => {
+    window.Shared.themeCatalog.setTypeDefault('heatmap', 'soft');
+    expect(cs.getDefaultSchemeId('heatmap')).toBe('soft');
+
+    window.Shared.themeCatalog.setTypeDefault('heatmap', 'missing-scheme');
+    expect(cs.getDefaultSchemeId('heatmap')).toBe('normal');
   });
 });
 
@@ -88,6 +252,7 @@ describe('colorSchemes — resolveThemeState()', () => {
   test('null payload uses default scheme for the type', () => {
     const state = cs.resolveThemeState('box', null);
     expect(state.schemeId).toBe('grayscale');
+    expect(cs.resolveThemeState('scatter', null).schemeId).toBe('normal');
   });
 
   test('venn reads colorScheme from style not config', () => {
@@ -128,6 +293,68 @@ describe('colorSchemes — resolveDisplayedSchemeIdForType()', () => {
     };
     window.Main.session.getActiveTab = () => ({ type: 'heatmap', payload: customPayload });
     expect(cs.resolveDisplayedSchemeIdForType('heatmap')).toBe('custom');
+  });
+
+  test('ignores theme tokens that the Heatmap payload does not store', () => {
+    const schemePayload = cs.applyToPayload('heatmap', {
+      type: 'heatmap',
+      config: {
+        colorScheme: 'soft',
+        colors: { negative: '#0000ff', zero: '#ffffff', positive: '#ff0000' },
+        dendrogram: { color: '#222222' }
+      }
+    }, 'soft');
+    const liveSnapshot = {
+      type: 'heatmap',
+      config: {
+        colorScheme: 'soft',
+        colors: { ...schemePayload.config.colors },
+        dendrogram: { color: schemePayload.config.dendrogram.color }
+      }
+    };
+    window.Main = { session: { getActiveTab: () => ({ type: 'heatmap', payload: liveSnapshot }) } };
+
+    expect(cs.resolveDisplayedSchemeIdForType('heatmap')).toBe('soft');
+  });
+
+  test('uses the active Heatmap owner snapshot instead of a stale tab payload', () => {
+    const livePayload = cs.applyToPayload('heatmap', {
+      type: 'heatmap',
+      config: { colorScheme: 'soft' }
+    }, 'soft');
+    const stalePayload = {
+      type: 'heatmap',
+      config: {
+        colorScheme: 'soft',
+        colors: { negative: '#123456', zero: '#abcdef', positive: '#fedcba' }
+      }
+    };
+    const getColorSchemePayload = jest.fn(() => livePayload);
+    const getPayload = jest.fn();
+    window.Main = {
+      session: { getActiveTab: () => ({ id: 'heatmap-live', type: 'heatmap', payload: stalePayload }) },
+      components: { get: () => ({ getColorSchemePayload, getPayload }) }
+    };
+
+    expect(cs.resolveDisplayedSchemeIdForType('heatmap', { preferWorkspace: true })).toBe('soft');
+    expect(getColorSchemePayload).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'heatmap-live',
+      type: 'heatmap'
+    }));
+    expect(getPayload).not.toHaveBeenCalled();
+  });
+
+  test.each(['line', 'roc'])('%s keeps its named palette after dark appearance is applied', type => {
+    const data = type === 'line'
+      ? [['X', 'Series A', 'Series B'], [0, 1, 2]]
+      : [['Label', 'Predictor A', 'Predictor B'], [0, 0.2, 0.4], [1, 0.8, 0.6]];
+    const palettePayload = cs.applyToPayload(type, { type, data }, 'scientific');
+    const darkPayload = cs.applyAppearanceToPayload(type, palettePayload, 'dark');
+    window.Main = {
+      session: { getActiveTab: () => ({ id: `${type}-owner`, type, payload: darkPayload }) }
+    };
+
+    expect(cs.resolveDisplayedSchemeIdForType(type)).toBe('scientific-dark');
   });
 });
 
@@ -277,6 +504,68 @@ describe('colorSchemes — applyToPayload()', () => {
     expect(JSON.stringify(twice.config.labelColors)).toBe(JSON.stringify(once.config.labelColors));
     expect(JSON.stringify(twice.config.labelPointStyles)).toBe(JSON.stringify(once.config.labelPointStyles));
   });
+
+  test('line palette maps current data series before stale label keys', () => {
+    const result = cs.applyToPayload('line', {
+      type: 'line',
+      data: [
+        ['X', 'Mean reaction time', 'Median reaction time', '25th percentile', '75th percentile'],
+        [1, 1, 2, 3, 4]
+      ],
+      config: {
+        labelColors: {
+          'Series 1': '#0000ff',
+          'Series 2': '#ff0000',
+          'Series 3': '#00aa00',
+          'Series 4': '#ff8c00',
+          'Series 5': '#800080'
+        }
+      }
+    }, 'normal');
+
+    expect(result.config.labelColors).toMatchObject({
+      'Mean reaction time': '#1f77b4',
+      'Median reaction time': '#e41a1c',
+      '25th percentile': '#4daf4a',
+      '75th percentile': '#984ea3'
+    });
+  });
+
+  test('ROC palette maps predictor headers before stale class labels', () => {
+    const palette = cs.resolveCategoricalPaletteForType('roc', { schemeId: 'normal' });
+    const result = cs.applyToPayload('roc', {
+      type: 'roc',
+      data: [
+        ['Label', 'WFNS grade', 'S100B (μg/L)'],
+        [0, 0.13, 3.01],
+        [1, 0.44, 5.18]
+      ],
+      config: {
+        labelColors: { '0': '#0000ff', '1': '#ff0000' }
+      }
+    }, 'normal');
+
+    expect(result.config.labelColors['WFNS grade']).toBe(palette[0]);
+    expect(result.config.labelColors['S100B (μg/L)']).toBe(palette[1]);
+  });
+
+  test('Survival palette maps current groups before stale label keys', () => {
+    const palette = cs.resolveCategoricalPaletteForType('survival', { schemeId: 'normal' });
+    const result = cs.applyToPayload('survival', {
+      type: 'survival',
+      data: [
+        ['Group', 'Time', 'Event'],
+        ['Treatment A', 1, 1],
+        ['Treatment B', 2, 0]
+      ],
+      config: {
+        labelColors: { 'Prior group': '#0000ff' }
+      }
+    }, 'normal');
+
+    expect(result.config.labelColors['Treatment A']).toBe(palette[0]);
+    expect(result.config.labelColors['Treatment B']).toBe(palette[1]);
+  });
 });
 
 describe('colorSchemes — applyDefaultToPayload()', () => {
@@ -288,9 +577,9 @@ describe('colorSchemes — applyDefaultToPayload()', () => {
     expect(result.config.colorScheme).toBe('grayscale');
   });
 
-  test('scatter default scheme is scientific', () => {
+  test('scatter default scheme is normal', () => {
     const result = cs.applyDefaultToPayload('scatter', { config: {} });
-    expect(result.config.colorScheme).toBe('scientific');
+    expect(result.config.colorScheme).toBe('normal');
   });
 
   test('does not mutate the original payload', () => {

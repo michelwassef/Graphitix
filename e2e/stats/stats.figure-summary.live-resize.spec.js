@@ -33,10 +33,11 @@ async function prepare(page, componentCase){
 }
 
 async function readGeometry(page, componentCase){
-  return page.evaluate(({ type }) => {
+  return page.evaluate(({ type, plot:plotSelector }) => {
     const panel = document.querySelector(`#${type}Page:not([hidden]) #${type}GraphPanel`);
     const box = panel?.querySelector?.('.svgbox');
-    const svg = panel?.querySelector?.('svg');
+    const plot = panel?.querySelector?.(plotSelector || `#${type}Plot`);
+    const svg = plot?.matches?.('svg') ? plot : plot?.querySelector?.('svg');
     if(!box || !svg) return null;
     const boxRect = box.getBoundingClientRect();
     const svgRect = svg.getBoundingClientRect();

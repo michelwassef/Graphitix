@@ -1320,6 +1320,106 @@ async function generateType(page, type, temporaryDir, sourceFingerprint) {
   }
 }
 
+function promoteStagedFile(sourcePath, targetPath) {
+  try {
+    fs.renameSync(sourcePath, targetPath);
+  } catch (renameError) {
+    if (renameError?.code !== 'EPERM') {
+      throw renameError;
+    }
+    fs.copyFileSync(sourcePath, targetPath);
+    fs.rmSync(sourcePath);
+  }
+}
+
+function restorePublishedFile(backupPath, targetPath, restorePath) {
+  fs.copyFileSync(backupPath, restorePath);
+  try {
+    fs.renameSync(restorePath, targetPath);
+  } catch (renameError) {
+    if (renameError?.code !== 'EPERM') {
+      throw renameError;
+    }
+    fs.copyFileSync(backupPath, targetPath);
+    fs.rmSync(restorePath, { force: true });
+  }
+}
+
+function publishStagedFiles(stagingDir, outputDir) {
+  const stagedEntries = fs.readdirSync(stagingDir, { withFileTypes: true });
+  const stagedFiles = stagedEntries.filter(entry => entry.isFile()).map(entry => entry.name);
+  if (!stagedFiles.length || stagedFiles.length !== stagedEntries.length) {
+    throw new Error('Welcome asset staging must contain only files.');
+  }
+
+  fs.mkdirSync(outputDir, { recursive: true });
+  const existingEntries = fs.readdirSync(outputDir, { withFileTypes: true });
+  const existingFiles = existingEntries.filter(entry => entry.isFile()).map(entry => entry.name);
+  if (existingFiles.length !== existingEntries.length) {
+    throw new Error('Welcome asset output must contain only files.');
+  }
+
+  const backupDir = fs.mkdtempSync(path.join(
+    path.dirname(outputDir),
+    `.${path.basename(outputDir)}-backup-`
+  ));
+  const existingNames = new Set(existingFiles);
+  const stagedNames = new Set(stagedFiles);
+  const promotedNames = [];
+  const removedNames = [];
+  let preserveBackup = false;
+
+  try {
+    existingFiles.forEach(fileName => {
+      fs.copyFileSync(path.join(outputDir, fileName), path.join(backupDir, fileName));
+    });
+
+    const promotionOrder = stagedFiles.sort((left, right) => {
+      if (left === 'manifest.json') return 1;
+      if (right === 'manifest.json') return -1;
+      return left.localeCompare(right);
+    });
+    promotionOrder.forEach(fileName => {
+      promotedNames.push(fileName);
+      promoteStagedFile(path.join(stagingDir, fileName), path.join(outputDir, fileName));
+    });
+
+    existingFiles.filter(fileName => !stagedNames.has(fileName)).forEach(fileName => {
+      fs.rmSync(path.join(outputDir, fileName));
+      removedNames.push(fileName);
+    });
+  } catch (publishError) {
+    const rollbackErrors = [];
+    const changedNames = Array.from(new Set([...promotedNames, ...removedNames])).reverse();
+    changedNames.forEach(fileName => {
+      const targetPath = path.join(outputDir, fileName);
+      try {
+        if (existingNames.has(fileName)) {
+          const restorePath = path.join(outputDir, `.${fileName}.restore-${process.pid}`);
+          restorePublishedFile(path.join(backupDir, fileName), targetPath, restorePath);
+        } else {
+          fs.rmSync(targetPath, { force: true });
+        }
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    });
+
+    if (rollbackErrors.length) {
+      preserveBackup = true;
+      throw new AggregateError(
+        [publishError, ...rollbackErrors],
+        `Welcome asset publication failed and rollback was incomplete; backup retained at ${backupDir}.`
+      );
+    }
+    throw publishError;
+  } finally {
+    if (!preserveBackup) {
+      fs.rmSync(backupDir, { recursive: true, force: true });
+    }
+  }
+}
+
 function publishGeneratedAssets(temporaryDir, records, sourceFingerprint) {
   const registryText = createRegistrySource(temporaryDir);
   fs.writeFileSync(path.join(temporaryDir, REGISTRY_FILE), registryText, 'utf8');
@@ -1340,21 +1440,7 @@ function publishGeneratedAssets(temporaryDir, records, sourceFingerprint) {
   };
   fs.writeFileSync(path.join(temporaryDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
-  const backupDir = path.join(path.dirname(OUTPUT_DIR), `.welcome-examples-backup-${process.pid}`);
-  fs.rmSync(backupDir, { recursive: true, force: true });
-  if (fs.existsSync(OUTPUT_DIR)) {
-    fs.renameSync(OUTPUT_DIR, backupDir);
-  }
-  try {
-    fs.renameSync(temporaryDir, OUTPUT_DIR);
-  } catch (error) {
-    fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
-    if (fs.existsSync(backupDir)) {
-      fs.renameSync(backupDir, OUTPUT_DIR);
-    }
-    throw error;
-  }
-  fs.rmSync(backupDir, { recursive: true, force: true });
+  publishStagedFiles(temporaryDir, OUTPUT_DIR);
 }
 
 function assertReusableAssetFresh(record, type, expectedSourceFingerprint) {
@@ -1524,6 +1610,7 @@ module.exports = {
   ensureGeneratedAssets,
   generateAssets,
   parseRequestedTypes,
+  publishStagedFiles,
   parsePreserveAspectRatio,
   parseSvgViewBox,
   resolveCanonicalSvgDimensions,

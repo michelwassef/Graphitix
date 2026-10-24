@@ -72,6 +72,23 @@ describe('Surface legend resize metrics', () => {
     expect(metrics.tickLabelGap).toBe(4);
   });
 
+  test('the scale rail uses the title-extended frame while legacy drag positions keep their old anchor', () => {
+    const hooks = window.Components.surface.__testHooks;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    document.body.appendChild(svg);
+    const options = { width: 420, height: 420, graphWidth: 436, margin: { top: 40, right: 80, bottom: 40 }, fontSize: 12, min: 0, max: 1, colorRamp: 'viridis' };
+    const metrics = hooks.resolveLegendMetrics(options);
+    const position = () => svg.querySelector('g.surface-legend').getAttribute('transform');
+
+    hooks.renderLegend(svg, options);
+    expect(position()).toBe(`translate(${436 + metrics.legendRightPad},40)`);
+    hooks.renderLegend(svg, { ...options, position: { anchor: 'right-reserve', relX: 2, relY: 0.5 } });
+    expect(position()).toBe(`translate(${436 + 2 * metrics.legendRightPad},210)`);
+    hooks.renderLegend(svg, { ...options, position: { relX: 2, relY: 0.5 } });
+    expect(position()).toBe(`translate(${340 + 2 * metrics.legendRightPad},210)`);
+    expect(Number(svg.querySelector('[data-surface-color-scale-bar="1"]').getAttribute('width'))).toBe(15);
+  });
+
   test('continuous legend labels retain scale semantics and their rendered size', () => {
     const hooks = window.Components?.surface?.__testHooks;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

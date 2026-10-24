@@ -582,9 +582,22 @@ async function snapshotVennAnalysis(page) {
     const state = window.Components?.venn?.__getState?.() || null;
     const ownerSession = window.Components?.venn?.__testHooks?.getSession?.(active?.id || null) || null;
     const text = selector => root?.querySelector?.(selector)?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const visibility = selector => {
+      const node = root?.querySelector?.(selector) || null;
+      return node ? {
+        hidden: node.hidden,
+        inlineDisplay: node.style.display,
+        display: getComputedStyle(node).display
+      } : null;
+    };
     const payload = window.Components?.venn?.getPayload?.() || null;
     return {
       tabId: active?.id || null,
+      controlVisibility: {
+        copyRegion: visibility('#copyRegionBtn'),
+        goExport: visibility('#goChartExport'),
+        stringExport: visibility('#stringNetworkExport')
+      },
       goText: text('#goResults'),
       stringText: text('#stringResults'),
       networkText: text('#stringNetwork'),
@@ -618,6 +631,22 @@ test('venn GO and STRING async results stay owned by their launching tab', async
   await configureVennTab(page, first);
   await activateTabById(page, secondId);
   await configureVennTab(page, second);
+  const beforeAnalysis = await snapshotVennAnalysis(page);
+  expect(beforeAnalysis.controlVisibility.goExport).toMatchObject({ hidden: true, inlineDisplay: '', display: 'none' });
+  expect(beforeAnalysis.controlVisibility.stringExport).toMatchObject({ hidden: true, inlineDisplay: '', display: 'none' });
+
+  for (const [triggerId, panelId] of [['goOptsBtn', 'goOptions'], ['stringOptsBtn', 'stringOptions']]) {
+    const trigger = page.locator(`#vennPage:not([hidden]) #${triggerId}`);
+    const panel = page.locator(`#vennPage:not([hidden]) #${panelId}`);
+    await expect(panel).toBeHidden();
+    await trigger.click();
+    await expect(panel).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(await panel.evaluate(node => node.style.display)).toBe('');
+    await trigger.click();
+    await expect(panel).toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  }
 
   await runGoAndString(page, firstId, first);
   await runGoAndString(page, secondId, second);
@@ -662,6 +691,9 @@ test('venn GO and STRING async results stay owned by their launching tab', async
   expect(firstSnapshot.goText).not.toContain('BETA GO term');
   expect(firstSnapshot.stringText).toContain('ALPHA STRING enrichment');
   expect(firstSnapshot.networkText).toContain('ALPHA STRING network');
+  expect(firstSnapshot.controlVisibility.copyRegion).toMatchObject({ hidden: false, inlineDisplay: '', display: 'block' });
+  expect(firstSnapshot.controlVisibility.goExport).toMatchObject({ hidden: false, inlineDisplay: '', display: 'flex' });
+  expect(firstSnapshot.controlVisibility.stringExport).toMatchObject({ hidden: false, inlineDisplay: '', display: 'flex' });
   expect(firstSnapshot.payloadGo).toContain('ALPHA GO term');
   expect(firstSnapshot.payloadString).toContain('ALPHA STRING enrichment');
   expect(firstSnapshot.asyncRequests).toEqual({ go: null, string: null, species: null });
@@ -677,6 +709,9 @@ test('venn GO and STRING async results stay owned by their launching tab', async
   expect(secondSnapshot.goText).not.toContain('ALPHA GO term');
   expect(secondSnapshot.stringText).toContain('BETA STRING enrichment');
   expect(secondSnapshot.networkText).toContain('BETA STRING network');
+  expect(secondSnapshot.controlVisibility.copyRegion).toMatchObject({ hidden: false, inlineDisplay: '', display: 'block' });
+  expect(secondSnapshot.controlVisibility.goExport).toMatchObject({ hidden: false, inlineDisplay: '', display: 'flex' });
+  expect(secondSnapshot.controlVisibility.stringExport).toMatchObject({ hidden: false, inlineDisplay: '', display: 'flex' });
   expect(secondSnapshot.payloadGo).toContain('BETA GO term');
   expect(secondSnapshot.payloadString).toContain('BETA STRING enrichment');
   expect(secondSnapshot.asyncRequests).toEqual({ go: null, string: null, species: null });
@@ -1025,6 +1060,17 @@ for (const kind of ['go', 'string']) {
     expect(secondBeforeResolve.goFormatted.some(gene => String(gene).includes('ALPHA'))).toBe(false);
     expect(secondBeforeResolve.stringEnrichment.some(term => String(term).includes('ALPHA'))).toBe(false);
 
+    const speciesCaches = await page.evaluate(([firstId, secondId]) => {
+      const getEntries = id => window.Components?.venn?.__testHooks?.getSession?.(id)
+        ?.state?.runtime?.analysis?.speciesDetection?.cacheEntries || [];
+      return {
+        first: getEntries(firstId),
+        second: getEntries(secondId)
+      };
+    }, [firstId, secondId]);
+    expect(speciesCaches.first.some(([, value]) => value?.guess === 'hsapiens' && value.geneCount === 2)).toBe(true);
+    expect(speciesCaches.second.some(([, value]) => value?.guess === 'hsapiens')).toBe(false);
+
     if (kind === 'go') {
       await resolveMockGo(page, 'ALPHA');
     } else {
@@ -1042,6 +1088,24 @@ for (const kind of ['go', 'string']) {
     expect(secondPayload.speciesValue).toBe('mmusculus');
     expect(secondPayload.goResult.some(term => String(term).includes('ALPHA'))).toBe(false);
     expect(secondPayload.stringEnrichment.some(term => String(term).includes('ALPHA'))).toBe(false);
+
+    await activateTabById(page, firstId);
+    const firstActiveSpeciesState = await page.evaluate(() => ({
+      species: document.querySelector('#vennPage:not([hidden]) #speciesSelect')?.value || '',
+      guesses: Array.from(window.Components?.venn?.__getState?.()?.analysis?.speciesDetection?.cache?.values?.() || [])
+        .map(entry => entry?.guess || '')
+    }));
+    expect(firstActiveSpeciesState.species).toBe('hsapiens');
+    expect(firstActiveSpeciesState.guesses).toContain('hsapiens');
+
+    await activateTabById(page, secondId);
+    const secondActiveSpeciesState = await page.evaluate(() => ({
+      species: document.querySelector('#vennPage:not([hidden]) #speciesSelect')?.value || '',
+      guesses: Array.from(window.Components?.venn?.__getState?.()?.analysis?.speciesDetection?.cache?.values?.() || [])
+        .map(entry => entry?.guess || '')
+    }));
+    expect(secondActiveSpeciesState.species).toBe('mmusculus');
+    expect(secondActiveSpeciesState.guesses).not.toContain('hsapiens');
   });
 }
 

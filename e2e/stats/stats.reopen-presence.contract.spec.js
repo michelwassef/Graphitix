@@ -96,7 +96,7 @@ function statsRichnessInPage(containerIds) {
     }
     return Array.from(new Set(values)).sort();
   };
-  let svgs = 0, rows = 0, vectors = 0, textLen = 0, exportDropdowns = 0;
+  let svgs = 0, rows = 0, vectors = 0, textLen = 0, exportControls = 0;
   const pValues = [];
   const containerTexts = [];
   for (const id of containerIds) {
@@ -109,14 +109,14 @@ function statsRichnessInPage(containerIds) {
     textLen += text.length;
     containerTexts.push(text);
     pValues.push(...collectStatsPValues(el));
-    exportDropdowns += el.querySelectorAll('.export-dropdown').length;
+    exportControls += el.querySelectorAll('.stats-table-actions select.export-select').length;
   }
   return {
     svgs,
     rows,
     vectors,
     textLen,
-    exportDropdowns,
+    exportControls,
     pValues: Array.from(new Set(pValues)).sort(),
     textSignature: containerTexts.join('\n---stats-container---\n')
   };
@@ -132,22 +132,6 @@ async function captureRocStatsPersistenceState(page) {
       resultsText: String(stats.reportModel?.resultsText || '').toLowerCase().replace(/\s+/g, ' ').trim()
     }));
   });
-}
-
-// Click the first stats-table export trigger and report whether its menu opens. Proves the
-// restored Download/Copy controls are live (re-wired), not dead/mangled markup. Returns
-// { controls: false } when the component has no stats-table export controls.
-function exportControlLivenessInPage(containerIds) {
-  let trigger = null;
-  for (const id of containerIds) {
-    const el = document.getElementById(id);
-    const t = el && el.querySelector('.export-dropdown .export-trigger, .export-dropdown [aria-haspopup="menu"]');
-    if (t) { trigger = t; break; }
-  }
-  if (!trigger) { return { controls: false }; }
-  const menu = trigger.closest('.export-dropdown')?.querySelector('.export-menu');
-  trigger.click();
-  return { controls: true, opened: menu ? menu.hidden === false : false, items: menu ? menu.children.length : 0 };
 }
 
 function pValueFormatStateInPage(containerIds) {
@@ -280,7 +264,7 @@ function expectNoStatsLoss(before, after, label, requiredText) {
   if (requiredText) {
     expect(after.textSignature, `${label}: restored stats lost required semantic facts`).toMatch(requiredText);
   }
-  expect(after.exportDropdowns, `${label}: stats export controls dropped (${after.exportDropdowns} < ${before.exportDropdowns})`).toBeGreaterThanOrEqual(before.exportDropdowns);
+  expect(after.exportControls, `${label}: stats export controls dropped (${after.exportControls} < ${before.exportControls})`).toBeGreaterThanOrEqual(before.exportControls);
   if (before.pValues.length) {
     const missing = before.pValues.filter(value => {
       const expected = Number(value);
@@ -300,13 +284,21 @@ function expectNoStatsLoss(before, after, label, requiredText) {
   }
 }
 
-// Assert the restored stats-table Download/Copy controls are live (their menu opens), not
-// dead/mangled markup. No-op for components without stats-table export controls.
-async function expectExportControlsLive(page, containers, label) {
-  const result = await page.evaluate(exportControlLivenessInPage, containers);
-  if (!result.controls) { return; }
-  expect(result.opened, `${label}: restored stats export control did not open its menu`).toBe(true);
-  expect(result.items, `${label}: restored stats export menu has no items`).toBeGreaterThan(0);
+// Exercise a restored native export select through the real CSV download route.
+async function expectExportControlsLive(page, containers, label, expectedControlCount) {
+  if (!expectedControlCount) { return; }
+  const selector = containers
+    .map(id => `#${id} .stats-table-actions select.export-select[aria-label="Download"]`)
+    .join(', ');
+  const downloadControl = page.locator(selector).first();
+  expect(await downloadControl.count(), `${label}: restored Download select exists`).toBeGreaterThan(0);
+  await expect(downloadControl, `${label}: restored Download select is visible`).toBeVisible();
+  await expect(downloadControl.locator('option[value="csv"]'), `${label}: CSV remains available`).toHaveCount(1);
+  const downloadEvent = page.waitForEvent('download', { timeout: 20_000 });
+  await downloadControl.selectOption('csv');
+  const download = await downloadEvent;
+  expect(download.suggestedFilename(), `${label}: CSV download filename`).toMatch(/\.csv$/i);
+  await expect(downloadControl, `${label}: export select resets after action`).toHaveValue('');
 }
 
 async function seedRecoverySnapshot(page) {
@@ -376,7 +368,7 @@ for (const c of CASES) {
     if (c.key === 'roc') {
       expect(await captureRocStatsPersistenceState(page)).toStrictEqual(rocBefore);
     }
-    await expectExportControlsLive(page, c.containers, `${c.key} reopen`);
+    await expectExportControlsLive(page, c.containers, `${c.key} reopen`, before.exportControls);
     expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
   });
 
@@ -404,7 +396,7 @@ for (const c of CASES) {
       if (c.key === 'roc') {
         expect(await captureRocStatsPersistenceState(page)).toStrictEqual(rocBefore);
       }
-      await expectExportControlsLive(page, c.containers, `${c.key} recovery`);
+      await expectExportControlsLive(page, c.containers, `${c.key} recovery`, before.exportControls);
       expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
     });
   }

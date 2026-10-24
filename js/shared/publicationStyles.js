@@ -25,13 +25,30 @@
   // existing Graphitix sizing behavior unchanged while making the presets
   // auditable against publisher documentation.
   const MM_TO_PX = 96 / 25.4;
-  const MM_TO_PT = 72 / 25.4;
   const DEFAULT_GRAPH_ASPECT = 300 / 336;
-  const DEFAULT_PRESET_ID = 'npg_single';
   const DEFAULT_AXIS_COLOR = '#000000';
   const DEFAULT_FONT_FAMILY = 'Arial';
   const DEFAULT_SINGLE_BOX_FILL = '#666666';
   const DEFAULT_SINGLE_BOX_STROKE = '#000000';
+
+  // Values are print points, not SVG pixels. Width scaling is a Graphitix
+  // choice within sourced limits, not a publisher requirement to scale strokes.
+  // Where no numerical range was verified, use an explicit application policy.
+  // Checked 2026-10-20:
+  // Nature: https://www.nature.com/nature/for-authors/final-submission
+  // JCB: https://rupress.org/jcb/pages/fig-vid-guidelines
+  // EMBO: https://www.embopress.org/figure-guideline (indexed technical guide)
+  // PLOS: https://journals.plos.org/plosone/s/figures (SigmaPlot workflow)
+  const AXIS_STROKE_PROFILES = Object.freeze({
+    nature: { minPt: 0.25, maxPt: 0.75, fullWidthMm: 183, guidance: '0.25-1 pt' },
+    science: { minPt: 0.5, maxPt: 0.75, fullWidthMm: 184, guidance: 'Graphitix 0.5-0.75 pt; no verified publisher range' },
+    cell: { minPt: 0.5, maxPt: 0.75, fullWidthMm: 180, guidance: 'Graphitix 0.5-0.75 pt; no verified publisher range' },
+    plos: { fixedMm: 0.2, guidance: '0.2 mm' },
+    jcb: { minPt: 0.5, maxPt: 0.75, fullWidthMm: 175, guidance: '0.5-1.0 pt' },
+    jcs: { minPt: 0.5, maxPt: 0.75, fullWidthMm: 180, guidance: 'Graphitix 0.5-0.75 pt; no verified publisher range' },
+    embo: { minPt: 0.3, maxPt: 0.75, fullWidthMm: 180, guidance: 'minimum 0.3 pt for dark lines; Graphitix maximum 0.75 pt' },
+    jci: { minPt: 0.5, maxPt: 0.75, fullWidthMm: 180, guidance: 'Graphitix 0.5-0.75 pt; no verified publisher range' }
+  });
 
   function roundNumber(value, digits = 3){
     const numeric = Number(value);
@@ -48,12 +65,14 @@
     return Math.max(1, Math.round(numeric * MM_TO_PX));
   }
 
-  function mmToPt(mm){
+  // SVG stroke-width uses user units. Graphitix plot coordinates follow CSS px,
+  // so convert publisher line widths with the same 96 px/in scale as figure size.
+  function mmToSvgUnits(mm){
     const numeric = Number(mm);
     if(!Number.isFinite(numeric) || numeric <= 0){
-      return 0.5;
+      return 0;
     }
-    return roundNumber(numeric * MM_TO_PT, 3);
+    return roundNumber(numeric * MM_TO_PX, 3);
   }
 
   function proportionalHeightPx(widthPx, maxHeightMm){
@@ -80,6 +99,14 @@
         ? mmToPx(opts.heightMm)
         : proportionalHeightPx(widthPx, opts.maxHeightMm));
     const source = opts.source && typeof opts.source === 'object' ? opts.source : {};
+    const strokeProfile = AXIS_STROKE_PROFILES[opts.strokeProfile];
+    if(!strokeProfile){
+      throw new Error(`Publication preset ${id} requires an axis stroke profile.`);
+    }
+    const axisStrokeWidth = strokeProfile.fixedMm
+      ? mmToSvgUnits(strokeProfile.fixedMm)
+      : Math.max(strokeProfile.minPt, Math.min(strokeProfile.maxPt,
+        strokeProfile.maxPt * Number(opts.widthMm) / strokeProfile.fullWidthMm)) * (96 / 72);
     return Object.freeze({
       id,
       label: String(opts.label || id),
@@ -92,7 +119,7 @@
       fontFamily: String(opts.fontFamily || DEFAULT_FONT_FAMILY),
       fontSizePt: Number.isFinite(Number(opts.fontSizePt)) && Number(opts.fontSizePt) > 0 ? Number(opts.fontSizePt) : 7,
       axisColor: String(opts.axisColor || DEFAULT_AXIS_COLOR),
-      axisStrokeWidth: Number.isFinite(Number(opts.axisStrokeWidth)) && Number(opts.axisStrokeWidth) > 0 ? Number(opts.axisStrokeWidth) : 0.5,
+      axisStrokeWidth,
       proportionalFontResize: opts.proportionalFontResize === true,
       pointSize: Number.isFinite(Number(opts.pointSize)) && Number(opts.pointSize) > 0 ? Number(opts.pointSize) : 4,
       pointBorderWidth: Number.isFinite(Number(opts.pointBorderWidth)) && Number(opts.pointBorderWidth) >= 0 ? Number(opts.pointBorderWidth) : 1,
@@ -103,12 +130,11 @@
       showFrame: opts.showFrame === true,
       singleBoxFill: String(opts.singleBoxFill || DEFAULT_SINGLE_BOX_FILL),
       singleBoxStroke: String(opts.singleBoxStroke || DEFAULT_SINGLE_BOX_STROKE),
-      boxDatasetSpacingX: Number.isFinite(Number(opts.boxDatasetSpacingX)) ? Number(opts.boxDatasetSpacingX) : 0.6,
       source: Object.freeze({
         publisher: String(source.publisher || ''),
         sizing: String(source.sizing || ''),
         typography: String(source.typography || ''),
-        stroke: String(source.stroke || ''),
+        stroke: strokeProfile.guidance,
         color: String(source.color || '')
       })
     });
@@ -125,8 +151,8 @@
       heightPx: 300,
       widthMm: 89,
       fontSizePt: 7,
-      axisStrokeWidth: 0.333,
-      source: { publisher: 'Nature / NPG', sizing: '89 mm single column', typography: 'Arial/Helvetica, 7 pt', stroke: '0.25-1 pt' }
+      strokeProfile: 'nature',
+      source: { publisher: 'Nature / NPG', sizing: '89 mm single column', typography: 'Arial/Helvetica, 7 pt' }
     }),
     makePublisherPreset({
       id: 'npg_15col_120',
@@ -134,8 +160,8 @@
       group: 'Nature / NPG — choose final width',
       widthMm: 120,
       fontSizePt: 7,
-      axisStrokeWidth: 0.333,
-      source: { publisher: 'Nature / NPG', sizing: '120-136 mm intermediate figure width', typography: 'Arial/Helvetica, 7 pt', stroke: '0.25-1 pt' }
+      strokeProfile: 'nature',
+      source: { publisher: 'Nature / NPG', sizing: '120-136 mm intermediate figure width', typography: 'Arial/Helvetica, 7 pt' }
     }),
     makePublisherPreset({
       id: 'npg_15col_136',
@@ -143,8 +169,8 @@
       group: 'Nature / NPG — choose final width',
       widthMm: 136,
       fontSizePt: 7,
-      axisStrokeWidth: 0.333,
-      source: { publisher: 'Nature / NPG', sizing: '120-136 mm intermediate figure width', typography: 'Arial/Helvetica, 7 pt', stroke: '0.25-1 pt' }
+      strokeProfile: 'nature',
+      source: { publisher: 'Nature / NPG', sizing: '120-136 mm intermediate figure width', typography: 'Arial/Helvetica, 7 pt' }
     }),
     makePublisherPreset({
       id: 'npg_double',
@@ -152,8 +178,8 @@
       group: 'Nature / NPG — choose final width',
       widthMm: 183,
       fontSizePt: 7,
-      axisStrokeWidth: 0.333,
-      source: { publisher: 'Nature / NPG', sizing: '183 mm double column', typography: 'Arial/Helvetica, 7 pt', stroke: '0.25-1 pt' }
+      strokeProfile: 'nature',
+      source: { publisher: 'Nature / NPG', sizing: '183 mm double column', typography: 'Arial/Helvetica, 7 pt' }
     }),
 
     // Science/AAAS: published figure widths are 5.7, 12.1, and 18.4 cm.
@@ -163,8 +189,8 @@
       group: 'Science / AAAS',
       widthMm: 57,
       fontSizePt: 7,
-      axisStrokeWidth: 0.5,
-      source: { publisher: 'Science / AAAS', sizing: '57 mm one column', typography: 'legible after reduction, about 7 pt', stroke: 'sufficient final line weight' }
+      strokeProfile: 'science',
+      source: { publisher: 'Science / AAAS', sizing: '57 mm one column', typography: 'legible after reduction, about 7 pt' }
     }),
     makePublisherPreset({
       id: 'science_2col',
@@ -172,8 +198,8 @@
       group: 'Science / AAAS',
       widthMm: 121,
       fontSizePt: 7,
-      axisStrokeWidth: 0.5,
-      source: { publisher: 'Science / AAAS', sizing: '121 mm two columns', typography: 'legible after reduction, about 7 pt', stroke: 'sufficient final line weight' }
+      strokeProfile: 'science',
+      source: { publisher: 'Science / AAAS', sizing: '121 mm two columns', typography: 'legible after reduction, about 7 pt' }
     }),
     makePublisherPreset({
       id: 'science_3col',
@@ -181,8 +207,8 @@
       group: 'Science / AAAS',
       widthMm: 184,
       fontSizePt: 7,
-      axisStrokeWidth: 0.5,
-      source: { publisher: 'Science / AAAS', sizing: '184 mm three columns', typography: 'legible after reduction, about 7 pt', stroke: 'sufficient final line weight' }
+      strokeProfile: 'science',
+      source: { publisher: 'Science / AAAS', sizing: '184 mm three columns', typography: 'legible after reduction, about 7 pt' }
     }),
 
     // Cell Press specifies figure text around 6-8 pt, but does not provide a
@@ -194,8 +220,8 @@
       group: 'Cell Press / Nature-compatible typography',
       widthMm: 89,
       fontSizePt: 7,
-      axisStrokeWidth: 0.5,
-      source: { publisher: 'Cell Press', sizing: 'no universal graph width; Graphitix single-panel default 89 mm', typography: '6-8 pt at print size', stroke: 'clean vector line art' }
+      strokeProfile: 'cell',
+      source: { publisher: 'Cell Press', sizing: 'no universal graph width; Graphitix single-panel default 89 mm', typography: '6-8 pt at print size' }
     }),
 
     // PLOS SigmaPlot guidance: 132.0 mm text column or 190.5 mm page width,
@@ -207,9 +233,9 @@
       widthMm: 132,
       maxHeightMm: 222.3,
       fontSizePt: 8,
-      axisStrokeWidth: mmToPt(0.2),
+      strokeProfile: 'plos',
       pointSize: 4.5,
-      source: { publisher: 'PLOS', sizing: '132.0 mm text-column graph width', typography: '8 pt', stroke: '0.2 mm' }
+      source: { publisher: 'PLOS', sizing: '132.0 mm text-column graph width', typography: '8 pt' }
     }),
     makePublisherPreset({
       id: 'plos_full',
@@ -218,9 +244,9 @@
       widthMm: 190.5,
       maxHeightMm: 222.3,
       fontSizePt: 8,
-      axisStrokeWidth: mmToPt(0.2),
+      strokeProfile: 'plos',
       pointSize: 4.5,
-      source: { publisher: 'PLOS', sizing: '190.5 mm full-page graph width', typography: '8 pt', stroke: '0.2 mm' }
+      source: { publisher: 'PLOS', sizing: '190.5 mm full-page graph width', typography: '8 pt' }
     }),
 
     // JCB: maximum figure size 17.5 x 22.8 cm; 8 pt text; 0.5-1.0 pt strokes.
@@ -231,9 +257,9 @@
       widthMm: 175,
       maxHeightMm: 228,
       fontSizePt: 8,
-      axisStrokeWidth: 0.75,
+      strokeProfile: 'jcb',
       pointSize: 4.5,
-      source: { publisher: 'Journal of Cell Biology / Rockefeller University Press', sizing: '175 mm max width', typography: '8 pt', stroke: '0.5-1.0 pt' }
+      source: { publisher: 'Journal of Cell Biology / Rockefeller University Press', sizing: '175 mm max width', typography: '8 pt' }
     }),
 
     // Journal of Cell Science / Company of Biologists: max 180 x 210 mm;
@@ -246,9 +272,9 @@
       widthMm: 180,
       maxHeightMm: 210,
       fontSizePt: 8,
-      axisStrokeWidth: 0.75,
+      strokeProfile: 'jcs',
       pointSize: 4.5,
-      source: { publisher: 'Journal of Cell Science / Company of Biologists', sizing: '180 mm max width, 210 mm max height', typography: '8 pt Arial labels', stroke: 'sufficient line thickness' }
+      source: { publisher: 'Journal of Cell Science / Company of Biologists', sizing: '180 mm max width, 210 mm max height', typography: '8 pt Arial labels' }
     }),
 
     // EMBO Press: 87 mm one-column or 180 mm two-column printed figure widths.
@@ -258,8 +284,8 @@
       group: 'EMBO Press',
       widthMm: 87,
       fontSizePt: 7,
-      axisStrokeWidth: 0.5,
-      source: { publisher: 'EMBO Press', sizing: '87 mm one column', typography: 'small readable graph labels', stroke: 'clean vector line art' }
+      strokeProfile: 'embo',
+      source: { publisher: 'EMBO Press', sizing: '87 mm one column', typography: 'small readable graph labels' }
     }),
     makePublisherPreset({
       id: 'embo_double',
@@ -267,8 +293,8 @@
       group: 'EMBO Press',
       widthMm: 180,
       fontSizePt: 7,
-      axisStrokeWidth: 0.5,
-      source: { publisher: 'EMBO Press', sizing: '180 mm two columns', typography: 'small readable graph labels', stroke: 'clean vector line art' }
+      strokeProfile: 'embo',
+      source: { publisher: 'EMBO Press', sizing: '180 mm two columns', typography: 'small readable graph labels' }
     }),
 
     // JCI: 9-18 cm width, 17.25 cm max height, 8 pt Helvetica/Arial, RGB.
@@ -279,9 +305,9 @@
       widthMm: 90,
       maxHeightMm: 172.5,
       fontSizePt: 8,
-      axisStrokeWidth: 0.5,
+      strokeProfile: 'jci',
       pointSize: 4.5,
-      source: { publisher: 'Journal of Clinical Investigation', sizing: '90 mm within 9-18 cm range', typography: '8 pt Helvetica/Arial', stroke: 'clean vector line art' }
+      source: { publisher: 'Journal of Clinical Investigation', sizing: '90 mm within 9-18 cm range', typography: '8 pt Helvetica/Arial' }
     }),
     makePublisherPreset({
       id: 'jci_double',
@@ -290,9 +316,9 @@
       widthMm: 180,
       maxHeightMm: 172.5,
       fontSizePt: 8,
-      axisStrokeWidth: 0.5,
+      strokeProfile: 'jci',
       pointSize: 4.5,
-      source: { publisher: 'Journal of Clinical Investigation', sizing: '180 mm within 9-18 cm range', typography: '8 pt Helvetica/Arial', stroke: 'clean vector line art' }
+      source: { publisher: 'Journal of Clinical Investigation', sizing: '180 mm within 9-18 cm range', typography: '8 pt Helvetica/Arial' }
     })
   ]);
 
@@ -528,59 +554,6 @@
 
 
 
-  function captureDefaultState(type, session, domControls, workspace){
-    const snapshot = {
-      defaultPayload: null,
-      emptyPayloadTemplate: null
-    };
-    try{
-      if(domControls && typeof domControls.ensureDefaultPayload === 'function'){
-        snapshot.defaultPayload = cloneValue(domControls.ensureDefaultPayload(session, type, workspace));
-      }
-    }catch(err){
-      console.error('publicationStyles capture default payload error', { type, err });
-    }
-    try{
-      if(workspace && typeof workspace.captureEmptyPayloadTemplate === 'function'){
-        snapshot.emptyPayloadTemplate = cloneValue(workspace.captureEmptyPayloadTemplate());
-      }
-    }catch(err){
-      console.error('publicationStyles capture empty payload template error', { type, err });
-    }
-    debugLog('Debug: publicationStyles captured defaults', {
-      type,
-      hasDefaultPayload: !!snapshot.defaultPayload,
-      hasEmptyPayloadTemplate: !!snapshot.emptyPayloadTemplate
-    });
-    return snapshot;
-  }
-
-  function restoreDefaultState(type, session, domControls, workspace, snapshot, reason){
-    const nextSnapshot = snapshot || {};
-    try{
-      if(nextSnapshot.defaultPayload && domControls && typeof domControls.setWorkspaceDefaultPayload === 'function'){
-        domControls.setWorkspaceDefaultPayload(session, type, cloneValue(nextSnapshot.defaultPayload));
-      }
-    }catch(err){
-      console.error('publicationStyles restore default payload error', { type, reason, err });
-    }
-    try{
-      if(nextSnapshot.emptyPayloadTemplate && workspace && typeof workspace.restoreEmptyPayloadTemplate === 'function'){
-        workspace.restoreEmptyPayloadTemplate(cloneValue(nextSnapshot.emptyPayloadTemplate), {
-          reason: reason || 'publication-style-restore'
-        });
-      }
-    }catch(err){
-      console.error('publicationStyles restore empty payload template error', { type, reason, err });
-    }
-    debugLog('Debug: publicationStyles restored defaults', {
-      type,
-      reason: reason || 'publication-style-restore',
-      hasDefaultPayload: !!nextSnapshot.defaultPayload,
-      hasEmptyPayloadTemplate: !!nextSnapshot.emptyPayloadTemplate
-    });
-  }
-
   function resolvePublicationSessionGeneration(type, tabLike){
     const tabId = String(tabLike?.id || tabLike || '').trim();
     if(!tabId){
@@ -605,7 +578,7 @@
         tabId,
         sessionGeneration,
         element: box || undefined,
-        updateDefaults: true,
+        updateDefaults: false,
         updateAspectRatio: true,
         preserveAspectLock: true,
         forceExact: true
@@ -632,7 +605,7 @@
         height: h,
         axis: 'both',
         reason: `publication-style-${type}-fallback`,
-        updateDefaults: true,
+        updateDefaults: false,
         updateAspectRatio: true,
         preserveAspectLock: true,
         forceExact: true
@@ -684,6 +657,8 @@
       display: {
         widthPx: targetWidthPx,
         heightPx: targetHeightPx,
+        defaultWidthPx: existingDisplay.defaultWidthPx || existingDisplay.widthPx || targetWidthPx,
+        defaultHeightPx: existingDisplay.defaultHeightPx || existingDisplay.heightPx || targetHeightPx,
         minWidthPx,
         minHeightPx,
         maxWidthPx,
@@ -820,15 +795,8 @@
         });
       }
 
-      // Keep publication-style dataset spacing on the same manual-style path
-      // for every publisher preset.
-      const datasetSpacingX = Number.isFinite(Number(preset.boxDatasetSpacingX))
-        ? Number(preset.boxDatasetSpacingX)
-        : 0.6;
-      cfg.axis = ensureObject(cfg.axis);
-      cfg.axis.datasetSpacing = ensureObject(cfg.axis.datasetSpacing);
-      cfg.axis.datasetSpacing.x = datasetSpacingX;
-      cfg.axis.datasetSpacingX = datasetSpacingX;
+      // Publisher dimensions do not prescribe dataset spacing. Preserve the
+      // user's spacing, just as a manual frame or axis resize does.
 
       // Single-format Prism/GraphPad-style column plots should stay neutral:
       // one shared fill, black structural elements. Grouped formats keep the
@@ -1104,13 +1072,23 @@
     }
 
     const restoreGraphVisibility = suspendPublicationGraphVisibility(type);
-    const preservedDefaults = captureDefaultState(type, session, domControls, workspace);
     const undoManager = Shared.undoManager || null;
     let beforeState = null;
     try{
       try{
         if(typeof session.persistActiveTabState === 'function'){
-          session.persistActiveTabState(tab, { reason: `publication-style-pre-${type}`, origin: 'lifecycle' });
+          session.persistActiveTabState(tab, {
+            reason: `publication-style-pre-${type}`,
+            origin: 'user',
+            captureRenderCache: false,
+            forcePreviewCapture: true,
+            snapshotIntent: {
+              captureLivePayload: true,
+              allowSkipLivePayloadCapture: false,
+              lifecycleSnapshot: false,
+              reasonSkippable: false
+            }
+          });
         }
       }catch(err){
         console.error('publicationStyles pre-persist error', { type, err });
@@ -1118,18 +1096,20 @@
       if(undoManager && typeof undoManager.captureTabState === 'function'){
         beforeState = undoManager.captureTabState(tab, {
           reason: `publication-style-pre-${type}`,
-          persistActive: true,
-          forcePreviewCapture: true
+          // The live payload, layout and preview were captured immediately above.
+          persistActive: false
         });
       }
 
-      const sourcePayload = cloneValue(tab.payload)
-        || (typeof workspace.getPayload === 'function' ? workspace.getPayload({
+      // A preset edits the live owner. Session persistence may deliberately
+      // retain saved layout, which is not the current responsive sizing baseline.
+      const sourcePayload = (typeof workspace.getPayload === 'function' ? cloneValue(workspace.getPayload({
           tabId: tab.id,
           type,
           reason: `publication-style-source-${type}`,
           origin: 'publicationStyles'
-        }) : null)
+        })) : null)
+        || cloneValue(tab.payload)
         || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} });
 
       let nextPayload = patchCommonPayload(type, sourcePayload, preset);
@@ -1156,11 +1136,15 @@
       if(typeof domControls.applyWorkspacePayload === 'function'){
         domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), {
           reason: `publication-style-${type}`,
+          publicationStyle: true,
+          styleOnly: true,
+          skipDataLoad: true,
+          viewOnly: true,
           tabId: tab.id,
           sessionGeneration: resolvePublicationSessionGeneration(type, tab),
           payloadSizingOptions: {
             context: `publication-style-${type}`,
-            updateDefaults: true,
+            updateDefaults: false,
             updateAspectRatio: true,
             preserveAspectLock: true,
             forceExact: true
@@ -1183,14 +1167,6 @@
       if(!sizingAppliedViaPayload){
         applySizingToOwnedSvgBox(type, nextPayload, preset, tab);
       }
-
-      restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-immediate');
-      schedulePublicationTimeout(type, tab.id, 'publication-style-post-deferred', () => runForActivePublicationTab(type, tab.id, 'publication-style-post-deferred', () => {
-        restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-deferred');
-      }), 0);
-      schedulePublicationTimeout(type, tab.id, 'publication-style-post-stabilize', () => runForActivePublicationTab(type, tab.id, 'publication-style-post-stabilize', () => {
-        restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-stabilize');
-      }), 180);
 
       try{
         if(typeof session.persistActiveTabState === 'function'){
@@ -1245,7 +1221,7 @@
     }
   }
 
-  function formatPresetHint(preset){
+  function formatPresetDescription(preset){
     if(!preset || typeof preset !== 'object'){
       return '';
     }
@@ -1260,23 +1236,45 @@
     if(source.stroke) specParts.push(`${source.stroke} strokes`);
     if(source.color) specParts.push(source.color);
     if(specParts.length){
-      pieces.push(`${specParts.join('; ')}.`);
+      const publisher = String(source.publisher || '').trim();
+      const prefix = publisher ? `${publisher}: ` : '';
+      pieces.push(`${prefix}${specParts.join('; ')}.`);
     }
     return pieces.join(' ');
   }
 
-  function updatePresetHint(select, hint){
-    if(!select || !hint){
+  function updatePresetTooltip(select){
+    if(!select){
       return;
     }
-    const preset = PRESETS[String(select.value || DEFAULT_PRESET_ID)] || PRESETS[DEFAULT_PRESET_ID];
-    hint.textContent = formatPresetHint(preset);
+    const preset = PRESETS[String(select.value || '').trim()];
+    select.title = preset ? formatPresetDescription(preset) : '';
+  }
+
+  function syncPresetControl(select){
+    if(!select){
+      return;
+    }
+    updatePresetTooltip(select);
+    const applyBtn = select.closest('[data-publication-style-fieldset="1"]')
+      ?.querySelector?.('[data-publication-style-apply="1"]') || null;
+    if(applyBtn){
+      applyBtn.disabled = !PRESETS[String(select.value || '').trim()];
+    }
   }
 
   function appendPresetOptions(select){
     if(!select){
       return;
     }
+    const placeholder = global.document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Choose a publisher style';
+    placeholder.disabled = true;
+    placeholder.defaultSelected = true;
+    placeholder.selected = true;
+    select.appendChild(placeholder);
+
     const groups = [];
     const groupsByName = new Map();
     Object.values(PRESETS).forEach(preset => {
@@ -1300,7 +1298,7 @@
         const opt = global.document.createElement('option');
         opt.value = p.id;
         opt.textContent = p.label;
-        opt.title = formatPresetHint(p);
+        opt.title = formatPresetDescription(p);
         target.appendChild(opt);
       });
       if(target !== select){
@@ -1343,6 +1341,7 @@
     applyBtn.type = 'button';
     applyBtn.className = 'btn btn-secondary';
     applyBtn.textContent = 'Apply style';
+    applyBtn.disabled = true;
     applyBtn.dataset.publicationStyleApply = '1';
     applyBtn.dataset.componentType = type;
 
@@ -1351,12 +1350,7 @@
     row.appendChild(applyBtn);
     fieldset.appendChild(row);
 
-    const hint = global.document.createElement('div');
-    hint.className = 'idx-inline-048';
-    hint.dataset.publicationStyleHint = '1';
-    updatePresetHint(select, hint);
-    select.addEventListener('change', () => updatePresetHint(select, hint));
-    fieldset.appendChild(hint);
+    syncPresetControl(select);
 
     panel.appendChild(fieldset);
 
@@ -1364,7 +1358,7 @@
       Shared.formControls.autoSizeSelect(select);
     }
 
-    state.controlsByType[type] = { select, applyBtn, hint };
+    state.controlsByType[type] = { select, applyBtn };
     debugLog('Debug: publicationStyles control mounted', { type, pageId: descriptor.pageId });
   }
 
@@ -1376,6 +1370,14 @@
     if(!doc){
       return;
     }
+    doc.addEventListener('change', evt => {
+      const select = evt.target instanceof global.Element
+        ? evt.target.closest('select[data-publication-style-select="1"]')
+        : null;
+      if(select){
+        syncPresetControl(select);
+      }
+    });
     doc.addEventListener('click', evt => {
       const button = evt.target instanceof global.Element
         ? evt.target.closest('[data-publication-style-apply="1"]')
@@ -1389,7 +1391,10 @@
       }
       const row = button.closest('.config-panel__line');
       const select = row?.querySelector?.('select[data-publication-style-select="1"]') || null;
-      const presetId = String(select?.value || DEFAULT_PRESET_ID);
+      if(!select?.value){
+        return;
+      }
+      const presetId = String(select.value);
       const ok = applyPresetToActiveTab(type, presetId);
       debugLog('Debug: publicationStyles apply click', { type, presetId, ok });
     });
@@ -1408,19 +1413,12 @@
       if(!fallback){
         return;
       }
-      if(!fallback.value){
-        fallback.value = DEFAULT_PRESET_ID;
-      }
-      updatePresetHint(fallback, state.controlsByType[tab.type]?.hint || null);
+      syncPresetControl(fallback);
       debugLog('Debug: publicationStyles visuals synced', { reason, tabId: tab.id, type: tab.type });
       return;
     }
     controls.forEach(control => {
-      if(!control.value){
-        control.value = DEFAULT_PRESET_ID;
-      }
-      const hint = control.closest('[data-publication-style-fieldset="1"]')?.querySelector?.('[data-publication-style-hint="1"]') || null;
-      updatePresetHint(control, hint);
+      syncPresetControl(control);
     });
     debugLog('Debug: publicationStyles visuals synced', { reason, tabId: tab.id, type: tab.type });
   }

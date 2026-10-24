@@ -22,6 +22,71 @@ function flushToolbar() {
 }
 
 describe('workspace toolbar overflow integration', () => {
+  test('replicate buttons keep the original owner-bound controls and project restored values', async () => {
+    const key = nextToolbarKey('replicates');
+    const container = mountToolbarContainer(key);
+    container.innerHTML = `<div data-replicates-controls="1"><select data-replicate-select="1" hidden>
+      <option value="standard">Standard</option><option value="grouped">Grouped samples</option>
+      </select><input type="number" value="2"></div><div data-toolbar-root></div>`;
+    const select = container.querySelector('select');
+    const count = container.querySelector('input');
+    const onChange = jest.fn();
+    select.addEventListener('change', onChange);
+    window.Shared.workspaceToolbar.register(key, { sections: [{
+      type: 'buttons', tabLabel: 'Data', caption: 'Data transformation',
+      transformSection: true, transformKey: key, replicates: true, buttons: []
+    }] });
+    window.Shared.workspaceToolbar.renderForElement(container);
+    await flushToolbar();
+    const panel = container.querySelector('.workspace-toolbar__panel--replicates');
+    expect(panel.querySelector('select')).toBe(select);
+    expect(panel.querySelector('input')).toBe(count);
+    const single = panel.querySelector('[data-replicate-value="standard"]');
+    const grouped = panel.querySelector('[data-replicate-value="grouped"]');
+    expect(single.getAttribute('aria-pressed')).toBe('true');
+    grouped.click();
+    expect(select.value).toBe('grouped');
+    expect(grouped.getAttribute('aria-pressed')).toBe('true');
+    expect(single.getAttribute('aria-pressed')).toBe('false');
+    expect(onChange).toHaveBeenCalledTimes(1);
+    grouped.click();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    // Session hydration projects without generating another user change.
+    select.value = 'standard';
+    window.Shared.workspaceToolbar.syncReplicateMode(select);
+    expect(single.getAttribute('aria-pressed')).toBe('true');
+    expect(onChange).toHaveBeenCalledTimes(1);
+    select.disabled = true;
+    window.Shared.workspaceToolbar.syncReplicateMode(select);
+    expect(grouped.disabled).toBe(true);
+    grouped.click();
+    expect(select.value).toBe('standard');
+  });
+
+  test('cloned replicate controls resolve their own select without changing another tab', async () => {
+    const key = nextToolbarKey('replicates-clone');
+    const container = mountToolbarContainer(key);
+    container.innerHTML = `<div data-replicates-controls="1"><select data-replicate-select="1" hidden>
+      <option value="single">Single</option><option value="grouped">Grouped</option><option value="3d">3D datasets</option>
+      </select></div><div data-toolbar-root></div>`;
+    window.Shared.workspaceToolbar.register(key, { sections: [{
+      type: 'buttons', tabLabel: 'Data', caption: 'Data transformation',
+      transformSection: true, transformKey: key, replicates: true, buttons: []
+    }] });
+    window.Shared.workspaceToolbar.renderForElement(container);
+    await flushToolbar();
+    const clone = container.cloneNode(true);
+    document.body.appendChild(clone);
+    mountedContainers.add(clone);
+    const originalSelect = container.querySelector('select');
+    const clonedSelect = clone.querySelector('select');
+    clone.querySelector('[data-replicate-value="3d"]').click();
+    expect(clonedSelect.value).toBe('3d');
+    expect(originalSelect.value).toBe('single');
+    expect(container.querySelector('[aria-pressed="true"]').dataset.replicateValue).toBe('single');
+    expect(clone.querySelector('[aria-pressed="true"]').dataset.replicateValue).toBe('3d');
+  });
+
   afterEach(() => {
     mountedContainers.forEach(container => {
       const toolbar = container.querySelector('.workspace-toolbar');
@@ -164,6 +229,35 @@ describe('workspace toolbar overflow integration', () => {
     trigger.click();
     expect(wrapper.classList.contains('workspace-toolbar__menu--open')).toBe(false);
     expect(menu.dataset.toolbarFloatingOverlay).toBeUndefined();
+  });
+
+  test('closes open menus owned by a deactivated workspace root', async () => {
+    const key = nextToolbarKey('owner-menu-lifecycle');
+    const container = mountToolbarContainer(key);
+    window.Shared.workspaceToolbar.register(key, {
+      sections: [{
+        type: 'buttons',
+        caption: 'File',
+        buttons: [{
+          id: `${key}-open`,
+          label: 'Open',
+          icon: 'open',
+          menuItems: [{ id: `${key}-open-file`, label: 'Open file' }]
+        }]
+      }]
+    });
+    window.Shared.workspaceToolbar.renderForElement(container);
+    await flushToolbar();
+
+    const trigger = document.getElementById(`${key}-open`);
+    const wrapper = trigger.closest('.workspace-toolbar__menu');
+    trigger.click();
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(wrapper.classList.contains('workspace-toolbar__menu--open')).toBe(true);
+
+    expect(window.Shared.workspaceToolbar.closeTransientUiForRoot(container, { tabId: 'owner-tab' })).toBe(1);
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(wrapper.classList.contains('workspace-toolbar__menu--open')).toBe(false);
   });
 
   test('renders Data transforms with the shared toolbar panel and title contract', async () => {

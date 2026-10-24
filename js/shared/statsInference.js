@@ -11,7 +11,7 @@
   const FDR_METHODS = new Set(['bh', 'by']);
   const FWER_METHODS = new Set([
     'bonferroni', 'holm', 'holm-sidak', 'sidak', 'hochberg',
-    'tukey', 'games-howell', 'tamhane-t2', 'dunnett', 'dunnett-t3', 'nemenyi'
+    'tukey', 'games-howell', 'tamhane-t2', 'dunnett', 'dunnett-t3', 'dunnett-test', 'dunnett-t3-test', 'nemenyi'
   ]);
   const METHOD_ALIASES = Object.freeze({
     'unadjusted': 'none',

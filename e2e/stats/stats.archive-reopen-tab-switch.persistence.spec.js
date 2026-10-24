@@ -83,7 +83,7 @@ async function waitForStatsReady(page, componentCase) {
     await expect(page.locator('#boxComputeStats')).toBeEnabled({ timeout: 25_000 });
     await page.locator('#boxComputeStats').click();
     await expect(page.locator('#boxStatsStatus')).toContainText('Statistics up to date.', { timeout: 40_000 });
-    await expect(page.locator('#boxComputeStats')).toHaveText(/Recalculate statistics/i, { timeout: 20_000 });
+    await expect(page.locator('#boxComputeStats')).toHaveText(/Calculate statistics/i, { timeout: 20_000 });
     await expect(page.locator('#statsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
     return;
   }
@@ -91,7 +91,7 @@ async function waitForStatsReady(page, componentCase) {
     await expect(page.locator('#scatterComputeStats')).toBeEnabled({ timeout: 25_000 });
     await page.locator('#scatterComputeStats').click();
     await expect(page.locator('#scatterStatsStatus')).toContainText('Statistics up to date.', { timeout: 40_000 });
-    await expect(page.locator('#scatterComputeStats')).toHaveText(/Recalculate statistics/i, { timeout: 20_000 });
+    await expect(page.locator('#scatterComputeStats')).toHaveText(/Calculate statistics/i, { timeout: 20_000 });
     await expect(page.locator('#scatterStatsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
     return;
   }
@@ -104,7 +104,7 @@ async function waitForStatsReady(page, componentCase) {
     await expect(page.locator('#lineComputeStats')).toBeEnabled({ timeout: 25_000 });
     await page.locator('#lineComputeStats').click();
     await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 40_000 });
-    await expect(page.locator('#lineComputeStats')).toHaveText(/Recalculate statistics/i, { timeout: 20_000 });
+    await expect(page.locator('#lineComputeStats')).toHaveText(/Calculate statistics/i, { timeout: 20_000 });
     await expect(page.locator('#lineStatsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
     return;
   }
@@ -117,7 +117,7 @@ async function waitForStatsReady(page, componentCase) {
     await expect(page.locator('#pieComputeStats')).toBeEnabled({ timeout: 25_000 });
     await page.locator('#pieComputeStats').click();
     await expect(page.locator('#pieStatsStatus')).toContainText('Statistics up to date.', { timeout: 40_000 });
-    await expect(page.locator('#pieComputeStats')).toHaveText(/Recalculate statistics/i, { timeout: 20_000 });
+    await expect(page.locator('#pieComputeStats')).toHaveText(/Calculate statistics/i, { timeout: 20_000 });
     await expect(page.locator('#pieStatsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
     return;
   }

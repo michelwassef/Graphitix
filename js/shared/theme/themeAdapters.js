@@ -38,7 +38,7 @@
       const next = cloneValue(payload) || { type, config: {} };
       next.type = type;
       const cfg = next.config = ensureObject(next.config);
-      cfg.colorScheme = String(scheme?.id || cfg.colorScheme || 'scientific').toLowerCase();
+      cfg.colorScheme = String(scheme?.id || cfg.colorScheme || 'normal').toLowerCase();
       applyAxisTokens(cfg, scheme);
       return next;
     };
@@ -62,7 +62,7 @@
         const next = cloneValue(payload) || { type: 'venn', style: {} };
         next.type = 'venn';
         next.style = ensureObject(next.style);
-        next.style.colorScheme = String(scheme?.id || next.style.colorScheme || 'scientific').toLowerCase();
+        next.style.colorScheme = String(scheme?.id || next.style.colorScheme || 'normal').toLowerCase();
         return next;
       });
     }

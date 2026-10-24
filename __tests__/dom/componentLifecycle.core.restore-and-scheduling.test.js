@@ -351,6 +351,27 @@ describe('session teardown contract', () => {
     });
   });
 
+  test('applySessionData records the restored owner for a tab-scoped file target', async () => {
+    const result = await session.applySessionData({
+      activeIndex: 0,
+      scope: 'tab',
+      tabs: [{
+        title: 'Saved Box',
+        type: 'box',
+        payload: { type: 'box', data: [['Group'], [3]] }
+      }]
+    }, {
+      reason: 'unit-tab-file-target-owner',
+      fileHandle: { name: 'saved-box.graph' },
+      fileScope: 'tab',
+      activateTab: jest.fn(() => true)
+    });
+
+    expect(result.targetTabId).toBeTruthy();
+    expect(session.workspaceState.sessionFileScope).toBe('tab');
+    expect(session.workspaceState.sessionFileTabId).toBe(result.targetTabId);
+  });
+
   test('applySessionData rolls back tabs and file metadata when restored activation fails', async () => {
     const previousTab = session.createTab({
       title: 'Current Box',
@@ -363,6 +384,7 @@ describe('session teardown contract', () => {
     session.workspaceState.sessionFileName = 'current.graph';
     session.workspaceState.sessionFilePath = 'C:/current.graph';
     session.workspaceState.sessionFileScope = 'workspace';
+    session.workspaceState.sessionFileTabId = 'current-tab-file-owner';
     window.Shared.workspaceTabs.setOwnedRuntimeRecord(previousTab, 'box', { hydrated: true });
 
     const activateTab = jest.fn((tabId, meta) => {
@@ -394,6 +416,7 @@ describe('session teardown contract', () => {
     expect(session.workspaceState.sessionFileHandle).toEqual({ name: 'current-handle' });
     expect(session.workspaceState.sessionFileName).toBe('current.graph');
     expect(session.workspaceState.sessionFilePath).toBe('C:/current.graph');
+    expect(session.workspaceState.sessionFileTabId).toBe('current-tab-file-owner');
     expect(previousTab.sharedState).toBeTruthy();
     expect(activateTab).toHaveBeenLastCalledWith(previousTab.id, expect.objectContaining({
       allowDuringDocumentOperation: true,

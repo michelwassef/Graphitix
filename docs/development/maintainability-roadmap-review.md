@@ -2,7 +2,7 @@
 
 Date: 2026-10-03. Decision: **retain the approach, but revise the scope and evidence gates before approving the full initiative.**
 
-This is a review record, not a replacement roadmap or a second backlog. Implementation sequencing belongs in the [roadmap](../../refactors-todo/maintainability-refactor-roadmap.md); confirmed open work belongs in [issues.txt](../../issues.txt).
+This is a review record, not a roadmap or a second backlog. Confirmed open maintainability work belongs in [issues.txt](../../issues.txt); completed changes belong in the changelog.
 
 ## Verdict
 
@@ -72,7 +72,7 @@ This is the broader refactor that must be designed before applying a narrow fall
 
 **Priority: high; verified tooling limitations.**
 
-The [module-map generator](../../scripts/generate-architecture-map.js#L5) scans `js/main`, `js/shared`, and `js/components`. It excludes `js/workers`, root `js/main.js`, and other execution contexts. Its reference scan at line 83 finds direct namespace text; it does not follow aliases or resolve dynamic calls. The generated document itself acknowledges that it is an orientation aid. For example, [Box's worker](../../js/workers/box.worker.js#L51) loads shared code through `importScripts`, outside that map's scan.
+The [module-map generator](../../scripts/generate-architecture-map.js#L5) scans `js/main`, `js/shared`, `js/components`, and `js/workers`, plus the root `js/main.js` and `js/vendor.js` files. It records literal worker paths, but its reference scan at line 83 finds direct namespace text; it does not follow aliases or resolve dynamic calls. The generated document itself acknowledges that it is an orientation aid. For example, [Box's worker](../../js/workers/box.worker.js#L51) loads shared code through `importScripts`, which is not represented as a consumer edge.
 
 The roadmap does require caller mapping, which is good. It should explicitly prohibit treating a map hit list as proof that every consumer has been found. Check aliases, callbacks, worker imports, public namespace access, tests, and production packaging paths for each selected boundary. Dead-code removal needs the same care.
 

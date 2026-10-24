@@ -72,6 +72,8 @@ test('scatter inline edit preview mode hides source text and avoids entry duplic
     const target = document.querySelector('#scatterSvg text[data-font-key="yTitle"]');
     const inlineState = target && target.__inlineEditState ? target.__inlineEditState : null;
     const rect = overlay ? overlay.getBoundingClientRect() : null;
+    const previewTextStyle = input ? getComputedStyle(input) : null;
+    const selectedTextStyle = input ? getComputedStyle(input, '::selection') : null;
     const visibleSourceTextOverlays = (() => {
       if (!rect) { return 0; }
       const nodes = Array.from(document.querySelectorAll('#scatterSvg text[data-font-key="yTitle"]'));
@@ -89,6 +91,15 @@ test('scatter inline edit preview mode hides source text and avoids entry duplic
     return {
       hasPreviewClass: !!(input && input.classList && input.classList.contains('inline-edit-input--preview-mode')),
       previewVisible: !!(preview && preview.style.visibility === 'visible' && preview.style.opacity === '1'),
+      previewTextColor: previewTextStyle?.color || '',
+      previewTextFillColor: previewTextStyle?.webkitTextFillColor || '',
+      previewTextShadow: previewTextStyle?.textShadow || '',
+      inlineColorStyle: input?.style.color || '',
+      inlineTextFillStyle: input?.style.getPropertyValue('-webkit-text-fill-color') || '',
+      inlineTextShadowStyle: input?.style.textShadow || '',
+      inlineSelectionColorStyle: input?.style.getPropertyValue('--inline-edit-selection-color') || '',
+      selectionBackgroundColor: selectedTextStyle?.backgroundColor || '',
+      selectionTextColor: selectedTextStyle?.color || '',
       selectionStart: input && Number.isInteger(input.selectionStart) ? input.selectionStart : null,
       selectionEnd: input && Number.isInteger(input.selectionEnd) ? input.selectionEnd : null,
       valueLength: input ? String(input.value || '').length : null,
@@ -101,6 +112,15 @@ test('scatter inline edit preview mode hides source text and avoids entry duplic
 
   expect(state.hasPreviewClass).toBe(true);
   expect(state.previewVisible).toBe(true);
+  expect(state.previewTextColor).toBe('rgba(0, 0, 0, 0)');
+  expect(state.previewTextFillColor).toBe('rgba(0, 0, 0, 0)');
+  expect(state.previewTextShadow).toContain('rgba(0, 0, 0, 0)');
+  expect(state.inlineColorStyle).toBe('');
+  expect(state.inlineTextFillStyle).toBe('');
+  expect(state.inlineTextShadowStyle).toBe('');
+  expect(state.inlineSelectionColorStyle).toBe('');
+  expect(state.selectionBackgroundColor).toBe('rgba(74, 144, 226, 0.28)');
+  expect(state.selectionTextColor).toBe('rgba(0, 0, 0, 0)');
   expect(state.selectionStart).toBe(state.valueLength);
   expect(state.selectionEnd).toBe(state.valueLength);
   expect(['hidden', ''].includes(state.sourceVisibility)).toBe(true);
@@ -159,7 +179,7 @@ test('scatter inline edit plain mode hides source text with a single editable la
       selectionStart: input && Number.isInteger(input.selectionStart) ? input.selectionStart : null,
       selectionEnd: input && Number.isInteger(input.selectionEnd) ? input.selectionEnd : null,
       valueLength: input ? String(input.value || '').length : null,
-      selectionColorVar: input ? input.style.getPropertyValue('--inline-edit-selection-color') : null,
+      selectionTextColor: input ? getComputedStyle(input, '::selection').color : null,
       sourceVisibility: target ? target.style.visibility || '' : null,
       sourceOpacity: target ? target.style.opacity || '' : null,
       visibleSourceTextOverlays
@@ -170,7 +190,7 @@ test('scatter inline edit plain mode hides source text with a single editable la
   expect(state.previewHidden).toBe(true);
   expect(state.selectionStart).toBe(0);
   expect(state.selectionEnd).toBe(state.valueLength);
-  expect(String(state.selectionColorVar || '').trim().toLowerCase()).not.toBe('#ffffff');
+  expect(String(state.selectionTextColor || '').trim().toLowerCase()).not.toBe('rgb(255, 255, 255)');
   expect(state.sourceVisibility).toBe('hidden');
   expect(state.sourceOpacity).toBe('0');
   expect(state.visibleSourceTextOverlays).toBe(0);

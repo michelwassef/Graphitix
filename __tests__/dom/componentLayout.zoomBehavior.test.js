@@ -35,6 +35,7 @@ describe('componentLayout zoom behavior contract', () => {
         RESIZE_MAX_SCALE: 3,
         DEFAULT_ASPECT_RATIO: 1,
         DEFAULT_ASPECT_LOCKED: true,
+        getDefaultGraphViewScale: () => 0.95,
         isProportionalFontResizeEnabled: () => false,
         registerProportionalFontResizeControl: () => {}
       },
@@ -73,6 +74,62 @@ describe('componentLayout zoom behavior contract', () => {
 
     require('../../js/shared/resizer.js');
     require('../../js/shared/componentLayout.js');
+  });
+
+  test('layout capture preserves resizer authority when a checkbox projection disagrees', () => {
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      }
+    });
+    layout.elements.svgBox.__sharedResizableBoxApi.setAspectLocked(false, { preserveGeometry: true });
+    layout.elements.controlsHost.querySelector('.resizer-aspect-checkbox').checked = true;
+
+    expect(layout.captureState().svgBox.dataset.resizerAspectLocked).toBe('false');
+    expect(layout.elements.svgBox.__sharedResizableBoxApi.getState().aspectLocked).toBe(false);
+  });
+
+  test('canonical drawable dimensions survive fractional viewing zoom and border rounding', () => {
+    const box = document.getElementById('lineSvgBox');
+    box.dataset.graphWidthPx = '360';
+    box.dataset.graphHeightPx = '360';
+    box.style.setProperty('--graph-frame-border-width', '1px');
+    box.style.setProperty('--graph-frame-padding-inline', '14px');
+    box.style.padding = '0px 10.22px 10.22px';
+    box.style.border = '0.73px solid transparent';
+    box.style.setProperty('--graph-frame-padding-bottom', '14px');
+    box.dataset.resizerZoomLevel = '0.73';
+    box.style.width = '263px';
+    box.style.height = '263px';
+    const frame = window.Shared.componentLayout.resolveDrawableFrame({ svgBox: box });
+    expect(frame.width).toBe(330);
+    expect(frame.height).toBe(344);
+    box.dataset.resizerZoomLevel = '1';
+    box.style.width = '360px';
+    box.style.height = '360px';
+    box.style.padding = '0px 14px 14px';
+    box.style.border = '1px solid transparent';
+    const actual = window.Shared.componentLayout.resolveDrawableFrame({ svgBox: box });
+    expect(actual.width).toBe(frame.width);
+    expect(actual.height).toBe(frame.height);
+  });
+
+  test('saved sizing bounds retain figures smaller than the current new-figure minimum', () => {
+    const box = document.getElementById('lineSvgBox');
+    window.Shared.attachResizableBox(box, { defaultWidth: 360, defaultHeight: 360, minWidth: 108, minHeight: 108 });
+    const api = box.__sharedResizableBoxApi;
+    api.restoreSizingState({ defaultWidth: 256, defaultHeight: 256, minWidth: 77, minHeight: 77 });
+    api.applySize({ width: 90, height: 90, forceExact: true, suppressOnResize: true });
+    expect(box.dataset.graphWidthPx).toBe('90');
+    expect(box.dataset.graphHeightPx).toBe('90');
+    expect(api.getState().minWidth).toBe(77);
+    api.destroy();
   });
 
   test('zoom resize phase is layout-only (no scheduleDraw / no user onResize callback)', () => {
@@ -122,6 +179,32 @@ describe('componentLayout zoom behavior contract', () => {
     expect(syncPanelSpy).toHaveBeenCalled();
     const lastSyncCall = syncPanelSpy.mock.calls[syncPanelSpy.mock.calls.length - 1];
     expect(lastSyncCall[4]?.skipSchedule).toBe(true);
+  });
+
+  test('unchanged geometry still projects changed viewing intent', () => {
+    let view = { version: 1, mode: 'manual', zoomLevel: 1 };
+    window.Shared.resizer.getGraphViewState = () => view;
+    window.Shared.resizer.restoreGraphViewState = (_tabId, state) => {
+      view = { ...state.graphView };
+      return view;
+    };
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel', graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel', panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox', resizeTarget: '#lineSvgBox'
+      }
+    });
+    const state = layout.captureState();
+    state.graphView = { ...view };
+    layout.applyState(state, { skipSchedule: true });
+    const fitted = layout.captureState();
+    fitted.graphView = { version: 1, mode: 'fit' };
+    expect(layout.applyState(fitted, { skipIfUnchanged: true, skipSchedule: true })).toBe(true);
+    expect(view).toEqual(fitted.graphView);
+    expect(document.querySelector('[aria-label="Fit graph to window"]').getAttribute('aria-pressed')).toBe('true');
+    expect(layout.applyState(layout.captureState(), { skipIfUnchanged: true, skipSchedule: true })).toBe(false);
   });
 
   test('component resize callback is the sole draw-request owner', () => {
@@ -319,6 +402,45 @@ describe('componentLayout zoom behavior contract', () => {
     expect(graphPanel.dataset.panelManualWidth).toBeUndefined();
   });
 
+  test.each([
+    [0, 'table'],
+    [1, 'graph']
+  ])('workspace split endpoint %s restores the collapsed %s panel', (fraction, collapsedPanel) => {
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      }
+    });
+
+    layout.applyState({ component: 'line', workspace: { tableFraction: fraction } }, { skipSchedule: true });
+
+    const { tablePanel, graphPanel } = layout.elements;
+    const collapsed = collapsedPanel === 'table' ? tablePanel : graphPanel;
+    expect(layout.captureState().workspace.tableFraction).toBe(fraction);
+    expect(collapsed.inert).toBe(true);
+    expect(collapsed.hasAttribute('inert')).toBe(true);
+    expect(collapsed.getAttribute('aria-hidden')).toBe('true');
+    expect(collapsed.style.visibility).toBe('hidden');
+    expect(tablePanel.style.minWidth).toBe('0px');
+    expect(graphPanel.style.minWidth).toBe('0px');
+    expect(tablePanel.style.maxWidth).toBe('none');
+    expect(graphPanel.style.maxWidth).toBe('none');
+    expect(document.getElementById('linePanelResizer').dataset.panelSplitEdge).toBe(fraction === 0 ? 'start' : 'end');
+    expect(document.getElementById('linePanelResizer').getAttribute('aria-valuenow')).toBe(String(fraction * 100));
+
+    layout.applyState({ component: 'line', workspace: { tableFraction: 1 - fraction } }, { skipSchedule: true });
+    expect(collapsed.inert).toBe(false);
+    expect(collapsed.hasAttribute('inert')).toBe(false);
+    expect(collapsed.getAttribute('aria-hidden')).toBeNull();
+    expect(collapsed.style.visibility).toBe('');
+  });
+
   test('pending schedule suppression applies when layout is created after restore begins', () => {
     const syncPanelSpy = jest.fn((table, graph, config, scheduleDraw, options) => {
       if(typeof scheduleDraw === 'function'){
@@ -424,7 +546,7 @@ describe('componentLayout zoom behavior contract', () => {
         preserveGeometry: true
       });
       window.Shared.aspectLock.apply(svgBox.dataset, true, { syncGraph: true });
-      const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+      const checkbox = elements.controlsHost.querySelector('.resizer-aspect-checkbox');
       if(checkbox){
         checkbox.checked = true;
         checkbox.disabled = true;
@@ -466,7 +588,8 @@ describe('componentLayout zoom behavior contract', () => {
       aspectLocked: 'true'
     }));
     expect(svgBox.__sharedResizableBoxApi.getState().aspectLocked).toBe(true);
-    expect(svgBox.querySelector('.resizer-aspect-checkbox').checked).toBe(true);
+    expect(svgBox.closest('.graph-frame')?.querySelector('.resizer-aspect-checkbox').checked).toBe(true);
+    expect(layout.elements.controlsHost.querySelector('.resizer-aspect-checkbox').disabled).toBe(true);
     expect(policy).toHaveBeenCalled();
   });
 
@@ -489,6 +612,27 @@ describe('componentLayout zoom behavior contract', () => {
     layout.applyState(snapshot, { reason: 'responsive-split-restore' });
 
     expect(layout.captureState().workspace).toEqual(snapshot.workspace);
+  });
+
+  test('capturing layout while panels are stacked preserves the saved horizontal split', () => {
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      }
+    });
+    const savedWorkspace = { version: 1, tableFraction: 0.34 };
+    layout.applyState({ component: 'line', workspace: savedWorkspace }, { skipSchedule: true });
+    layout.elements.tablePanel.dataset.panelManualWidth = 'true';
+    layout.elements.graphPanel.dataset.panelManualWidth = 'true';
+    layout.elements.tablePanel.parentElement.style.flexDirection = 'column';
+
+    expect(layout.captureState().workspace).toEqual(savedWorkspace);
   });
 
 });

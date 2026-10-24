@@ -34,7 +34,7 @@ function showBoxSymbolToolbar(){
       options: [{ value: 'global', label: 'Global' }]
     },
     fillShape: {
-      label: 'Fill/Shape',
+      label: 'Fill / shape',
       showShapePicker: false,
       getColor(){ return '#808080'; },
       getShape(){ return 'circle'; },
@@ -105,5 +105,44 @@ describe('shared color picker toolbar ownership', () => {
     outside.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(host.style.display).toBe('none');
     expect(toolbarOwner.dataset.toolbarActiveSection).toMatch(/-general$/);
+  });
+
+  test('native color-picker fallback clicks its input when showPicker is unavailable', () => {
+    const { host } = showBoxSymbolToolbar();
+    const originalEyeDropper = Object.getOwnPropertyDescriptor(window, 'EyeDropper');
+    const originalShowPicker = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'showPicker');
+    let clickedFallbackInput = null;
+    const recordFallbackClick = event => {
+      if(event.target?.classList?.contains('shared-color-picker__hidden-fallback-input')){
+        clickedFallbackInput = event.target;
+      }
+    };
+
+    try{
+      Object.defineProperty(window, 'EyeDropper', { configurable: true, value: undefined });
+      Object.defineProperty(HTMLInputElement.prototype, 'showPicker', { configurable: true, value: undefined });
+      document.addEventListener('click', recordFallbackClick, true);
+      host.querySelector('.shared-border-style-chip').click();
+
+      const overlay = document.querySelector('.shared-color-picker[data-visible="1"]');
+      const fallbackButton = overlay.querySelector('.shared-color-picker__eyedropper');
+      expect(fallbackButton.getAttribute('aria-label')).toBe('Open the system color picker');
+      fallbackButton.click();
+
+      expect(clickedFallbackInput).toBeTruthy();
+      expect(clickedFallbackInput.isConnected).toBe(true);
+    }finally{
+      document.removeEventListener('click', recordFallbackClick, true);
+      if(originalEyeDropper){
+        Object.defineProperty(window, 'EyeDropper', originalEyeDropper);
+      }else{
+        delete window.EyeDropper;
+      }
+      if(originalShowPicker){
+        Object.defineProperty(HTMLInputElement.prototype, 'showPicker', originalShowPicker);
+      }else{
+        delete HTMLInputElement.prototype.showPicker;
+      }
+    }
   });
 });

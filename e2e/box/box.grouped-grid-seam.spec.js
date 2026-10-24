@@ -1,3 +1,4 @@
+const { selectReplicateMode, clickExampleButton } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
@@ -11,14 +12,34 @@ test('Box grouped editable headers meet the first data row without a body-model 
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
 
   const boxPage = page.locator('#boxPage:not([hidden])');
-  await boxPage.locator('#boxTableFormat').selectOption('grouped');
-  await boxPage.locator('#boxLoadExample').click();
+  await selectReplicateMode(page, 'box', 'grouped');
+  await clickExampleButton(page, 'box');
 
   const table = boxPage.locator('#hot');
   const lastPinnedRow = table.locator('.ag-floating-top-viewport .ag-row[row-index="t-1"]');
   const firstBodyRow = table.locator('.ag-center-cols-container .ag-row[row-index="0"]');
   await expect(lastPinnedRow).toBeVisible();
   await expect(firstBodyRow).toBeVisible();
+
+  const groupedDivider = await page.evaluate(() => {
+    const root = document.querySelector('#boxPage:not([hidden]) #hot');
+    const cell = root?.querySelector('.ag-floating-top-viewport .ag-cell.box-grouped-header-anchor, .ag-floating-top-viewport .ag-cell.box-grouped-header-follower');
+    if (!root || !cell) return null;
+    const style = getComputedStyle(cell);
+    const borderReference = document.createElement('div');
+    borderReference.style.cssText = 'position:fixed;left:-2000px;top:0;visibility:hidden;border-bottom:1px solid var(--gt-border)';
+    root.appendChild(borderReference);
+    const expectedColor = getComputedStyle(borderReference).borderBottomColor;
+    borderReference.remove();
+    return {
+      width: style.borderBottomWidth,
+      line: style.borderBottomStyle,
+      color: style.borderBottomColor,
+      expectedColor
+    };
+  });
+  expect(groupedDivider).toMatchObject({ width: '1px', line: 'solid' });
+  expect(groupedDivider.color).toBe(groupedDivider.expectedColor);
 
   const seam = await page.evaluate(() => {
     const root = document.querySelector('#boxPage:not([hidden]) #hot');
@@ -60,7 +81,7 @@ test('Box grouped empty headers retain edits in the third and later groups', asy
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
 
   const boxPage = page.locator('#boxPage:not([hidden])');
-  await boxPage.locator('#boxTableFormat').selectOption('grouped');
+  await selectReplicateMode(page, 'box', 'grouped');
   await boxPage.locator('#boxGroupedReplicates').fill('2');
   await boxPage.locator('#boxGroupedReplicates').press('Enter');
   await page.waitForFunction(() => {

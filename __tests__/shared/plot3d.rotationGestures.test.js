@@ -418,5 +418,78 @@ describe('Shared.plot3d managed rotation gestures', () => {
       window.Main = previousMain;
     }
   });
+
+  test('rotates by keyboard through the same owner callbacks as a completed edit', () => {
+    const { plot3d } = global.Shared;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    document.body.appendChild(svg);
+    const state = plot3d.createRotationState();
+    const before = { x: state.x, y: state.y, z: state.z };
+    const onStart = jest.fn();
+    const onChange = jest.fn();
+    const onEnd = jest.fn();
+    plot3d.attachRotationControls(svg, { state, onStart, onChange, onEnd });
+
+    const event = new window.KeyboardEvent('keydown', {
+      key: 'ArrowRight', shiftKey: true, bubbles: true, cancelable: true
+    });
+    expect(plot3d.rotateByKeyboard(svg, event)).toBe(true);
+    expect({ x: state.x, y: state.y, z: state.z }).not.toEqual(before);
+    expect(onStart).toHaveBeenCalledWith(event, state);
+    expect(onChange).toHaveBeenCalledWith(event, state, expect.objectContaining({ reason: 'keyboard' }));
+    expect(onEnd).toHaveBeenCalledWith(event, state, expect.objectContaining({
+      reason: 'keyboard', didMove: true, canceled: false
+    }));
+  });
+
+  test('provides a named keyboard focus target for standalone 3D plots', () => {
+    const { plot3d } = global.Shared;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    document.body.appendChild(svg);
+    const state = plot3d.createRotationState();
+    plot3d.attachRotationControls(svg, {
+      state,
+      keyboardFocusTarget: true,
+      keyboardLabel: 'Surface graph'
+    });
+
+    expect(svg.getAttribute('tabindex')).toBe('0');
+    expect(svg.getAttribute('aria-label')).toMatch(/Surface graph/);
+    expect(svg.getAttribute('aria-keyshortcuts')).toContain('Shift+ArrowRight');
+    svg.focus();
+    const event = new window.KeyboardEvent('keydown', {
+      key: 'ArrowRight', shiftKey: true, bubbles: true, cancelable: true
+    });
+    svg.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(state.y).not.toBe(0);
+  });
+
+  test('rejects keyboard rotation when the bound graph owner is inactive', () => {
+    const { plot3d } = global.Shared;
+    const root = document.createElement('section');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    root.appendChild(svg);
+    document.body.appendChild(root);
+    const state = plot3d.createRotationState();
+    const before = { x: state.x, y: state.y, z: state.z };
+    const owner = { tabId: 'tab-a', componentKey: 'pca', root, refs: { root, svg } };
+    const previousMain = window.Main;
+    window.Main = {
+      ...(previousMain || {}),
+      session: { ...(previousMain?.session || {}), workspaceState: {
+        activeTabId: 'tab-b', tabs: [{ id: 'tab-a', type: 'pca' }, { id: 'tab-b', type: 'pca' }]
+      } }
+    };
+    try {
+      plot3d.attachRotationControls(svg, { state, ownerSession: owner, componentKey: 'pca' });
+      expect(plot3d.rotateByKeyboard(svg, new window.KeyboardEvent('keydown', {
+        key: 'ArrowRight', shiftKey: true, bubbles: true, cancelable: true
+      }))).toBe(false);
+      expect({ x: state.x, y: state.y, z: state.z }).toEqual(before);
+    } finally {
+      window.Main = previousMain;
+    }
+  });
 });
 

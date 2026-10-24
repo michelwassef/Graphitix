@@ -1,6 +1,9 @@
 const { loadProductionBootstrap } = require('../../test-support/productionLoader');
+const { installSvgTextGeometry } = require('../setup/svgTextGeometry');
 
 jest.setTimeout(120_000);
+
+let restoreSvgTextGeometry;
 
 async function flushAsyncWork(iterations = 20){
   for(let i = 0; i < iterations; i += 1){
@@ -20,6 +23,7 @@ async function waitFor(predicate, iterations = 240){
 
 describe('Surface render-cache capture contract', () => {
   beforeEach(async () => {
+    restoreSvgTextGeometry = installSvgTextGeometry();
     const previousSurface = window.Components?.surface || null;
     const previousTabs = window.Main?.session?.workspaceState?.tabs || [];
     if(previousSurface?.disposeTab){
@@ -50,6 +54,11 @@ describe('Surface render-cache capture contract', () => {
       document.getElementById('duplicateEmpty')?.click();
     }
     await flushAsyncWork(6);
+  });
+
+  afterEach(() => {
+    restoreSvgTextGeometry?.();
+    restoreSvgTextGeometry = null;
   });
 
   test('captures graph, statistics, and message hosts without moving mounted children', async () => {

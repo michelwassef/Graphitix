@@ -61,7 +61,7 @@
     survival: { selector: '#survivalPlot svg' },
     heatmap: { selector: '#heatmapSvg' },
     surface: { selector: '#surfaceSvg' },
-    venn: { selector: '#vennGraphPanel svg' }
+    venn: { selector: '#vennGraphPanel #stage' }
   });
 
   const reportByTab = new Map();
@@ -441,8 +441,15 @@
     const currentLogicalWidth = viewport?.viewBox?.width || (viewport.baseWidth + viewport.left + viewport.right);
     const currentLogicalHeight = (viewport?.viewBox?.height || (viewport.baseHeight + viewport.top + viewport.bottom))
       + Math.max(0, Number(existingSummaryReserve) || 0);
-    const displayWidth = Number(rect?.width);
-    const displayHeight = Number(rect?.height);
+    // Viewport dimensions are published inside the resizer's zoom wrapper.
+    // Screen measurements already include its transform; remove that display
+    // zoom before publishing dimensions that the wrapper will scale again.
+    const zoomWrapper = svg?.closest?.('.resizer-zoom-content');
+    const box = zoomWrapper?.closest?.('.svgbox');
+    const zoomCandidate = Number(box?.dataset?.resizerZoomLevel || box?.dataset?.resizerZoom);
+    const displayZoom = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+    const displayWidth = Number(rect?.width) / displayZoom;
+    const displayHeight = Number(rect?.height) / displayZoom;
     const storedScaleX = numericDataset(svg, 'statsFigureSummaryRenderedScaleX',
       numericDataset(svg, 'graphContentRenderedScaleX', NaN));
     const storedScaleY = numericDataset(svg, 'statsFigureSummaryRenderedScaleY',
@@ -593,9 +600,18 @@
     return { operator:normalizedOperator, value:String(rounded), invalid:false };
   }
 
+  function isQTestStatistic(symbol, precedingText = ''){
+    const token = String(symbol).trim();
+    return /^q$/i.test(token) && (token === 'Q' || /\bstatistic\s*=\s*$/i.test(precedingText));
+  }
+
   function compactPValueText(text){
-    const pattern = new RegExp(`\\b((?:p(?:\\s*[-_]?\\s*value|adj)?|q)\\s*)(?:=\\s*)?(<=|>=|<|>|=|≤|≥)\\s*(${SUMMARY_NUMBER_PATTERN})`, 'gi');
-    return String(text == null ? '' : text).replace(pattern, (_match, label, operator, rawValue) => {
+    const pattern = new RegExp(`\\b(statistic\\s*=\\s*)?((?:p(?:\\s*[-_]?\\s*value|adj)?|q)\\s*)(?:=\\s*)?(<=|>=|<|>|=|≤|≥)\\s*(${SUMMARY_NUMBER_PATTERN})`, 'gi');
+    return String(text == null ? '' : text).replace(pattern, (match, statisticPrefix, label, operator, rawValue) => {
+      // Box explicitly labels studentized-range q as a statistic. Uppercase Q
+      // is also a test statistic (Friedman), whereas bare lowercase q denotes
+      // an adjusted probability. Preserve that distinction at every magnitude.
+      if(isQTestStatistic(label, statisticPrefix)) return match;
       const formatted = formatCompactPValue(rawValue, operator);
       return `${label}${formatted.operator} ${formatted.value}`;
     });
@@ -688,7 +704,8 @@
       return `${metric} = ${formattedValues}`;
     });
     const metricPattern = new RegExp(`(^|[^A-Za-z0-9_])(${COMPACT_METRIC_SOURCE})((?:\\s*\\([^)]*\\)|\\s*\\|[^|]*\\|)?)\\s*=\\s*(${SUMMARY_NUMBER_PATTERN})(\\s*%)?`, 'gi');
-    return result.replace(metricPattern, (_match, prefix, metric, qualifier, value, unit) => {
+    return result.replace(metricPattern, (match, prefix, metric, qualifier, value, unit, offset) => {
+      if(metric.toLowerCase() === 'q' && !isQTestStatistic(metric, result.slice(0, offset))) return match;
       const normalizedMetric = `${String(metric)}${String(qualifier || '')}`.replace(/\s+$/, '');
       return `${prefix}${normalizedMetric} = ${formatCompactMetricValue(metric, value)}${unit || ''}`;
     });
@@ -703,6 +720,7 @@
     }
     const match = new RegExp(`^(${SUMMARY_NUMBER_PATTERN})$`).exec(source);
     if(!match) return source;
+    if(isQTestStatistic(label)) return formatCompactMetricValue('Q', match[1]);
     if(/^(?:adjusted\s+)?(?:p|q)(?:[- ]?value)?$/.test(key)){
       const formatted = formatCompactPValue(match[1]);
       return formatted.operator === '=' ? formatted.value : `${formatted.operator} ${formatted.value}`;
@@ -745,7 +763,7 @@
     result = formatCompactMetricAssignments(result);
     result = formatCompactNumericRanges(result);
     result = formatCompactCoordinatedIntervals(result);
-    return formatCompactStandaloneMetric(result, label);
+    return formatCompactStandaloneMetric(result, row.label);
   }
 
   function textFromParts(value){
@@ -1824,8 +1842,19 @@
       const svg = resolveSvg(tabId, componentType);
       const hasCachedSummary = !!svg?.querySelector?.(`g[${GROUP_ATTR}="1"]`);
       if(hasCachedSummary && isEnabled(tabId)){
+        const projected = renderForTab(tabId, {
+          componentType,
+          reportModel,
+          reason: 'report-registration-after-render-cache'
+        });
+        if(projected){
+          cacheRestoredWithSummary.delete(tabId);
+          pendingRenders.delete(tabId);
+          debug('cacheProjectionRepublishedAfterReportRegistration', { tabId, componentType });
+          return true;
+        }
         pendingRenders.delete(tabId);
-        debug('cacheProjectionKeptAfterReportRegistration', { tabId, componentType });
+        debug('cacheProjectionAwaitingActiveOwnerAfterReportRegistration', { tabId, componentType });
         return true;
       }
       cacheRestoredWithSummary.delete(tabId);
@@ -1877,11 +1906,22 @@
         const svg = resolveSvg(tabId, componentType || entry?.componentType);
         const hasCachedSummary = !!svg?.querySelector?.(`g[${GROUP_ATTR}="1"]`);
         // A registration scheduled while the payload was being hydrated must
-        // not remove and recreate a Summary that the cache has just restored.
+        // not replace a Summary before its report model is available. Once the
+        // model exists, renderForTab republishes both the cached table and its
+        // derived graph viewport extension for the mounted frame.
         pendingRenders.delete(tabId);
         if(hasCachedSummary && isEnabled(tabId)){
-          cacheRestoredWithSummary.add(tabId);
-          debug('cacheProjectionKept', { tabId, componentType: componentType || entry?.componentType || null });
+          if(entry && renderForTab(tabId, {
+            componentType: componentType || entry.componentType,
+            reportModel: entry.reportModel,
+            reason: 'render-cache-summary-layout-restore'
+          })){
+            cacheRestoredWithSummary.delete(tabId);
+            debug('cacheProjectionRepublished', { tabId, componentType: componentType || entry.componentType });
+          }else{
+            cacheRestoredWithSummary.add(tabId);
+            debug('cacheProjectionDeferredUntilReportRegistration', { tabId, componentType: componentType || entry?.componentType || null });
+          }
           return;
         }
         cacheRestoredWithSummary.delete(tabId);
@@ -1943,7 +1983,16 @@
         const entry = reportByTab.get(tabId);
         const svg = resolveSvg(tabId, detail.componentKey || detail.type || entry?.componentType || null);
         if(svg?.querySelector?.(`g[${GROUP_ATTR}="1"]`) && isEnabled(tabId)){
-          debug('cacheProjectionKeptAfterLifecycle', { tabId, action });
+          if(entry && renderForTab(tabId, {
+            componentType: detail.componentKey || detail.type || entry.componentType,
+            reportModel: entry.reportModel,
+            reason: 'cached-summary-layout-restore-after-lifecycle'
+          })){
+            cacheRestoredWithSummary.delete(tabId);
+            debug('cacheProjectionRepublishedAfterLifecycle', { tabId, action });
+          }else{
+            debug('cacheProjectionAwaitingActiveOwner', { tabId, action });
+          }
           return;
         }
       }

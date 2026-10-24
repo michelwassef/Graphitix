@@ -2,7 +2,7 @@
   'use strict';
 
   const Shared = global.Shared = global.Shared || {};
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3;
 
   function normalizeText(value){
     const text = String(value == null ? '' : value).trim();

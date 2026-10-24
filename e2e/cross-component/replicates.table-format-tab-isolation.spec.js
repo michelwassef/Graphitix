@@ -13,7 +13,24 @@ function expectEditableGridCapacity(snapshot) {
   expect(snapshot.colCount).toBeGreaterThanOrEqual(10);
 }
 
+const CARTESIAN_REPLICATE_CASES = ['scatter', 'line'].map(type => ({
+  type, pageId: `${type}Page`, selectId: `${type}TableFormat`,
+  groupedValue: 'grouped', standardValue: 'single', replicateId: `${type}Replicates`,
+  exampleButtonId: `${type}LoadExample`, groupedClass: `${type}-grouped-header-merge`,
+  assertStandard(snapshot) {
+    expect(snapshot.controlValue).toBe('single');
+    expect(snapshot.payloadFormat).toBe('single');
+    expect(snapshot.rowCount).toBeGreaterThan(2);
+  },
+  assertGrouped(snapshot) {
+    expect(snapshot.controlValue).toBe('grouped');
+    expect(snapshot.payloadFormat).toBe('grouped');
+    expect(snapshot.rowCount).toBeGreaterThan(2);
+  }
+}));
+
 const CASES = [
+  ...CARTESIAN_REPLICATE_CASES,
   {
     type: 'box',
     pageId: 'boxPage',
@@ -57,6 +74,9 @@ const CASES = [
       expect(snapshot.row1.slice(0, 3)).toEqual(['Variable', 'A', 'B']);
       expect(snapshot.row2[0]).toBe('Var1');
       expect(snapshot.hasGroupedClass).toBe(false);
+      expect(snapshot.pcaDividerStyles).toBeTruthy();
+      expect(snapshot.pcaDividerStyles.labelBottomColor).toBe(snapshot.pcaDividerStyles.tokenColor);
+      expect(snapshot.pcaDividerStyles.labelBottomWidth).toBe('1px');
     },
     assertGrouped(snapshot) {
       expectEditableGridCapacity(snapshot);
@@ -68,6 +88,14 @@ const CASES = [
       expect(snapshot.row2[0]).toBe('Sample');
       expect(snapshot.row2.slice(1, 4).filter(Boolean).length).toBeGreaterThan(0);
       expect(snapshot.hasGroupedClass).toBe(true);
+      expect(snapshot.pcaDividerStyles).toMatchObject({
+        labelBottomColor: snapshot.pcaDividerStyles.tokenColor,
+        labelBottomWidth: '1px',
+        groupTopColor: snapshot.pcaDividerStyles.tokenColor,
+        groupTopWidth: '1px',
+        groupBottomColor: snapshot.pcaDividerStyles.tokenColor,
+        groupBottomWidth: '1px'
+      });
     }
   }
 ];
@@ -137,7 +165,7 @@ async function configureExample(page, component, formatValue) {
     select.value = format;
     select.dispatchEvent(new Event('change', { bubbles: true }));
     const replicates = root.querySelector(`#${replicateId}`);
-    if (replicates) {
+    if (replicates && format === 'grouped') {
       replicates.value = type === 'box' ? '3' : '2';
       replicates.dispatchEvent(new Event('input', { bubbles: true }));
       replicates.dispatchEvent(new Event('change', { bubbles: true }));
@@ -175,7 +203,7 @@ async function configureExample(page, component, formatValue) {
 }
 
 async function captureTableSnapshot(page, component) {
-  return page.evaluate(({ type, selectId, groupedClass }) => {
+  const snapshot = await page.evaluate(({ type, selectId, groupedClass }) => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type)
@@ -192,21 +220,46 @@ async function captureTableSnapshot(page, component) {
     const groupedSelector = type === 'pca'
       ? '.pca-grouped-header-merge-start, .pca-grouped-header-merge-middle, .pca-grouped-header-merge-end'
       : `.${groupedClass}`;
+    let pcaDividerStyles = null;
+    if (type === 'pca' && hotRoot) {
+      const tokenProbe = document.createElement('div');
+      tokenProbe.style.cssText = 'position:absolute;visibility:hidden;border-bottom:var(--ui-border-default)';
+      hotRoot.appendChild(tokenProbe);
+      const tokenColor = getComputedStyle(tokenProbe).borderBottomColor;
+      tokenProbe.remove();
+      const labelDivider = hotRoot.querySelector('.ag-cell.pca-label-row-divider');
+      const groupDivider = hotRoot.querySelector('.ag-cell.pca-grouped-header-row-divider');
+      const labelStyle = labelDivider ? getComputedStyle(labelDivider) : null;
+      const groupStyle = groupDivider ? getComputedStyle(groupDivider) : null;
+      pcaDividerStyles = {
+        tokenColor,
+        labelBottomColor: labelStyle?.borderBottomColor || null,
+        labelBottomWidth: labelStyle?.borderBottomWidth || null,
+        groupTopColor: groupStyle?.borderTopColor || null,
+        groupTopWidth: groupStyle?.borderTopWidth || null,
+        groupBottomColor: groupStyle?.borderBottomColor || null,
+        groupBottomWidth: groupStyle?.borderBottomWidth || null
+      };
+    }
     return {
       activeTabId: String(active?.id || ''),
       controlValue: root.querySelector(`#${selectId}`)?.value || null,
+      selectedFormat: root.querySelector('[data-replicate-value][aria-pressed="true"]')?.dataset.replicateValue || null,
       payloadFormat: format,
       row0: Array.isArray(data?.[0]) ? data[0].slice(0, 8).map(value => value == null ? '' : String(value)) : [],
       row1: Array.isArray(data?.[1]) ? data[1].slice(0, 8).map(value => value == null ? '' : String(value)) : [],
       row2: Array.isArray(data?.[2]) ? data[2].slice(0, 8).map(value => value == null ? '' : String(value)) : [],
       rowCount: Array.isArray(data) ? data.length : 0,
       colCount: typeof hot?.countCols === 'function' ? hot.countCols() : 0,
+      pcaDividerStyles,
       hasGroupedClass: !!(
         hotRoot?.classList?.contains?.(groupedClass)
         || hotRoot?.querySelector?.(groupedSelector)
       )
     };
   }, { type: component.type, selectId: component.selectId, groupedClass: component.groupedClass });
+  expect(snapshot.selectedFormat).toBe(snapshot.controlValue);
+  return snapshot;
 }
 
 async function loadArchive(page, archivePath, component) {

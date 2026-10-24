@@ -4,6 +4,11 @@
   const Main = window.Main = window.Main || {};
   const namespace = Main.tabDrag = Main.tabDrag || {};
   const isDocumentInteractionLocked = workspaceState => workspaceState?.documentOperation?.active === true;
+  const debug = (...args) => {
+    if (window.Shared?.isDebugEnabled?.()) {
+      console.debug(...args);
+    }
+  };
 
   namespace.applyTabDragClasses = function applyTabDragClasses(context) {
     const { dom, workspaceState } = context || {};
@@ -32,7 +37,7 @@
     workspaceState.dragOverTabId = targetTabId;
     workspaceState.dragInsertBefore = insertBefore;
     namespace.applyTabDragClasses(context);
-    console.debug('Debug: workspace tab drag hover updated', {
+    debug('Debug: workspace tab drag hover updated', {
       targetTabId: targetTabId || null,
       insertBefore,
       reason: meta.reason || 'unspecified'
@@ -55,7 +60,7 @@
     workspaceState.dragInsertBefore = true;
     namespace.applyTabDragClasses(context);
     if (hadDrag) {
-      console.debug('Debug: workspace tab drag state reset', {
+      debug('Debug: workspace tab drag state reset', {
         ...(snapshot || {}),
         reason: reason || 'unspecified'
       });
@@ -73,7 +78,7 @@
     }
     const fromIndex = tabs.findIndex(item => item.id === tabId);
     if (fromIndex === -1) {
-      console.debug('Debug: moveWorkspaceTab skipped', { tabId, targetIndex, reason: 'missing-source' });
+      debug('Debug: moveWorkspaceTab skipped', { tabId, targetIndex, reason: 'missing-source' });
       return { moved: false, fromIndex: -1, toIndex: -1 };
     }
     let desiredIndex = Number.isFinite(targetIndex) ? targetIndex : tabs.length;
@@ -85,7 +90,7 @@
     }
     tabs.splice(finalIndex, 0, movedTab);
     const moved = fromIndex !== finalIndex;
-    console.debug('Debug: moveWorkspaceTab executed', {
+    debug('Debug: moveWorkspaceTab executed', {
       tabId,
       fromIndex,
       requestedIndex: targetIndex,
@@ -95,11 +100,60 @@
     return { moved, fromIndex, toIndex: finalIndex };
   };
 
+  function recordWorkspaceTabMove(context, moveResult, reason) {
+    const { workspaceState, markSessionDirty } = context || {};
+    if (!moveResult?.moved || !workspaceState?.tabs) {
+      return false;
+    }
+    const order = workspaceState.tabs.map(item => item.id);
+    markSessionDirty?.('tabs-reordered', {
+      reason,
+      fromIndex: moveResult.fromIndex,
+      toIndex: moveResult.toIndex,
+      order
+    });
+    debug('Debug: workspace tabs reordered', {
+      reason,
+      fromIndex: moveResult.fromIndex,
+      toIndex: moveResult.toIndex,
+      order
+    });
+    return true;
+  }
+
+  namespace.handleTabKeyboardReorder = function handleTabKeyboardReorder(context, event, tab) {
+    const { workspaceState, renderTabs } = context || {};
+    const isReorderShortcut = event?.shiftKey
+      && (event.ctrlKey || event.metaKey)
+      && (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
+    if (!isReorderShortcut) {
+      return false;
+    }
+    if (!workspaceState || !tab || tab.isRenaming || isDocumentInteractionLocked(workspaceState)) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const fromIndex = workspaceState.tabs.findIndex(item => item.id === tab.id);
+    if (fromIndex < 0) {
+      return true;
+    }
+    const direction = event.key === 'ArrowLeft' ? -1 : 1;
+    const targetIndex = fromIndex + (direction < 0 ? -1 : 2);
+    const moveResult = namespace.moveWorkspaceTab(context, tab.id, targetIndex);
+    if (moveResult.moved) {
+      renderTabs?.();
+      recordWorkspaceTabMove(context, moveResult, direction < 0 ? 'keyboard-move-left' : 'keyboard-move-right');
+    }
+    return true;
+  };
+
   namespace.handleTabDragStart = function handleTabDragStart(context, event, tab) {
     const { workspaceState } = context || {};
     if (!workspaceState || !tab || tab.isRenaming || isDocumentInteractionLocked(workspaceState)) {
       if (!tab) {
-        console.debug('Debug: tab drag start skipped', { reason: 'missing-tab' });
+        debug('Debug: tab drag start skipped', { reason: 'missing-tab' });
       }
       if (event && typeof event.preventDefault === 'function') {
         event.preventDefault();
@@ -116,11 +170,11 @@
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', tab.id);
       } catch (transferErr) {
-        console.debug('Debug: tab drag dataTransfer setData failed', { error: transferErr?.message || transferErr });
+        debug('Debug: tab drag dataTransfer setData failed', { error: transferErr?.message || transferErr });
       }
     }
     namespace.applyTabDragClasses(context);
-    console.debug('Debug: workspace tab drag started', {
+    debug('Debug: workspace tab drag started', {
       tabId: tab.id,
       startIndex
     });
@@ -131,12 +185,12 @@
       try {
         event.dataTransfer.dropEffect = 'none';
       } catch (transferErr) {
-        console.debug('Debug: tab drag end dropEffect clear failed', { error: transferErr?.message || transferErr });
+        debug('Debug: tab drag end dropEffect clear failed', { error: transferErr?.message || transferErr });
       }
     }
     namespace.resetTabDragState(context, 'dragend');
     if (tab) {
-      console.debug('Debug: workspace tab drag ended', { tabId: tab.id });
+      debug('Debug: workspace tab drag ended', { tabId: tab.id });
     }
   };
 
@@ -177,7 +231,7 @@
   };
 
   namespace.handleTabDrop = function handleTabDrop(context, event, tab) {
-    const { workspaceState, renderTabs, markSessionDirty } = context || {};
+    const { workspaceState, renderTabs } = context || {};
     if (!workspaceState?.draggingTabId || !tab) {
       return;
     }
@@ -200,22 +254,8 @@
     const dropReason = insertBefore ? 'drop-before' : 'drop-after';
     namespace.resetTabDragState(context, dropReason);
     renderTabs?.();
-    if (moveResult.moved) {
-      const order = workspaceState.tabs.map(item => item.id);
-      markSessionDirty?.('tabs-reordered', {
-        reason: dropReason,
-        fromIndex: moveResult.fromIndex,
-        toIndex: moveResult.toIndex,
-        order
-      });
-      console.debug('Debug: workspace tabs reordered', {
-        reason: dropReason,
-        fromIndex: moveResult.fromIndex,
-        toIndex: moveResult.toIndex,
-        order
-      });
-    } else {
-      console.debug('Debug: workspace tab drop without movement', {
+    if (!recordWorkspaceTabMove(context, moveResult, dropReason)) {
+      debug('Debug: workspace tab drop without movement', {
         reason: dropReason,
         fromIndex: moveResult.fromIndex,
         targetIndex
@@ -238,7 +278,7 @@
   };
 
   namespace.handleTabListDrop = function handleTabListDrop(context, event) {
-    const { workspaceState, dom, renderTabs, markSessionDirty } = context || {};
+    const { workspaceState, dom, renderTabs } = context || {};
     if (!workspaceState?.draggingTabId || !dom?.tabsList) {
       return;
     }
@@ -251,22 +291,8 @@
     const moveResult = namespace.moveWorkspaceTab(context, workspaceState.draggingTabId, workspaceState.tabs.length);
     namespace.resetTabDragState(context, 'drop-end');
     renderTabs?.();
-    if (moveResult.moved) {
-      const order = workspaceState.tabs.map(item => item.id);
-      markSessionDirty?.('tabs-reordered', {
-        reason: 'drop-end',
-        fromIndex: moveResult.fromIndex,
-        toIndex: moveResult.toIndex,
-        order
-      });
-      console.debug('Debug: workspace tabs reordered to end', {
-        reason: 'drop-end',
-        fromIndex: moveResult.fromIndex,
-        toIndex: moveResult.toIndex,
-        order
-      });
-    } else {
-      console.debug('Debug: workspace tab drop end without movement', {
+    if (!recordWorkspaceTabMove(context, moveResult, 'drop-end')) {
+      debug('Debug: workspace tab drop end without movement', {
         reason: 'drop-end',
         fromIndex: moveResult.fromIndex
       });
@@ -288,5 +314,5 @@
     namespace.updateTabDragHover(context, null, false, { reason: 'list-dragleave' });
   };
 
-  console.debug('Debug: tabDrag.js wiring complete', { exports: Object.keys(namespace) });
+  debug('Debug: tabDrag.js wiring complete', { exports: Object.keys(namespace) });
 })();

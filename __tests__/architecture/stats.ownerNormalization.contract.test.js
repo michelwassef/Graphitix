@@ -56,7 +56,7 @@ describe('cross-component statistics ownership normalization', () => {
     expectAll(hist, [
       /function resolveHistStatsPanelContext\(session = null\)/,
       /context\.canUseLiveProjection \? state\.lastStatsPanelModel : null/,
-      /histStatsPanelModelHasContent\(captured\) \? captured : previous/,
+      /histStatsPanelModelHasContent\(captured\)\s*\? \{ \.\.\.captured, analysisSignature: previous\.analysisSignature \|\| '' \}\s*: previous/,
       /durableStatsModel = normalizeHistStatsPanelModel/,
       /restoreHistStatsPanelModel\(durableStatsModel, owner\)/,
       /else if\(cache\.stats\)\{\s*restoredStats = restoreChildren\(stats, cache\.stats\)/,
@@ -145,7 +145,7 @@ describe('cross-component statistics ownership normalization', () => {
       /createAsyncScope\('box-stats'\)/,
       /const isCurrentStatsComputationOwner = \(\) => \{/ ,
       /runtime\.ownerTabId = statsSession\?\.tabId \|\| null/ ,
-      /captureBoxStatsResultsState\('box-stats-success', statsSession, \{ captureLivePanel: true \}\)/,
+      /captureBoxStatsResultsState\('box-stats-success', statsSession, \{ captureLivePanel: true, computed: true \}\)/,
       /currentContext\.signature === context\.signature/,
       /Number\(currentContext\.version\) === Number\(context\.version\)/,
       /const storeDeferredStatsModel = model => \{/ ,
@@ -153,7 +153,7 @@ describe('cross-component statistics ownership normalization', () => {
       /function materializeDeferredBoxStatsModel/,
       /expectedVersion = Number\(results\.deferredContextVersion\) \|\| 0/,
       /contextDrifted = \(expectedSignature && context\.signature !== expectedSignature\)/,
-      /box\.__statsAsyncScope\?\.cancelAllForTab\?\.\(tabId/,
+      /box\.__statsAsyncScope = statsAsyncScope/,
       /box stats computation retained for inactive owner/
     ], 'Box');
     expectNone(source, [
@@ -175,7 +175,7 @@ describe('cross-component statistics ownership normalization', () => {
       /lastRegressionSummary: cloneSimple\(context\.lastRegressionSummary\)/,
       /function persistScatterDerivedStatsToOwnerPayload/,
       /updateTabPayload\(tab, applyPatch/,
-      /scatter\.__statsAsyncScope\?\.cancelAllForTab\?\.\(tabId/,
+      /scatter\.__statsAsyncScope = statsAsyncScope/,
       /scatter stats computation retained for inactive owner|scatter stats worker stored for inactive owner/
     ], 'Scatter');
     expectNone(source, [

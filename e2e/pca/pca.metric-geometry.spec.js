@@ -6,6 +6,7 @@ const {
 } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { reloadAndAcceptRecovery, seedRecoveryArchive } = require('../helpers/recoveryDriver');
 
@@ -58,9 +59,11 @@ async function readRenderedMetric(page) {
     const root = document.querySelector('#pcaPage:not([hidden])');
     const svgBox = root?.querySelector('#pcaGraphPanel .svgbox');
     const svg = root?.querySelector('#pcaSvg');
-    const screenLength = line => {
+    const canonicalLength = line => {
       if (!line || !svg) return NaN;
-      const ctm = line.getScreenCTM?.();
+      const screenMatrix = line.getScreenCTM?.();
+      const rootMatrix = svg.getScreenCTM?.();
+      const ctm = screenMatrix && rootMatrix ? rootMatrix.inverse().multiply(screenMatrix) : null;
       if (!ctm) return NaN;
       const p1 = svg.createSVGPoint();
       p1.x = Number(line.getAttribute('x1')) || 0;
@@ -77,7 +80,7 @@ async function readRenderedMetric(page) {
       const min = Number(line?.getAttribute('data-axis-min'));
       const max = Number(line?.getAttribute('data-axis-max'));
       const span = Number.isFinite(min) && Number.isFinite(max) && max > min ? max - min : NaN;
-      const pixels = screenLength(line);
+      const pixels = canonicalLength(line);
       return {
         pixels,
         span,
@@ -241,6 +244,9 @@ async function changePcaAxisLength(page, axisKey, deltaPx) {
   await expect(input).toBeEnabled();
   await expect(preserveToggle).toBeChecked();
   await expect(preserveToggle).toBeDisabled();
+  const lengthControlRadii = await lengthField.locator('.axis-controls-panel__input--length, .axis-controls-panel__input--unit')
+    .evaluateAll(nodes => nodes.map(node => getComputedStyle(node).borderRadius));
+  expect(lengthControlRadii).toEqual(['0px', '0px']);
 
   const currentLength = Number(await input.inputValue());
   expect(Number.isFinite(currentLength)).toBe(true);
@@ -275,7 +281,9 @@ async function changePcaAxisLength(page, axisKey, deltaPx) {
     const root = document.querySelector('#pcaPage:not([hidden])');
     const svg = root?.querySelector('#pcaSvg');
     const axisLine = svg?.querySelector(`[data-axis-line="1"][data-axis-key="${axisName}"]`);
-    const ctm = axisLine?.getScreenCTM?.();
+    const screenMatrix = axisLine?.getScreenCTM?.();
+    const rootMatrix = svg?.getScreenCTM?.();
+    const ctm = screenMatrix && rootMatrix ? rootMatrix.inverse().multiply(screenMatrix) : null;
     if (!svg || !axisLine || !ctm) {
       return { delta: Number.POSITIVE_INFINITY, actualLength: null, locked: false, forced: false, idle: false };
     }
@@ -727,6 +735,25 @@ test('PCA keeps one metric-safe axis-length presentation across methods and 3D',
         && svg?.dataset?.viewMode === '2d'
         && window.Components?.pca?.isIdleForSnapshot?.() === true;
     }, method, { timeout: 90_000 });
+    if (method === 'tsne') {
+      await expect(page.locator('#pcaTsneControls')).toBeVisible();
+    } else {
+      await expect(page.locator('#pcaTsneControls')).toBeHidden();
+    }
+    if (method === 'umap') {
+      await expect(page.locator('#pcaUmapControls')).toBeVisible();
+    } else {
+      await expect(page.locator('#pcaUmapControls')).toBeHidden();
+    }
+    if (method === 'pca') {
+      await expect(page.locator('#pcaPreprocessingControl')).toBeVisible();
+    } else {
+      await expect(page.locator('#pcaPreprocessingControl')).toBeHidden();
+    }
+    await expect(page.locator('#pcaAxis3DControl')).toBeHidden();
+    for (const selector of ['#pcaTsneControls', '#pcaUmapControls', '#pcaAxis3DControl', '#pcaPreprocessingControl']) {
+      expect(await page.locator(selector).evaluate(node => node.style.display)).toBe('');
+    }
     await waitForPcaMetric(page);
     expectMetric(await readRenderedMetric(page), `${method} 2D metric`, { equalAxisLengths: true });
     await expect(page.locator('#pcaPage:not([hidden]) #pcaVarianceAxisScale')).toHaveCount(0);
@@ -744,6 +771,8 @@ test('PCA keeps one metric-safe axis-length presentation across methods and 3D',
       && svg?.dataset?.pcaEqualAxisLengths === 'true'
       && window.Components?.pca?.isIdleForSnapshot?.() === true;
   }, null, { timeout: 60_000 });
+  await expect(page.locator('#pcaAxis3DControl')).toBeVisible();
+  expect(await page.locator('#pcaAxis3DControl').evaluate(node => node.style.display)).toBe('');
 
   const read3dState = () => page.evaluate(() => {
     const root = document.querySelector('#pcaPage:not([hidden])');
@@ -793,4 +822,71 @@ test('PCA keeps one metric-safe axis-length presentation across methods and 3D',
   expect(natural3d.retiredStateKeys).toEqual([]);
 
   expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
+});
+
+
+test('PCA explicit axis layout stays with its tab and invalidates coordinate changes', async ({ page }) => {
+  test.setTimeout(240_000);
+  await installLocalCdnOverrides(page);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await openPcaExample(page);
+  const model = () => page.evaluate(() => window.Components.pca.getPayload().config.explicitAxisLayout);
+  await changePcaAxisLength(page, 'x', 35);
+  const firstTabId = await getActiveTabId(page);
+  const firstModel = await model();
+  expect(firstModel?.version).toBe(1);
+  const firstMetric = await readRenderedMetric(page);
+  const secondTabId = await openSecondPcaTab(page);
+  await clickExpectedExampleButton(page, 'pcaLoadExample');
+  await waitForPcaMetric(page);
+  expect(await model()).toBeNull();
+  await setEqualAxisLengths(page, false);
+  await changePcaAxisLength(page, 'y', 65);
+  const secondModel = await model();
+  expect(secondModel).not.toEqual(firstModel);
+  await activateTab(page, firstTabId);
+  await waitForPcaMetric(page);
+  expect(await model()).toEqual(firstModel);
+  const restored = await readRenderedMetric(page);
+  expectMetric(restored, 'explicit layout after sibling edit');
+  expect(restored.x.pixels).toBeCloseTo(firstMetric.x.pixels, 0);
+  await activateTab(page, secondTabId);
+  await waitForPcaMetric(page);
+  expect(await model()).toEqual(secondModel);
+
+  for (const change of ['axes', 'method', 'data', 'tick interval', 'equal lengths']) {
+    if (!await model()) {
+      const inspect = () => page.evaluate(() => {
+        const component = window.Components.pca;
+        const session = component.__testHooks.getSession();
+        const svg = document.querySelector('#pcaPage:not([hidden]) #pcaSvg');
+        return { config: component.getPayload().config, signatures: session.cache.renderRuntime.cachedRender?.signatures,
+          svg: { ...svg.dataset }, box: { ...svg.closest('.svgbox').dataset } };
+      });
+      const before = await inspect();
+      try { await changePcaAxisLength(page, 'x', 30); }
+      catch (error) {
+        await test.info().attach(`axis-layout-${change}`, { body: JSON.stringify({ before, after: await inspect() }, null, 2), contentType: 'application/json' });
+        throw error;
+      }
+    }
+    expect((await model())?.version).toBe(1);
+    if (change === 'axes') await page.locator('#pcaXAxis').selectOption('2');
+    if (change === 'method') await page.locator('#pcaMethod').selectOption('mds');
+    if (change === 'data') await page.evaluate(() => {
+      const hot = window.Components.pca.getHotInstance();
+      const rows = hot.getData();
+      hot.setDataAtCell(2, 1, Number(rows[2][1]) + 1);
+    });
+    if (change === 'tick interval') await changeXAxisTickInterval(page);
+    if (change === 'equal lengths') await setEqualAxisLengths(page, true);
+    await expect.poll(model, { timeout: 30_000 }).toBeNull();
+    await waitForComponentOwnerReady(page, PCA_COMPONENT, { requireMountedRoot: true, requirePublished: true, requireIdle: true });
+    await waitForPcaMetric(page);
+    expectMetric(await readRenderedMetric(page), `after ${change}`);
+  }
+  // An inactive sibling's durable layout remains untouched by invalidation.
+  await activateTab(page, firstTabId);
+  await waitForPcaMetric(page);
+  expect(await model()).toEqual(firstModel);
 });

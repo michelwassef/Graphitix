@@ -27,7 +27,7 @@
   let styleChipPreviewEl = null;
   let styleChipValueEl = null;
   let stylePickerCleanup = null;
-  let styleDragState = null;
+  let finishThicknessDrag = null;
   let suppressStyleChipClick = false;
   let colorField = null;
   let colorInput = null;
@@ -137,6 +137,36 @@
       return `${config.scopeId}GraphPanel`;
     }
     return null;
+  }
+
+  function resolveOwnerTabId(config){
+    const explicit = String(config?.ownerTabId || config?.tabId || '').trim();
+    if(explicit){ return explicit; }
+    const target = config?.target || config?.host || null;
+    const resolved = Shared.componentLifecycle?.resolveTabIdFromTarget?.(target);
+    if(resolved){ return String(resolved).trim() || null; }
+    let cursor = target;
+    while(cursor && cursor !== global.document){
+      const tabId = String(
+        cursor.dataset?.workspaceTabId
+        || cursor.dataset?.tabId
+        || cursor.getAttribute?.('data-workspace-tab-id')
+        || cursor.getAttribute?.('data-tab-id')
+        || ''
+      ).trim();
+      if(tabId){ return tabId; }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  }
+
+  function isOwnerActive(config){
+    const ownerTabId = resolveOwnerTabId(config);
+    let activeTabId = null;
+    try{
+      activeTabId = String(global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
+    }catch(_err){}
+    return !!ownerTabId && !!activeTabId && ownerTabId === activeTabId;
   }
 
   function decodeScopedValue(value){
@@ -319,9 +349,9 @@
       showThickness: controls.showThickness !== false,
       showPattern: controls.showPattern !== false,
       showTransparency: controls.showTransparency !== false,
-      summaryLabel: controls.summaryLabel || 'Line',
+      summaryLabel: controls.summaryLabel || 'Scope',
       scopeLabel: controls.scopeLabel || (config?.scope?.label || 'Scope'),
-      colorLabel: controls.colorLabel || 'Color',
+      colorLabel: controls.colorLabel || 'Style',
       thicknessLabel: controls.thicknessLabel || 'Thickness',
       patternLabel: controls.patternLabel || 'Pattern',
       transparencyLabel: controls.transparencyLabel || 'Transparency',
@@ -623,7 +653,6 @@
     if(panelTitleEl){
       panelTitleEl.classList.add('additional-line-controls-panel__title');
     }
-    panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
 
@@ -631,7 +660,7 @@
     summary.className = 'additional-line-controls-panel__summary';
     summaryLabelEl = doc.createElement('span');
     summaryLabelEl.className = 'additional-line-controls-panel__summary-label';
-    summaryLabelEl.textContent = 'Line';
+    summaryLabelEl.textContent = 'Scope';
     summaryValueEl = doc.createElement('span');
     summaryValueEl.className = 'additional-line-controls-panel__summary-value';
     summary.appendChild(summaryLabelEl);
@@ -672,7 +701,7 @@
     styleField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--style';
     styleLabelEl = doc.createElement('span');
     styleLabelEl.className = 'additional-line-controls-panel__field-label';
-    styleLabelEl.textContent = 'Line';
+    styleLabelEl.textContent = 'Style';
     const toolbarUiApi = Shared.getWorkspaceToolbarApi();
     const styleControlParts = toolbarUiApi.createBorderStyleControl({
       chipTitle: 'Click to edit line color. Wheel or Alt+drag to adjust line thickness.',
@@ -696,7 +725,6 @@
       labelClass: 'additional-line-controls-panel__field-label',
       selectClass: 'additional-line-controls-panel__input additional-line-controls-panel__input--select',
       selectAttrs: { 'data-undo-ignore': '1' },
-      solidLabel: 'Continuous'
     });
     patternField = patternFieldParts.field;
     patternLabelEl = patternFieldParts.label;
@@ -796,35 +824,18 @@
       if(typeof toolbarUiApi.bindNumericWheelProxy === 'function'){
         toolbarUiApi.bindNumericWheelProxy(styleChipEl, thicknessInput);
       }
-      const onStyleDragMove = evt => {
-        if(!styleDragState || !thicknessInput){ return; }
-        const deltaX = evt.clientX - styleDragState.startX;
-        const steps = Math.round(deltaX / 8);
-        const dragStep = typeof toolbarUiApi.getNumericWheelStep === 'function'
-          ? toolbarUiApi.getNumericWheelStep(thicknessInput)
-          : (Number(thicknessInput.step) || 0.25);
-        const next = styleDragState.startValue + (steps * dragStep);
-        thicknessInput.value = String(next);
-        thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-      };
-      const onStyleDragUp = () => {
-        if(!styleDragState){ return; }
-        styleDragState = null;
-        if(thicknessInput){
-          thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        global.removeEventListener('mousemove', onStyleDragMove);
-        global.removeEventListener('mouseup', onStyleDragUp);
-      };
-      styleChipEl.addEventListener('mousedown', evt => {
-        if(!evt.altKey || evt.button !== 0){ return; }
-        evt.preventDefault();
-        suppressStyleChipClick = true;
-        const current = sanitizeThicknessValue(thicknessInput?.value);
-        styleDragState = { startX: evt.clientX, startValue: current == null ? 0 : current };
-        global.addEventListener('mousemove', onStyleDragMove);
-        global.addEventListener('mouseup', onStyleDragUp);
-      });
+      finishThicknessDrag = typeof toolbarUiApi.bindTabOwnedNumericDrag === 'function'
+        ? toolbarUiApi.bindTabOwnedNumericDrag(styleChipEl, thicknessInput, {
+          resolveOwner: () => {
+            const config = activeConfig;
+            const tabId = resolveOwnerTabId(config);
+            return tabId && config ? { tabId, token: config } : null;
+          },
+          onStart: () => { suppressStyleChipClick = true; },
+          calculateValue: ({ startValue, deltaX, step }) =>
+            startValue + (Math.round(deltaX / 8) * step)
+        })
+        : null;
       styleChipEl.addEventListener('click', evt => {
         if(!suppressStyleChipClick){ return; }
         suppressStyleChipClick = false;
@@ -859,8 +870,8 @@
           const controls = resolveControls(activeConfig || {});
           stylePickerCleanup = toolbarApi.attachColorPickerNumericSection(overlayEl, {
             canonicalInput: thicknessInput,
-            title: controls.thicknessLabel || 'Line width',
-            ariaLabel: controls.thicknessLabel || 'Line width',
+            title: controls.thicknessLabel || 'Thickness',
+            ariaLabel: controls.thicknessLabel || 'Thickness',
             sectionClass: 'shared-color-picker__section--additional-line-style',
             clearSelector: '.shared-color-picker__section--additional-line-style',
             min: '0',
@@ -1017,18 +1028,23 @@
     if(!svg || typeof svg.ownerDocument?.createElementNS !== 'function'){
       return null;
     }
-    const overlay = svg.ownerDocument.createElementNS(SVG_NS, 'rect');
+    const parent = element.parentNode;
+    if(!parent || typeof parent.insertBefore !== 'function'){
+      return null;
+    }
+    const existingOverlay = element.nextElementSibling?.matches?.('[data-additional-line-overlay="1"]')
+      ? element.nextElementSibling
+      : null;
+    const overlay = existingOverlay || svg.ownerDocument.createElementNS(SVG_NS, 'rect');
     overlay.setAttribute('fill', 'none');
     overlay.setAttribute('stroke', 'none');
     overlay.setAttribute('pointer-events', 'all');
     overlay.dataset.additionalLineControl = '1';
     overlay.dataset.additionalLineOverlay = '1';
     overlay.style.cursor = 'pointer';
-    const parent = element.parentNode;
-    if(!parent || typeof parent.insertBefore !== 'function'){
-      return null;
+    if(!existingOverlay){
+      parent.insertBefore(overlay, element.nextSibling);
     }
-    parent.insertBefore(overlay, element.nextSibling);
     const padding = 6;
     const bounds = updateOverlayBounds(element, overlay, padding);
     const observer = typeof MutationObserver === 'function'
@@ -1068,11 +1084,11 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
+    finishThicknessDrag?.({ commit: true, reason: reason || 'panel-close' });
     if(typeof stylePickerCleanup === 'function'){
       try{ stylePickerCleanup(); }catch(err){}
       stylePickerCleanup = null;
     }
-    panelEl.style.display = 'none';
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
     if(activeHost){
@@ -1111,6 +1127,11 @@
   }
 
   function openPanel(config){
+    const ownerTabId = resolveOwnerTabId(config);
+    if(!config || !ownerTabId || !isOwnerActive({ ...config, ownerTabId })){
+      return false;
+    }
+    config = { ...config, ownerTabId };
     ensurePanel();
     if(!panelEl || !config){ return; }
     if(config.skipHideAll !== true){
@@ -1166,14 +1187,10 @@
 
     const host = config.host || resolveToolbarHost(config.scopeId);
     if(host){
-      if(config.clearHost === true || (config.appendToHost !== true && config.clearHost !== false)){
-        try{
-          host.querySelectorAll('.workspace-toolbar__form, .box-point-controls, [data-point-controls="1"]').forEach(n => n.remove());
-        }catch(e){}
-      }
-      if(panelEl.parentElement !== host){
-        host.appendChild(panelEl);
-      }
+      Shared.getWorkspaceToolbarApi().mountPanels(host, [panelEl], {
+        appendToHost: config.appendToHost === true || config.clearHost === false,
+        clearHost: config.clearHost === true
+      });
       clearHostSizing(host);
       const requestedHostDisplay = typeof config.hostDisplay === 'string' && config.hostDisplay.trim()
         ? config.hostDisplay.trim()
@@ -1184,7 +1201,10 @@
       }
       const toolbarApi = Shared.getWorkspaceToolbarApi();
       if(typeof toolbarApi.showHost === 'function'){
-        toolbarApi.showHost(host, { hostClass: typeof config.hostClass === 'string' ? config.hostClass : '' });
+        toolbarApi.showHost(host, {
+          hostClass: typeof config.hostClass === 'string' ? config.hostClass : '',
+          ownerTabId
+        });
         if(requestedHostDisplay !== 'flex'){
           host.style.display = requestedHostDisplay;
         }
@@ -1199,10 +1219,10 @@
       logDebug('host unavailable for open',{ scopeId: config.scopeId });
     }
     updatePanelInputs(config);
-    panelEl.style.display = 'grid';
     panelEl.hidden = false;
     panelEl.dataset.open = '1';
     logDebug('panel opened',{ axis: config.axis, index: config.index, scopeId: config.scopeId });
+    return true;
   }
 
   function setScope(nextScope, options){
@@ -1248,14 +1268,25 @@
 
   function registerAdditionalLineElement(element, config){
     if(!element || !config){ return; }
+    const registeredConfig = { ...config, ownerTabId: resolveOwnerTabId({ ...config, target: config.target || element }) };
     element.dataset.additionalLineControl = '1';
+    const axis = String(config.axis || '').trim().toLowerCase();
+    const index = Number(config.index);
+    if((axis === 'x' || axis === 'y') && Number.isInteger(index) && index >= 0){
+      element.dataset.additionalLineAxis = axis;
+      element.dataset.additionalLineIndex = String(index);
+    }else{
+      delete element.dataset.additionalLineAxis;
+      delete element.dataset.additionalLineIndex;
+    }
     element.style.cursor = 'pointer';
-    element.__additionalLineControlConfig = config;
+    element.__additionalLineControlConfig = registeredConfig;
     const overlayInfo = config.disableOverlay ? null : ensureLineOverlay(element);
     const handler = evt => {
       evt.preventDefault();
       evt.stopPropagation();
-      const liveConfig = element.__additionalLineControlConfig || config;
+      const liveConfig = element.__additionalLineControlConfig || registeredConfig;
+      if(!isOwnerActive(liveConfig)){ return; }
       logDebug('line clicked',{ scopeId: liveConfig.scopeId, axis: liveConfig.axis, index: liveConfig.index });
       openPanel(Object.assign({}, liveConfig, { target: element }));
     };
@@ -1264,12 +1295,73 @@
       element.__additionalLineControlHandler = handler;
     }
     if(overlayInfo){
-      overlayInfo.element.__additionalLineControlConfig = config;
+      overlayInfo.element.__additionalLineControlConfig = registeredConfig;
       if(!overlayInfo.element.__additionalLineControlHandler){
         overlayInfo.element.addEventListener('click', handler);
         overlayInfo.element.__additionalLineControlHandler = handler;
       }
     }
+  }
+
+  function createAxisLineConfig(options = {}){
+    const scopeId = String(options.scopeId || '').trim();
+    const axis = String(options.axis || '').trim().toLowerCase();
+    const index = Number(options.index);
+    const getEntry = options.getEntry;
+    const updateEntry = options.updateEntry;
+    if(!scopeId || (axis !== 'x' && axis !== 'y') || !Number.isInteger(index) || index < 0
+      || typeof getEntry !== 'function' || typeof updateEntry !== 'function'){
+      return null;
+    }
+    const readEntry = () => getEntry(axis, index) || null;
+    const applyPatch = patch => {
+      const entry = readEntry();
+      if(entry){ updateEntry(axis, index, { ...entry, ...patch }); }
+    };
+    return {
+      scopeId,
+      tabId: options.tabId || null,
+      axis,
+      index,
+      getValue: () => readEntry()?.value,
+      getColor: () => readEntry()?.lineColor ?? null,
+      getThickness: () => readEntry()?.lineWidth ?? null,
+      getPattern: () => readEntry()?.linePattern ?? 'dotted',
+      getTransparency: () => readEntry()?.lineTransparency ?? 0,
+      onColorChange: value => applyPatch({ lineColor: value }),
+      onThicknessChange: value => applyPatch({ lineWidth: value }),
+      onPatternChange: value => applyPatch({ linePattern: value }),
+      onTransparencyChange: value => applyPatch({ lineTransparency: value })
+    };
+  }
+
+  function rehydrateAdditionalLineElements(root, createConfig){
+    if(!root || typeof root.querySelectorAll !== 'function' || typeof createConfig !== 'function'){
+      return false;
+    }
+    const elements = Array.from(root.querySelectorAll(
+      '[data-additional-line-control="1"]:not([data-additional-line-overlay="1"])'
+    ));
+    let complete = true;
+    elements.forEach(element => {
+      const axis = String(element.dataset?.additionalLineAxis || '').trim().toLowerCase();
+      const index = Number(element.dataset?.additionalLineIndex);
+      if((axis !== 'x' && axis !== 'y') || !Number.isInteger(index) || index < 0){
+        complete = false;
+        return;
+      }
+      const config = createConfig(axis, index, element);
+      if(!config){
+        complete = false;
+        return;
+      }
+      registerAdditionalLineElement(element, { ...config, axis, index, target: element });
+      if(typeof element.__additionalLineControlHandler !== 'function'
+        || !element.__additionalLineControlConfig){
+        complete = false;
+      }
+    });
+    return complete;
   }
 
   function pruneToolbarHostCache(){
@@ -1279,6 +1371,15 @@
       }
     });
   }
+
+  additionalLineControls.deactivateTab = function deactivateTab(tabLike, meta = {}){
+    const tabId = String((tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || '').trim();
+    if(!tabId || !activeConfig || resolveOwnerTabId(activeConfig) !== tabId){
+      return false;
+    }
+    closePanel(meta.reason || 'owner-deactivated');
+    return true;
+  };
 
   additionalLineControls.disposeTab = function disposeTab(){
     pruneToolbarHostCache();
@@ -1293,7 +1394,9 @@
   }catch(_err){}
 
   additionalLineControls.ensurePanel = ensurePanel;
+  additionalLineControls.createAxisLineConfig = createAxisLineConfig;
   additionalLineControls.registerAdditionalLineElement = registerAdditionalLineElement;
+  additionalLineControls.rehydrateAdditionalLineElements = rehydrateAdditionalLineElements;
   additionalLineControls.close = closePanel;
   additionalLineControls.updateOverlayBounds = updateOverlayBounds;
   additionalLineControls.show = openPanel;

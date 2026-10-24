@@ -67,6 +67,24 @@ describe('Shared stats reporting layout', () => {
     expect(target.querySelector('td .stats-significance-badge')).toBeNull();
   });
 
+  test('shared results header keeps its title and format control outside saved results', () => {
+    const target = document.createElement('div');
+    target.id = 'scatterStatsResults';
+    target.innerHTML = '<div class="stats-table-card"><table><tbody><tr><td>Previous result</td></tr></tbody></table></div>';
+    document.body.appendChild(target);
+    const reporting = global.Shared.statsReporting;
+    target.__statsExtraControlFactory = context => reporting.createResultsHeaderControls(context.target, {
+      document: context.document
+    });
+
+    reporting.enhancePanelNow(target, 'results-header');
+
+    const controls = target.querySelector(':scope > .stats-reporting-controls');
+    expect(controls.querySelector('.stats-results-title')?.textContent).toBe('Results');
+    expect(controls.querySelector('.stats-pvalue-format-select')).toBeTruthy();
+    expect(JSON.stringify(reporting.capturePanelModel(target))).not.toContain('stats-results-title');
+  });
+
   test('a separate report host enhances its tracked ancestor, not the host itself', () => {
     const target = document.createElement('div');
     target.id = 'scatterStatsResults';
@@ -166,7 +184,7 @@ describe('Shared stats reporting layout', () => {
     const reporting = global.Shared.statsReporting;
     const summary = document.createElement('div');
     summary.className = 'stats-table-lead';
-    summary.textContent = 'Samples analysed: 8';
+    summary.textContent = 'Samples analyzed: 8';
     target.appendChild(summary);
 
     reporting.enhancePanelNow(target, 'ordinary-summary');
@@ -340,7 +358,7 @@ describe('Shared stats reporting disclosure persistence', () => {
     require('../../js/shared/stats.js');
   });
 
-  test('re-rendering a report preserves the open reporting and advanced disclosure state', () => {
+  test('re-rendering a report preserves the open reporting disclosure state', () => {
     const target = document.createElement('div');
     document.body.appendChild(target);
     const reporting = global.Shared.statsReporting;
@@ -352,11 +370,8 @@ describe('Shared stats reporting disclosure persistence', () => {
     }, { title: 'Reporting and reproducibility' });
 
     const firstPanel = target.querySelector('.stats-report-panel');
-    const firstAdvanced = firstPanel.querySelector('.stats-report-panel__advanced');
     firstPanel.open = true;
-    firstAdvanced.open = true;
     firstPanel.dispatchEvent(new Event('toggle'));
-    firstAdvanced.dispatchEvent(new Event('toggle'));
 
     reporting.appendReportPanel(target, {
       methodsText: 'Updated methods.',
@@ -365,10 +380,10 @@ describe('Shared stats reporting disclosure persistence', () => {
     }, { title: 'Reporting and reproducibility' });
 
     const updatedPanel = target.querySelector('.stats-report-panel');
-    const updatedAdvanced = updatedPanel.querySelector('.stats-report-panel__advanced');
     expect(updatedPanel.open).toBe(true);
-    expect(updatedAdvanced.open).toBe(true);
     expect(updatedPanel.textContent).toContain('Updated methods.');
+    expect(updatedPanel.querySelector('.stats-report-panel__advanced')).toBeNull();
+    expect(updatedPanel.textContent).not.toContain('Technical analysis record');
   });
 
   test('capture and restore retain reporting disclosure state', () => {
@@ -383,18 +398,15 @@ describe('Shared stats reporting disclosure persistence', () => {
     }, { title: 'Reporting and reproducibility' });
 
     const panel = target.querySelector('.stats-report-panel');
-    const advanced = panel.querySelector('.stats-report-panel__advanced');
     panel.open = true;
-    advanced.open = true;
     panel.dispatchEvent(new Event('toggle'));
-    advanced.dispatchEvent(new Event('toggle'));
 
     const saved = reporting.capturePanelModel(target);
     target.textContent = '';
     reporting.restorePanelModel(target, saved);
 
     expect(target.querySelector('.stats-report-panel')?.open).toBe(true);
-    expect(target.querySelector('.stats-report-panel__advanced')?.open).toBe(true);
+    expect(target.querySelector('.stats-report-panel__advanced')).toBeNull();
   });
 
   test('panel restore can update the report registry without queuing a duplicate figure summary render', () => {
@@ -419,5 +431,23 @@ describe('Shared stats reporting disclosure persistence', () => {
     expect(registerReportModel).toHaveBeenCalledWith(expect.objectContaining({
       scheduleRender: false
     }));
+  });
+
+  test('a stale panel remains visible but is excluded from the current saved model', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const reporting = global.Shared.statsReporting;
+    target.innerHTML = '<section class="stats-table-card">Previous results</section>';
+    reporting.appendReportPanel(target, {
+      methodsText: 'Previous method.',
+      resultsText: 'Previous report.'
+    });
+    const visibleText = target.textContent;
+
+    reporting.markPanelStale(target);
+
+    expect(target.getAttribute('data-stats-stale')).toBe('true');
+    expect(target.textContent).toBe(visibleText);
+    expect(reporting.capturePanelModel(target)).toEqual({ resultsModel: null, reportModel: null });
   });
 });

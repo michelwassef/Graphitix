@@ -6,9 +6,113 @@ const { deepClone, ensureWorkspaceTabs, installDomControls } = require('../../te
 describe('domControls render-cache and activation isolation', () => {
   beforeEach(installDomControls);
   afterEach(() => {
+    window.Main?.workspacePreparation?.cancel();
     if (typeof global.__suppressTestDebugLogs === 'function') {
       global.__suppressTestDebugLogs();
     }
+  });
+
+  test('a cold reopened tab is published only after its owning asynchronous graph is complete', async () => {
+    document.body.innerHTML = '<div id="welcomeScreen"></div><main><div id="heatmapPage" hidden></div></main>';
+    const root = document.getElementById('heatmapPage');
+    let completeDraw;
+    const drawStarted = new Promise(resolve => { completeDraw = resolve; });
+    let finishDraw;
+    const pendingDraw = new Promise(resolve => { finishDraw = resolve; });
+    const config = { type: 'heatmap', element: root,
+      createEmptyPayload: () => ({ type: 'heatmap', data: [], config: {} }),
+      loadFromPayload: jest.fn(),
+      draw: jest.fn(() => { completeDraw(); return pendingDraw; }),
+      hasRenderedGraph: () => !!root.querySelector('svg'), hasRenderablePayload: () => true };
+    const tab = { id: 'cold-owner', type: 'heatmap', loadedFromArchive: true,
+      payload: { type: 'heatmap', data: [['X'], [1]] }, payloadSignature: 'p', layoutSignature: 'l' };
+    const workspaceState = { activeTabId: tab.id, tabs: [tab], loadedWorkspaces: {}, renderedWorkspaceByType: {} };
+    ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
+    window.Main.domControls.markWorkspaceInitialized('heatmap');
+    const activation = window.Main.domControls.showWorkspaceForTab({ tab, workspaceState, workspaces: { heatmap: config },
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') }, session: { fastClonePayload: deepClone } });
+    await drawStarted;
+    expect(root.classList.contains('workspace-restoring')).toBe(true);
+    expect(root.inert).toBe(true);
+    expect(workspaceState.loadedWorkspaces[tab.id]).toBeUndefined();
+    root.innerHTML = '<svg><path d="M0 0L1 1"/></svg>';
+    finishDraw(true);
+    await activation;
+    expect(root.classList.contains('workspace-restoring')).toBe(false);
+    expect(workspaceState.loadedWorkspaces[tab.id].tabId).toBe(tab.id);
+  });
+
+  test('an older ensure completion cannot overwrite a newer activation of the same owner', async () => {
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage" hidden></div>';
+    const root = document.getElementById('scatterPage');
+    let finishEnsure;
+    const pendingEnsure = new Promise(resolve => { finishEnsure = resolve; });
+    const config = { type: 'scatter', element: root,
+      ensure: jest.fn().mockReturnValueOnce(pendingEnsure), createEmptyPayload: () => ({ type: 'scatter', data: [], config: {} }),
+      loadFromPayload: jest.fn(), draw: jest.fn(() => { root.innerHTML = '<svg><circle r="1"/></svg>'; }),
+      hasRenderedGraph: () => !!root.querySelector('svg') };
+    const tab = { id: 'same-owner', type: 'scatter', payload: { type: 'scatter', data: [['X'], [1]] } };
+    const workspaceState = { activeTabId: tab.id, loadedWorkspaces: {}, renderedWorkspaceByType: {} };
+    ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
+    const params = { tab, workspaceState, workspaces: { scatter: config }, dom: {}, session: { fastClonePayload: deepClone } };
+    const oldActivation = window.Main.domControls.showWorkspaceForTab(params);
+    await window.Main.domControls.showWorkspaceForTab(params);
+    const applied = config.loadFromPayload.mock.calls.length;
+    finishEnsure();
+    expect(await oldActivation).toBe(false);
+    expect(config.loadFromPayload).toHaveBeenCalledTimes(applied);
+  });
+
+  test('owner data changed during lazy loading replaces an earlier prepared copy', async () => {
+    document.body.innerHTML = '<div id="scatterPage" hidden></div>';
+    const root = document.getElementById('scatterPage');
+    let finishEnsure;
+    const pendingEnsure = new Promise(resolve => { finishEnsure = resolve; });
+    const tab = { id: 'changing-owner', type: 'scatter', payloadSignature: 'old',
+      payload: { type: 'scatter', data: [['X'], [1]] } };
+    const take = jest.spyOn(window.Main.workspacePreparation, 'take')
+      .mockReturnValueOnce({ payload: deepClone(tab.payload), renderCache: null });
+    const config = { type: 'scatter', element: root, ensure: jest.fn().mockReturnValueOnce(pendingEnsure),
+      createEmptyPayload: () => ({ type: 'scatter', data: [], config: {} }), loadFromPayload: jest.fn(),
+      draw: () => { root.innerHTML = '<svg><circle r="1"/></svg>'; }, hasRenderedGraph: () => !!root.querySelector('svg') };
+    const workspaceState = { activeTabId: tab.id, loadedWorkspaces: {}, renderedWorkspaceByType: {} };
+    ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
+    const activation = window.Main.domControls.showWorkspaceForTab({ tab, workspaceState, workspaces: { scatter: config },
+      dom: {}, session: { fastClonePayload: deepClone } });
+    tab.payload = { type: 'scatter', data: [['X'], [99]] };
+    tab.payloadSignature = 'new';
+    finishEnsure();
+    await activation;
+    expect(config.loadFromPayload).toHaveBeenCalledTimes(1);
+    expect(config.loadFromPayload.mock.calls[0][0].data[1][0]).toBe(99);
+    expect(workspaceState.loadedWorkspaces[tab.id].payloadSignature).toBe('new');
+    take.mockRestore();
+  });
+
+  test('a late activation cannot project a workspace after its tab loses active ownership', () => {
+    const domControls = window.Main?.domControls;
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage" hidden></div>';
+    const element = document.getElementById('scatterPage');
+    const config = {
+      type: 'scatter',
+      element,
+      ensure: jest.fn(),
+      draw: jest.fn()
+    };
+
+    const result = domControls.showWorkspaceForTab({
+      tab: { id: 'workspace-2', type: 'scatter' },
+      options: { reason: 'delayed-tab-activation' },
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { scatter: config },
+      session: {},
+      workspaceState: { activeTabId: 'workspace-3' }
+    });
+
+    expect(result).toBe(false);
+    expect(config.ensure).not.toHaveBeenCalled();
+    expect(config.draw).not.toHaveBeenCalled();
+    expect(element.hidden).toBe(true);
   });
 
   test('showWorkspaceForTab reuses mounted large-tab payload when only render cache needs restore', () => {

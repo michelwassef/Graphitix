@@ -3,6 +3,7 @@ describe('data view tab export menu', () => {
     jest.resetModules();
     require('../../js/vendor.js');
     require('../../js/shared/dataTransforms.js');
+    require('../../js/shared/menuKeyboard.js');
     require('../../js/shared/dataViews.js');
     window.Shared.disableDebugLogging?.();
     window.Main = window.Main || {};
@@ -44,6 +45,28 @@ describe('data view tab export menu', () => {
     expect(wrapper.querySelectorAll('.data-view-tabs__close').length).toBe(1);
     const exportLabel = wrapper.querySelector('.data-view-tabs__export-label');
     expect(exportLabel?.textContent).toBe('Save as:');
+  });
+
+  test('export menu supports roving keyboard focus and restores its save trigger', () => {
+    const { wrapper } = createMountedManager();
+    const save = wrapper.querySelector('.data-view-tabs__save[data-view-id="raw"]');
+    const menu = wrapper.querySelector('.data-view-tabs__export-menu');
+    const [csv, tsv, ods, xlsx] = menu.querySelectorAll('[role="menuitem"]');
+
+    save.click();
+    expect(menu.hidden).toBe(false);
+    expect(save.getAttribute('aria-expanded')).toBe('true');
+    expect(save.getAttribute('aria-controls')).toBe(menu.id);
+    expect(document.activeElement).toBe(csv);
+
+    tsv.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(ods);
+    ods.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(xlsx);
+    xlsx.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(menu.hidden).toBe(true);
+    expect(save.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(save);
   });
 
   test('exports csv for selected view with save-as', async () => {

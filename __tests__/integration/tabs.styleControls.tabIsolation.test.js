@@ -84,24 +84,24 @@ describe('Style controls remain functional and tab-isolated across components', 
     }
   });
 
-  test('Box and PCA expose their named default palettes', async () => {
+  test('Box and PCA payloads keep their named default palettes', async () => {
     const Main = window.Main;
 
     await handleGraphSelection(Main, 'box');
-    const boxSelect = document.querySelector('#boxColorSchemeSelect');
-    expect(boxSelect?.value).toBe('grayscale');
+    const boxDefault = window.Shared.colorSchemes.getDefaultSchemeId('box');
+    expect(readSchemeId('box', Main.components.registry.box.getPayload())).toBe(boxDefault);
 
     Main.tabs.handleAddTabClick();
     await flush();
     await handleGraphSelection(Main, 'pca');
-    const pcaSelect = document.querySelector('#pcaColorSchemeSelect');
-    expect(pcaSelect?.value).toBe('scientific');
+    const pcaDefault = window.Shared.colorSchemes.getDefaultSchemeId('pca');
+    expect(readSchemeId('pca', Main.components.registry.pca.getPayload())).toBe(pcaDefault);
 
     document.getElementById('pcaLoadExample')?.click();
     for (let index = 0; index < 20; index += 1) {
       await flush();
     }
-    expect(pcaSelect?.value).toBe('scientific');
+    expect(readSchemeId('pca', Main.components.registry.pca.getPayload())).toBe(pcaDefault);
   });
 
   test('PCA palette undo preserves graph size and skips layout restoration', async () => {
@@ -196,18 +196,22 @@ describe('Style controls remain functional and tab-isolated across components', 
     const schemeSelect = page.querySelector(`select[data-color-scheme-select="1"][data-component-type="${type}"]`);
     expect(schemeSelect).toBeTruthy();
     const payloadABeforeScheme = cloneValue(workspace.getPayload?.());
-    const nextScheme = type === 'surface' ? 'surface-plasma' : 'dark';
+    const colorSchemes = window.Shared.colorSchemes;
+    const currentPaletteId = colorSchemes.getSchemeIdentity(readSchemeId(type, payloadABeforeScheme)).paletteId;
+    const nextScheme = Array.from(schemeSelect.options)
+      .map(option => String(option.value || ''))
+      .find(schemeId => schemeId && schemeId !== 'custom'
+        && colorSchemes.getSchemeIdentity(schemeId).paletteId !== currentPaletteId);
+    expect(nextScheme).toBeTruthy();
     schemeSelect.value = nextScheme;
     schemeSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
     await flush();
 
     const payloadAAfterScheme = cloneValue(workspace.getPayload?.());
-    if (type === 'venn') {
-      expect(String(payloadAAfterScheme?.style?.colorA || '')).not.toBe(String(payloadABeforeScheme?.style?.colorA || ''));
-    } else {
-      expect(readSchemeId(type, payloadAAfterScheme)).toBe(nextScheme);
-    }
+    expect(colorSchemes.getSchemeIdentity(readSchemeId(type, payloadAAfterScheme)).paletteId)
+      .toBe(colorSchemes.getSchemeIdentity(nextScheme).paletteId);
+    expect(payloadAAfterScheme).not.toEqual(payloadABeforeScheme);
 
     await activateTabById(Main, tabB.id, `test-style-controls-${type}-to-b-after-scheme`);
     expect(readSchemeId(type, cloneValue(workspace.getPayload?.()))).toBe(schemeBBaseline);
@@ -218,7 +222,12 @@ describe('Style controls remain functional and tab-isolated across components', 
     const publicationApply = page.querySelector(`[data-publication-style-apply="1"][data-component-type="${type}"]`);
     expect(publicationSelect).toBeTruthy();
     expect(publicationApply).toBeTruthy();
-    publicationSelect.value = 'npg_single';
+    const nextPreset = Array.from(publicationSelect.options)
+      .map(option => String(option.value || ''))
+      .find(presetId => presetId && presetId !== 'npg_single');
+    expect(nextPreset).toBeTruthy();
+    publicationSelect.value = nextPreset;
+    publicationSelect.dispatchEvent(new Event('change', { bubbles: true }));
     publicationApply.click();
     await flush();
     await flush();

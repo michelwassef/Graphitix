@@ -70,20 +70,12 @@ describe('colorSchemes — box borderColors are derived correctly', () => {
     borders.forEach(b => expect(b).toBe('#000000'));
   });
 
-  test('dark box borderColors are all the same light color (dark contrast)', () => {
-    const result = cs.applyToPayload('box', { config: {} }, 'dark');
-    const borders = result.config.borderColors;
-    expect(Array.isArray(borders)).toBe(true);
-    if (borders.length > 0) {
-      // All borders use the same dark-contrast color
-      const unique = [...new Set(borders)];
-      expect(unique.length).toBe(1);
-      // The contrast color for dark theme should be light
-      const rgb = hexToRgb(unique[0]);
-      if (rgb) {
-        expect(luminance(rgb.r, rgb.g, rgb.b)).toBeGreaterThan(0.5);
-      }
-    }
+  test('Pastel Box keeps its own categorical colors instead of replacing all marks with white', () => {
+    const result = cs.applyToPayload('box', { config: { colors: ['#123456', '#654321'] } }, 'dark');
+    const light = cs.applyToPayload('box', { config: { colors: ['#123456', '#654321'] } }, 'dark-light');
+    expect(result.config.colors).toEqual(light.config.colors);
+    expect(result.config.borderColors).toEqual(light.config.borderColors);
+    expect(result.config.colors[0]).not.toBe('#ffffff');
   });
 
   test('soft box borderColors are darker than their corresponding fill colors', () => {

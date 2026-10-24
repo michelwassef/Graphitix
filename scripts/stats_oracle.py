@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent statistical oracle used by Graphitix differential tests.
 
-Oracle contract version: 2026-07-26.2
+Oracle contract version: 2026-10-24.1
 
 The oracle intentionally relies on SciPy/statsmodels reference implementations
 where available. Missing/invalid inference is represented as JSON null and is
@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import itertools
 import math
+from decimal import Decimal
 import sys
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -35,7 +36,8 @@ import numpy as np
 from check_stats_oracle_runtime import validate_runtime
 from scipy import stats
 from scipy.interpolate import CubicSpline
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, brentq, root
+from scipy.integrate import quad
 from scipy.special import expit
 
 try:
@@ -1784,19 +1786,7 @@ def _clean_paired_vectors(a_values: Any, b_values: Any) -> Tuple[List[float], Li
 
 
 def _rankdata_average(values: List[float]) -> np.ndarray:
-    n = len(values)
-    order = sorted(range(n), key=lambda idx: values[idx])
-    ranks = np.zeros(n, dtype=float)
-    i = 0
-    while i < n:
-        j = i + 1
-        while j < n and values[order[j]] == values[order[i]]:
-            j += 1
-        avg_rank = ((i + 1) + j) / 2.0
-        for k in range(i, j):
-            ranks[order[k]] = avg_rank
-        i = j
-    return ranks
+    return stats.rankdata(values, method="average")
 
 
 def _has_duplicate_values(values: List[float]) -> bool:
@@ -1878,8 +1868,9 @@ def box_ttest_equal_variance(payload: Dict[str, Any]) -> Dict[str, Any]:
             t_stat = float("inf") if diff > 0 else float("-inf")
             p_value = _p_from_t_stat(t_stat, df, alternative)
     else:
-        t_stat = diff / se
-        p_value = _p_from_t_stat(t_stat, df, alternative)
+        reference = stats.ttest_ind(a, b, equal_var=True, alternative=alternative)
+        t_stat = float(reference.statistic)
+        p_value = float(reference.pvalue)
     alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
     t_crit = float(stats.t.ppf(1 - alpha / 2, df)) if math.isfinite(df) and df > 0 else float("nan")
     ci_half = t_crit * se if math.isfinite(t_crit) and math.isfinite(se) else float("nan")
@@ -1917,8 +1908,9 @@ def box_ttest_paired(payload: Dict[str, Any]) -> Dict[str, Any]:
             t_stat = float("inf") if mean_diff > 0 else float("-inf")
             p_value = _p_from_t_stat(t_stat, n - 1, alternative)
     else:
-        t_stat = mean_diff / se
-        p_value = _p_from_t_stat(t_stat, n - 1, alternative)
+        reference = stats.ttest_rel(a, b, alternative=alternative)
+        t_stat = float(reference.statistic)
+        p_value = float(reference.pvalue)
     alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
     t_crit = float(stats.t.ppf(1 - alpha / 2, n - 1)) if n > 1 else float("nan")
     ci_half = t_crit * se if math.isfinite(t_crit) and math.isfinite(se) else float("nan")
@@ -2077,13 +2069,134 @@ def box_mann_whitney(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"available": True, "U1": u1, "U2": u2, "U": min(u1, u2), "p": float(result.pvalue), "method": method}
 
 
+def box_named_comparisons(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [np.asarray(group, dtype=float) for group in payload['groups']]
+    level = float(payload.get('ciLevel', 0.95))
+    pairs = []
+    if payload.get('method') == 'dunnett':
+        control = int(payload.get('referenceIndex', 0))
+        indices = [i for i in range(len(groups)) if i != control]
+        result = stats.dunnett(*[groups[i] for i in indices], control=groups[control], random_state=np.random.default_rng(271828))
+        interval = result.confidence_interval(confidence_level=level)
+        df = sum(map(len, groups)) - len(groups)
+        mse = sum(float(np.sum((g - np.mean(g)) ** 2)) for g in groups) / df
+        # A second, higher precision SciPy multivariate-t integral checks its
+        # public Dunnett result without reusing Graphitix quadrature.
+        loadings = np.sqrt([len(groups[i]) / (len(groups[i]) + len(groups[control])) for i in indices])
+        correlation_matrix = np.outer(loadings, loadings)
+        np.fill_diagonal(correlation_matrix, 1)
+        distribution = stats.multivariate_t(shape=correlation_matrix, df=df)
+        for position, j in enumerate(indices):
+            diff = float(np.mean(groups[control]) - np.mean(groups[j]))
+            se = math.sqrt(mse * (1 / len(groups[control]) + 1 / len(groups[j])))
+            t = diff / se
+            p_adj = 1 - distribution.cdf(np.full(len(indices), abs(t)), lower_limit=np.full(len(indices), -abs(t)), maxpts=2000000, random_state=np.random.default_rng(123456))
+            pairs.append(dict(i=control, j=j, diff=diff, se=se, t=t, df=df, p=float(2 * stats.t.sf(abs(t), df)), pAdj=float(p_adj), scipyP=float(result.pvalue[position]), ciLow=float(-interval.high[position]), ciHigh=float(-interval.low[position])))
+    else:
+        m = len(groups) * (len(groups) - 1) // 2
+        for i, j in itertools.combinations(range(len(groups)), 2):
+            vi, vj = np.var(groups[i], ddof=1) / len(groups[i]), np.var(groups[j], ddof=1) / len(groups[j])
+            se = float(np.sqrt(vi + vj))
+            df = float((vi + vj) ** 2 / (vi ** 2 / (len(groups[i]) - 1) + vj ** 2 / (len(groups[j]) - 1)))
+            diff = float(np.mean(groups[i]) - np.mean(groups[j]))
+            def sf(q):
+                # Independent integration over the chi-square mixing variable.
+                def integrand(log_v):
+                    v = math.exp(log_v)
+                    h = q * math.sqrt(v / df)
+                    tail = -math.expm1(m * math.log1p(-min(1 - 1e-16, 2 * stats.norm.sf(h))))
+                    return tail * math.exp(stats.chi2.logpdf(v, df) + log_v)
+                low = math.log(stats.chi2.ppf(1e-13, df))
+                high = math.log(stats.chi2.ppf(1 - 1e-13, df))
+                return quad(integrand, low, high, epsabs=2e-10, epsrel=2e-10, limit=200)[0]
+            critical = brentq(lambda q: sf(q) - (1 - level), 0.01, float(stats.t.ppf(1 - (1 - level) / (2 * m), df)) * 1.01, xtol=1e-10)
+            pairs.append(dict(i=i, j=j, diff=diff, se=se, t=diff / se, df=df, p=float(2 * stats.t.sf(abs(diff / se), df)), pAdj=sf(abs(diff / se)), ciLow=diff-critical*se, ciHigh=diff+critical*se))
+    return {'pairs': pairs}
+
+
+def box_rout_location(payload: Dict[str, Any]) -> Dict[str, Any]:
+    values = np.asarray(payload['values'], dtype=float)
+    n = len(values)
+    def scale(center):
+        return float(np.quantile(np.abs(values - center), 0.6827) * n / (n - 1))
+    def score(center):
+        rsdr = scale(float(center[0]))
+        residuals = values - center[0]
+        return [float(np.sum(residuals / (1 + (residuals / rsdr) ** 2)))]
+    fitted = root(score, [np.mean(values)], tol=1e-11)
+    center = float(fitted.x[0])
+    rsdr = scale(center)
+    residuals = np.abs(values - center)
+    order = np.argsort(residuals, kind='stable')
+    removed = []
+    q = float(payload.get('q', 0.01))
+    for position in range(n - math.floor(0.3 * n), n):
+        if 2 * stats.t.sf(residuals[order[position]] / rsdr, n - 1) < q * (n - position) / n:
+            removed = list(map(int, order[position:]))
+            break
+    return dict(center=center, rsdr=rsdr, removed=removed, score=score([center])[0])
+
+
+def box_control_sidak(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in payload["groups"]]
+    control = int(payload.get("referenceIndex", 0))
+    level = float(payload.get("ciLevel", 0.95))
+    count = len(groups) - 1
+    df = sum(map(len, groups)) - len(groups)
+    mse = sum(float(np.sum((np.asarray(g) - np.mean(g)) ** 2)) for g in groups) / df
+    pairs = []
+    for index, group in enumerate(groups):
+        if index == control:
+            continue
+        a = groups[control]
+        diff = float(np.mean(a) - np.mean(group))
+        if payload.get("unequalVariances"):
+            result = stats.ttest_ind(a, group, equal_var=False)
+            contrast_df = float(result.df)
+            se = math.sqrt(float(np.var(a, ddof=1)) / len(a) + float(np.var(group, ddof=1)) / len(group))
+            t, p = float(result.statistic), float(result.pvalue)
+        else:
+            contrast_df = df
+            se = math.sqrt(mse * (1 / len(a) + 1 / len(group)))
+            t = diff / se
+            p = float(2 * stats.t.sf(abs(t), df))
+        cutoff = stats.t.ppf(1 - (-math.expm1(math.log(level) / count)) / 2, contrast_df)
+        pairs.append({"diff": diff, "se": se, "df": contrast_df, "t": t, "p": p,
+                      "pAdj": 1.0 if p == 1 else -math.expm1(count * math.log1p(-p)),
+                      "ciLow": diff - cutoff * se, "ciHigh": diff + cutoff * se})
+    return {"pairs": pairs}
+
+
+def _decimal_differences(a: List[float], b: List[float]) -> List[float]:
+    return [float(Decimal(str(x)) - Decimal(str(y))) for x, y in zip(a, b)]
+
+
+def box_decimal_signed_rank(payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Decimal input arithmetic is independent of the JavaScript integer implementation.
+    a, b = _clean_paired_vectors(payload["a"], payload["b"])
+    diffs = _decimal_differences(a, b)
+    nonzero = [x for x in diffs if x != 0]
+    if not nonzero:
+        return {"W": 0, "p": 1}
+    ranks = stats.rankdata(np.abs(nonzero))
+    positive = float(sum(rank for rank, value in zip(ranks, nonzero) if value > 0))
+    negative = float(sum(ranks) - positive)
+    if payload.get("resamplingMode") == "permutation-reference":
+        sums = [sum(rank for rank, sign in zip(ranks, signs) if sign) for signs in itertools.product([0, 1], repeat=len(ranks))]
+        p = min(1, 2 * min(sum(x <= positive for x in sums), sum(x >= positive for x in sums)) / len(sums))
+    else:
+        method = "asymptotic" if payload.get("resamplingMode") == "asymptotic" else "exact"
+        p = float(stats.wilcoxon(nonzero, correction=True, method=method).pvalue)
+    return {"W": min(positive, negative), "p": p}
+
+
 def box_wilcoxon_signed_rank(payload: Dict[str, Any]) -> Dict[str, Any]:
     a, b = _clean_paired_vectors(payload.get("a"), payload.get("b"))
     if not a:
         return {"available": False, "message": "Need at least one paired value."}
     alternative = _resolve_alternative(payload.get("alternative"))
-    diffs = np.asarray([x - y for x, y in zip(a, b)], dtype=float)
-    if np.allclose(diffs, 0):
+    diffs = np.asarray(_decimal_differences(a, b), dtype=float)
+    if np.all(diffs == 0):
         return {"available": True, "W": 0.0, "p": 1.0}
     resampling_mode = str(payload.get("resamplingMode") or "auto").strip().lower()
     ranks = _rankdata_average(np.abs(diffs).tolist())
@@ -2103,7 +2216,7 @@ def box_wilcoxon_one_sample(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not values:
         return {"available": False, "message": "Need at least one observation."}
     alternative = _resolve_alternative(payload.get("alternative"))
-    diffs = np.asarray([value - null_value for value in values], dtype=float)
+    diffs = np.asarray(_decimal_differences(values, [null_value] * len(values)), dtype=float)
     non_zero = diffs[np.abs(diffs) > 0]
     if non_zero.size == 0:
         return {"available": True, "W": 0.0, "p": 1.0}
@@ -2382,6 +2495,20 @@ def box_tukey_hsd(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "method": "tukey-hsd", "pairs": pairs}
 
 
+def box_studentized_range(payload: Dict[str, Any]) -> Dict[str, Any]:
+    q = float(payload.get("q"))
+    k = int(payload.get("k"))
+    df = float(payload.get("df"))
+    alpha = payload.get("alpha")
+    result = {
+        "cdf": float(stats.studentized_range.cdf(q, k, df)),
+        "sf": float(stats.studentized_range.sf(q, k, df)),
+    }
+    if _is_finite_number(alpha) and 0 < float(alpha) < 1:
+        result["isf"] = float(stats.studentized_range.isf(float(alpha), k, df))
+    return result
+
+
 def box_games_howell(payload: Dict[str, Any]) -> Dict[str, Any]:
     groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
     labels = payload.get("labels") or []
@@ -2452,19 +2579,36 @@ def box_friedman(payload: Dict[str, Any]) -> Dict[str, Any]:
             tie_correction = 1 - (tie_term_sum / denom)
         if tie_correction > 0:
             q_stat /= tie_correction
-    exact_eligible = (tie_term_sum == 0) and ((math.factorial(k) ** n) <= 200000)
-    if resampling_mode != "asymptotic" and exact_eligible:
-        permutations = list(itertools.permutations(range(1, k + 1)))
+    exact_eligible = (math.factorial(k) ** n) <= 200000
+    if (resampling_mode in {"auto", "exact"} and exact_eligible) or resampling_mode == "permutation-reference":
+        permutations_by_row = [list(itertools.permutations(ranks)) for ranks in row_ranks]
         total = 0
         hits = 0
-        for assignment in itertools.product(permutations, repeat=n):
+        for assignment in itertools.product(*permutations_by_row):
             sums = np.sum(np.asarray(assignment, dtype=float), axis=0)
             sim_q = float((12 / (n * k * (k + 1))) * np.sum(sums ** 2) - (3 * n * (k + 1)))
+            if tie_correction > 0:
+                sim_q /= tie_correction
             total += 1
             if sim_q >= q_stat - 1e-12:
                 hits += 1
         p_value = hits / max(total, 1)
         return {"available": True, "Q": q_stat, "p": float(p_value), "df": k - 1, "method": "exact"}
+    if resampling_mode in {"exact", "monte-carlo"} or (resampling_mode == "auto" and n <= 12):
+        iterations = max(1, min(1_000_000, int(payload.get("iterations") or 10000)))
+        rng = np.random.default_rng(int(payload.get("seed", 1337)))
+        rank_matrix = np.asarray(row_ranks)
+        hits = 0
+        for offset in range(0, iterations, 1000):
+            batch = min(1000, iterations - offset)
+            # NumPy independently shuffles each observed subject's rank vector.
+            samples = rng.permuted(np.broadcast_to(rank_matrix, (batch, n, k)), axis=2)
+            sums = samples.sum(axis=1)
+            simulated_q = (12 / (n * k * (k + 1))) * np.sum(sums ** 2, axis=1) - 3 * n * (k + 1)
+            if tie_correction > 0:
+                simulated_q /= tie_correction
+            hits += int(np.count_nonzero(simulated_q >= q_stat - 1e-12))
+        return {"available": True, "Q": q_stat, "p": (hits + 1) / (iterations + 1), "df": k - 1, "method": "monte-carlo"}
     result = stats.friedmanchisquare(*groups)
     return {"available": True, "Q": float(result.statistic), "p": float(result.pvalue), "df": k - 1, "method": "asymptotic"}
 
@@ -2478,13 +2622,16 @@ def box_repeated_measures_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
     if n < 2 or any(len(group) != n for group in groups):
         return {"available": False, "message": "Repeated-measures ANOVA requires equal paired group sizes >= 2."}
     matrix = np.asarray(groups, dtype=float)
-    grand_mean = float(np.mean(matrix))
-    condition_means = np.mean(matrix, axis=1)
-    subject_means = np.mean(matrix, axis=0)
-    ss_total = float(np.sum((matrix - grand_mean) ** 2))
-    ss_condition = float(sum(n * (m - grand_mean) ** 2 for m in condition_means))
-    ss_subject = float(sum(k * (m - grand_mean) ** 2 for m in subject_means))
-    ss_error = ss_total - ss_condition - ss_subject
+    # Independent blocked-regression reference: compare subject-only and
+    # subject + condition fits, rather than copying the JS sums-of-squares code.
+    y = matrix.T.reshape(-1)
+    subject_design = np.repeat(np.eye(n), k, axis=0)
+    condition_design = np.tile(np.eye(k)[:, 1:], (n, 1))
+    full_design = np.column_stack((subject_design, condition_design))
+    reduced_residual = y - subject_design @ np.linalg.lstsq(subject_design, y, rcond=None)[0]
+    full_residual = y - full_design @ np.linalg.lstsq(full_design, y, rcond=None)[0]
+    ss_error = float(full_residual @ full_residual)
+    ss_condition = float(reduced_residual @ reduced_residual) - ss_error
     if abs(ss_error) < 1e-12:
         ss_error = 0.0
     df1 = k - 1
@@ -2502,13 +2649,120 @@ def box_repeated_measures_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"available": True, "F": f_stat, "p": p_value, "df1": df1, "df2": df2}
 
 
+def box_nested_repeated_two_condition(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if sm is None:
+        return {"available": False, "message": "statsmodels is required for the nested repeated-measures oracle."}
+    groups = payload.get("groups") or []
+    if len(groups) < 2:
+        return {"available": False, "message": "Need at least two independent groups."}
+    cleaned: List[np.ndarray] = []
+    for group in groups:
+        try:
+            matrix = np.asarray(group, dtype=float)
+        except Exception:
+            return {"available": False, "message": "Each group must contain two-condition subject rows."}
+        if matrix.ndim != 2 or matrix.shape[1] != 2 or not np.isfinite(matrix).all():
+            return {"available": False, "message": "Each subject must have two finite condition measurements."}
+        cleaned.append(matrix)
+    sizes = {int(group.shape[0]) for group in cleaned}
+    if len(sizes) != 1 or min(sizes) < 2:
+        return {"available": False, "message": "The reference model requires equal complete subject counts of at least two per group."}
+
+    group_count = len(cleaned)
+    subjects_per_group = int(cleaned[0].shape[0])
+    subject_means = np.concatenate([group.mean(axis=1) for group in cleaned])
+    condition_differences = np.concatenate([group[:, 1] - group[:, 0] for group in cleaned])
+    group_design = np.repeat(np.eye(group_count), subjects_per_group, axis=0)
+    mean_fit = sm.OLS(subject_means, group_design).fit()
+    difference_fit = sm.OLS(condition_differences, group_design).fit()
+    reference_design = np.ones((group_count * subjects_per_group, 1), dtype=float)
+    mean_null = sm.OLS(subject_means, reference_design).fit()
+    difference_null = sm.OLS(condition_differences, reference_design).fit()
+    df_group = group_count - 1
+    df_subject = group_count * (subjects_per_group - 1)
+    contrasts = np.zeros((df_group, group_count), dtype=float)
+    for index in range(1, group_count):
+        contrasts[index - 1, 0] = -1.0
+        contrasts[index - 1, index] = 1.0
+    group_test = mean_fit.f_test(contrasts)
+    interaction_test = difference_fit.f_test(contrasts)
+    equal_group_average = np.full((1, group_count), 1 / group_count, dtype=float)
+    condition_test = difference_fit.f_test(equal_group_average)
+    ss_group = 2.0 * max(0.0, float(mean_null.ssr - mean_fit.ssr))
+    ss_subject = 2.0 * float(mean_fit.ssr)
+    mean_difference = float(np.mean(condition_differences))
+    ss_condition = group_count * subjects_per_group * (mean_difference ** 2) / 2.0
+    ss_interaction = 0.5 * max(0.0, float(difference_null.ssr - difference_fit.ssr))
+    ss_subject_condition = 0.5 * float(difference_fit.ssr)
+    return {
+        "available": True,
+        "groupsCount": group_count,
+        "subjectsPerGroup": subjects_per_group,
+        "dfGroup": df_group,
+        "dfSubject": df_subject,
+        "dfCondition": 1,
+        "dfInteraction": df_group,
+        "dfSubjectCondition": df_subject,
+        "ssGroup": ss_group,
+        "ssSubjectsWithinGroup": ss_subject,
+        "ssCondition": ss_condition,
+        "ssInteraction": ss_interaction,
+        "ssSubjectCondition": ss_subject_condition,
+        "fGroup": float(np.asarray(group_test.fvalue).item()),
+        "pGroup": float(np.asarray(group_test.pvalue).item()),
+        "fCondition": float(np.asarray(condition_test.fvalue).item()),
+        "pCondition": float(np.asarray(condition_test.pvalue).item()),
+        "fInteraction": float(np.asarray(interaction_test.fvalue).item()),
+        "pInteraction": float(np.asarray(interaction_test.pvalue).item()),
+    }
+
+
 def box_kolmogorov_smirnov(payload: Dict[str, Any]) -> Dict[str, Any]:
     a = _clean_vector(payload.get("a"))
     b = _clean_vector(payload.get("b"))
     if not a or not b:
         return {"available": False, "message": "Need at least one observation per group."}
-    result = stats.ks_2samp(a, b, alternative="two-sided", method="asymp")
-    return {"available": True, "D": float(result.statistic), "p": float(result.pvalue), "method": "asymptotic"}
+    pooled = sorted([(value, 0) for value in a] + [(value, 1) for value in b])
+    grouped: List[Tuple[float, int, int]] = []
+    for value, label in pooled:
+        if grouped and grouped[-1][0] == value:
+            previous_value, count_a, count_b = grouped[-1]
+            grouped[-1] = (previous_value, count_a + (label == 0), count_b + (label == 1))
+        else:
+            grouped.append((value, int(label == 0), int(label == 1)))
+
+    def ks_from_group_counts(counts_a: List[int]) -> float:
+        cumulative_a = 0
+        cumulative_b = 0
+        distance = 0.0
+        for index, (_, _, total_b) in enumerate(grouped):
+            count_a = counts_a[index]
+            cumulative_a += count_a
+            cumulative_b += (grouped[index][1] + total_b) - count_a
+            distance = max(distance, abs(cumulative_a / len(a) - cumulative_b / len(b)))
+        return distance
+
+    observed_counts_a = [count_a for _, count_a, _ in grouped]
+    statistic = ks_from_group_counts(observed_counts_a)
+    allocation_count = math.comb(len(pooled), len(a))
+    if allocation_count > 50000:
+        return {"available": False, "message": "Exact tied-label KS reference is limited to 50,000 allocations."}
+    pooled_group_index: List[int] = []
+    for group_index, (_, count_a, count_b) in enumerate(grouped):
+        pooled_group_index.extend([group_index] * (count_a + count_b))
+    extreme = 0
+    for selected in itertools.combinations(range(len(pooled)), len(a)):
+        counts_a = [0] * len(grouped)
+        for pooled_index in selected:
+            counts_a[pooled_group_index[pooled_index]] += 1
+        if ks_from_group_counts(counts_a) >= statistic - 1e-14:
+            extreme += 1
+    return {
+        "available": True,
+        "D": float(statistic),
+        "p": float(extreme / allocation_count),
+        "method": "exact pooled-label permutation",
+    }
 
 
 def _quantile_linear(values: np.ndarray, q: float) -> float:
@@ -2597,8 +2851,8 @@ def hist_kolmogorov_smirnov(payload: Dict[str, Any]) -> Dict[str, Any]:
     b = _clean_vector(payload.get("b"))
     if not a or not b:
         return {"available": False, "message": "Need at least one observation per group."}
-    result = stats.ks_2samp(a, b, alternative="two-sided", method="asymp")
-    return {"available": True, "D": float(result.statistic), "p": float(result.pvalue), "method": "asymptotic"}
+    result = stats.ks_2samp(a, b, alternative="two-sided", method="exact")
+    return {"available": True, "D": float(result.statistic), "p": float(result.pvalue), "method": "exact"}
 
 
 def pie_chi_square(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -2942,28 +3196,47 @@ def correlation(payload: Dict[str, Any]) -> Dict[str, Any]:
         stat = stats.spearmanr(x, y)
         p_value = float(stat.pvalue)
         p_method = "t approximation"
-        has_ties = (_has_duplicate_values(x.tolist()) or _has_duplicate_values(y.tolist()))
-        if bool(payload.get("exactPermutation")) and not has_ties and x.size <= 9:
-            observed = abs(float(stat.statistic))
-            ranks = list(range(1, int(x.size) + 1))
-            total = 0
-            extreme = 0
-            denom = x.size * ((x.size ** 2) - 1)
-            for perm in itertools.permutations(ranks):
-                d2 = 0.0
-                for idx, rank in enumerate(perm):
-                    diff = (idx + 1) - rank
-                    d2 += diff * diff
-                perm_rho = 1 - ((6 * d2) / denom)
-                total += 1
-                if abs(perm_rho) >= observed - 1e-12:
-                    extreme += 1
-            if total > 0:
-                p_value = extreme / total
-                p_method = "exact permutation"
+        if x.size <= 9:
+            exact = spearman_permutation_reference({"x": x.tolist(), "y": y.tolist()})
+            if exact.get("available"):
+                p_value = float(exact["p"])
+                p_method = "exact absolute-statistic permutation"
         return {"available": True, "method": "spearman", "r": float(stat.statistic), "p": p_value, "n": int(x.size), "pMethod": p_method}
     stat = stats.pearsonr(x, y)
     return {"available": True, "method": "pearson", "r": float(stat.statistic), "p": float(stat.pvalue), "n": int(x.size), "pMethod": "Student t approximation"}
+
+
+def spearman_permutation_reference(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Exact two-sided Spearman permutation reference, including tied ranks."""
+    x, y = _prepare_xy(payload)
+    n = int(x.size)
+    if n < 3 or n > 9:
+        return {"available": False, "message": "Exact reference is limited to 3 through 9 pairs."}
+    rank_x = stats.rankdata(x, method="average")
+    rank_y = stats.rankdata(y, method="average")
+    mean_rank = (n + 1) / 2
+    centered_x = rank_x - mean_rank
+    centered_y = rank_y - mean_rank
+    denominator = math.sqrt(float(centered_x @ centered_x) * float(centered_y @ centered_y))
+    if denominator <= 0:
+        return {"available": False, "message": "Spearman correlation is undefined for a constant variable."}
+    rho = float(centered_x @ centered_y) / denominator
+    observed = abs(rho)
+    extreme = 0
+    total = 0
+    for order in itertools.permutations(range(n)):
+        permuted_rho = float(centered_x @ (rank_y[list(order)] - mean_rank)) / denominator
+        total += 1
+        if abs(permuted_rho) >= observed - 1e-12:
+            extreme += 1
+    return {
+        "available": True,
+        "r": rho,
+        "p": extreme / total,
+        "n": n,
+        "method": "exact absolute-statistic permutation",
+        "hasTies": len(np.unique(x)) < n or len(np.unique(y)) < n,
+    }
 
 
 def _prepare_survival_groups(series: Any) -> Tuple[List[List[Dict[str, Any]]], str | None]:
@@ -3220,26 +3493,34 @@ def survival_cox_efron(payload: Dict[str, Any]) -> Dict[str, Any]:
     times = payload.get("time") or []
     events = payload.get("event") or []
     covariates = payload.get("covariates") or []
+    entries = payload.get("entry")
+    has_entry = isinstance(entries, list)
     n = min(len(times), len(events), len(covariates))
+    if has_entry:
+        n = min(n, len(entries))
     rows = []
     excluded = 0
     for i in range(n):
         row = covariates[i]
         if not isinstance(row, (list, tuple)):
             row = [row]
-        if not _is_finite_number(times[i]) or float(times[i]) < 0 or not all(_is_finite_number(v) for v in row):
+        entry = entries[i] if has_entry else 0.0
+        if (not _is_finite_number(times[i]) or float(times[i]) < 0
+                or not _is_finite_number(entry) or float(entry) < 0 or float(entry) > float(times[i])
+                or not all(_is_finite_number(v) for v in row)):
             excluded += 1
             continue
-        rows.append((float(times[i]), 1 if bool(events[i]) else 0, [float(v) for v in row]))
+        rows.append((float(times[i]), 1 if bool(events[i]) else 0, float(entry), [float(v) for v in row]))
     if len(rows) < 3 or sum(r[1] for r in rows) == 0:
         return {"available": False, "message": "Insufficient valid Cox observations/events.", "excluded": excluded}
     endog = np.asarray([r[0] for r in rows], dtype=float)
     status = np.asarray([r[1] for r in rows], dtype=int)
-    exog = np.asarray([r[2] for r in rows], dtype=float)
+    entry = np.asarray([r[2] for r in rows], dtype=float) if has_entry else None
+    exog = np.asarray([r[3] for r in rows], dtype=float)
     if exog.ndim == 1:
         exog = exog[:,None]
     try:
-        model = PHReg(endog, exog, status=status, ties="efron")
+        model = PHReg(endog, exog, status=status, entry=entry, ties="efron")
         fit = model.fit(disp=False)
     except Exception as exc:
         return {"available": False, "message": f"Cox Efron fit failed: {exc}", "excluded": excluded}
@@ -3250,12 +3531,14 @@ def survival_cox_efron(payload: Dict[str, Any]) -> Dict[str, Any]:
     alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
     zcrit = float(stats.norm.ppf(1-alpha/2))
     return {
-        "available": True, "ties": "efron", "n": len(rows), "events": int(status.sum()), "excluded": excluded,
+        "available": True, "ties": "efron", "delayedEntry": has_entry, "n": len(rows), "events": int(status.sum()), "excluded": excluded,
         "coefficients": params.tolist(), "standardErrors": se.tolist(), "z": zvals.tolist(), "pValues": pvals.tolist(),
         "hazardRatios": np.exp(params).tolist(),
         "hazardRatioCiLow": np.exp(params-zcrit*se).tolist(),
         "hazardRatioCiHigh": np.exp(params+zcrit*se).tolist(),
         "logLikelihood": float(model.loglike(params)),
+        "likelihoodRatioStatistic": float(2 * (model.loglike(params) - model.loglike(np.zeros(exog.shape[1])))),
+        "likelihoodRatioPValue": float(stats.chi2.sf(2 * (model.loglike(params) - model.loglike(np.zeros(exog.shape[1]))), exog.shape[1])),
         "covariance": np.asarray(fit.cov_params(),dtype=float).tolist(),
     }
 
@@ -3308,14 +3591,14 @@ def survival_harrell_c(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def oracle_capabilities(_: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "contractVersion": "2026-07-26.2",
+        "contractVersion": "2026-10-24.1",
         "numpy": np.__version__,
         "scipy": getattr(__import__("scipy"), "__version__", "unknown"),
         "statsmodelsAvailable": sm is not None,
         "operations": [
             "adjust_pvalues", "distribution_fit", "goodness_of_fit",
-            "regression_logistic", "box_tukey_hsd", "box_games_howell",
-            "box_welch_pairwise_sidak", "box_friedman_pairwise_maxstat",
+            "regression_logistic", "box_tukey_hsd", "box_studentized_range", "box_games_howell",
+            "box_welch_pairwise_sidak", "box_friedman_pairwise_maxstat", "box_control_sidak", "box_named_comparisons", "box_rout_location", "box_studentized_maximum", "box_decimal_signed_rank", "box_raw_rank_reference", "box_paired_rank_biserial",
             "pie_gof_test", "pie_contingency_test", "roc_mann_whitney",
             "survival_kaplan_meier", "survival_cox_efron", "survival_harrell_c",
         ],
@@ -3433,6 +3716,44 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_ttest_one_sample(payload)
     elif operation == "box_mann_whitney":
         result = box_mann_whitney(payload)
+    elif operation == "box_paired_rank_biserial":
+        a, b = _clean_paired_vectors(payload["a"], payload["b"])
+        diffs = np.asarray(_decimal_differences(a, b))
+        diffs = diffs[diffs != 0]
+        ranks = stats.rankdata(abs(diffs))
+        total = float(sum(ranks))
+        result = {"rankBiserial": float(np.dot(np.sign(diffs), ranks) / total) if total else None}
+    elif operation == "box_raw_rank_reference":
+        groups = [_clean_vector(group) for group in payload["groups"]]
+        flat = np.concatenate(groups)
+        ranks = stats.rankdata(flat)
+        _, counts = np.unique(flat, return_counts=True)
+        variance = len(flat) * (len(flat) + 1) / 12 - sum(counts ** 3 - counts) / (12 * (len(flat) - 1))
+        mean_ranks = [float(np.mean(part)) for part in np.split(ranks, np.cumsum(list(map(len, groups)))[:-1])]
+        pairs = []
+        for i, j in itertools.combinations(range(len(groups)), 2):
+            z = (mean_ranks[i] - mean_ranks[j]) / math.sqrt(variance * (1 / len(groups[i]) + 1 / len(groups[j])))
+            pairs.append({"z": z, "p": float(2 * stats.norm.sf(abs(z)))})
+        result = {"dunn": pairs, "kruskal": box_kruskal({"groups": groups}),
+                  "mannWhitney": box_mann_whitney({"a": groups[0], "b": groups[1], "resamplingMode": "asymptotic"}),
+                  "friedman": box_friedman({"groups": groups, "resamplingMode": "asymptotic"})}
+    elif operation == "box_control_sidak":
+        result = box_control_sidak(payload)
+    elif operation == "box_named_comparisons":
+        result = box_named_comparisons(payload)
+    elif operation == "box_rout_location":
+        result = box_rout_location(payload)
+    elif operation == "box_studentized_maximum":
+        loadings = np.asarray(payload['loadings'], dtype=float)
+        correlation_matrix = np.outer(loadings, loadings)
+        np.fill_diagonal(correlation_matrix, 1)
+        df = float(payload['df'])
+        q = float(payload['q'])
+        distribution = stats.multivariate_t(shape=correlation_matrix, df=df)
+        inside = distribution.cdf(np.full(len(loadings), q), lower_limit=np.full(len(loadings), -q), maxpts=2000000, random_state=np.random.default_rng(81927))
+        result = {'p': float(1 - inside)}
+    elif operation == "box_decimal_signed_rank":
+        result = box_decimal_signed_rank(payload)
     elif operation == "box_wilcoxon_signed_rank":
         result = box_wilcoxon_signed_rank(payload)
     elif operation == "box_wilcoxon_one_sample":
@@ -3457,6 +3778,8 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_tamhane_t2(payload)
     elif operation == "box_tukey_hsd":
         result = box_tukey_hsd(payload)
+    elif operation == "box_studentized_range":
+        result = box_studentized_range(payload)
     elif operation == "box_games_howell":
         result = box_games_howell(payload)
     elif operation == "box_kruskal":
@@ -3467,6 +3790,8 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_friedman_pairwise_maxstat(payload)
     elif operation == "box_repeated_measures_anova":
         result = box_repeated_measures_anova(payload)
+    elif operation == "box_nested_repeated_two_condition":
+        result = box_nested_repeated_two_condition(payload)
     elif operation == "box_kolmogorov_smirnov":
         result = box_kolmogorov_smirnov(payload)
     elif operation == "hist_descriptive_summary":
@@ -3493,6 +3818,8 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = roc_delong_diff(payload)
     elif operation == "correlation":
         result = correlation(payload)
+    elif operation == "spearman_permutation_reference":
+        result = spearman_permutation_reference(payload)
     elif operation == "survival_logrank":
         result = survival_logrank(payload)
     elif operation == "survival_gehan_breslow":

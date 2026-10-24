@@ -312,6 +312,20 @@ async function reopenArchive(page, archivePath) {
   }, null, { timeout: 30_000 });
 }
 
+test('Venn overlap guidance identifies the eligible reference universe', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+  await openVennTab(page, { first: true });
+
+  const section = page.locator('#significanceSection');
+  await section.locator('summary').click();
+  const help = page.locator('#vennUniverseHelp');
+  await expect(help).toBeVisible();
+  await expect(help).toContainText('could have appeared in any input list');
+  await expect(help).toContainText('observed list union is not automatically a valid background');
+});
+
 test('venn UpSet, numeric counts, species state, selected region, and archive reopen stay tab-isolated', async ({ page }, testInfo) => {
   test.setTimeout(240_000);
   const issues = registerIssueCollectors(page);

@@ -149,6 +149,30 @@
     return rehomeTabScopedArchiveState(cloneValue(value), targetTabId);
   }
 
+  function restorePayloadMatrixSignatures(payload, signatures){
+    if(!payload || typeof payload !== 'object' || !Array.isArray(signatures)){
+      return;
+    }
+    signatures.forEach(entry => {
+      if(!Array.isArray(entry?.path) || !entry.path.length){ return; }
+      let matrix = payload;
+      for(const part of entry.path){
+        matrix = matrix?.[part];
+        if(matrix == null){ return; }
+      }
+      const signature = String(entry.signature || '').trim();
+      if(!Array.isArray(matrix) || !signature){ return; }
+      try{
+        Object.defineProperty(matrix, '__graphitixMatrixSignature', {
+          value: signature,
+          configurable: true,
+          enumerable: false,
+          writable: true
+        });
+      }catch(_err){}
+    });
+  }
+
   function sanitizeSegment(value, fallback) {
     const base = String(value || '').trim();
     const fallbackValue = String(fallback || 'workspace').trim() || 'workspace';
@@ -942,6 +966,7 @@
         title: tabManifest.title,
         type: tabManifest.type,
         runtimeTabId: tabManifest.runtimeTabId || null,
+        matrixSignatures: Array.isArray(tab?.matrixSignatures) ? tab.matrixSignatures : [],
         rawDataMode: tabManifest.rawDataMode,
         payloadMode: tabManifest.payloadMode,
         files: tabManifest.files
@@ -1155,6 +1180,7 @@
       }
       payload = hydratePayloadDataViews(payload);
       const tabInfo = await readJsonFileFromZip(zip, files.tab);
+      restorePayloadMatrixSignatures(payload, tabInfo?.matrixSignatures);
       const layout = await readJsonFileFromZip(zip, files.layout);
       const previewData = files.preview ? await readJsonFileFromZip(zip, files.preview) : null;
       const renderCacheData = files.renderCache ? await readJsonFileFromZip(zip, files.renderCache) : null;
@@ -1165,6 +1191,7 @@
         type: entry.type || tabInfo?.type || payload?.type || null,
         archiveRuntimeTabId: entry.runtimeTabId || tabInfo?.runtimeTabId || embeddedRuntimeIds[embeddedRuntimeIds.length - 1] || null,
         archiveRuntimeTabIds: embeddedRuntimeIds,
+        matrixSignatures: Array.isArray(tabInfo?.matrixSignatures) ? tabInfo.matrixSignatures : [],
         payload: payload || null,
         layout: layout || null,
         previewMarkup: typeof previewData?.markup === 'string' ? previewData.markup : null,

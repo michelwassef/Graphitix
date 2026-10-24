@@ -181,7 +181,11 @@ describe('histogram separate-panel layout helpers', () => {
       { name: 'A', values: [1, 2, 3, 4] },
       { name: 'B', values: [10, 11, 12, 13] }
     ];
-    expect(hooks.buildPlotSummaryLines(twoSeries, { comparisonMode: 'ks' })[0]).toMatch(/^Two-sample KS:/);
+    expect(hooks.buildPlotSummaryLines(twoSeries, { comparisonMode: 'ks' })).toEqual([]);
+    expect(hooks.buildPlotSummaryLines(twoSeries, {
+      comparisonMode: 'ks',
+      ksResult: { available: true, D: 0.5, p: 0.02 }
+    })).toEqual(['Two-sample KS: D = 0.500; p = 0.02']);
     expect(hooks.buildPlotSummaryLines(twoSeries, { comparisonMode: 'none' })).toEqual([]);
 
     expect(hooks.buildPlotSummaryLines([

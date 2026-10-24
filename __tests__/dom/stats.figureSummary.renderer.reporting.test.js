@@ -81,6 +81,21 @@ describe('statsFigureSummary renderer reporting contracts', () => {
     });
   });
 
+  test.each([[15.814, '15.81'], [0.427012, '0.427'], [0.000427, '0.000427'], [0, '0']])('Tukey q statistic %s remains a statistic beside its p-value', (statistic, expected) => {
+    const tabId = harness.installWorkspace();
+    require('../../js/shared/statsFigureSummary.js');
+    const summary = window.Shared.statsFigureSummary;
+    summary.setEnabledInSharedState(tabId, true);
+    summary.renderForTab(tabId, {
+      componentType:'box',
+      reportModel:harness.reportWithValue(`statistic = q = ${statistic}; df = 54; difference = -18.16; p = 0.00000000000000169`)
+    });
+    const text = harness.svg.querySelector('g[data-stats-figure-summary="1"]').textContent;
+    expect(text).toContain(`statistic = q = ${expected}`);
+    expect(text).toContain('p < 0.001');
+    expect(text).not.toContain('unavailable');
+  });
+
   test('explicit figure roles outrank legacy text heuristics', () => {
     const tabId = harness.installWorkspace();
     require('../../js/shared/statsFigureSummary.js');
@@ -103,6 +118,18 @@ describe('statsFigureSummary renderer reporting contracts', () => {
     const text = harness.svg.querySelector('g[data-stats-figure-summary="1"]')?.textContent || '';
     expect(text).toContain('input variables');
     expect(text).not.toContain('Configuration input');
+  });
+
+  test('Friedman Q and adjusted q probabilities retain distinct formatting', () => {
+    harness.installWorkspace();
+    require('../../js/shared/statsFigureSummary.js');
+    const format = window.Shared.statsFigureSummary.formatCompactSummaryValue;
+    expect(format('Friedman; Q = 15.814; df = 5; p = 0.00042')).toBe('Friedman; Q = 15.81; df = 5; p < 0.001');
+    expect(format('0.000427', { label:'Q' })).toBe('0.000427');
+    expect(format('15.814', { label:'Q' })).toBe('15.81');
+    expect(format('q = 0.000427; adjusted q = 0.0123456')).toBe('q < 0.001; adjusted q = 0.012346');
+    expect(format('0.000427', { label:'q-value' })).toBe('< 0.001');
+    expect(format('q = 1.2; p = -0.1')).toBe('q = unavailable (invalid probability); p = unavailable (invalid probability)');
   });
 
   test('compact summary precision rounds statistics without weakening p-value or interval reporting', () => {

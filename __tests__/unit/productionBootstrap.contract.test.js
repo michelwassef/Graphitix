@@ -20,7 +20,7 @@ describe('production bootstrap manifest', () => {
   test('does not accept a missing dependency or reordered main guard', () => {
     const broken = manifest.filter(entry => entry.source !== 'js/main/session.js');
     expect(validateProductionScriptManifest(broken, rootDir)).toEqual(expect.arrayContaining([
-      expect.stringContaining('js/main/session.js before js/main/domControls.js')
+      expect.stringContaining('js/main/session.js before js/main/workspacePresentation.js')
     ]));
   });
 });

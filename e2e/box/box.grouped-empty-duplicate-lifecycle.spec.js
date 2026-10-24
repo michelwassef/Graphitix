@@ -1,3 +1,4 @@
+const { selectReplicateMode, clickExampleButton } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
@@ -30,9 +31,8 @@ test('empty grouped Box duplicate switches components without stale grid refresh
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  const boxPage = page.locator('#boxPage:not([hidden])');
-  await boxPage.locator('#boxTableFormat').selectOption('grouped');
-  await boxPage.locator('#boxLoadExample').click();
+  await selectReplicateMode(page, 'box', 'grouped');
+  await clickExampleButton(page, 'box');
   await duplicateBoxWithReuse(page);
 
   const duplicateTabId = await page.evaluate(() => {
@@ -95,16 +95,15 @@ test('Box example reload preserves grouped replicates table ownership and header
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  const boxPage = page.locator('#boxPage:not([hidden])');
-  await boxPage.locator('#boxLoadExample').click();
+  await clickExampleButton(page, 'box');
   await page.waitForFunction(() => {
     const state = window.Main?.session?.workspaceState;
     const tab = state?.tabs?.find(item => item?.id === state.activeTabId);
     return tab?.payload?.data?.[0]?.[0] === 'VC 0.5 mg';
   });
 
-  await boxPage.locator('#boxTableFormat').selectOption('grouped');
-  await boxPage.locator('#boxLoadExample').click();
+  await selectReplicateMode(page, 'box', 'grouped');
+  await clickExampleButton(page, 'box');
   await page.waitForFunction(() => {
     const state = window.Main?.session?.workspaceState;
     const tab = state?.tabs?.find(item => item?.id === state.activeTabId);
@@ -162,8 +161,8 @@ test('Box preview follows populated, empty, and repopulated graph state', async 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxPage:not([hidden]) #boxTableFormat').selectOption('grouped');
-  await page.locator('#boxPage:not([hidden]) #boxLoadExample').click();
+  await selectReplicateMode(page, 'box', 'grouped');
+  await clickExampleButton(page, 'box');
   const boxTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
   expect(boxTabId).toBeTruthy();
   await page.waitForFunction(() => {
@@ -213,7 +212,7 @@ test('Box preview follows populated, empty, and repopulated graph state', async 
   await boxTabButton.click();
   await page.waitForSelector('#boxPage:not([hidden])');
   await page.getByRole('tab', { name: 'General', exact: true }).click();
-  await page.locator('#boxPage:not([hidden]) #boxLoadExample').click();
+  await clickExampleButton(page, 'box');
   await page.waitForFunction(tabId => {
     const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === tabId);
     return tab?.payload?.config?.tableFormat === 'grouped'

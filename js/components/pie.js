@@ -1,5 +1,5 @@
 // Pie/Proportion Graph component module
-// Exposes: window.Components.pie = { init(root), draw(), save(), open(), loadFromFile(file) }
+// Exposes: window.Components.pie = { init(root), draw(), save(), saveAs(), open() }
 (function(global){
   'use strict';
   const NS='http://www.w3.org/2000/svg';
@@ -122,10 +122,6 @@
   const formControls = Shared.formControls = Shared.formControls || {};
   pie.__installed = true; // signal to legacy code to skip
   pie.ready = false;
-  const fileIO = Shared.fileIO = Shared.fileIO || {};
-  if(!fileIO.saveGraphFile){
-    pieDebug('Debug: pie component awaiting Shared.fileIO helpers');
-  }
   if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
     pieDebug('Debug: pie component awaiting Shared.tableImport helpers'); // Debug: table import helper check
   }
@@ -265,7 +261,7 @@
       resultsTab: 'overall',
       advisor: {
         open: false,
-        activated: false,
+
         answers: {}
       },
       contextSignature: null,
@@ -292,7 +288,7 @@
       resultsTab: 'overall',
       advisor: {
         open: false,
-        activated: false,
+
         answers: {}
       },
       resultsModel: null,
@@ -319,7 +315,7 @@
       expectedColumn: '',
       stats: createImmutablePieDefaultStatsPayload(),
       colors: {},
-      colorScheme: Shared.colorSchemes?.getDefaultSchemeId?.('pie') || 'scientific',
+      colorScheme: Shared.colorSchemes?.getDefaultSchemeId?.('pie') || 'normal',
       axis: createDefaultAxisSettings(),
       notes: {
         text: '',
@@ -673,12 +669,12 @@ let state = {
     hot: null,
     root: null,
     scheduleDraw: null,
-    fileHandle: null,
     fileName: 'pie.graph',
     titleText: 'Proportion graph',
     axisTitleOverrides: {},
     legendWidth: 120,
     colors: {},
+    colorScheme: Shared.colorSchemes.getDefaultSchemeId('pie'),
     svgBox: null,
     layout: null,
     minSvgWidth: 0,
@@ -755,7 +751,7 @@ let state = {
     const source = value && typeof value === 'object' ? value : {};
     return {
       open: source.open === true,
-      activated: source.activated === true,
+
       answers: source.answers && typeof source.answers === 'object' ? { ...source.answers } : {}
     };
   }
@@ -846,9 +842,11 @@ let state = {
     const src = source && typeof source === 'object' ? source : {};
     return {
       titleText: typeof src.titleText === 'string' ? src.titleText : 'Proportion graph',
+      fileName: typeof src.fileName === 'string' && src.fileName.trim() ? src.fileName.trim() : 'pie.graph',
       axisTitleOverrides: normalizePieAxisTitleOverrides(src.axisTitleOverrides),
       legendWidth: Number.isFinite(Number(src.legendWidth)) ? Number(src.legendWidth) : 120,
       colors: cloneSimple(src.colors) || {},
+      colorScheme: src.colorScheme || Shared.colorSchemes.getDefaultSchemeId('pie'),
       minSvgWidth: Number.isFinite(Number(src.minSvgWidth)) ? Number(src.minSvgWidth) : 0,
       axisSettings: cloneSimple(src.axisSettings || src.axis) || createDefaultAxisSettings(),
       labelPositions: normalizePieLabelPositions(src.labelPositions),
@@ -904,10 +902,6 @@ let state = {
       notesControl: null,
       importButton: null,
       fileInput: null,
-      openButton: null,
-      saveButton: null,
-      saveAsButton: null,
-      graphFileInput: null
     };
   }
 
@@ -930,18 +924,15 @@ let state = {
       cache: {
         emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null
       },
-      listeners: new Map(),
       timers: {
         scheduleDraw: null,
         pendingDrawOptions: null,
         drawGeneration: 0
       },
-      workers: new Map(),
       managers: {
         hot: null,
         dataViews: null,
         layout: null,
-        fileHandle: null
       },
       notes: createDefaultPieNotesState(source.notes || durableSource.notes || {}),
       createdAt: Date.now(),
@@ -990,17 +981,14 @@ let state = {
     session.refs.root = session.refs.root || session.root || null;
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
-    session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
     if(!Number.isFinite(Number(session.timers.drawGeneration))){ session.timers.drawGeneration = 0; }
-    session.workers = session.workers instanceof Map ? session.workers : new Map();
     session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'dataViews')){ session.managers.dataViews = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
-    if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
     pieSessionShapeGuard(session);
     return session;
   }
@@ -1320,10 +1308,6 @@ let state = {
       notesControl: canUsePieNotesControl(notesState.control) ? notesState.control : null,
       importButton: queryPieRoot('#pieImport'),
       fileInput: queryPieRoot('#pieFile'),
-      openButton: queryPieRoot('#openPieGraph'),
-      saveButton: queryPieRoot('#savePieGraph'),
-      saveAsButton: queryPieRoot('#saveAsPie'),
-      graphFileInput: queryPieRoot('#pieGraphFile')
     });
     shaped.updatedAt = Date.now();
     return shaped;
@@ -1359,7 +1343,6 @@ let state = {
     }
     if(sessionIsActive){
       bindPieLayoutManagerForSession(shaped);
-      shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
       shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
     }
     shaped.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || shaped.cache.emptyPayloadTemplate || null;
@@ -1375,31 +1358,6 @@ let state = {
       return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
     }
     return !!root && (!noteControl.element || root.contains?.(noteControl.element));
-  }
-
-  function setPieFileHandleForSession(handle, session = null){
-    const owner = ensurePieSessionOwnershipShape(session || getActivePieSessionForState());
-    if(owner?.managers){
-      owner.managers.fileHandle = handle || null;
-      owner.updatedAt = Date.now();
-    }
-    if(!owner || isPieSessionActive(owner)){
-      state.fileHandle = handle || null;
-    }
-    return handle || null;
-  }
-
-  function setPieFileNameForSession(name, session = null){
-    const nextName = name || 'pie.graph';
-    const owner = ensurePieSessionOwnershipShape(session || getActivePieSessionForState());
-    if(owner?.state){
-      owner.state.fileName = nextName;
-      owner.updatedAt = Date.now();
-    }
-    if(!owner || isPieSessionActive(owner)){
-      state.fileName = nextName;
-    }
-    return nextName;
   }
 
   function capturePieNotesMirror(){
@@ -1430,9 +1388,11 @@ let state = {
     }
     shaped.state = createDefaultPieDurableState({
       titleText: state.titleText,
+      fileName: shaped.state.fileName,
       axisTitleOverrides: state.axisTitleOverrides,
       legendWidth: state.legendWidth,
       colors: state.colors,
+      colorScheme: state.colorScheme,
       minSvgWidth: state.minSvgWidth,
       axisSettings: state.axisSettings,
       labelPositions: state.labelPositions,
@@ -1445,7 +1405,6 @@ let state = {
       controls: state.controls,
       drawPending: state.drawPending === true
     });
-    shaped.advisor = normalizePieAdvisorState(state.statsConfig?.advisor || shaped.advisor);
     shaped.results = createDefaultPieResultsState({
       ...shaped.results,
       statsDataModel: state.statsDataModel,
@@ -1467,6 +1426,7 @@ let state = {
     state.axisTitleOverrides = normalizePieAxisTitleOverrides(durable.axisTitleOverrides);
     state.legendWidth = durable.legendWidth;
     state.colors = cloneSimple(durable.colors) || {};
+    state.colorScheme = durable.colorScheme;
     state.minSvgWidth = durable.minSvgWidth;
     state.axisSettings = cloneSimple(durable.axisSettings) || createDefaultAxisSettings();
     state.labelPositions = normalizePieLabelPositions(durable.labelPositions);
@@ -1481,7 +1441,7 @@ let state = {
     normalizePieResizeState();
     state.controls = normalizePieRuntimeControls(durable.controls || {});
     state.drawPending = durable.drawPending === true;
-    state.fileHandle = shaped.managers.fileHandle || state.fileHandle || null;
+    state.fileName = durable.fileName || 'pie.graph';
     if(!state.root && shaped.root){
       state.root = shaped.root;
     }
@@ -1491,6 +1451,7 @@ let state = {
       state.statsDataModel = dataModel;
       ensurePieStatsSelections(dataModel);
       renderPieStatsControls(dataModel, { force: true, reason: 'session-state-apply', session: shaped });
+      rehydratePieStatsSummaryTabs(getPieNodeById('pieStatsResults', shaped.tabId), shaped);
     }catch(err){
       pieDebug('Debug: pie stats controls restore after session apply failed', {
         message: err?.message || String(err)
@@ -1548,7 +1509,14 @@ let state = {
     const session = getPieSession(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta, { create: true });
     if(!session){ return null; }
     const source = record.state && typeof record.state === 'object' ? record.state : record;
-    session.state = createDefaultPieDurableState(source);
+    const nextState = createDefaultPieDurableState({
+      colorScheme: session.state?.colorScheme,
+      ...source
+    });
+    if(!Object.prototype.hasOwnProperty.call(source, 'fileName') && session.state?.fileName){
+      nextState.fileName = session.state.fileName;
+    }
+    session.state = nextState;
     session.advisor = normalizePieAdvisorState(record.advisor || {});
     session.results = createDefaultPieResultsState({
       ...(record.results || {}),
@@ -1732,6 +1700,11 @@ let state = {
     const reporting = Shared.statsReporting;
     if(!target || !reporting || typeof reporting.ensureReportHost !== 'function'){
       return target?.__statsReportHost || null;
+    }
+    if(!target.__statsExtraControlFactory){
+      target.__statsExtraControlFactory = context => reporting.createResultsHeaderControls?.(context.target, {
+        document: context.document
+      }) || null;
     }
     return reporting.ensureReportHost(target, {
       id: 'pieStatsReportHost',
@@ -2119,12 +2092,15 @@ let state = {
     if(!title || !svg || !owner || typeof Shared.enableLabelDrag !== 'function'){
       return false;
     }
-    if(title.__graphitixPieRadialTitleDragBinding?.svg === svg){
-      return true;
-    }
     const svgWidth = Number(svg.getAttribute('width')) || Number(svg.viewBox?.baseVal?.width) || 1;
     const svgHeight = Number(svg.getAttribute('height')) || Number(svg.viewBox?.baseVal?.height) || 1;
     Shared.enableLabelDrag(title, svg, {
+      positionMetrics: {
+        xOrigin: 0,
+        xScale: svgWidth,
+        yOrigin: 0,
+        yScale: svgHeight
+      },
       onDragEnd: pos => {
         patchPieLabelPosition(owner, 'title', {
           x: pos.x,
@@ -2138,7 +2114,6 @@ let state = {
         });
       }
     });
-    title.__graphitixPieRadialTitleDragBinding = { svg };
     return true;
   }
 
@@ -2149,6 +2124,23 @@ let state = {
     }
     return bindPieTitleInlineInteraction(title, ownerSession)
       && bindPieRadialTitleDragInteraction(title, svg, ownerSession);
+  }
+
+  function bindPieStackedTitleDragInteraction(title, svg, ownerSession = null){
+    const owner = ensurePieSessionOwnershipShape(ownerSession || getActivePieSessionForState());
+    if(!title || !svg || !owner || typeof Shared.enableLabelDrag !== 'function'){
+      return false;
+    }
+    Shared.enableLabelDrag(title, svg, {
+      owner,
+      tabId: owner.tabId,
+      deferInitialConstraint: true,
+      onPositionChange: position => patchPieLabelPosition(owner, 'title', {
+        x: position.x,
+        y: position.y
+      }, { reason: 'pie-stacked-title-position' })
+    });
+    return title.__graphitixLabelDragBinding?.svg === svg;
   }
 
   function stampPieLegendDragMetrics(legend, metrics = {}){
@@ -2238,10 +2230,6 @@ let state = {
 
   function syncPieChartTypeControlVisibility(){
     const hideRadialControls = !isPieRadialChartType();
-    const radialOptions = queryPieRoot('[data-pie-radial-options="1"]');
-    if(radialOptions){
-      radialOptions.hidden = hideRadialControls;
-    }
     if(pieStartAngleToolbarField){
       pieStartAngleToolbarField.hidden = hideRadialControls;
     }
@@ -2684,7 +2672,8 @@ let state = {
     if(!svgBox || !isOwnedByActiveTab(svgBox)){
       return null;
     }
-    const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+    const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const checkbox = controlsHost.querySelector('.resizer-aspect-checkbox');
     if(checkbox && isOwnedByActiveTab(checkbox)){
       pieLockRatioInput = checkbox;
       return checkbox;
@@ -2736,6 +2725,7 @@ let state = {
     try{
       const chartTypeValue = getPieNodeById('pieChartType')?.value || 'pie';
       const activeTabId = normalizePieSessionTabId(getPieProjectionTabId() || null, { reason: 'pie-aspect-owner' });
+      const activeSvgBox = getPieNodeById('pieGraphPanel', activeTabId || null)?.querySelector?.('.svgbox') || null;
       const activeTab = activeTabId
         ? global.Main?.session?.workspaceState?.tabs?.find?.(item => String(item?.id || '') === String(activeTabId))
         : null;
@@ -2751,7 +2741,7 @@ let state = {
       const lockRatioCheckbox = getPieLockRatioCheckbox();
       if(lockRatioCheckbox){
         const lockLabel = lockRatioCheckbox.closest('label');
-        const resizerApi = lockRatioCheckbox.closest('.svgbox')?.__sharedResizableBoxApi;
+        const resizerApi = activeSvgBox?.__sharedResizableBoxApi || null;
         if(shouldEnforceLockRatio){
           resizerApi?.setAspectLocked?.(true, { reason: 'pie-forced-lock-ratio' });
           lockRatioCheckbox.disabled = true;
@@ -2803,7 +2793,7 @@ let state = {
       state.statsConfig.customPairs = new Set(Array.isArray(state.statsConfig.customPairs) ? state.statsConfig.customPairs : []);
     }
     if(!state.statsConfig.advisor || typeof state.statsConfig.advisor !== 'object'){
-      state.statsConfig.advisor = { open: false, activated: false, answers: {} };
+      state.statsConfig.advisor = { open: false, answers: {} };
     }
     if(!state.statsConfig.advisor.answers || typeof state.statsConfig.advisor.answers !== 'object'){
       state.statsConfig.advisor.answers = {};
@@ -2885,7 +2875,6 @@ let state = {
   function getPieAdvisorState(session = null){
     const owner = ensurePieSessionOwnershipShape(session || getActivePieSessionForState());
     if(owner){
-      owner.advisor = normalizePieAdvisorState(owner.advisor || {});
       if(isPieSessionActive(owner)){
         const stats = getPieStatsConfig();
         stats.advisor = owner.advisor;
@@ -2893,7 +2882,6 @@ let state = {
       return owner.advisor;
     }
     const stats = getPieStatsConfig();
-    stats.advisor = normalizePieAdvisorState(stats.advisor || {});
     return stats.advisor;
   }
 
@@ -3068,17 +3056,25 @@ let state = {
     }
   }
 
-  function clearPieStatsOutputs(message){
+  function clearPieStatsOutputs(message, options = {}){
     const out = getPieNodeById('pieStatsResults');
     if(!out){
       return;
     }
+    if(options.preservePresentation === true){
+      Shared.statsReporting?.markPanelStale?.(out);
+      return;
+    }
     clearPieStatsReportHost(out);
     out.innerHTML = '';
-    const msg = document.createElement('div');
-    msg.className = 'stats-table-message';
-    msg.textContent = message || 'Statistics will appear after calculation.';
-    out.appendChild(msg);
+    const text = message === undefined ? 'Statistics will appear after calculation.' : String(message || '');
+    if(text){
+      const msg = document.createElement('div');
+      msg.className = 'stats-table-message';
+      msg.textContent = text;
+      out.appendChild(msg);
+    }
+    Shared.statsReporting?.markPanelCurrent?.(out);
   }
 
   function pieStatsPanelHasRenderedResults(session = null){
@@ -3116,100 +3112,75 @@ let state = {
     return /pairwise comparisons|pairwise condition comparisons|comparisons vs reference|multiple comparisons/i.test(readPieStatsCardCaption(node));
   }
 
-  function setPieStatsSummaryTabSelection(wrapper, tab){
+  function setPieStatsSummaryTabSelection(wrapper, tab, ownerSession = null){
     if(!wrapper){
       return;
     }
+    const nextTab = Shared.statsSummaryTabs?.select(wrapper, tab, sanitizePieStatsResultsTab);
+    if(!nextTab){ return; }
+    const owner = ensurePieSessionOwnershipShape(ownerSession || getActivePieSessionForState());
+    if(owner?.tabId && !isPieSessionActive(owner)){
+      return;
+    }
     const stats = getPieStatsConfig();
-    const nextTab = sanitizePieStatsResultsTab(tab);
-    wrapper.setAttribute('data-active-tab', nextTab);
-    Array.from(wrapper.querySelectorAll('.box-stats-summary-tabs__tab')).forEach(button => {
-      const isActive = button.getAttribute('data-tab') === nextTab;
-      button.classList.toggle('box-stats-summary-tabs__tab--active', isActive);
-      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      button.tabIndex = isActive ? 0 : -1;
-    });
-    Array.from(wrapper.querySelectorAll('.box-stats-summary-tabs__panel')).forEach(panel => {
-      const isActive = panel.getAttribute('data-tab') === nextTab;
-      panel.hidden = !isActive;
-      panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
-    });
     stats.resultsTab = nextTab;
+    if(owner){
+      rememberPieStatsState('pie-stats-summary-tab-selection', { session: owner, syncControls: false });
+    }
     if(pieDebugEnabled()){
       pieDebug('Debug: pie stats summary tab selected', { tab: nextTab });
     }
   }
 
-  function buildPieStatsSummaryTabButton(label, tab){
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'box-stats-summary-tabs__tab';
-    button.textContent = label;
-    button.setAttribute('data-tab', tab);
-    button.setAttribute('role', 'tab');
-    button.setAttribute('aria-selected', 'false');
-    button.tabIndex = -1;
-    button.addEventListener('click', () => {
-      setPieStatsSummaryTabSelection(button.closest('.box-stats-summary-tabs'), tab);
+  function mountPieStatsSummaryTabs(resultsContainer, ownerSession = null){
+    if(!resultsContainer || resultsContainer.nodeType !== 1){ return false; }
+    const tabIdSuffix = String(pieStatsSummaryTabIdCounter + 1);
+    const owner = ensurePieSessionOwnershipShape(ownerSession || getActivePieSessionForState());
+    const stats = owner?.state?.stats || getPieStatsConfig();
+    const mounted = Shared.statsSummaryTabs?.mount({
+      resultsContainer,
+      regionLabel: 'Pie statistical summaries',
+      idPrefix: 'pieStatsSummaryTab',
+      idSuffix: tabIdSuffix,
+      activeTab: stats.resultsTab,
+      normalizeTab: sanitizePieStatsResultsTab,
+      isOverallCard: isPieOverallStatsCard,
+      isComparisonsCard: isPieComparisonStatsCard,
+      onSelect: (wrapper, tab) => setPieStatsSummaryTabSelection(wrapper, tab, owner)
     });
-    return button;
-  }
-
-  function buildPieStatsSummaryPanel(tab, labelledBy){
-    const panel = document.createElement('div');
-    panel.className = 'box-stats-summary-tabs__panel';
-    panel.setAttribute('data-tab', tab);
-    panel.setAttribute('role', 'tabpanel');
-    panel.setAttribute('aria-labelledby', labelledBy);
-    panel.hidden = true;
-    return panel;
-  }
-
-  function mountPieStatsSummaryTabs(resultsContainer){
-    if(!resultsContainer || resultsContainer.nodeType !== 1){
-      return false;
-    }
-    const cards = Array.from(resultsContainer.children).filter(node => node?.classList?.contains('stats-table-card'));
-    if(cards.length < 2){
-      return false;
-    }
-    const overallCard = cards.find(isPieOverallStatsCard);
-    const comparisonsCard = cards.find(isPieComparisonStatsCard);
-    if(!overallCard || !comparisonsCard || overallCard === comparisonsCard){
-      return false;
-    }
-    const wrapper = document.createElement('div');
-    wrapper.className = 'box-stats-summary-tabs';
-    wrapper.setAttribute('role', 'region');
-    wrapper.setAttribute('aria-label', 'Pie statistical summaries');
-    const tabList = document.createElement('div');
-    tabList.className = 'box-stats-summary-tabs__tablist';
-    tabList.setAttribute('role', 'tablist');
-    const tabIdSuffix = String((pieStatsSummaryTabIdCounter += 1));
-    const overallButton = buildPieStatsSummaryTabButton('Overall test summary', 'overall');
-    overallButton.id = `pieStatsSummaryTabOverall-${tabIdSuffix}`;
-    const comparisonsButton = buildPieStatsSummaryTabButton('Multiple comparisons', 'comparisons');
-    comparisonsButton.id = `pieStatsSummaryTabComparisons-${tabIdSuffix}`;
-    const overallPanel = buildPieStatsSummaryPanel('overall', overallButton.id);
-    const comparisonsPanel = buildPieStatsSummaryPanel('comparisons', comparisonsButton.id);
-    tabList.appendChild(overallButton);
-    tabList.appendChild(comparisonsButton);
-    resultsContainer.insertBefore(wrapper, overallCard);
-    overallPanel.appendChild(overallCard);
-    comparisonsPanel.appendChild(comparisonsCard);
-    wrapper.appendChild(tabList);
-    wrapper.appendChild(overallPanel);
-    wrapper.appendChild(comparisonsPanel);
-    const stats = getPieStatsConfig();
-    setPieStatsSummaryTabSelection(wrapper, sanitizePieStatsResultsTab(stats.resultsTab));
+    if(!mounted){ return false; }
+    pieStatsSummaryTabIdCounter += 1;
     if(pieDebugEnabled()){
       pieDebug('Debug: pie stats summary tabs mounted', {
-        overallCaption: readPieStatsCardCaption(overallCard),
-        comparisonsCaption: readPieStatsCardCaption(comparisonsCard),
+        overallCaption: readPieStatsCardCaption(mounted.overallCard),
+        comparisonsCaption: readPieStatsCardCaption(mounted.comparisonsCard),
         activeTab: stats.resultsTab
       });
     }
     return true;
+  }
+
+  function rehydratePieStatsSummaryTabs(resultsContainer, ownerSession = null){
+    if(!resultsContainer || resultsContainer.nodeType !== 1){ return false; }
+    const containers = [resultsContainer, ...Array.from(resultsContainer.querySelectorAll('.stats-results-main'))]
+      .filter((node, index, list) => node && list.indexOf(node) === index);
+    let rebuilt = false;
+    containers.forEach(container => {
+      Array.from(container.querySelectorAll(':scope > .stats-summary-tabs')).forEach(wrapper => {
+        const cards = Array.from(wrapper.querySelectorAll('.stats-table-card'));
+        const overallCard = cards.find(isPieOverallStatsCard);
+        const comparisonsCard = cards.find(isPieComparisonStatsCard);
+        if(!overallCard || !comparisonsCard || overallCard === comparisonsCard){
+          return;
+        }
+        wrapper.replaceWith(overallCard, comparisonsCard);
+        rebuilt = mountPieStatsSummaryTabs(container, ownerSession) || rebuilt;
+      });
+      if(!container.querySelector(':scope > .stats-summary-tabs')){
+        rebuilt = mountPieStatsSummaryTabs(container, ownerSession) || rebuilt;
+      }
+    });
+    return rebuilt;
   }
 
   function getPieStatsDataMatrix(){
@@ -3259,7 +3230,7 @@ let state = {
       let hasFinite = false;
       columns.forEach(column => {
         const raw = row[column.index];
-        const numeric = Number.parseFloat(raw);
+        const numeric = raw==null || String(raw).trim()==='' ? NaN : Number(raw);
         const value = Number.isFinite(numeric) ? numeric : NaN;
         values[column.index] = value;
         if(Number.isFinite(value)){
@@ -3424,7 +3395,7 @@ let state = {
     }
     const stats = getPieStatsConfig();
     if(stats.scope === 'gof'){
-      note.textContent = 'Goodness-of-fit mode runs one observed-versus-expected comparison.';
+      note.textContent = 'Goodness-of-fit uses one comparison; the saved preference applies to pairwise analyses.';
       return;
     }
     if(testCount <= 0){
@@ -3432,7 +3403,7 @@ let state = {
       return;
     }
     if(testCount === 1){
-      note.textContent = 'One comparison selected. Multiplicity correction is not required.';
+      note.textContent = 'The saved preference applies when multiple pairwise comparisons are selected.';
       return;
     }
     const correctionMethod = correctionOverride || stats.correction;
@@ -3511,7 +3482,7 @@ let state = {
     stats.contextSignature = null;
     stats.pending = false;
     stats.restorePending = null;
-    clearPieStatsOutputs('Statistics ready to calculate.');
+    clearPieStatsOutputs(null, { preservePresentation: true });
     setPieStatsStatus('Statistics ready to calculate.');
     updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
     updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
@@ -3565,7 +3536,7 @@ let state = {
         stats.contextSignature = signature;
         stats.lastRunSignature = signature;
         setPieStatsStatus('Statistics up to date.');
-        updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+        updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
         updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
         if(pieDebugEnabled()){
           pieDebug('Debug: pie stats restored context adopted', {
@@ -3579,7 +3550,7 @@ let state = {
     if(stats.contextSignature !== signature){
       stats.contextSignature = signature;
       stats.lastRunSignature = null;
-      clearPieStatsOutputs('Statistics ready to calculate.');
+      clearPieStatsOutputs(null);
       setPieStatsStatus('Statistics ready to calculate.');
       updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
       updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
@@ -3587,7 +3558,7 @@ let state = {
     }
     if(stats.lastRunSignature === signature){
       setPieStatsStatus('Statistics up to date.');
-      updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+      updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
     }else{
       setPieStatsStatus('Statistics ready to calculate.');
       updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
@@ -3613,47 +3584,49 @@ let state = {
     return { rows, labels, skipped };
   }
 
-  function inferPieExpectedColumn(dataModel, excludedIndex){
-    const columns = Array.isArray(dataModel?.columns) ? dataModel.columns : [];
-    const expectedByName = columns.find(column => (
-      column.index !== excludedIndex
-      && String(column.label || '').trim().toLowerCase() === 'expected'
-    ));
-    if(expectedByName){
-      return expectedByName.index;
-    }
-    const firstOther = columns.find(column => column.index !== excludedIndex);
-    return firstOther ? firstOther.index : null;
-  }
-
-  function buildPieAdvisorContext(dataModel){
+  function buildPieAdvisorContext(dataModel, sourceMatrix){
     const stats = getPieStatsConfig();
-    const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
-    const selectedLabels = selected.map(index => findPieColumn(dataModel, index)?.label || `Column ${index}`);
-    const comparisonCount = estimatePieStatsComparisonCount();
-    let sparseConcern = false;
-    let sparseCellCount = 0;
-    let sparseThreshold = sanitizePieStatsSparseThreshold(stats.sparseThreshold);
-    if(selected.length >= 2){
-      const dataset = buildPieContingencyDataset(dataModel, selected);
-      const result = computePieContingencyTest(dataset.rows, {
-        method: 'chi-square',
-        sparseThreshold,
-        yatesCorrection: false
+    const selected = Array.from(stats.selectedCols || []).sort((a,b) => a-b);
+    const sparseThreshold = sanitizePieStatsSparseThreshold(stats.sparseThreshold);
+    const rows = dataModel?.rows || [];
+    const sourceRows=sourceMatrix.slice(1).filter(row=>row[0]!=null && String(row[0]).trim()).length;
+    const completeRows=sourceRows===rows.length;
+    const validCounts = completeRows && rows.length>=2 && rows.every(row => selected.every(index => Number.isInteger(row.values[index]) && row.values[index]>=0));
+    const dataset = buildPieContingencyDataset(dataModel, selected);
+    const contingency = computePieContingencyTest(dataset.rows, { method:'chi-square', sparseThreshold, yatesCorrection:false });
+    const pairResults=new Map();
+    const comparisonValidity={};
+    const comparisonCounts={};
+    for(const scope of ['all','reference','custom']){
+      const pairs=derivePieScopePairs({...stats,scope});
+      comparisonCounts[scope]=pairs.length;
+      const results=pairs.map(pair=>{
+        if(!pairResults.has(pair.key)){
+          const counts=buildPieContingencyDataset(dataModel,[pair.a,pair.b]);
+          pairResults.set(pair.key,computePieContingencyTest(counts.rows,{method:'chi-square',sparseThreshold,yatesCorrection:false}));
+        }
+        return pairResults.get(pair.key);
       });
-      if(result.ok){
-        sparseCellCount = Number.isFinite(result.sparseCellCount) ? result.sparseCellCount : 0;
-        sparseThreshold = result.sparseThreshold;
-        sparseConcern = sparseCellCount > 0 || (Number.isFinite(result.minExpected) && result.minExpected < 1);
-      }
+      comparisonValidity[scope]={ok:results.every(result=>result.ok && result.minExpected>0),sparse:results.some(result=>result.sparseCellCount>0)};
     }
+    const observed = selected.includes(stats.valueColumn) ? stats.valueColumn : selected[0];
+    const expected = selected.includes(stats.expectedColumn) && stats.expectedColumn!==observed
+      ? stats.expectedColumn : selected.find(index => index!==observed);
+    const gofData = buildPieGofDataset(dataModel, observed, expected);
+    const gof = computePieGofStats(gofData.observed, gofData.expected, { method:'chi-square' });
+    const validGof = completeRows && gofData.observed.length>=2 && !gofData.skipped && gofData.observed.every(Number.isInteger);
     return {
-      selectedCount: selected.length,
-      selectedLabels,
-      comparisonCount,
-      sparseConcern,
-      sparseCellCount,
-      sparseThreshold
+      selectedCount:selected.length,
+      selectedLabels:selected.map(index => findPieColumn(dataModel,index)?.label || `Column ${index}`),
+      comparisonCount:estimatePieStatsComparisonCount(),
+      comparisonCounts, comparisonValidity,
+      validCounts, contingency,
+      sparseConcern:contingency.ok && contingency.sparseCellCount>0,
+      sparseCellCount:contingency.sparseCellCount || 0, sparseThreshold,
+      gof:{ ...gof, ok:gof.ok && validGof, message:!validGof?'Use at least two complete categories of non-negative integer observed counts.':gof.message,
+        sparse:gofData.expected.some(value => value<sparseThreshold), valueColumn:observed, expectedColumn:expected,
+        observedLabel:findPieColumn(dataModel,observed)?.label, expectedLabel:findPieColumn(dataModel,expected)?.label,
+        equalProportions:gofData.expectedSource==='equal-proportions' }
     };
   }
 
@@ -3661,7 +3634,7 @@ let state = {
     const advisor = getPieAdvisorState(session);
     const answers = advisor.answers;
     if(answers.objective !== 'gof' && answers.objective !== 'compare'){
-      answers.objective = context.selectedCount >= 3 ? 'compare' : 'gof';
+      answers.objective = context.selectedCount >= 2 ? 'compare' : 'gof';
     }
     if(answers.scope !== 'all' && answers.scope !== 'reference' && answers.scope !== 'custom'){
       answers.scope = 'all';
@@ -3698,7 +3671,8 @@ let state = {
       questions.push({
         id: 'sparse',
         prompt: 'Are sparse expected counts a concern?',
-        help: `Estimated sparse cells (< ${context.sparseThreshold} expected): ${context.sparseCellCount}.`,
+        help: `Estimated sparse cells in the overall table (< ${context.sparseThreshold} expected): ${context.sparseCellCount}.`
+          + (context.comparisonValidity[answers.scope]?.sparse?' At least one requested pair also has sparse expected counts.':''),
         options: [
           { value: 'yes', label: 'Yes, sparse counts are likely' },
           { value: 'no', label: 'No, expected counts look adequate' },
@@ -3709,7 +3683,7 @@ let state = {
       questions.push({
         id: 'sparse',
         prompt: 'For GOF, do you expect sparse categories?',
-        help: 'Sparse categories can favor the likelihood-ratio (G) test.',
+        help: 'Both available tests use asymptotic calibration. A G-test does not resolve sparse expected counts.',
         options: [
           { value: 'yes', label: 'Yes' },
           { value: 'no', label: 'No' },
@@ -3722,92 +3696,67 @@ let state = {
 
   function computePieAdvisorRecommendation(rawAnswers, context){
     const answers = rawAnswers || {};
-    const objective = answers.objective;
-    if(objective !== 'gof' && objective !== 'compare'){
-      return {
-        ready: false,
-        message: 'Choose whether you want observed-vs-expected or multi-condition comparisons.'
-      };
+    const blocked = message => ({ ready:false, message });
+    if(!['gof','compare'].includes(answers.objective)){
+      return blocked('Choose observed-vs-expected or multi-condition comparisons.');
     }
-    if(objective === 'gof'){
-      if(context.selectedCount < 2){
-        return {
-          ready: false,
-          message: 'Select at least two columns so observed and expected columns can be assigned.'
-        };
+    if(!['yes','no','unsure'].includes(answers.sparse)){
+      return blocked('Review whether sparse expected counts are a concern.');
+    }
+    if(answers.objective==='gof'){
+      const gof = context.gof || {};
+      if(!gof.ok){ return blocked(gof.message || 'Choose valid observed and expected counts with matching totals, or use a single observed column for equal expected proportions.'); }
+      if(answers.sparse!=='no' || gof.sparse){
+        return blocked('Sparse expected counts need suitable exact or resampled calibration. Both available GOF tests are asymptotic; changing to G does not solve this. No suitable one-click recommendation is available.');
       }
-      const sparse = answers.sparse;
-      const preferG = sparse === 'yes';
-      return {
-        ready: true,
-        summary: `Use a goodness-of-fit test (${preferG ? 'G-test' : 'chi-square'}) for one observed column against one expected column.`,
-        rationale: [
-          'Goodness-of-fit is the correct analysis when one observed vector is tested against an expected vector.',
-          preferG
-            ? 'Sparse categories are better handled by the likelihood-ratio G-test.'
-            : 'Chi-square goodness-of-fit is appropriate when expected counts are not sparse.'
-        ],
-        warnings: [
-          'Observed counts must be non-negative and expected values strictly positive.',
-          'Interpret pairwise comparisons only in multi-condition mode, not in GOF mode.'
-        ],
-        apply: {
-          scope: 'gof',
-          test: preferG ? 'g-test' : 'chi-square'
-        }
-      };
+      return { ready:true,
+        summary:`Use chi-square goodness-of-fit for ${gof.observedLabel} against ${gof.equalProportions?'equal expected proportions':gof.expectedLabel}.`,
+        rationale:['Observed counts are tested against explicitly identified expected counts with matching totals.'],
+        warnings:['Observations must be independent counts of mutually exclusive categories. Expected values must be specified independently of the observed sample, or fitted-parameter degrees of freedom need a suitable analysis.'],
+        apply:{ scope:'gof', test:'chi-square', valueColumn:gof.valueColumn, expectedColumn:gof.expectedColumn } };
     }
-    if(context.selectedCount < 2){
-      return {
-        ready: false,
-        message: 'Select at least two conditions before running multiple comparisons.'
-      };
+    if(context.selectedCount<2 || !context.validCounts || !context.contingency?.ok){
+      return blocked('Select at least two conditions with complete, non-negative integer counts and at least two categories. Empty margins and skipped cells cannot support this recommendation.');
     }
-    const scope = (answers.scope === 'reference' || answers.scope === 'custom') ? answers.scope : 'all';
-    const sparse = answers.sparse;
-    const preferG = sparse === 'yes' || (sparse === 'unsure' && context.sparseConcern);
-    const recommendedCorrection = context.comparisonCount > 1 ? 'holm' : 'none';
-    const scopeLabel = scope === 'reference'
-      ? 'comparisons vs a reference'
-      : scope === 'custom'
-        ? 'custom pairwise comparisons'
-        : 'all pairwise comparisons';
-    return {
-      ready: true,
-      summary: `Use an overall homogeneity test plus ${scopeLabel}, with ${recommendedCorrection === 'none' ? 'no multiplicity adjustment needed' : 'Holm multiplicity control'}.`,
-      rationale: [
-        'For multiple conditions, first test overall independence/homogeneity, then inspect pairwise contrasts.',
-        preferG
-          ? 'Sparse expected counts suggest using the likelihood-ratio G-test.'
-          : 'Chi-square is suitable when expected counts are adequately populated.',
-        recommendedCorrection === 'holm'
-          ? 'Holm provides strong family-wise error control for multiple pairwise p-values.'
-          : 'With a single comparison, multiplicity correction is not required.'
-      ],
-      warnings: [
-        'If many expected cells are sparse, interpret asymptotic p-values cautiously.',
-        'Always report effect size (Cramer\'s V) with p-values.'
-      ],
-      apply: {
-        scope,
-        test: preferG ? 'g-test' : 'chi-square',
-        correction: recommendedCorrection,
-        yatesCorrection: true
-      }
-    };
+    if(answers.sparse!=='no' || context.sparseConcern){
+      return blocked('Sparse expected counts need suitable exact or resampled calibration. Switching from chi-square to G still uses an asymptotic approximation. No suitable one-click recommendation is available.');
+    }
+    const scope = ['all','reference','custom'].includes(answers.scope) ? answers.scope : null;
+    if(!scope){ return blocked('Choose the comparison family.'); }
+    const count = context.comparisonCounts[scope];
+    if(!count){ return blocked('Select at least one valid custom pair before applying this comparison family.'); }
+    const family=context.comparisonValidity[scope];
+    if(!family.ok){ return blocked('Each requested pair needs complete categories and non-empty margins. Review the comparison family.'); }
+    if(family.sparse){ return blocked('At least one requested pair has sparse expected counts even if the overall table is adequate. Its asymptotic chi-square or G-test needs suitable exact or resampled calibration; no one-click recommendation is available.'); }
+    const correction = count>1 ? 'holm' : 'none';
+    return { ready:true,
+      summary:`Use chi-square homogeneity with ${scope==='reference'?'reference':scope==='custom'?'custom':'all pairwise'} comparisons and ${count>1?'Holm correction':'one unadjusted comparison'}.`,
+      rationale:['The overall homogeneity test and the selected pairwise family answer distinct questions.'],
+      warnings:['Observations must be independent counts of mutually exclusive categories. Report effect sizes alongside p-values.'],
+      apply:{ scope, test:'chi-square', correction, yatesCorrection:true } };
   }
 
-  function renderPieStatsAdvisor(dataModel, controls, session = null){
-    if(!controls){
+  function renderPieStatsAdvisor(controls, session = null){
+    let dataModel;
+    const advisorSession = ensurePieSessionOwnershipShape(session || getActivePieSessionForState());
+    const host = getPieNodeById('pieStatsAdvisor', advisorSession?.tabId || null) || controls;
+    if(!host){
       return;
     }
-    const advisorSession = ensurePieSessionOwnershipShape(session || getActivePieSessionForState());
     if(advisorSession?.tabId && !isPieSessionActive(advisorSession)){
       return;
     }
-    const isAdvisorOwnerCurrent = () => !advisorSession || isPieSessionActive(advisorSession);
     const advisorState = getPieAdvisorState(advisorSession);
-    const context = buildPieAdvisorContext(dataModel);
+    const settingsTitle = host.querySelector('#pieStatsSettingsTitle');
+    const view = Shared.statsAdvisor.begin({ host, component: 'pie', tabId: advisorSession.tabId, advisor: advisorState, getAdvisor: () => getPieAdvisorState(advisorSession), isActive: () => isPieSessionActive(advisorSession) });
+    const isAdvisorOwnerCurrent = view.isCurrent;
+    const readCurrentContext = () => {
+      const matrix=getPieStatsDataMatrix();
+      dataModel=buildPieStatsDataModel(matrix);
+      ensurePieStatsSelections(dataModel);
+      return buildPieAdvisorContext(dataModel,matrix);
+    };
+    const context = readCurrentContext();
     const answers = ensurePieAdvisorDefaults(context, advisorSession);
     const recommendation = computePieAdvisorRecommendation(answers, context);
     const container = document.createElement('div');
@@ -3816,17 +3765,17 @@ let state = {
 
     const header = document.createElement('div');
     header.className = 'stats-advisor__header';
-    const title = document.createElement('strong');
-    title.textContent = 'Statistics advisor';
-    header.appendChild(title);
+    if(settingsTitle){ header.appendChild(settingsTitle); }
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'stats-advisor__toggle';
-    toggle.textContent = advisorState.open ? 'Hide advisor' : 'Guide me';
+    toggle.dataset.advisorFocus = 'toggle';
+    toggle.setAttribute('aria-expanded', String(!!advisorState.open));
+    toggle.textContent = 'Help me choose';
     toggle.addEventListener('click', () => {
       if(!isAdvisorOwnerCurrent()){ return; }
       advisorState.open = !advisorState.open;
-      if(advisorState.open && !advisorState.activated){ advisorState.activated = true; }
+
       if(pieDebugEnabled()){
         pieDebug('Debug: pie statsAdvisor toggled', { open: advisorState.open });
       }
@@ -3838,11 +3787,31 @@ let state = {
 
     const summary = document.createElement('div');
     summary.className = 'stats-advisor__summary';
-    if(!advisorState.activated){
-      const msg = document.createElement('div');
-      msg.textContent = 'Press the "Guide me" button to view advisor recommendations.';
-      summary.appendChild(msg);
-    }else if(recommendation.ready){
+    summary.hidden = !advisorState.open;
+    const activeStats = getPieStatsConfig();
+    const activeScopeLabels = {
+      gof: 'Goodness-of-fit',
+      all: 'All pairwise comparisons',
+      reference: 'Comparisons versus the reference',
+      custom: 'Custom pairwise comparisons'
+    };
+    const activeTestLabel = activeStats.test === 'g-test'
+      ? 'G-test'
+      : activeStats.test === 'auto'
+        ? 'Automatic test selection'
+        : 'Chi-square';
+    const activeComparisonCount = estimatePieStatsComparisonCount();
+    const activeCorrectionLabel = activeStats.scope === 'gof' || activeComparisonCount <= 1
+      ? 'multiplicity correction not required'
+      : (getPieCorrectionOptions().find(option => option.value === activeStats.correction)?.label || 'selected multiplicity correction');
+    const activeAnalysis = activeStats.scope === 'gof'
+      ? `${activeTestLabel} goodness-of-fit`
+      : `${activeTestLabel} homogeneity · ${activeScopeLabels[activeStats.scope] || 'pairwise comparisons'} · ${activeCorrectionLabel}`;
+    const currentAnalysis = document.createElement('div');
+    currentAnalysis.className = 'stats-advisor__current-analysis';
+    currentAnalysis.textContent = `Active analysis: ${activeAnalysis}. Advisor suggestions take effect only when applied.`;
+    summary.appendChild(currentAnalysis);
+    if(recommendation.ready){
       const summaryLine = document.createElement('div');
       summaryLine.className = 'stats-advisor__summary-line';
       summaryLine.textContent = `Recommendation: ${recommendation.summary}`;
@@ -3873,7 +3842,11 @@ let state = {
       }
     }else{
       const msg = document.createElement('div');
-      msg.textContent = recommendation.message || 'Answer the advisor questions to receive a recommendation.';
+        msg.className = 'stats-advisor__unavailable';
+        const scopeLabel = answers.objective === 'gof'
+          ? 'Goodness-of-fit recommendation unavailable'
+          : 'Recommendation unavailable';
+        msg.textContent = `${scopeLabel}: ${recommendation.message || 'Answer the advisor questions to receive a recommendation.'}`;
       summary.appendChild(msg);
     }
     container.appendChild(summary);
@@ -3928,39 +3901,41 @@ let state = {
       applyBtn.textContent = 'Apply recommendation';
       applyBtn.disabled = !recommendation.ready || !recommendation.apply;
       applyBtn.addEventListener('click', () => {
-        if(!isAdvisorOwnerCurrent() || !recommendation.ready || !recommendation.apply){ return; }
-        const stats = getPieStatsConfig();
-        stats.scope = sanitizePieStatsScope(recommendation.apply.scope ?? stats.scope);
-        stats.test = sanitizePieStatsTest(recommendation.apply.test ?? stats.test);
-        if(Object.prototype.hasOwnProperty.call(recommendation.apply, 'correction')){
-          stats.correction = sanitizePieStatsCorrection(recommendation.apply.correction);
-        }
-        if(Object.prototype.hasOwnProperty.call(recommendation.apply, 'yatesCorrection')){
-          stats.yatesCorrection = !!recommendation.apply.yatesCorrection;
-        }
-        ensurePieStatsSelections(dataModel);
-        if(stats.scope === 'gof'){
-          const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
-          const observed = selected[0] ?? stats.valueColumn;
-          const expected = inferPieExpectedColumn(dataModel, observed);
-          if(Number.isInteger(observed)){ stats.valueColumn = observed; }
-          if(Number.isInteger(expected)){ stats.expectedColumn = expected; }
-        }else if(stats.scope === 'reference'){
-          const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
-          if(!selected.includes(stats.referenceColumn)){ stats.referenceColumn = selected[0] ?? null; }
-        }
-        if(pieDebugEnabled()){
-          pieDebug('Debug: pie statsAdvisor applied', {
-            scope: stats.scope,
-            test: stats.test,
-            correction: stats.correction,
-            yatesCorrection: stats.yatesCorrection,
-            answers: { ...answers }
-          });
-        }
-        rememberPieStatsState('pie-advisor-apply', { syncControls: false, session: advisorSession });
-        renderPieStatsControls(dataModel, { force: true, reason: 'advisor-apply', session: advisorSession });
-        requestPieStatsContextRefresh('advisor-apply', { session: advisorSession });
+        view.apply({
+          readContext:readCurrentContext, decide:computePieAdvisorRecommendation,
+          refresh:() => renderPieStatsControls(dataModel, { force:true, session:advisorSession }),
+          commit:(recommendation) => {
+            const stats = getPieStatsConfig();
+            stats.scope = sanitizePieStatsScope(recommendation.apply.scope ?? stats.scope);
+            stats.test = sanitizePieStatsTest(recommendation.apply.test ?? stats.test);
+            if(Object.prototype.hasOwnProperty.call(recommendation.apply, 'correction')){
+              stats.correction = sanitizePieStatsCorrection(recommendation.apply.correction);
+            }
+            if(Object.prototype.hasOwnProperty.call(recommendation.apply, 'yatesCorrection')){
+              stats.yatesCorrection = !!recommendation.apply.yatesCorrection;
+            }
+            ensurePieStatsSelections(dataModel);
+            if(stats.scope === 'gof'){
+              stats.valueColumn=recommendation.apply.valueColumn;
+              stats.expectedColumn=recommendation.apply.expectedColumn;
+            }else if(stats.scope === 'reference'){
+              const selected = Array.from(stats.selectedCols || []).sort((a, b) => a - b);
+              if(!selected.includes(stats.referenceColumn)){ stats.referenceColumn = selected[0] ?? null; }
+            }
+            if(pieDebugEnabled()){
+              pieDebug('Debug: pie statsAdvisor applied', {
+                scope: stats.scope,
+                test: stats.test,
+                correction: stats.correction,
+                yatesCorrection: stats.yatesCorrection,
+                answers: { ...answers }
+              });
+            }
+            rememberPieStatsState('pie-advisor-apply', { syncControls: false, session: advisorSession });
+            renderPieStatsControls(dataModel, { force: true, reason: 'advisor-apply', session: advisorSession });
+            requestPieStatsContextRefresh('advisor-apply', { session: advisorSession });
+          }
+        });
       });
       actions.appendChild(applyBtn);
 
@@ -3970,7 +3945,6 @@ let state = {
       resetBtn.addEventListener('click', () => {
         if(!isAdvisorOwnerCurrent()){ return; }
         advisorState.answers = {};
-        if(advisorSession){ advisorSession.advisor = advisorState; }
         if(pieDebugEnabled()){
           pieDebug('Debug: pie statsAdvisor reset');
         }
@@ -3981,7 +3955,8 @@ let state = {
       container.appendChild(actions);
     }
 
-    controls.appendChild(container);
+    host.replaceChildren(container);
+    view.finish(container);
   }
 
   function buildPieGofDataset(dataModel, observedIndex, expectedIndex){
@@ -4360,7 +4335,7 @@ let state = {
     };
   }
 
-  function renderPieStatsModel(model){
+  function renderPieStatsModel(model, ownerSession = null){
     const out = getPieNodeById('pieStatsResults');
     if(!out){
       return;
@@ -4415,6 +4390,7 @@ let state = {
     };
     const summaryRows = [
       { metric: 'Test', value: model.summary.testLabel },
+      ...(model.summary.comparisonLabel ? [{ metric: 'Conditions', value: model.summary.comparisonLabel }] : []),
       { metric: 'Statistic', value: model.summary.statistic },
       { metric: 'df', value: model.summary.df },
       ...(Number.isFinite(Number(model.summary.total)) ? [{ metric: 'N', value: model.summary.total }] : []),
@@ -4443,7 +4419,8 @@ let state = {
         contextLabel: 'pie-overall-statistics'
       }
     }, false);
-    if(Array.isArray(model.pairs) && model.pairs.length){
+    if(Array.isArray(model.pairs) && model.pairs.length && !model.summary.comparisonLabel){
+      const hasMultiplicityAdjustment = model.pairInferenceSpec?.method !== 'none';
       renderTable({
         caption: model.pairsCaption || 'Pairwise comparisons',
         section: 'comparisons',
@@ -4454,13 +4431,18 @@ let state = {
           { key: 'total', label: 'Total count', align: 'right' },
           { key: 'statistic', label: 'Statistic', align: 'right' },
           { key: 'df', label: 'df', align: 'right' },
-          { key: 'pValue', label: 'p-value', align: 'right' },
           {
+            key: 'pValue',
+            label: 'p-value',
+            align: 'right',
+            inference: hasMultiplicityAdjustment ? null : (model.pairInferenceSpec || null)
+          },
+          ...(hasMultiplicityAdjustment ? [{
             key: 'pAdjusted',
             label: model.adjustedPLabel || 'p (adj)',
             align: 'right',
             inference: model.pairInferenceSpec || null
-          },
+          }] : []),
           { key: 'cramersV', label: "Effect size", align: 'right' }
         ],
         rows: model.pairs,
@@ -4471,7 +4453,8 @@ let state = {
         }
       }, true);
     }
-    mountPieStatsSummaryTabs(out);
+    mountPieStatsSummaryTabs(out, ownerSession);
+    Shared.statsReporting?.markPanelCurrent?.(out);
   }
 
   function handlePieStatsComputeClick(event){
@@ -4534,7 +4517,7 @@ let state = {
                 ? `Compared ${observedMeta.label} with equal expected proportions across ${gof.categories} categories.`
                 : `Compared ${observedMeta.label} to ${expectedMeta.label} across ${gof.categories} categories.`,
               `Significance level: α = ${formatPieStatNumber(alpha, 3)}.`,
-              dataset.skipped ? `${dataset.skipped} row(s) were excluded due to missing or invalid values.` : null
+              dataset.skipped ? `${dataset.skipped} row${dataset.skipped === 1 ? '' : 's'} were excluded due to missing or invalid values.` : null
             ].filter(Boolean)
           },
           pairs: [],
@@ -4633,6 +4616,12 @@ let state = {
         const correctionMeta = Shared.stats && typeof Shared.stats.getCorrectionMeta === 'function'
           ? Shared.stats.getCorrectionMeta(effectiveCorrection)
           : { shortLabel: effectiveCorrection, label: effectiveCorrection, footnote: null };
+        const onlyPair = pairResults.length === 1 ? pairResults[0] : null;
+        const pairMatchesOverall = selected.length === 2
+          && effectiveCorrection === 'none'
+          && isValidPValue(onlyPair?.pValueRaw)
+          && isValidPValue(overall.pValue)
+          && onlyPair.pValueRaw === overall.pValue;
         const pairInferenceSpec = typeof Shared.statsInference?.createDecisionSpec === 'function'
           ? Shared.statsInference.createDecisionSpec({
               tabId: resolvePieStatsInferenceTabId(),
@@ -4644,6 +4633,7 @@ let state = {
           summary: {
             caption: 'Overall test summary',
             testLabel: overall.method === 'g-test' ? 'G-test (likelihood ratio)' : 'Chi-square test of homogeneity',
+            comparisonLabel: pairMatchesOverall ? `${onlyPair.left} vs ${onlyPair.right}` : null,
             statistic: formatPieStatNumber(overall.statistic, 4),
             df: String(overall.df),
             total: formatPieStatNumber(overall.total, 0),
@@ -4653,9 +4643,9 @@ let state = {
             effectValue: formatPieStatNumber(overall.cramersV, 4),
             effectLabel: "Cramer's V (Pearson X²)",
             footnotes: [
-              `${selected.length} condition(s) and ${overallDataset.rows.length} category row(s) were included.`,
+              `${selected.length} condition${selected.length === 1 ? '' : 's'} and ${overallDataset.rows.length} category row${overallDataset.rows.length === 1 ? '' : 's'} were included.`,
               `Overall-test significance level: α = ${formatPieStatNumber(alpha, 3)}.`,
-              overallDataset.skipped ? `${overallDataset.skipped} row(s) were excluded due to missing or invalid values.` : null,
+              overallDataset.skipped ? `${overallDataset.skipped} row${overallDataset.skipped === 1 ? '' : 's'} were excluded due to missing or invalid values.` : null,
               `Cells with expected count < ${overall.sparseThreshold}: ${overall.sparseCellCount}.`,
               overall.yatesApplied ? 'Yates continuity correction was applied (2×2 chi-square).' : null
             ].filter(Boolean)
@@ -4678,7 +4668,7 @@ let state = {
         };
         updatePieStatsCorrectionSummary(finitePValues.length, effectiveCorrection);
       }
-      renderPieStatsModel(renderedModel);
+      renderPieStatsModel(renderedModel, statsSession);
       ensurePieStatsReportHost(getPieNodeById('pieStatsResults'));
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
         const reportCorrectionMethod = renderedModel.pairInferenceSpec?.method || 'none';
@@ -4748,7 +4738,7 @@ let state = {
       stats.lastRunSignature = signature;
       stats.pending = false;
       setPieStatsStatus('Statistics up to date.');
-      updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+      updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
       rememberPieStatsState('pie-stats-compute-success', { syncControls: false, session: statsSession });
     }catch(err){
       console.error('pie stats computation failed', err);
@@ -4785,7 +4775,7 @@ let state = {
       customPairs: Array.from(stats.customPairs).sort(),
       advancedOpen: !!stats.advancedOpen,
       advisorOpen: !!stats.advisor?.open,
-      advisorActivated: !!stats.advisor?.activated,
+
       advisorAnswers: stats.advisor?.answers || {},
       columns: (dataModel?.columns || []).map(column => `${column.index}:${column.label}`)
     });
@@ -4793,15 +4783,17 @@ let state = {
       return;
     }
     stats.controlsSignature = signature;
+    const advisorHost = getPieNodeById('pieStatsAdvisor', ownerSession?.tabId || null);
+    Shared.statsAdvisor.captureFocus(advisorHost || controls);
     controls.innerHTML = '';
     stampPieStatsParameterObservables(controls, stats);
-    renderPieStatsAdvisor(dataModel, controls, ownerSession);
+    renderPieStatsAdvisor(advisorHost, ownerSession);
 
     const conditionsWrap = document.createElement('div');
     conditionsWrap.className = 'stats-conditions-section';
     const conditionsTitle = document.createElement('div');
     conditionsTitle.className = 'stats-conditions-title';
-    conditionsTitle.textContent = 'Conditions to compare:';
+    conditionsTitle.textContent = 'Conditions to compare';
     conditionsWrap.appendChild(conditionsTitle);
     const conditionsBox = document.createElement('div');
     conditionsBox.className = 'stats-conditions-checkboxes';
@@ -4835,25 +4827,26 @@ let state = {
     controls.appendChild(conditionsWrap);
 
     const optionWrap = document.createElement('div');
-    optionWrap.className = 'box-stats-options';
+    optionWrap.className = 'box-stats-options pie-stats-options';
     const leftColumn = document.createElement('div');
     leftColumn.className = 'box-stats-options__column box-stats-options__column--primary';
     const rightColumn = document.createElement('div');
     rightColumn.className = 'box-stats-options__column box-stats-options__column--secondary';
     optionWrap.appendChild(leftColumn);
     optionWrap.appendChild(rightColumn);
+    let controlLabelSequence = 0;
 
     const appendRow = (host, labelText, control) => {
       const row = document.createElement('div');
       row.className = 'box-stats-options__row';
       const label = document.createElement('label');
+      label.className = 'stats-analysis-field-label';
       label.textContent = labelText;
-      try{
-        label.style.minWidth = '140px';
-        control.style.width = '180px';
-      }catch(_err){
-        // no-op
+      if(!control.id){
+        controlLabelSequence += 1;
+        control.id = `pieStatsControl-${controlLabelSequence}`;
       }
+      label.htmlFor = control.id;
       row.appendChild(label);
       row.appendChild(control);
       host.appendChild(row);
@@ -4878,7 +4871,7 @@ let state = {
       renderPieStatsControls(dataModel, { force: true, reason: 'scope-change', session: ownerSession });
       requestPieStatsContextRefresh('scope-change', { session: ownerSession });
     });
-    appendRow(leftColumn, 'Comparison scope:', scopeSelect);
+    appendRow(leftColumn, 'Comparison scope', scopeSelect);
 
     const testSelect = document.createElement('select');
     [
@@ -4897,7 +4890,7 @@ let state = {
       getPieStatsConfig().test = sanitizePieStatsTest(testSelect.value);
       requestPieStatsContextRefresh('test-change', { session: ownerSession });
     });
-    appendRow(leftColumn, 'Choose test:', testSelect);
+    appendRow(leftColumn, 'Choose test', testSelect);
 
     if(stats.scope === 'gof'){
       const observedSelect = document.createElement('select');
@@ -4916,7 +4909,7 @@ let state = {
         renderPieStatsControls(dataModel, { force: true, reason: 'gof-observed-change', session: ownerSession });
         requestPieStatsContextRefresh('gof-observed-change', { session: ownerSession });
       });
-      appendRow(leftColumn, 'Observed column:', observedSelect);
+      appendRow(leftColumn, 'Observed column', observedSelect);
 
       const expectedSelect = document.createElement('select');
       expectedSelect.id = 'pieExpectedColumn';
@@ -4927,7 +4920,7 @@ let state = {
         option.textContent = 'Equal proportions';
         expectedSelect.appendChild(option);
         expectedSelect.disabled = true;
-        appendRow(leftColumn, 'Expected distribution:', expectedSelect);
+        appendRow(leftColumn, 'Expected distribution', expectedSelect);
       }else{
         availableColumns
           .filter(column => column.index !== stats.valueColumn)
@@ -4945,7 +4938,7 @@ let state = {
           renderPieStatsControls(dataModel, { force: true, reason: 'gof-expected-change', session: ownerSession });
           requestPieStatsContextRefresh('gof-expected-change', { session: ownerSession });
         });
-        appendRow(leftColumn, 'Expected column:', expectedSelect);
+        appendRow(leftColumn, 'Expected column', expectedSelect);
       }
     }else if(stats.scope === 'reference'){
       const referenceSelect = document.createElement('select');
@@ -4964,13 +4957,13 @@ let state = {
         getPieStatsConfig().referenceColumn = Number.parseInt(referenceSelect.value, 10);
         requestPieStatsContextRefresh('reference-change', { session: ownerSession });
       });
-      appendRow(leftColumn, 'Reference condition:', referenceSelect);
+      appendRow(leftColumn, 'Reference condition', referenceSelect);
     }else if(stats.scope === 'custom'){
       const customWrap = document.createElement('div');
       customWrap.className = 'stats-conditions-section';
       const title = document.createElement('div');
       title.className = 'stats-conditions-title';
-      title.textContent = 'Custom pairs:';
+      title.textContent = 'Custom pairs';
       customWrap.appendChild(title);
       const pairList = document.createElement('div');
       pairList.className = 'stats-conditions-checkboxes';
@@ -5031,22 +5024,33 @@ let state = {
       correctionSelect.appendChild(option);
     });
     correctionSelect.disabled = stats.scope === 'gof' || estimatePieStatsComparisonCount() <= 1;
+    correctionSelect.title = correctionSelect.disabled
+      ? (stats.scope === 'gof' ? 'Multiplicity correction applies to pairwise comparisons.' : 'One comparison does not require multiplicity correction.')
+      : '';
     correctionSelect.addEventListener('change', event => {
       bindPieStatsEventTarget(event.currentTarget, 'pie-stats-correction-change');
       getPieStatsConfig().correction = sanitizePieStatsCorrection(correctionSelect.value);
       ensurePieStatsInferenceControls();
       requestPieStatsContextRefresh('correction-change', { session: ownerSession });
     });
-    appendRow(rightColumn, 'Multiplicity control:', correctionSelect);
+    appendRow(rightColumn, correctionSelect.disabled ? 'Saved multiplicity preference' : 'Multiplicity control', correctionSelect);
 
     const advanced = document.createElement('details');
     advanced.className = 'box-stats-advanced';
     advanced.open = !!stats.advancedOpen;
     const summary = document.createElement('summary');
     summary.textContent = 'Advanced parameters';
-    summary.addEventListener('click', event => {
-      bindPieStatsEventTarget(event.currentTarget, 'pie-stats-advanced-toggle');
-      getPieStatsConfig().advancedOpen = !advanced.open;
+    advanced.addEventListener('toggle', event => {
+      if(ownerSession?.tabId && !isPieSessionActive(ownerSession)){
+        return;
+      }
+      // Ignore a queued toggle from a control tree that has since been rebuilt.
+      const currentAdvanced = getPieNodeById('pieStatsControls', ownerSession?.tabId || null)
+        ?.querySelector?.('details.box-stats-advanced') || null;
+      if(currentAdvanced !== event.currentTarget){
+        return;
+      }
+      getPieStatsConfig().advancedOpen = event.currentTarget.open;
       rememberPieStatsState('advanced-toggle', { syncControls: false, session: ownerSession });
     });
     advanced.appendChild(summary);
@@ -5056,7 +5060,8 @@ let state = {
     const sparseRow = document.createElement('div');
     sparseRow.className = 'box-stats-options__row';
     const sparseLabel = document.createElement('label');
-    sparseLabel.textContent = 'Sparse threshold:';
+    sparseLabel.className = 'stats-analysis-field-label';
+    sparseLabel.textContent = 'Sparse threshold';
     sparseLabel.style.minWidth = '140px';
     const sparseInput = document.createElement('input');
     sparseInput.type = 'number';
@@ -5079,7 +5084,8 @@ let state = {
     const yatesRow = document.createElement('div');
     yatesRow.className = 'box-stats-options__row';
     const yatesLabel = document.createElement('label');
-    yatesLabel.textContent = 'Use Yates (2x2):';
+    yatesLabel.className = 'stats-analysis-field-label';
+    yatesLabel.textContent = 'Use Yates (2x2)';
     const yatesInput = document.createElement('input');
     yatesInput.type = 'checkbox';
     yatesInput.checked = !!stats.yatesCorrection;
@@ -5092,7 +5098,7 @@ let state = {
     yatesRow.appendChild(yatesInput);
     advancedBody.appendChild(yatesRow);
     advanced.appendChild(advancedBody);
-    rightColumn.appendChild(advanced);
+    optionWrap.appendChild(advanced);
 
     controls.appendChild(optionWrap);
     updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
@@ -5130,13 +5136,12 @@ let state = {
       }
     }
     const settings = normalizePieStatsSettings(stats);
-    const advisor = context.canUseLiveProjection
-      ? normalizePieAdvisorState(stats.advisor || context.owner?.advisor || {})
-      : normalizePieAdvisorState(context.owner?.advisor || {});
+    // Export clones the canonical advisor into the archive, never back into
+    // the live owner: rendered controls still hold that owner's objects.
+    const advisor = context.owner ? context.owner.advisor : stats.advisor;
     const exported = composePieStatsConfig(settings, advisor, panelModel);
     if(context.owner){
       context.owner.state.stats = settings;
-      context.owner.advisor = advisor;
       context.owner.results = createDefaultPieResultsState({
         ...context.owner.results,
         statsDataModel: context.owner.results?.statsDataModel || null,
@@ -5216,16 +5221,11 @@ let state = {
     return restoredResults;
   }
 
-  // Return a default color palette for slices
-  // Prefer globally defined palettes if available; fallback to local palette
   function getDefaultPalette(){
-    try{
-      const palFromGlobal = (global && Array.isArray(global.DEFAULT_SCATTER_COLORS)) ? global.DEFAULT_SCATTER_COLORS : undefined;
-      const palette = palFromGlobal || ['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493','#666666'];
-      return palette;
-    }catch(_e){
-      return ['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493','#666666'];
-    }
+    const owner = getPieProjectionSession({ reason: 'pie-palette' });
+    return Shared.colorSchemes.resolveCategoricalPaletteForType('pie', {
+      schemeId: owner?.state?.colorScheme || state.colorScheme
+    });
   }
 
   const markFontEditable = (node, role, key) => {
@@ -5445,6 +5445,7 @@ let state = {
 
     const createPieTable = (container) => Shared.hot.createStandardTable(container, { rows: PIE_DEFAULT_ROWS, cols: PIE_DEFAULT_COLS }, schedulePieDrawProxy, {
       debugLabel: 'pie',
+      ariaLabel: 'Pie chart input data table',
       data,
       firstRowClassName: 'hot-header-row htCenter',
       pinFirstRow: true,
@@ -5805,6 +5806,7 @@ let state = {
         Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
         pieDebug('biomedical pie comparison example loaded', { categories: example.length - 1 });
         capturePieSessionStateFromActive(session, { reason: 'pie-example-load', captureStats: false });
+        Shared.colorSchemes?.applyToActiveTab?.('pie', Shared.colorSchemes?.getDefaultSchemeId?.('pie') || 'normal');
         schedulePieDrawForSession(session, { reason: 'pie-example-load', renderImpact: 'structural', tabId: session?.tabId || undefined });
       });
     };
@@ -5929,7 +5931,7 @@ let state = {
       const payloadSession = getPieProjectionSession({ reason: 'pie-payload-owner' }) || getActivePieSessionForState();
       const payload = {
         type:'pie',
-        data: Shared.hot.trimTrailingEmptyCols(payloadSourceData),
+        data: includeDataViews ? payloadSourceData : Shared.hot.trimTrailingEmptyCols(payloadSourceData),
         exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
         filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
         dataViews: includeDataViews ? dataViewsPayload : undefined,
@@ -5937,9 +5939,6 @@ let state = {
         config: collectConfig(payloadSession)
       };
       payload.config = payload.config || {};
-      payload.config.colorScheme = payload.config.colorScheme
-        || Shared.colorSchemes?.getSelectedSchemeId?.('pie')
-        || 'scientific';
       payload.config.notes = {
         text: notesText,
         open: notesOpen
@@ -5965,230 +5964,6 @@ let state = {
       pie.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
     }
 
-    pie.captureRuntimeState = function capturePieRuntimeState(meta = {}){
-      const targetTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta);
-      const activeTabId = getPieProjectionTabId() || getActivePieSessionForState()?.tabId || null;
-      if(targetTabId && activeTabId && String(targetTabId) !== String(activeTabId)){
-        const targetSession = getPieSession(targetTabId, {
-          ...(meta || {}),
-          tabId: targetTabId,
-          reason: meta?.reason || 'pie-runtime-capture-inactive'
-        }, { create: false });
-        if(targetSession){
-          const durable = createDefaultPieDurableState(targetSession.state || {});
-          const results = createDefaultPieResultsState(targetSession.results || {});
-          const snapshot = {
-            state: {
-              titleText: durable.titleText,
-              axisTitleOverrides: normalizePieAxisTitleOverrides(durable.axisTitleOverrides),
-              legendWidth: durable.legendWidth,
-              colors: cloneSimple(durable.colors) || {},
-              minSvgWidth: durable.minSvgWidth,
-              axisSettings: cloneSimple(durable.axisSettings) || null,
-              labelPositions: cloneSimple(durable.labelPositions) || {},
-              columnSignature: durable.columnSignature || null,
-              stats: normalizePieStatsSettings(durable.stats),
-              colorSignature: durable.colorSignature || null,
-              xTickRotateVertical: durable.xTickRotateVertical === true,
-              lockRatioEnforcePrevious: durable.lockRatioEnforcePrevious,
-              resizeState: cloneSimple(durable.resizeState) || null,
-              controls: cloneSimple(durable.controls) || createDefaultPieRuntimeControls()
-            },
-            advisor: normalizePieAdvisorState(targetSession.advisor),
-            results: {
-              statsDataModel: cloneSimple(results.statsDataModel) || null,
-              statsPanelModel: normalizePieStatsPanelModel(results.statsPanelModel),
-              statsSummaryTabIdCounter: Number(results.statsSummaryTabIdCounter) || 0
-            },
-            notes: createDefaultPieNotesState(targetSession.notes || {}),
-            reason: meta?.reason || 'pie-runtime-capture-inactive'
-          };
-          rememberPieOwnedRuntimeRecord(targetTabId, snapshot, { ...(meta || {}), tabId: targetTabId, reason: snapshot.reason });
-          return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, {
-            ...(meta || {}), tabId: targetTabId, reason: snapshot.reason
-          }) || snapshot;
-        }
-      }
-      const captureSession = targetTabId
-        ? getPieSession(targetTabId, { ...(meta || {}), tabId: targetTabId, reason: 'pie-runtime-capture-stats' }, { create: false })
-        : getActivePieSessionForState();
-      syncPieRuntimeControlsFromDom(captureSession);
-      const notesSnapshot = capturePieNotesMirror();
-      if(captureSession){ exportPieStatsConfig(captureSession); }
-      capturePieSessionStateFromActive(captureSession, { reason: meta?.reason || 'pie-runtime-capture', captureStats: false, syncControls: false });
-      const owner = ensurePieSessionOwnershipShape(captureSession || getActivePieSessionForState());
-      const durable = createDefaultPieDurableState(owner?.state || {});
-      const results = createDefaultPieResultsState(owner?.results || {});
-      const snapshot = {
-        state: {
-          titleText: durable.titleText,
-          axisTitleOverrides: normalizePieAxisTitleOverrides(durable.axisTitleOverrides),
-          legendWidth: durable.legendWidth,
-          colors: cloneSimple(durable.colors) || {},
-          minSvgWidth: durable.minSvgWidth,
-          axisSettings: cloneSimple(durable.axisSettings) || null,
-          labelPositions: cloneSimple(durable.labelPositions) || {},
-          columnSignature: durable.columnSignature || null,
-          stats: normalizePieStatsSettings(durable.stats),
-          colorSignature: durable.colorSignature || null,
-          xTickRotateVertical: durable.xTickRotateVertical === true,
-          lockRatioEnforcePrevious: durable.lockRatioEnforcePrevious,
-          resizeState: cloneSimple(durable.resizeState) || null,
-          controls: cloneSimple(durable.controls) || createDefaultPieRuntimeControls()
-        },
-        advisor: normalizePieAdvisorState(owner?.advisor),
-        results: {
-          statsDataModel: cloneSimple(results.statsDataModel) || null,
-          statsPanelModel: normalizePieStatsPanelModel(results.statsPanelModel),
-          statsSummaryTabIdCounter: Number(results.statsSummaryTabIdCounter) || 0
-        },
-        notes: createDefaultPieNotesState(notesSnapshot),
-        reason: meta?.reason || 'pie-runtime-capture'
-      };
-      setPieSessionStateFromRuntimeRecord(snapshot, { ...(meta || {}), reason: snapshot.reason });
-      syncPieSessionRefsFromActive(owner);
-      syncPieSessionManagersFromActive(owner);
-      rememberPieOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, { ...(meta || {}), reason: snapshot.reason });
-      return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, { ...(meta || {}), reason: snapshot.reason }) || snapshot;
-    };;
-
-    pie.applyRuntimeState = function applyPieRuntimeState(snapshot, meta = {}){
-      const requestedTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta);
-      const requestedSession = requestedTabId
-        ? getPieSession(requestedTabId, { ...(meta || {}), tabId: requestedTabId, reason: meta?.reason || 'pie-runtime-apply-owner' }, { create: true })
-        : getActivePieSessionForState();
-      snapshot = resolvePieOwnedRuntimeSnapshot(snapshot, meta)
-        || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(pie, snapshot, meta)
-        || snapshot;
-      if(!snapshot || typeof snapshot !== 'object'){
-        pieDebug('Debug: pie runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
-        return false;
-      }
-
-      // Runtime state belongs to the requested owner even when that tab is detached. Store
-      // it first, then project only for the active owner or the tab currently being activated.
-      const applySession = setPieSessionStateFromRuntimeRecord(snapshot, {
-        ...(meta || {}),
-        tabId: requestedSession?.tabId || requestedTabId || meta?.tabId || null,
-        reason: meta?.reason || 'pie-runtime-apply-session'
-      }) || requestedSession;
-      const canProjectOwner = !applySession
-        || isPieSessionActive(applySession)
-        || isPieSessionActivationTarget(applySession);
-      if(applySession && !canProjectOwner){
-        rememberPieOwnedRuntimeRecord(applySession.tabId, snapshot, {
-          ...(meta || {}),
-          tabId: applySession.tabId,
-          reason: meta?.reason || 'pie-runtime-apply-inactive'
-        });
-        Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, {
-          ...(meta || {}),
-          tabId: applySession.tabId,
-          reason: meta?.reason || 'pie-runtime-apply-inactive'
-        });
-        pieDebug('Debug: pie inactive runtime snapshot stored without active projection', {
-          tabId: applySession.tabId || null,
-          activeTabId: getPieProjectionTabId() || null,
-          reason: meta?.reason || 'pie-runtime-apply'
-        });
-        return true;
-      }
-
-      if(applySession?.tabId){
-        bindPieSessionForTab(applySession.tabId, {
-          ...(meta || {}),
-          tabId: applySession.tabId,
-          reason: meta?.reason || 'pie-runtime-apply-bind'
-        }, { apply: false });
-      }
-      if(snapshot.state && typeof snapshot.state === 'object'){
-        const nextState = snapshot.state;
-        state.titleText = typeof nextState.titleText === 'string' ? nextState.titleText : state.titleText;
-        state.axisTitleOverrides = normalizePieAxisTitleOverrides(nextState.axisTitleOverrides ?? state.axisTitleOverrides);
-        state.legendWidth = Number.isFinite(Number(nextState.legendWidth)) ? Number(nextState.legendWidth) : state.legendWidth;
-        state.colors = cloneSimple(nextState.colors) || state.colors || {};
-        state.minSvgWidth = Number.isFinite(Number(nextState.minSvgWidth)) ? Number(nextState.minSvgWidth) : state.minSvgWidth;
-        state.axisSettings = cloneSimple(nextState.axisSettings) || state.axisSettings;
-        state.labelPositions = normalizePieLabelPositions(nextState.labelPositions);
-        state.columnSignature = Object.prototype.hasOwnProperty.call(nextState, 'columnSignature') ? (nextState.columnSignature || null) : (state.columnSignature || null);
-        if(Object.prototype.hasOwnProperty.call(snapshot.results || {}, 'statsDataModel')){
-          state.statsDataModel = cloneSimple(snapshot.results.statsDataModel);
-        }
-        if(Object.prototype.hasOwnProperty.call(nextState, 'stats')){
-          const combined = composePieStatsConfig(nextState.stats || {}, snapshot.advisor || {}, snapshot.results?.statsPanelModel || {});
-          applyPieStatsConfig(combined, applySession);
-          try{
-            const dataModel = state.statsDataModel || buildPieStatsDataModel(getPieStatsDataMatrix());
-            state.statsDataModel = dataModel;
-            ensurePieStatsSelections(dataModel);
-            renderPieStatsControls(dataModel, { force: true, reason: 'runtime-state-apply', session: applySession });
-          }catch(err){
-            pieDebug('Debug: pie stats controls restore after runtime apply failed', { message: err?.message || String(err) });
-          }
-        }
-        state.colorSignature = Object.prototype.hasOwnProperty.call(nextState, 'colorSignature') ? (nextState.colorSignature || null) : (state.colorSignature || null);
-        if(Object.prototype.hasOwnProperty.call(nextState, 'xTickRotateVertical')){
-          state.xTickRotateVertical = nextState.xTickRotateVertical === true;
-        }
-        if(Object.prototype.hasOwnProperty.call(nextState, 'lockRatioEnforcePrevious')){
-          state.lockRatioEnforcePrevious = (nextState.lockRatioEnforcePrevious === true || nextState.lockRatioEnforcePrevious === false)
-            ? !!nextState.lockRatioEnforcePrevious
-            : null;
-          pieLockRatioEnforcePrevious = state.lockRatioEnforcePrevious;
-        }
-        state.resizeState = cloneSimple(nextState.resizeState) || state.resizeState;
-        normalizePieResizeState();
-        syncPieRuntimeControlsFromState(nextState.controls || {});
-      }
-      if(snapshot.notes && typeof snapshot.notes === 'object'){
-        notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
-        notesState.open = !!snapshot.notes.open;
-        if(canUsePieNotesControl(notesState.control)){
-          notesState.control.setValue(notesState.text);
-          notesState.control.setOpen(notesState.open);
-        }
-      }
-      pieStatsSummaryTabIdCounter = Number(snapshot.results?.statsSummaryTabIdCounter) || pieStatsSummaryTabIdCounter || 0;
-      syncPieSessionRefsFromActive(applySession);
-      syncPieSessionManagersFromActive(applySession);
-      rememberPieOwnedRuntimeRecord(applySession?.tabId || requestedTabId || null, snapshot, {
-        ...(meta || {}),
-        tabId: applySession?.tabId || requestedTabId || meta?.tabId || null,
-        reason: meta?.reason || 'pie-runtime-apply'
-      });
-      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, {
-        ...(meta || {}),
-        tabId: applySession?.tabId || requestedTabId || meta?.tabId || null,
-        reason: meta?.reason || 'pie-runtime-apply'
-      });
-      pieDebug('Debug: pie runtime snapshot applied', { tabId: applySession?.tabId || requestedTabId || null, title: state.titleText, reason: meta?.reason || 'pie-runtime-apply' });
-      return true;
-    };;
-
-    pie.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
-      component: pie,
-      componentKey: 'pie',
-      cancel: (tab, meta = {}) => {
-        capturePieSessionForDeactivation(tab, meta);
-        const resizeState = normalizePieResizeState();
-        resizeState.active = false;
-        resizeState.phase = null;
-        resizeState.dragging = false;
-      }
-    }) || function deactivatePieTab(tab, meta = {}){
-      capturePieSessionForDeactivation(tab, meta);
-      const resizeState = normalizePieResizeState();
-      resizeState.active = false;
-      resizeState.phase = null;
-      resizeState.dragging = false;
-      pie.__runtimeGeneration = (Number(pie.__runtimeGeneration) || 0) + 1;
-      pieDebug('Debug: pie tab deactivated', {
-        tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
-        generation: pie.__runtimeGeneration,
-        reason: meta?.reason || 'deactivate-tab'
-      });
-      return true;
-    };
     pie.captureEmptyPayloadTemplate = function capturePieEmptyPayloadTemplate(){
     const snapshot = pie.createEmptyPayload();
     emptyPayloadTemplate = cloneSimple(snapshot) || snapshot;
@@ -6238,14 +6013,24 @@ let state = {
         return false;
       }
       const payloadTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta || {});
-      const payloadSession = payloadTabId
-        ? bindPieSessionForTab(payloadTabId, {
-            ...(meta || {}),
-            tabId: payloadTabId,
-            root: resolvePieRoot(payloadTabId) || state.root || null,
-            reason: `payload-${source}-bind`
-          }, { apply: true })
+      let payloadSession = payloadTabId
+        ? getPieSession(payloadTabId, { ...(meta || {}), tabId: payloadTabId, reason: `payload-${source}-owner` }, { create: true })
         : getActivePieSessionForState();
+      if(payloadSession && !isPieSessionActivationTarget(payloadSession)){
+        pieDebug('Debug: pie payload rejected for inactive owner', {
+          tabId: payloadSession.tabId || payloadTabId || null,
+          source
+        });
+        return false;
+      }
+      if(payloadTabId){
+        payloadSession = bindPieSessionForTab(payloadTabId, {
+          ...(meta || {}),
+          tabId: payloadTabId,
+          root: resolvePieRoot(payloadTabId) || state.root || null,
+          reason: `payload-${source}-bind`
+        }, { apply: true });
+      }
       const previousApplyingPayload = state.applyingPayload === true;
       state.applyingPayload = true;
       try{
@@ -6280,7 +6065,7 @@ let state = {
             container: state.hot.__pieHostContainer || getPieNodeById('pieHot')
           })
         : null;
-      if(dataManager){
+      if(!styleOnly && dataManager){
         if(serializedViews){
           dataManager.deserialize(serializedViews, {
             fallbackData: dataMatrix,
@@ -6347,58 +6132,61 @@ let state = {
         payloadSession.state.lockRatioEnforcePrevious = state.lockRatioEnforcePrevious;
       }
       syncPieRuntimeControlsFromState(state.controls);
-      applyPieStatsConfig({
-        ...(config.stats && typeof config.stats === 'object' ? config.stats : {}),
-        valueColumn: config.valueColumn ?? config.stats?.valueColumn,
-        expectedColumn: config.expectedColumn ?? config.stats?.expectedColumn
-      });
-      const hasStatsPayload = config.stats && typeof config.stats === 'object';
-      if(hasStatsPayload){
-        const statsMatrix = getPieStatsDataMatrix();
-        if(Array.isArray(statsMatrix)){
-          state.columnSignature = statsMatrix.map(row => Array.isArray(row)
-            ? row.map(value => value == null ? '' : String(value)).join('\u0002')
-            : '').join('\u0001');
-        }
-        const dataModel = buildPieStatsDataModel(statsMatrix);
-        state.statsDataModel = dataModel;
-        ensurePieStatsSelections(dataModel);
-        renderPieStatsControls(dataModel, { force: true, reason: `payload-${source}-stats-restore` });
-        const signature = buildPieStatsContextSignature(dataModel);
-        const statsResults = getPieNodeById('pieStatsResults');
-        if(statsResults && (config.stats.resultsModel || config.stats.reportModel)){
-          if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
-            Shared.statsReporting.restorePanelModel(statsResults, config.stats, {
-              ensureReportHost: () => ensurePieStatsReportHost(statsResults)
-            });
-          }else{
-            statsResults.textContent = '';
-          }
-        }
-        const statsState = getPieStatsConfig();
-        const savedLastRunSignature = typeof config.stats.lastRunSignature === 'string'
-          ? config.stats.lastRunSignature
-          : null;
-        const restoredStatsResults = pieStatsPanelHasRenderedResults();
-        if(savedLastRunSignature && restoredStatsResults){
-          statsState.contextSignature = signature;
-          statsState.lastRunSignature = signature;
-          statsState.restorePending = null;
-          setPieStatsStatus('Statistics up to date.');
-          updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
-          updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
-        }
-      }
+      state.colorScheme = config.colorScheme || Shared.colorSchemes.getDefaultSchemeId('pie');
       state.colors = (config.colors && typeof config.colors === 'object') ? { ...config.colors } : {};
       const axisConfig = config.axis || config.axisSettings;
       if(axisConfig){
         applyAxisSettings(axisConfig);
       }
+      if(!styleOnly){
+        applyPieStatsConfig({
+          ...(config.stats && typeof config.stats === 'object' ? config.stats : {}),
+          valueColumn: config.valueColumn ?? config.stats?.valueColumn,
+          expectedColumn: config.expectedColumn ?? config.stats?.expectedColumn
+        });
+        const hasStatsPayload = config.stats && typeof config.stats === 'object';
+        if(hasStatsPayload){
+          const statsMatrix = getPieStatsDataMatrix();
+          if(Array.isArray(statsMatrix)){
+            state.columnSignature = statsMatrix.map(row => Array.isArray(row)
+              ? row.map(value => value == null ? '' : String(value)).join('\u0002')
+              : '').join('\u0001');
+          }
+          const dataModel = buildPieStatsDataModel(statsMatrix);
+          state.statsDataModel = dataModel;
+          ensurePieStatsSelections(dataModel);
+          renderPieStatsControls(dataModel, { force: true, reason: `payload-${source}-stats-restore` });
+          const signature = buildPieStatsContextSignature(dataModel);
+          const statsResults = getPieNodeById('pieStatsResults');
+          if(statsResults && (config.stats.resultsModel || config.stats.reportModel)){
+            if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+              Shared.statsReporting.restorePanelModel(statsResults, config.stats, {
+                ensureReportHost: () => ensurePieStatsReportHost(statsResults)
+              });
+            }else{
+              statsResults.textContent = '';
+            }
+          }
+          const statsState = getPieStatsConfig();
+          const savedLastRunSignature = typeof config.stats.lastRunSignature === 'string'
+            ? config.stats.lastRunSignature
+            : null;
+          const restoredStatsResults = pieStatsPanelHasRenderedResults();
+          if(savedLastRunSignature && restoredStatsResults){
+            statsState.contextSignature = signature;
+            statsState.lastRunSignature = signature;
+            statsState.restorePending = null;
+            setPieStatsStatus('Statistics up to date.');
+            updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+            updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
+          }
+        }
+      }
       // A payload is authoritative for label placement. Missing legacy positions
       // reset to defaults rather than inheriting the previously projected tab.
       state.labelPositions = normalizePieLabelPositions(config.labelPositions);
       if(!skipDraw){
-        scheduleActivePieDraw({ reason: `pie-payload-${source}`, renderImpact: 'structural' });
+        scheduleActivePieDraw({ reason: `pie-payload-${source}`, renderImpact: styleOnly ? 'layout' : 'structural' });
       }
       if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
         state.scheduleDraw = scheduleBackup;
@@ -6441,6 +6229,7 @@ let state = {
         expectedColumn: statsConfig.expectedColumn != null ? String(statsConfig.expectedColumn) : '',
         stats: statsConfig,
         colors: state.colors,
+        colorScheme: ownerSession?.state?.colorScheme || state.colorScheme,
         axis: {
           strokeWidth: axisSettings.strokeWidth,
           color: axisSettings.color,
@@ -6461,143 +6250,11 @@ let state = {
         labelPositions: state.labelPositions || null
       };
     }
-    pie.save = async function(){
-      const operationSession = getActivePieSessionForState();
-      pieDebug('Debug: pie.save invoked', { hasHandle: !!state.fileHandle });
-      if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
-        console.error('pie.save missing fileIO.saveGraphFile');
-        return;
-      }
-      const result = await fileIO.saveGraphFile({
-        context: 'pie',
-        owner: { component: 'pie', tabId: operationSession?.tabId || getPieProjectionTabId() || null },
-        fileHandle: state.fileHandle,
-        getPayload,
-        fileName: state.fileName,
-        downloadFileName: state.fileName,
-        setFileHandle: handle => { setPieFileHandleForSession(handle, operationSession); },
-        setFileName: name => { setPieFileNameForSession(name, operationSession); capturePieSessionStateFromActive(operationSession, { reason: 'save-file-name', captureStats: false }); }
-      });
-      pieDebug('Debug: pie.save result', result);
-    };
-    pie.saveAs = async function(){
-      const operationSession = getActivePieSessionForState();
-      pieDebug('Debug: pie.saveAs invoked', { currentName: state.fileName });
-      if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
-        console.error('pie.saveAs missing fileIO.saveGraphFileAs');
-        return;
-      }
-      const result = await fileIO.saveGraphFileAs({
-        context: 'pie',
-        owner: { component: 'pie', tabId: operationSession?.tabId || getPieProjectionTabId() || null },
-        getPayload,
-        fileName: state.fileName,
-        downloadFileName: state.fileName,
-        setFileHandle: handle => { setPieFileHandleForSession(handle, operationSession); },
-        setFileName: name => { setPieFileNameForSession(name, operationSession); capturePieSessionStateFromActive(operationSession, { reason: 'save-file-name', captureStats: false }); }
-      });
-      pieDebug('Debug: pie.saveAs result', result);
-    };
-    pie.open = async function(){
-      const operationSession = getActivePieSessionForState();
-      pieDebug('Debug: pie.open invoked');
-      if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
-        console.error('pie.open missing fileIO.openGraphFile');
-        return;
-      }
-      const operationTabId = operationSession?.tabId || getPieProjectionTabId() || null;
-      const result = await fileIO.openGraphFile({
-        context: 'pie',
-        owner: { component: 'pie', tabId: operationTabId },
-        setFileHandle: handle => { setPieFileHandleForSession(handle, operationSession); },
-        setFileName: name => { setPieFileNameForSession(name, operationSession); capturePieSessionStateFromActive(operationSession, { reason: 'save-file-name', captureStats: false }); },
-        loadFromFile: (file, operation) => pie.loadFromFile(file, { operation, tabId: operationTabId }),
-        triggerInput: () => {
-          const input = getPieNodeById('pieGraphFile');
-          if(input){
-            input.value='';
-            input.click();
-          }
-        }
-      });
-      pieDebug('Debug: pie.open result', result);
-    };
-    pie.loadFromFile = function(file, options = {}){
-      const ownerTabId = String(options?.tabId || options?.operation?.tabId || getPieProjectionTabId() || '').trim() || null;
-      const operation = fileIO?.createGraphOpenOperation?.({
-        context: 'pie',
-        operation: options?.operation,
-        owner: { component: 'pie', tabId: ownerTabId }
-      }) || options?.operation || null;
-      const apply = payload => {
-        const routed = fileIO?.routeGraphOpenPayload?.({
-          context: 'pie',
-          component: 'pie',
-          operation,
-          payload,
-          reason: 'pie-graph-file-open',
-          apply: (nextPayload, owner) => applyPiePayload(nextPayload, {
-            source: 'file',
-            tabId: owner?.tabId || ownerTabId || undefined
-          })
-        });
-        const fallbackOwnerIsCurrent = !ownerTabId || String(getPieProjectionTabId() || '') === ownerTabId;
-        return routed ? routed.value !== false : (fallbackOwnerIsCurrent && applyPiePayload(payload, {
-          source: 'file',
-          tabId: ownerTabId || undefined
-        }));
-      };
-      if(file instanceof Blob){
-        const reader=new FileReader();
-        reader.onload=e=>{
-          try{
-            const obj=JSON.parse(e.target.result);
-            if(!apply(obj)){
-              console.warn('pie payload rejected from file', { hasType: !!obj?.type });
-            }
-          }catch(err){
-            console.error('loadPieGraph error',err);
-          }
-        };
-        reader.readAsText(file);
-        return;
-      }
-      if(typeof file === 'string'){
-        try{
-          const parsed = JSON.parse(file);
-          if(!apply(parsed)){
-            console.warn('pie payload rejected from string');
-          }
-        }catch(err){
-          console.error('loadPieGraph string parse error',err);
-        }
-        return;
-      }
-      if(file && typeof file === 'object'){
-        apply(file);
-      }
-    };
     pie.loadFromPayload = function loadFromPayload(payload, options = {}){
       if(!applyPiePayload(payload, { source: 'payload', ...options })){
         console.warn('pie payload application failed', { source: 'payload' });
       }
     };
-    getPieNodeById('openPieGraph')?.addEventListener('click',pie.open);
-    getPieNodeById('savePieGraph')?.addEventListener('click',pie.save);
-    getPieNodeById('saveAsPie').addEventListener('click',pie.saveAs);
-    getPieNodeById('pieGraphFile').addEventListener('change', e => {
-      const file = e.target.files?.[0] || null;
-      if(!file){
-        return;
-      }
-      const session = getPieSessionForEvent(e, { reason: 'pie-graph-file-input' }, { create: false })
-        || getPieProjectionSession({ reason: 'pie-projection-mutation' });
-      const tabId = session?.tabId || getPieProjectionTabId() || null;
-      setPieFileNameForSession(file.name, session);
-      setPieFileHandleForSession(null, session);
-      capturePieSessionStateFromActive(session, { reason: 'file-input-change', captureStats: false });
-      pie.loadFromFile(file, { tabId });
-    });
   }
 
   function ensurePieColors(labels){
@@ -6870,6 +6527,7 @@ let state = {
       rawSize: rawPieFontSize,
       width: drawableFrame.width,
       height: drawableFrame.height,
+      zoomScale: 1,
       svgBox: state.svgBox,
       input: pieFontInput
     });
@@ -7587,6 +7245,9 @@ let state = {
         if(!framePublication.commit()) return false;
         stackedContentViewport.commit();
       }
+      if(!isResizePreview){
+        registerPieTraceKeyboardPoints(plotEl, svg, drawSession?.tabId || drawTabId || null);
+      }
       if(stackedLegendGroup){
         if(isResizePreview){
           constrainPieLegendPreview(stackedLegendGroup, svg);
@@ -8027,6 +7688,9 @@ let state = {
       }
     }
     if(!isResizePreview){
+      registerPieTraceKeyboardPoints(plotEl, svg, drawSession?.tabId || drawTabId || null);
+    }
+    if(!isResizePreview){
       primePieStatsComputation({ matrix: data, reason: 'draw-radial' });
     }
     return true;
@@ -8063,16 +7727,21 @@ let state = {
       await Shared.jobs?.nextFrame?.();
     }
     let result;
+    let status = 'complete';
     try{
       result = await draw({ ...normalizedOptions, tabId: drawSession?.tabId || drawTabId || undefined, reason: nextReason });
+      if(result === false){ status = 'cancelled'; }
+    }catch(error){
+      status = 'error';
+      throw error;
     }finally{
-      pieOverlayController?.resolve({ reason: 'complete', tabId: drawSession?.tabId || drawTabId || null });
+      pieOverlayController?.resolve({ reason: status, status, tabId: drawSession?.tabId || drawTabId || null });
       Shared.componentLifecycle?.emitLifecycleEvent?.({
         componentKey: 'pie',
         tabId: drawSession?.tabId || drawTabId || null,
         action: 'draw-settled',
         reason: nextReason,
-        phase: 'complete',
+        phase: status,
         details: {
           source: 'pie.draw',
           renderImpact: resolvePieRenderImpact(normalizedOptions),
@@ -8198,6 +7867,10 @@ let state = {
     }) || notesState.control || null;
     syncPieSessionRefsFromActive();
   }
+  pie.save = () => global.Main?.fileActions?.save?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+  pie.saveAs = () => global.Main?.fileActions?.saveAs?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+  pie.open = () => global.Main?.fileActions?.open?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+
   pie.init = function init(options = {}){
     const targetTabId = options?.tabId || getPieProjectionTabId() || null;
     const targetRoot = options?.root || resolvePieRoot(targetTabId || null) || state.root || null;
@@ -8334,16 +8007,22 @@ let state = {
         tabId: ownerSession?.tabId || drawTabId || null,
         reason: drawOptions?.reason || 'pie-draw'
       });
+      let status = 'complete';
       try{
-        return await draw(normalizedOptions);
+        const result = await draw(normalizedOptions);
+        if(result === false){ status = 'cancelled'; }
+        return result;
+      }catch(error){
+        status = 'error';
+        throw error;
       }finally{
-        pieOverlayController?.resolve({ reason: 'complete', tabId: normalizedOptions?.tabId || drawTabId || null });
+        pieOverlayController?.resolve({ reason: status, status, tabId: normalizedOptions?.tabId || drawTabId || null });
         Shared.componentLifecycle?.emitLifecycleEvent?.({
           componentKey: 'pie',
           tabId: normalizedOptions?.tabId || drawTabId || null,
           action: 'draw-settled',
           reason: normalizedOptions?.reason || 'pie-draw',
-          phase: 'complete',
+          phase: status,
           details: {
             source: 'pie.draw',
             renderImpact: resolvePieRenderImpact(normalizedOptions),
@@ -8682,6 +8361,48 @@ let state = {
     return { ...baseReadiness, interactionReady: true, interaction };
   };
 
+  function configurePieChartPointKeyboard(plotRoot, ownerTabId = null){
+    const resolvedOwnerTabId = String(
+      plotRoot?.dataset?.pieRenderedTabId
+        || plotRoot?.dataset?.workspaceTabId
+        || ownerTabId
+        || getPieProjectionTabId()
+        || ''
+    ).trim();
+    return Shared.chartPointKeyboard?.attach(plotRoot, {
+      componentKey: 'pie',
+      componentLabel: 'Pie',
+      instructions: 'Arrow keys move between slices. Enter opens slice formatting.',
+      pointSelector: '[data-pie-trace="1"]',
+      ownerTabId: resolvedOwnerTabId,
+      getCurrentOwnerTabId: getPieProjectionTabId,
+      describePoint: data => {
+        const parts = [data?.mode, data?.label]
+          .map(value => String(value || '').trim())
+          .filter(Boolean);
+        if(data?.index != null){
+          parts.push(`Slice ${Number(data.index) + 1}`);
+        }
+        return parts.join(', ') || 'Pie chart slice';
+      }
+    }) || null;
+  }
+
+  function registerPieTraceKeyboardPoints(plotRoot, svg, ownerTabId = null){
+    if(!plotRoot || !svg){ return false; }
+    configurePieChartPointKeyboard(plotRoot, ownerTabId);
+    const traces = Array.from(svg.querySelectorAll?.('[data-pie-trace="1"]') || []);
+    traces.forEach((trace, index) => {
+      const data = {
+        mode: trace.getAttribute('data-pie-trace-mode') || '',
+        label: trace.getAttribute('data-pie-trace-label') || '',
+        index
+      };
+      Shared.chartPointKeyboard?.registerPoint(plotRoot, trace, data);
+    });
+    return traces.length > 0;
+  }
+
   function bindPieTraceFormatInteraction(node){
     if(!node || node.__graphitixPieTraceFormatBound === true){ return false; }
     node.style.cursor = 'pointer';
@@ -8705,13 +8426,20 @@ let state = {
     const textReady = traceMode === 'stacked'
       ? rehydratePieInlineTextInteractions(svg, owner)
       : rehydratePieRadialTitleInteractions(svg, owner);
+    const stackedTitle = traceMode === 'stacked'
+      ? svg.querySelector?.('[data-font-role="graphTitle"]') || null
+      : null;
+    const titleDragReady = traceMode !== 'stacked'
+      || !stackedTitle
+      || bindPieStackedTitleDragInteraction(stackedTitle, svg, owner);
     svg.querySelectorAll?.('[data-pie-trace="1"]').forEach(bindPieTraceFormatInteraction);
+    registerPieTraceKeyboardPoints(root.querySelector?.('#piePlot') || null, svg, owner.tabId);
     bindPieLegendInteractions(
       svg.querySelector?.('[data-legend-viewport-content="true"]') || null,
       svg,
       owner
     );
-    return axesReady && textReady;
+    return axesReady && textReady && titleDragReady;
   };
 
   pie.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
@@ -8761,7 +8489,7 @@ let state = {
           statsState.lastRunSignature = signature;
           statsState.restorePending = null;
           setPieStatsStatus('Statistics up to date.');
-          updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+          updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
           updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
         }else{
           primePieStatsComputation({ matrix, reason: 'render-cache-restore' });
@@ -8825,6 +8553,7 @@ let state = {
   };
 
   pie.__testHooks = Object.assign({}, pie.__testHooks, {
+    getAdvisorRecommendation:computePieAdvisorRecommendation,
     resolveRenderImpact: (options, fallback) => resolvePieRenderImpact(options, fallback),
     sanitizeDrawOptions: (options, owner) => sanitizePieDrawOptions(options, owner),
     getSession: tabLike => getPieSession(tabLike || getPieProjectionTabId() || null, { reason: 'pie-test-session' }, { create: false }),
@@ -8839,6 +8568,253 @@ let state = {
   });
 
 
+
+  pie.captureRuntimeState = function capturePieRuntimeState(meta = {}){
+    const targetTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta);
+    const activeTabId = getPieProjectionTabId() || getActivePieSessionForState()?.tabId || null;
+    if(targetTabId && activeTabId && String(targetTabId) !== String(activeTabId)){
+      const targetSession = getPieSession(targetTabId, {
+        ...(meta || {}),
+        tabId: targetTabId,
+        reason: meta?.reason || 'pie-runtime-capture-inactive'
+      }, { create: false });
+      if(targetSession){
+        const durable = createDefaultPieDurableState(targetSession.state || {});
+        const results = createDefaultPieResultsState(targetSession.results || {});
+        const snapshot = {
+          state: {
+            titleText: durable.titleText,
+            axisTitleOverrides: normalizePieAxisTitleOverrides(durable.axisTitleOverrides),
+            legendWidth: durable.legendWidth,
+            colors: cloneSimple(durable.colors) || {},
+            colorScheme: durable.colorScheme,
+            minSvgWidth: durable.minSvgWidth,
+            axisSettings: cloneSimple(durable.axisSettings) || null,
+            labelPositions: cloneSimple(durable.labelPositions) || {},
+            columnSignature: durable.columnSignature || null,
+            stats: normalizePieStatsSettings(durable.stats),
+            colorSignature: durable.colorSignature || null,
+            xTickRotateVertical: durable.xTickRotateVertical === true,
+            lockRatioEnforcePrevious: durable.lockRatioEnforcePrevious,
+            resizeState: cloneSimple(durable.resizeState) || null,
+            controls: cloneSimple(durable.controls) || createDefaultPieRuntimeControls()
+          },
+          advisor: normalizePieAdvisorState(targetSession.advisor),
+          results: {
+            statsDataModel: cloneSimple(results.statsDataModel) || null,
+            statsPanelModel: normalizePieStatsPanelModel(results.statsPanelModel),
+            statsSummaryTabIdCounter: Number(results.statsSummaryTabIdCounter) || 0
+          },
+          notes: createDefaultPieNotesState(targetSession.notes || {}),
+          reason: meta?.reason || 'pie-runtime-capture-inactive'
+        };
+        rememberPieOwnedRuntimeRecord(targetTabId, snapshot, { ...(meta || {}), tabId: targetTabId, reason: snapshot.reason });
+        return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, {
+          ...(meta || {}), tabId: targetTabId, reason: snapshot.reason
+        }) || snapshot;
+      }
+    }
+    const captureSession = targetTabId
+      ? getPieSession(targetTabId, { ...(meta || {}), tabId: targetTabId, reason: 'pie-runtime-capture-stats' }, { create: false })
+      : getActivePieSessionForState();
+    syncPieRuntimeControlsFromDom(captureSession);
+    const notesSnapshot = capturePieNotesMirror();
+    if(captureSession){ exportPieStatsConfig(captureSession); }
+    capturePieSessionStateFromActive(captureSession, { reason: meta?.reason || 'pie-runtime-capture', captureStats: false, syncControls: false });
+    const owner = ensurePieSessionOwnershipShape(captureSession || getActivePieSessionForState());
+    const durable = createDefaultPieDurableState(owner?.state || {});
+    const results = createDefaultPieResultsState(owner?.results || {});
+    const snapshot = {
+      state: {
+        titleText: durable.titleText,
+        fileName: durable.fileName,
+        axisTitleOverrides: normalizePieAxisTitleOverrides(durable.axisTitleOverrides),
+        legendWidth: durable.legendWidth,
+        colors: cloneSimple(durable.colors) || {},
+        colorScheme: durable.colorScheme,
+        minSvgWidth: durable.minSvgWidth,
+        axisSettings: cloneSimple(durable.axisSettings) || null,
+        labelPositions: cloneSimple(durable.labelPositions) || {},
+        columnSignature: durable.columnSignature || null,
+        stats: normalizePieStatsSettings(durable.stats),
+        colorSignature: durable.colorSignature || null,
+        xTickRotateVertical: durable.xTickRotateVertical === true,
+        lockRatioEnforcePrevious: durable.lockRatioEnforcePrevious,
+        resizeState: cloneSimple(durable.resizeState) || null,
+        controls: cloneSimple(durable.controls) || createDefaultPieRuntimeControls()
+      },
+      advisor: normalizePieAdvisorState(owner?.advisor),
+      results: {
+        statsDataModel: cloneSimple(results.statsDataModel) || null,
+        statsPanelModel: normalizePieStatsPanelModel(results.statsPanelModel),
+        statsSummaryTabIdCounter: Number(results.statsSummaryTabIdCounter) || 0
+      },
+      notes: createDefaultPieNotesState(notesSnapshot),
+      reason: meta?.reason || 'pie-runtime-capture'
+    };
+    // Capturing exports the live owner; hydration is reserved for applyRuntimeState.
+    syncPieSessionRefsFromActive(owner);
+    syncPieSessionManagersFromActive(owner);
+    rememberPieOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, { ...(meta || {}), reason: snapshot.reason });
+    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, { ...(meta || {}), reason: snapshot.reason }) || snapshot;
+  };
+
+  pie.applyRuntimeState = function applyPieRuntimeState(snapshot, meta = {}){
+    const requestedTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta);
+    const requestedSession = requestedTabId
+      ? getPieSession(requestedTabId, { ...(meta || {}), tabId: requestedTabId, reason: meta?.reason || 'pie-runtime-apply-owner' }, { create: true })
+      : getActivePieSessionForState();
+    snapshot = resolvePieOwnedRuntimeSnapshot(snapshot, meta)
+      || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(pie, snapshot, meta)
+      || snapshot;
+    if(!snapshot || typeof snapshot !== 'object'){
+      pieDebug('Debug: pie runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
+      return false;
+    }
+
+    // Runtime state belongs to the requested owner even when that tab is detached. Store
+    // it first, then project only for the active owner or the tab currently being activated.
+    const applySession = setPieSessionStateFromRuntimeRecord(snapshot, {
+      ...(meta || {}),
+      tabId: requestedSession?.tabId || requestedTabId || meta?.tabId || null,
+      reason: meta?.reason || 'pie-runtime-apply-session'
+    }) || requestedSession;
+    const canProjectOwner = !applySession
+      || isPieSessionActive(applySession)
+      || isPieSessionActivationTarget(applySession);
+    if(applySession && !canProjectOwner){
+      rememberPieOwnedRuntimeRecord(applySession.tabId, snapshot, {
+        ...(meta || {}),
+        tabId: applySession.tabId,
+        reason: meta?.reason || 'pie-runtime-apply-inactive'
+      });
+      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, {
+        ...(meta || {}),
+        tabId: applySession.tabId,
+        reason: meta?.reason || 'pie-runtime-apply-inactive'
+      });
+      pieDebug('Debug: pie inactive runtime snapshot stored without active projection', {
+        tabId: applySession.tabId || null,
+        activeTabId: getPieProjectionTabId() || null,
+        reason: meta?.reason || 'pie-runtime-apply'
+      });
+      return true;
+    }
+
+    if(applySession?.tabId){
+      bindPieSessionForTab(applySession.tabId, {
+        ...(meta || {}),
+        tabId: applySession.tabId,
+        reason: meta?.reason || 'pie-runtime-apply-bind'
+      }, { apply: false });
+    }
+    if(snapshot.state && typeof snapshot.state === 'object'){
+      const nextState = snapshot.state;
+      state.titleText = typeof nextState.titleText === 'string' ? nextState.titleText : state.titleText;
+      state.axisTitleOverrides = normalizePieAxisTitleOverrides(nextState.axisTitleOverrides ?? state.axisTitleOverrides);
+      state.legendWidth = Number.isFinite(Number(nextState.legendWidth)) ? Number(nextState.legendWidth) : state.legendWidth;
+      state.colors = cloneSimple(nextState.colors) || state.colors || {};
+      state.colorScheme = applySession?.state?.colorScheme || state.colorScheme;
+      state.minSvgWidth = Number.isFinite(Number(nextState.minSvgWidth)) ? Number(nextState.minSvgWidth) : state.minSvgWidth;
+      state.axisSettings = cloneSimple(nextState.axisSettings) || state.axisSettings;
+      state.labelPositions = normalizePieLabelPositions(nextState.labelPositions);
+      state.columnSignature = Object.prototype.hasOwnProperty.call(nextState, 'columnSignature') ? (nextState.columnSignature || null) : (state.columnSignature || null);
+      if(Object.prototype.hasOwnProperty.call(snapshot.results || {}, 'statsDataModel')){
+        state.statsDataModel = cloneSimple(snapshot.results.statsDataModel);
+      }
+      if(Object.prototype.hasOwnProperty.call(nextState, 'stats')){
+        const combined = composePieStatsConfig(nextState.stats || {}, snapshot.advisor || {}, snapshot.results?.statsPanelModel || {});
+        applyPieStatsConfig(combined, applySession);
+        try{
+          const dataModel = state.statsDataModel || buildPieStatsDataModel(getPieStatsDataMatrix());
+          state.statsDataModel = dataModel;
+          ensurePieStatsSelections(dataModel);
+          renderPieStatsControls(dataModel, { force: true, reason: 'runtime-state-apply', session: applySession });
+          rehydratePieStatsSummaryTabs(getPieNodeById('pieStatsResults', applySession?.tabId), applySession);
+        }catch(err){
+          pieDebug('Debug: pie stats controls restore after runtime apply failed', { message: err?.message || String(err) });
+        }
+      }
+      state.colorSignature = Object.prototype.hasOwnProperty.call(nextState, 'colorSignature') ? (nextState.colorSignature || null) : (state.colorSignature || null);
+      if(Object.prototype.hasOwnProperty.call(nextState, 'xTickRotateVertical')){
+        state.xTickRotateVertical = nextState.xTickRotateVertical === true;
+      }
+      if(Object.prototype.hasOwnProperty.call(nextState, 'lockRatioEnforcePrevious')){
+        state.lockRatioEnforcePrevious = (nextState.lockRatioEnforcePrevious === true || nextState.lockRatioEnforcePrevious === false)
+          ? !!nextState.lockRatioEnforcePrevious
+          : null;
+        pieLockRatioEnforcePrevious = state.lockRatioEnforcePrevious;
+      }
+      state.resizeState = cloneSimple(nextState.resizeState) || state.resizeState;
+      normalizePieResizeState();
+      syncPieRuntimeControlsFromState(nextState.controls || {});
+    }
+    if(snapshot.notes && typeof snapshot.notes === 'object'){
+      notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
+      notesState.open = !!snapshot.notes.open;
+      if(canUsePieNotesControl(notesState.control)){
+        notesState.control.setValue(notesState.text);
+        notesState.control.setOpen(notesState.open);
+      }
+    }
+    pieStatsSummaryTabIdCounter = Number(snapshot.results?.statsSummaryTabIdCounter) || pieStatsSummaryTabIdCounter || 0;
+    syncPieSessionRefsFromActive(applySession);
+    syncPieSessionManagersFromActive(applySession);
+    rememberPieOwnedRuntimeRecord(applySession?.tabId || requestedTabId || null, snapshot, {
+      ...(meta || {}),
+      tabId: applySession?.tabId || requestedTabId || meta?.tabId || null,
+      reason: meta?.reason || 'pie-runtime-apply'
+    });
+    Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, {
+      ...(meta || {}),
+      tabId: applySession?.tabId || requestedTabId || meta?.tabId || null,
+      reason: meta?.reason || 'pie-runtime-apply'
+    });
+    pieDebug('Debug: pie runtime snapshot applied', { tabId: applySession?.tabId || requestedTabId || null, title: state.titleText, reason: meta?.reason || 'pie-runtime-apply' });
+    return true;
+  };
+
+  pie.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+    component: pie,
+    componentKey: 'pie',
+    cancel: (tab, meta = {}) => {
+      capturePieSessionForDeactivation(tab, meta);
+      const resizeState = normalizePieResizeState();
+      resizeState.active = false;
+      resizeState.phase = null;
+      resizeState.dragging = false;
+    }
+  }) || function deactivatePieTab(tab, meta = {}){
+    capturePieSessionForDeactivation(tab, meta);
+    const resizeState = normalizePieResizeState();
+    resizeState.active = false;
+    resizeState.phase = null;
+    resizeState.dragging = false;
+    pie.__runtimeGeneration = (Number(pie.__runtimeGeneration) || 0) + 1;
+    pieDebug('Debug: pie tab deactivated', {
+      tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
+      generation: pie.__runtimeGeneration,
+      reason: meta?.reason || 'deactivate-tab'
+    });
+    return true;
+  };
+
+  pie.disposeTab = function disposePieTab(tab, meta = {}){
+    const tabId = String((typeof tab === 'string' ? tab : tab?.id) || meta?.tabId || '').trim();
+    if(!tabId){ return false; }
+    const session = getPieSession(tabId, { ...(meta || {}), tabId, reason: meta.reason || 'pie-dispose-session' }, { create: false });
+    if(session){
+      bumpPieDrawGeneration(session);
+      session.timers.scheduleDraw = null;
+      session.timers.pendingDrawOptions = null;
+    }
+    pieSessionsByTabId.delete(tabId);
+    if(String(projectedPieSession?.tabId || '') === tabId){
+      projectedPieSession = null;
+      if(String(pie.__boundTabId || '') === tabId){ pie.__boundTabId = null; }
+    }
+    return true;
+  };
 
   Shared.componentLifecycle?.installInternalStateBridge?.(pie, {
     componentKey: 'pie',

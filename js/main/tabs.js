@@ -73,17 +73,15 @@
     }
 
     let selectedVariantId = null;
+    let activeVariantId = null;
     let pickerDropdownOpen = false;
     let pickerDismissListenerBound = false;
-    let resizeListenerBound = false;
     let welcomeExamplesDialogBound = false;
-    let welcomeExamplesDialogReturnFocus = null;
     let welcomePopularCarouselBound = false;
     let welcomePopularCarouselResizeObserver = null;
     let welcomePopularCarouselWheelFrame = 0;
     let welcomePopularCarouselWheelTarget = 0;
     let welcomePopularCarouselWheelIdleTimer = 0;
-    let welcomeExamplesDialogPreviousOverflow = null;
 
     if (!session || !previews || !domControls || !tabDrag || !dom || !workspaceState || typeof withSessionContext !== 'function') {
       const details = {
@@ -154,6 +152,7 @@
     let showUnsavedPrompt;
     let hideUnsavedPrompt;
     let bindUnsavedPromptHandlers;
+    let isUnsavedPromptBusy = () => false;
     let hideDuplicatePrompt;
     let showDuplicateDecision;
     let applyDuplicateChoice;
@@ -167,6 +166,7 @@
     const handleTabDragOver = (event, tab) => tabDrag.handleTabDragOver({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event, tab);
     const handleTabDragLeave = (event, tab) => tabDrag.handleTabDragLeave({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event, tab);
     const handleTabDrop = (event, tab) => tabDrag.handleTabDrop({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event, tab);
+    const handleTabKeyboardReorder = (event, tab) => tabDrag.handleTabKeyboardReorder({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event, tab);
     const handleTabListDragOver = event => tabDrag.handleTabListDragOver({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event);
     const handleTabListDrop = event => tabDrag.handleTabListDrop({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event);
     const handleTabListDragLeave = event => tabDrag.handleTabListDragLeave({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event);
@@ -243,7 +243,8 @@
         handleTabDragEnd: (event, tab) => handleTabDragEnd(event, tab),
         handleTabDragOver: (event, tab) => handleTabDragOver(event, tab),
         handleTabDragLeave: (event, tab) => handleTabDragLeave(event, tab),
-        handleTabDrop: (event, tab) => handleTabDrop(event, tab)
+        handleTabDrop: (event, tab) => handleTabDrop(event, tab),
+        handleTabKeyboardReorder: (event, tab) => handleTabKeyboardReorder(event, tab)
       }
     });
     renderTabs = renderHelpers.renderTabs;
@@ -264,6 +265,7 @@
     showUnsavedPrompt = unsavedHelpers.showUnsavedPrompt;
     hideUnsavedPrompt = unsavedHelpers.hideUnsavedPrompt;
     bindUnsavedPromptHandlers = unsavedHelpers.bindUnsavedPromptHandlers;
+    isUnsavedPromptBusy = unsavedHelpers.isBusy;
 
     const duplicateHelpers = namespace.createDuplicatePromptHandlers({
       dom,
@@ -294,15 +296,43 @@
       const menuSaveCurrent = dom.tabContextSaveCurrent || null;
       const menuDelete = dom.tabContextDelete || null;
       let currentContextTabId = null;
+      const menuKeyboard = menu && window.Shared?.menuKeyboard?.attach(menu, {
+        manageTriggerState: false,
+        onClose: ({ trigger }) => {
+          trigger?.setAttribute?.('aria-expanded', 'false');
+          if (menu.__contextMenuTrigger === trigger) {
+            delete menu.__contextMenuTrigger;
+          }
+          currentContextTabId = null;
+        }
+      }) || null;
 
-      function hideTabContextMenu() {
-        try { if (menu) menu.setAttribute('hidden', 'hidden'); } catch(e){}
+      function hideTabContextMenu(options = {}) {
+        if (menuKeyboard) {
+          menuKeyboard.close({
+            reason: options.reason || 'close',
+            restoreFocus: options.restoreFocus === true
+          });
+        } else {
+          try { if (menu) menu.setAttribute('hidden', 'hidden'); } catch(e){}
+          const trigger = menu?.__contextMenuTrigger || null;
+          if (trigger) {
+            trigger.setAttribute('aria-expanded', 'false');
+            delete menu.__contextMenuTrigger;
+          }
+        }
         currentContextTabId = null;
       }
 
       function showTabContextMenuForButton(targetBtn, tabId) {
         if (!menu || !targetBtn) return;
         currentContextTabId = tabId || null;
+        const previousTrigger = menu.__contextMenuTrigger || null;
+        if (previousTrigger && previousTrigger !== targetBtn) {
+          previousTrigger.setAttribute('aria-expanded', 'false');
+        }
+        menu.__contextMenuTrigger = targetBtn;
+        targetBtn.setAttribute('aria-expanded', 'true');
         const tab = getTabById(currentContextTabId);
         if (menuSaveCurrent) {
           const canSaveTab = !!(tab && !tab.isWelcome && tab.type);
@@ -338,14 +368,18 @@
             menu.style.left = `${Math.round(left)}px`;
             menu.style.top = `${Math.round(top)}px`;
             menu.style.visibility = '';
-            // focus first actionable item for keyboard users
-            try { if (menuReuse) menuReuse.focus(); } catch (e) {}
+            if (menuKeyboard) {
+              menuKeyboard.open(targetBtn);
+            } else {
+              try { if (menuReuse) menuReuse.focus(); } catch (e) {}
+            }
           });
         } catch (err) {
           // fallback to cursor position if measurement fails
           menu.style.left = `${Math.min(window.innerWidth - 16, 0)}px`;
           menu.style.top = `${Math.min(window.innerHeight - 16, 0)}px`;
           menu.removeAttribute('hidden');
+          menuKeyboard?.open(targetBtn);
         }
       }
 
@@ -458,6 +492,17 @@
         const tabId = targetBtn.dataset.tabId;
         showTabContextMenuForButton(targetBtn, tabId);
       }, true);
+      dom.tabsList.addEventListener('keydown', event => {
+        if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) {
+          return;
+        }
+        const targetBtn = event.target?.closest?.('.workspace-tab[role="tab"][data-tab-id]');
+        if (!targetBtn) {
+          return;
+        }
+        event.preventDefault();
+        showTabContextMenuForButton(targetBtn, targetBtn.dataset.tabId);
+      });
 
       // menu actions
       if (menuReuse) menuReuse.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, false); });
@@ -469,10 +514,10 @@
       document.addEventListener('mousedown', event => {
         if (!menu || menu.hasAttribute('hidden')) return;
         if (event.target && menu.contains(event.target)) return;
-        hideTabContextMenu();
+        hideTabContextMenu({ reason: 'outside-click' });
       });
       document.addEventListener('keydown', event => {
-        if (event.key === 'Escape') hideTabContextMenu();
+        if (event.key === 'Escape' && menu && !menu.hidden) hideTabContextMenu({ reason: 'escape', restoreFocus: true });
       });
     })();
     function performTabRemoval(tab, meta = {}) {
@@ -524,12 +569,33 @@
       console.debug('Debug: workspace tab closed', { tabId, wasActive, remainingTabs: workspaceState.tabs.length, reason });
       if (!meta.skipDirty) {
         session.markSessionDirty('tab-removed', { tabId, reason, origin: 'user' });
+        const documentState = window.Main?.documentState;
+        if (session.graphTabsHaveData?.()) {
+          documentState?.persistCanonicalJournalNow?.({
+            reason: 'tab-removed',
+            tabId,
+            writeAll: true
+          });
+        } else if (typeof documentState?.clearRecoverySnapshot === 'function') {
+          void documentState.clearRecoverySnapshot(
+            'no-recoverable-tabs',
+            workspaceState.sessionRevision,
+            { allowDirty: true }
+          );
+        }
       }
     }
 
     function closeTab(tabId, options = {}) {
       if (isDocumentInteractionLocked() && options.allowDuringDocumentOperation !== true) {
         console.debug('Debug: closeTab blocked during document operation', { tabId });
+        return false;
+      }
+      const completingUnsavedPromptSave = options.unsavedPromptSave
+        && options.unsavedPromptSave === workspaceState.pendingClosePrompt
+        && options.unsavedPromptSave.tabId === tabId;
+      if (isUnsavedPromptBusy() && !completingUnsavedPromptSave) {
+        console.debug('Debug: closeTab blocked while unsaved save is pending', { tabId });
         return false;
       }
       const tab = getTabById(tabId);
@@ -582,6 +648,16 @@
         return false;
       }
       const current = getActiveTab();
+      const requested = workspaceState.tabs.find(tab => tab.id === tabId);
+      if (!requested) return false;
+      if (current?.id !== tabId) {
+        Main.workspacePresentation?.stage(requested, {
+          previousTab: current,
+          source: current?.type
+            ? window.Shared?.workspaceTabs?.getMountedRoot?.(current, current.type)
+            : dom.welcomeScreen
+        });
+      }
       if (current && current.id !== tabId) {
         window.Shared?.finalizeInlineTitleEditForTab?.(current.id, options.reason || 'activate-switch');
       }
@@ -789,16 +865,34 @@
     }
 
     async function invokeWelcomeLoadExample(type, meta = {}) {
+      const tabId = String(meta.tabId || '').trim();
       const commands = Main.desktopCommands;
       if (!commands || typeof commands.execute !== 'function') {
         console.warn('welcome load example skipped: command dispatcher unavailable', { type, reason: meta.reason || null });
         return false;
       }
       for (let attempt = 1; attempt <= WELCOME_EXAMPLE_MAX_ATTEMPTS; attempt += 1) {
+        const target = getTabById(tabId);
+        if (!tabId || !target || target.isWelcome || target.type !== type) {
+          console.debug('Debug: welcome load example cancelled after target changed', {
+            tabId: tabId || null,
+            type
+          });
+          return false;
+        }
+        if (attempt === 1 && type !== 'box' && type !== 'scatter'
+          && getActiveTab()?.id === target.id) {
+          const schemeId = window.Shared?.colorSchemes?.getDefaultSchemeId?.(type) || 'normal';
+          window.Shared?.colorSchemes?.applyToActiveTab?.(type, schemeId, {
+            reason: 'welcome-prepare-example-default-scheme',
+            source: 'welcome-load-example'
+          });
+        }
         await waitForNextPaint();
         const result = await commands.execute('loadExampleData', {
           origin: 'welcome',
           type,
+          tabId,
           reason: meta.reason || 'welcome-load-example',
           attempt
         });
@@ -807,8 +901,8 @@
           // browser input is not part of the trusted global input path, so keep
           // this explicit canonical write at the shared command boundary.
           await waitForNextPaint();
-          const active = session.getActiveTab?.();
-          if (active && !active.isWelcome && active.type === type
+          const targetTab = getTabById(tabId);
+          if (targetTab && !targetTab.isWelcome && targetTab.type === type
             && typeof session.persistUserModifiedTabState === 'function') {
             // Example loading can start an owner-scoped draw/statistics/data-view
             // pipeline. Wait for that component's publication contract before
@@ -818,19 +912,22 @@
             const workspace = workspaces[type] || Main.components?.registry?.[type] || null;
             if (typeof workspace?.awaitReadyForSnapshot === 'function') {
               await workspace.awaitReadyForSnapshot({
-                tab: active,
-                tabId: active.id,
+                tab: targetTab,
+                tabId: targetTab.id,
                 reason: 'welcome-load-example-ready',
                 origin: 'user'
               });
             }
-            session.persistUserModifiedTabState(active, {
+            if (getTabById(tabId) !== targetTab || targetTab.type !== type) {
+              return true;
+            }
+            session.persistUserModifiedTabState(targetTab, {
               reason: 'welcome-load-example',
               origin: 'user',
               captureCanonical: false
             });
             console.debug('Debug: welcome example canonical state persisted', {
-              tabId: active.id,
+              tabId: targetTab.id,
               type
             });
           }
@@ -862,11 +959,15 @@
         skipDuplicatePrompt: true,
         disableDuplicatePrompt: true
       });
+      const targetTabId = workspaceState.activeTabId;
       if (result && typeof result.then === 'function') {
         await result;
       }
       if (options.loadExample) {
-        await invokeWelcomeLoadExample(type, { reason: options.reason || 'welcome-load-example' });
+        await invokeWelcomeLoadExample(type, {
+          tabId: targetTabId,
+          reason: options.reason || 'welcome-load-example'
+        });
       }
     }
 
@@ -953,7 +1054,6 @@
       if (!card || !info?.type || card.dataset.welcomeCardHydrated === 'true') {
         return false;
       }
-      card.setAttribute('role', 'listitem');
       card.dataset.graphType = info.type;
       bindWelcomeGraphPreload(card, info.type, 'welcome-card');
 
@@ -1022,9 +1122,8 @@
         if (!card) {
           return;
         }
-        const item = document.createElement('div');
+        const item = document.createElement('li');
         item.className = 'welcome-example-item';
-        item.setAttribute('role', 'listitem');
         item.appendChild(card);
         fragment.appendChild(item);
         count += 1;
@@ -1035,96 +1134,39 @@
       return count;
     }
 
-    function getWelcomeExamplesDialogFocusableElements() {
-      const dialog = dom.welcomeExamplesDialog;
-      if (!dialog || dialog.hidden) {
-        return [];
-      }
-      return Array.from(dialog.querySelectorAll([
-        'button:not([disabled])',
-        '[href]',
-        'input:not([disabled])',
-        'select:not([disabled])',
-        'textarea:not([disabled])',
-        '[tabindex]:not([tabindex="-1"])'
-      ].join(','))).filter(element => {
-        if (!element || element.closest('[hidden]')) {
-          return false;
-        }
-        const style = window.getComputedStyle?.(element);
-        return style?.display !== 'none' && style?.visibility !== 'hidden';
-      });
-    }
-
     function openWelcomeExamplesDialog() {
       const dialog = dom.welcomeExamplesDialog;
       if (!dialog || !dialog.hidden) {
         return false;
       }
-      welcomeExamplesDialogReturnFocus = document.activeElement instanceof HTMLElement
+      const returnFocus = document.activeElement instanceof HTMLElement
         ? document.activeElement
         : dom.welcomeViewAllExamples || null;
-      welcomeExamplesDialogPreviousOverflow = document.body.style.overflow;
+      const opened = window.Shared?.modalLifecycle?.open?.(dialog, {
+        initialFocus: '.welcome-dialog__close',
+        returnFocus,
+        onEscape: () => closeWelcomeExamplesDialog({ reason: 'escape' })
+      });
+      if (opened !== undefined) return !!opened;
       dialog.hidden = false;
       dialog.setAttribute('aria-hidden', 'false');
-      document.body.style.overflow = 'hidden';
-      window.requestAnimationFrame(() => {
-        const panel = dialog.querySelector('.welcome-dialog__panel');
-        panel?.focus?.();
-      });
+      dialog.querySelector('.welcome-dialog__close')?.focus?.();
       return true;
     }
 
     function closeWelcomeExamplesDialog(options = {}) {
       const dialog = dom.welcomeExamplesDialog;
-      if (!dialog || dialog.hidden) {
+      if (!dialog) {
         return false;
       }
+      const modal = window.Shared?.modalLifecycle;
+      if (modal?.isOpen?.(dialog)) {
+        return modal.close(dialog, { restoreFocus: options.restoreFocus !== false });
+      }
+      if (dialog.hidden) return false;
       dialog.hidden = true;
       dialog.setAttribute('aria-hidden', 'true');
-      document.body.style.overflow = welcomeExamplesDialogPreviousOverflow || '';
-      welcomeExamplesDialogPreviousOverflow = null;
-      const returnFocus = welcomeExamplesDialogReturnFocus;
-      welcomeExamplesDialogReturnFocus = null;
-      if (options.restoreFocus !== false) {
-        returnFocus?.focus?.();
-      }
       return true;
-    }
-
-    function handleWelcomeExamplesDialogKeydown(event) {
-      const dialog = dom.welcomeExamplesDialog;
-      if (!dialog || dialog.hidden) {
-        return;
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeWelcomeExamplesDialog({ reason: 'escape' });
-        return;
-      }
-      if (event.key !== 'Tab') {
-        return;
-      }
-      const focusable = getWelcomeExamplesDialogFocusableElements();
-      if (!focusable.length) {
-        event.preventDefault();
-        dialog.querySelector('.welcome-dialog__panel')?.focus?.();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      const activeIndex = focusable.indexOf(active);
-      if (activeIndex === -1) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
     }
 
     function getWelcomeCarouselStep() {
@@ -1227,7 +1269,8 @@
         return;
       }
       list.classList.remove('is-wheel-scrolling');
-      list.scrollTo({ left: snappedTarget, behavior: 'smooth' });
+      const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth';
+      list.scrollTo({ left: snappedTarget, behavior });
     }
 
     function ensureWelcomePopularCarouselHandlers() {
@@ -1266,8 +1309,16 @@
         }
 
         event.preventDefault();
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+        if (reducedMotion) {
+          cancelWelcomeCarouselWheelMotion();
+          welcomePopularCarouselWheelTarget = nextTarget;
+          list.scrollLeft = nextTarget;
+          updateWelcomeCarouselControls();
+          return;
+        }
         list.classList.add('is-wheel-scrolling');
-        // Cancel an in-progress CSS smooth scroll from the arrow controls before
+        // Cancel an in-progress arrow or keyboard smooth scroll before
         // starting the owner-managed wheel animation. Two concurrent scroll
         // engines can otherwise keep the settling class alive indefinitely.
         list.scrollTo({ left: list.scrollLeft, behavior: 'auto' });
@@ -1319,7 +1370,6 @@
           closeWelcomeExamplesDialog({ reason: 'backdrop' });
         }
       });
-      document.addEventListener('keydown', handleWelcomeExamplesDialogKeydown);
       welcomeExamplesDialogBound = true;
     }
 
@@ -1380,28 +1430,38 @@
     }
 
       function syncPickerAria() {
-        if (dom.welcomeGraphSearch) {
-          dom.welcomeGraphSearch.setAttribute('aria-expanded', pickerDropdownOpen ? 'true' : 'false');
-        }
+        const combobox = window.Shared?.editableCombobox;
+        if (!combobox || !dom.welcomeGraphSearchResults) return;
+        const options = combobox.getOptions(dom.welcomeGraphSearchResults, '[data-variant-id]');
+        const active = options.find(option => option.dataset.variantId === activeVariantId) || null;
+        combobox.setActive(dom.welcomeGraphSearch, options, active, {
+          expanded: pickerDropdownOpen,
+          activeClass: 'welcome-picker__option--selected',
+          scroll: false
+        });
       }
 
       function alignVariantDropdown() {
-        const container = dom.welcomeGraphSearchResults;
+        const container = dom.welcomeGraphSearchPopup;
         const input = dom.welcomeGraphSearch;
         if (!container || !input) {
           return;
         }
-        const offsetParent = container.offsetParent || container.parentElement;
-        if (!offsetParent || typeof offsetParent.getBoundingClientRect !== 'function') {
-          return;
-        }
-        const parentRect = offsetParent.getBoundingClientRect();
-        const inputRect = input.getBoundingClientRect();
-        const scrollLeft = offsetParent.scrollLeft || 0;
-        const scrollTop = offsetParent.scrollTop || 0;
-        container.style.left = `${inputRect.left - parentRect.left + scrollLeft}px`;
-        container.style.top = `${inputRect.bottom - parentRect.top + scrollTop}px`;
-        container.style.width = `${inputRect.width}px`;
+        const tabsDock = document.getElementById('workspaceTabsDock');
+        const dockRect = tabsDock?.getBoundingClientRect();
+        const viewportBottom = dockRect && dockRect.height > 0
+          ? dockRect.top
+          : window.innerHeight;
+        window.Shared.toolbarOverflow.positionPopup(container, input, {
+          placement: 'bottom',
+          align: 'start',
+          offset: 6,
+          matchAnchorWidth: true,
+          maxHeight: 340,
+          overflowY: 'hidden',
+          viewportBottom,
+          zIndex: 30
+        });
       }
 
       function setVariantDropdownState(shouldOpen, meta = {}) {
@@ -1424,6 +1484,7 @@
 
       function closeVariantDropdown(meta = {}) {
         setVariantDropdownState(false, meta);
+        window.Shared.toolbarOverflow.clearPopup(dom.welcomeGraphSearchPopup);
       }
 
       function ensurePickerDismissListener() {
@@ -1446,27 +1507,14 @@
         pickerDismissListenerBound = true;
       }
 
-      function ensurePickerResizeListener() {
-        if (resizeListenerBound) {
-          return;
-        }
-        const resizeHandler = () => alignVariantDropdown();
-        window.addEventListener('resize', resizeHandler);
-        resizeListenerBound = true;
+      function updateVariantHighlight(container) {
+        if (container && container !== dom.welcomeGraphSearchResults) return;
+        syncPickerAria();
       }
 
-      function updateVariantHighlight(container) {
-        const root = container || dom.welcomeGraphSearchResults;
-        if (!root) {
-          return;
-        }
-        const buttons = root.querySelectorAll('[data-variant-id]');
-        buttons.forEach(button => {
-          const variantId = button.dataset.variantId;
-          const isSelected = !!selectedVariantId && selectedVariantId === variantId;
-          button.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-          button.classList.toggle('welcome-picker__option--selected', isSelected);
-        });
+      function setActiveVariant(variantId) {
+        activeVariantId = variantId || null;
+        syncPickerAria();
       }
 
       function setSelectedVariant(variantId, options = {}) {
@@ -1477,6 +1525,7 @@
           if (selectedVariant && !options.skipInputUpdate && dom.welcomeGraphSearch) {
             dom.welcomeGraphSearch.value = selectedVariant.label;
           }
+        activeVariantId = nextId;
         if (!options.skipHighlight) {
           updateVariantHighlight();
         }
@@ -1493,8 +1542,10 @@
         renderedVariantList = list.slice();
         container.innerHTML = '';
         if (!list.length) {
-          const empty = document.createElement('p');
+          const empty = document.createElement('li');
           empty.className = 'welcome-picker__empty';
+          empty.setAttribute('role', 'presentation');
+          empty.setAttribute('aria-live', 'polite');
           empty.textContent = 'No matches found. Try another search term.';
           container.appendChild(empty);
           setSelectedVariant(null, { skipHighlight: true });
@@ -1505,15 +1556,15 @@
           setSelectedVariant(null, { skipHighlight: true });
         }
         const fragment = document.createDocumentFragment();
-        list.forEach(variant => {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'welcome-picker__option';
-          button.dataset.variantId = variant.id;
-          button.dataset.graphType = variant.type;
-          button.setAttribute('role', 'option');
-          button.setAttribute('aria-selected', selectedVariantId === variant.id ? 'true' : 'false');
-          bindWelcomeGraphPreload(button, variant.type, 'welcome-picker');
+        list.forEach((variant, index) => {
+          const option = document.createElement('li');
+          option.className = 'welcome-picker__option';
+          option.id = `welcomeGraphOption-${index}`;
+          option.dataset.variantId = variant.id;
+          option.dataset.graphType = variant.type;
+          option.setAttribute('role', 'option');
+          option.setAttribute('aria-selected', selectedVariantId === variant.id ? 'true' : 'false');
+          bindWelcomeGraphPreload(option, variant.type, 'welcome-picker');
 
           const line = document.createElement('span');
           line.className = 'welcome-picker__option-line';
@@ -1535,15 +1586,17 @@
             line.appendChild(description);
           }
 
-          button.appendChild(line);
-          fragment.appendChild(button);
+          option.appendChild(line);
+          fragment.appendChild(option);
         });
         container.appendChild(fragment);
+        if (!activeVariantId || !list.some(entry => entry.id === activeVariantId)) {
+          activeVariantId = selectedVariantId || list[0].id;
+        }
         updateVariantHighlight(container);
         if (!selectedVariantId) {
           setSelectedVariant(null, { skipHighlight: true });
         }
-        alignVariantDropdown();
         openVariantDropdown({ reason: 'render-list' });
       }
 
@@ -1572,8 +1625,21 @@
 
       function handleVariantSearchKeydown(event) {
         if (event.key === 'Escape') {
+          setActiveVariant(null);
           closeVariantDropdown({ reason: 'escape' });
           event.stopPropagation();
+          return;
+        }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          if (!renderedVariantList.length) return;
+          event.preventDefault();
+          openVariantDropdown({ reason: 'keyboard-navigation' });
+          const step = event.key === 'ArrowDown' ? 1 : -1;
+          const combobox = window.Shared?.editableCombobox;
+          const options = combobox?.getOptions(dom.welcomeGraphSearchResults, '[data-variant-id]') || [];
+          const current = options.find(option => option.dataset.variantId === activeVariantId) || null;
+          const next = combobox?.moveActive(options, current, step, { wrap: true });
+          setActiveVariant(next?.dataset.variantId || null);
           return;
         }
         if (event.key !== 'Enter') {
@@ -1583,12 +1649,9 @@
           return;
         }
         event.preventDefault();
-        if (!selectedVariantId) {
-          setSelectedVariant(renderedVariantList[0].id, { reason: 'enter-selection' });
-        }
-        if (selectedVariantId) {
-          launchVariant(selectedVariantId, { reason: 'welcome-picker-enter' });
-        }
+        const nextVariantId = activeVariantId || selectedVariantId || renderedVariantList[0].id;
+        setSelectedVariant(nextVariantId, { reason: 'enter-selection' });
+        launchVariant(nextVariantId, { reason: 'welcome-picker-enter' });
       }
 
       function launchVariant(variantId, meta = {}) {
@@ -1621,7 +1684,6 @@
           return;
         }
         ensurePickerDismissListener();
-        ensurePickerResizeListener();
         setSelectedVariant(null, { skipHighlight: true });
         renderVariantResults(normalizedGraphVariants);
         if (dom.welcomeGraphSearch) {

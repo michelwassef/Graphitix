@@ -2,6 +2,29 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   let activeTitleEditRecord = null;
+  const svgKeyboardFocusRestoreByRoot = new WeakMap();
+  const activeSvgPointerGestures = new Set();
+
+  function registerSvgPointerGesture(tabId, cancel){
+    const ownerTabId = String(tabId || '').trim();
+    if(!ownerTabId || typeof cancel !== 'function') return () => {};
+    const gesture = { tabId: ownerTabId, cancel };
+    activeSvgPointerGestures.add(gesture);
+    return () => activeSvgPointerGestures.delete(gesture);
+  }
+
+  Shared.cancelSvgPointerGesturesForTab = function cancelSvgPointerGesturesForTab(tabLike, reason = 'owner-deactivation'){
+    const ownerTabId = String(tabLike?.id || tabLike || '').trim();
+    if(!ownerTabId) return 0;
+    const gestures = Array.from(activeSvgPointerGestures)
+      .filter(gesture => gesture.tabId === ownerTabId);
+    gestures.forEach(gesture => gesture.cancel(reason));
+    return gestures.length;
+  };
+  Shared.registerSvgPointerGestureForTab = function registerSvgPointerGestureForTab(tabLike, cancel){
+    const ownerTabId = String(tabLike?.id || tabLike || '').trim();
+    return registerSvgPointerGesture(ownerTabId, cancel);
+  };
 
   function withVisibleInlineTitleTargetsForCapture(tabId, capture){
     const ownerTabId = String(tabId || '').trim();
@@ -328,6 +351,15 @@
     return readSvgRenderedSize(svg);
   };
 
+  // Measurements are in screen pixels; CSS sizes inside the zoom wrapper are
+  // in unzoomed pixels. Keep stored measurements in screen units and convert
+  // only when projecting them back into that wrapper.
+  const toSvgCssSize = (svg, size) => {
+    const content = svg.closest?.('.resizer-zoom-content');
+    const zoom = Number.parseFloat(content?.style.getPropertyValue('--resizer-content-zoom')) || 1;
+    return { width: size.width / zoom, height: size.height / zoom };
+  };
+
   const writeStableViewBox = (svgBox, viewBox, reason, renderedSize) => {
     const normalized = normalizeViewBox(viewBox);
     const dataset = svgBox?.dataset || null;
@@ -441,8 +473,10 @@
     }
     svg.setAttribute('width', '100%');
     svg.setAttribute('height', '100%');
-    svg.style.width = axis === 'x' ? `${slotSize.width}px` : `${stableRenderedSize.width}px`;
-    svg.style.height = axis === 'y' ? `${slotSize.height}px` : `${stableRenderedSize.height}px`;
+    const slotCssSize = toSvgCssSize(svg, slotSize);
+    const stableCssSize = toSvgCssSize(svg, stableRenderedSize);
+    svg.style.width = axis === 'x' ? `${slotCssSize.width}px` : `${stableCssSize.width}px`;
+    svg.style.height = axis === 'y' ? `${slotCssSize.height}px` : `${stableCssSize.height}px`;
     svg.style.minWidth = '0';
     svg.style.minHeight = '0';
     svg.style.display = 'block';
@@ -1451,11 +1485,7 @@
         input.style.boxShadow = 'none';
         input.style.padding = '0 6px';
         input.style.background = 'transparent';
-        input.style.color = '#222';
-        input.style.textShadow = 'none';
         input.style.caretColor = '#1a73e8';
-        input.style.setProperty('--inline-edit-selection-color', 'currentColor');
-        input.style.setProperty('--inline-edit-selection-bg', 'rgba(74, 144, 226, 0.28)');
         input.style.position = 'relative';
         input.style.zIndex = '2';
         input.style.textAlign = textAlignMode;
@@ -1709,6 +1739,7 @@
             return '#222';
           };
           const usePreviewLayer = state.usingInlineSegments === true;
+          const editableTextColor = resolveEditableTextColor();
           if (state.preview && state.preview.style) {
             state.preview.style.visibility = usePreviewLayer ? 'visible' : 'hidden';
             state.preview.style.opacity = usePreviewLayer ? '1' : '0';
@@ -1717,16 +1748,7 @@
             if (state.input.classList && typeof state.input.classList.toggle === 'function') {
               state.input.classList.toggle('inline-edit-input--preview-mode', usePreviewLayer);
             }
-            state.input.style.color = usePreviewLayer ? 'transparent' : resolveEditableTextColor();
-            state.input.style.setProperty('--inline-edit-selection-color', usePreviewLayer ? 'transparent' : resolveEditableTextColor());
-            state.input.style.setProperty('--inline-edit-selection-bg', 'rgba(74, 144, 226, 0.28)');
-            if (usePreviewLayer) {
-              state.input.style.setProperty('-webkit-text-fill-color', 'transparent');
-              state.input.style.textShadow = '0 0 0 transparent';
-            } else {
-              state.input.style.removeProperty('-webkit-text-fill-color');
-              state.input.style.textShadow = 'none';
-            }
+            state.input.style.setProperty('--inline-edit-text-color', editableTextColor);
           }
           logDebug('makeEditable inline render refresh', {
             forcePlain,
@@ -2729,6 +2751,110 @@
     }
   }
 
+  function isSvgInteractionOwnerActive(element){
+    const page = element?.closest?.('.workspace-page') || null;
+    if(page?.hidden){ return false; }
+    const ownerRoot = element?.closest?.('[data-workspace-tab-id],[data-tab-id]') || null;
+    const ownerTabId = String(ownerRoot?.dataset?.workspaceTabId || ownerRoot?.dataset?.tabId || '').trim();
+    if(!page && !ownerRoot){ return true; }
+    if(!ownerTabId){ return false; }
+    const activeTabId = String(
+      Shared.workspaceTabs?.resolveTab?.(null)?.id
+      || global.Main?.session?.workspaceState?.activeTabId
+      || global.Main?.session?.getActiveTab?.()?.id
+      || ''
+    ).trim();
+    return !!activeTabId && ownerTabId === activeTabId;
+  }
+
+  function svgKeyboardMoveIdentity(element){
+    const dataset = element?.dataset || {};
+    const label = String(element?.getAttribute?.('aria-label') || '')
+      .replace(/^move\s+/i, '').replace(/\s+/g, ' ').trim();
+    const text = String(element?.textContent || '').replace(/\s+/g, ' ').trim();
+    return [
+      String(element?.localName || '').toLowerCase(),
+      String(dataset.keyboardMovable || ''),
+      String(element?.id || ''),
+      String(dataset.fontRole || ''),
+      String(dataset.fontKey || ''),
+      label,
+      text
+    ].join('|');
+  }
+
+  function queueSvgKeyboardFocusRestore(element, ownerTabId){
+    const ownerId = String(ownerTabId || '').trim();
+    const root = element?.closest?.('.workspace-page')
+      || element?.closest?.('#appShell')
+      || null;
+    const sourceSvg = element?.ownerSVGElement || null;
+    const doc = element?.ownerDocument || global.document;
+    if(!ownerId || !root || !doc || typeof global.MutationObserver !== 'function'){
+      return false;
+    }
+    const previous = svgKeyboardFocusRestoreByRoot.get(root);
+    previous?.cancel?.();
+    const identity = svgKeyboardMoveIdentity(element);
+    const moveKind = String(element?.dataset?.keyboardMovable || '');
+    const record = { observer: null, timeout: null, cancel: null };
+    const cancel = () => {
+      record.observer?.disconnect?.();
+      if(record.timeout != null){ global.clearTimeout(record.timeout); }
+      if(svgKeyboardFocusRestoreByRoot.get(root) === record){
+        svgKeyboardFocusRestoreByRoot.delete(root);
+      }
+    };
+    record.cancel = cancel;
+    svgKeyboardFocusRestoreByRoot.set(root, record);
+    const restore = () => {
+      const page = root.matches?.('.workspace-page') ? root : root.closest?.('.workspace-page');
+      const activeTabId = String(
+        Shared.workspaceTabs?.resolveTab?.(null)?.id
+        || global.Main?.session?.workspaceState?.activeTabId
+        || global.Main?.session?.getActiveTab?.()?.id
+        || ''
+      ).trim();
+      if(page?.hidden || !activeTabId || activeTabId !== ownerId){
+        cancel();
+        return;
+      }
+      const activeElement = doc.activeElement;
+      const focusStayedInGraph = !!sourceSvg && !!activeElement
+        && (activeElement === sourceSvg || sourceSvg.contains?.(activeElement));
+      if(activeElement && activeElement !== element && activeElement !== doc.body
+        && activeElement !== doc.documentElement && activeElement.isConnected && !focusStayedInGraph){
+        cancel();
+        return;
+      }
+      const selector = `[data-keyboard-movable="${moveKind}"]`;
+      const candidates = Array.from(root.querySelectorAll?.(selector) || []);
+      const replacement = candidates.find(candidate => {
+        if(svgKeyboardMoveIdentity(candidate) !== identity || !isSvgInteractionOwnerActive(candidate)){
+          return false;
+        }
+        const style = global.getComputedStyle?.(candidate);
+        const rect = candidate.getBoundingClientRect?.();
+        return style?.display !== 'none' && style?.visibility !== 'hidden'
+          && !!rect && (rect.width > 0 || rect.height > 0);
+      });
+      if(!replacement || replacement === element){ return; }
+      try{ replacement.focus({ preventScroll: true }); }
+      catch(err){ try{ replacement.focus(); }catch(focusErr){} }
+      cancel();
+    };
+    record.observer = new global.MutationObserver(restore);
+    record.observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-keyboard-movable']
+    });
+    record.timeout = global.setTimeout(cancel, 15000);
+    restore();
+    return true;
+  }
+
   /**
    * Keep a label's rendered bounds inside the complete SVG viewport. This
    * uses screen geometry so text-anchor, rotation, CSS scaling, and preserve-
@@ -2810,6 +2936,23 @@
     return next;
   }
 
+  function normalizeLabelDragPositionMetrics(value){
+    if(!value || typeof value !== 'object'){
+      return null;
+    }
+    const metrics = {
+      xOrigin: Number(value.xOrigin),
+      xScale: Number(value.xScale),
+      yOrigin: Number(value.yOrigin),
+      yScale: Number(value.yScale)
+    };
+    return Object.values(metrics).every(Number.isFinite)
+      && metrics.xScale !== 0
+      && metrics.yScale !== 0
+      ? metrics
+      : null;
+  }
+
   function enableLabelDrag(el, svg, options = {}) {
     if (!el || !svg) {
       logDebug('enableLabelDrag skipped', { hasElement: !!el, hasSvg: !!svg });
@@ -2827,6 +2970,19 @@
       deferInitialConstraint = false,
       constrainToSvg = options.constrainToSvg
     } = options;
+    el.__graphitixLabelDragBinding?.detach?.();
+    const positionMetrics = normalizeLabelDragPositionMetrics(options.positionMetrics);
+    if(positionMetrics && el.dataset){
+      el.dataset.labelDragPositionMetrics = JSON.stringify(positionMetrics);
+    }
+    const positionKey = String(options.positionKey || '').trim();
+    if(el.dataset){
+      if(positionKey){
+        el.dataset.labelDragPositionKey = positionKey;
+      }else{
+        delete el.dataset.labelDragPositionKey;
+      }
+    }
     const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
     const dragThresholdSq = dragThreshold * dragThreshold;
     const axisLock = options.axisLock === 'x' || options.axisLock === 'y' ? options.axisLock : null;
@@ -2836,10 +2992,40 @@
       && Array.from(el.children || []).some(child => child.matches?.('tspan[data-title-line="1"]')));
     const shouldConstrainToSvg = constrainToSvg === true
       || (constrainToSvg !== false && SVG_BOUNDARY_LABEL_ROLES.has(fontRole));
+    const ownerRoot = el.closest?.('[data-workspace-tab-id],[data-tab-id]') || null;
+    const explicitOwnerId = options.owner?.tabId || options.tabId || '';
+    const boundOwnerTabId = String(
+      (typeof explicitOwnerId === 'object' ? explicitOwnerId.id : explicitOwnerId)
+      || ownerRoot?.dataset?.workspaceTabId
+      || ownerRoot?.dataset?.tabId
+      || ''
+    ).trim();
+    const isInteractionOwnerActive = () => {
+      if(!isSvgInteractionOwnerActive(el)){ return false; }
+      if(!boundOwnerTabId){ return true; }
+      const activeTabId = String(
+        Shared.workspaceTabs?.resolveTab?.(null)?.id
+        || global.Main?.session?.workspaceState?.activeTabId
+        || global.Main?.session?.getActiveTab?.()?.id
+        || ''
+      ).trim();
+      return !!activeTabId && activeTabId === boundOwnerTabId;
+    };
+    const roleLabel = ({ graphTitle: 'graph title', xTitle: 'x-axis title', yTitle: 'y-axis title', zTitle: 'z-axis title' })[fontRole] || '';
+    const textLabel = String(el.getAttribute('aria-label') || options.ariaLabel || roleLabel || el.textContent || 'graph label')
+      .replace(/^move\s+/i, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', `Move ${textLabel}`);
+    if(!el.hasAttribute('role')){ el.setAttribute('role', 'group'); }
+    el.setAttribute('aria-roledescription', 'movable graph label');
+    el.setAttribute('aria-keyshortcuts', 'ArrowLeft ArrowRight ArrowUp ArrowDown');
+    el.setAttribute('aria-description', 'Use the arrow keys to move; hold Shift for larger steps.');
+    if(el.dataset){ el.dataset.keyboardMovable = 'label'; }
     let pointerDown = false;
     let dragging = false;
     let startPoint = { x: 0, y: 0 };
     let origPos = { x: 0, y: 0 };
+    let origTransform = null;
     let currentPos = { x: 0, y: 0 };
     const CAPTURE_ATTR = 'dragXOffset';
 
@@ -2951,6 +3137,43 @@
       updateTransformForPosition(x, y);
       syncTextBlockAnchor(x, y);
     };
+    const recordPositionUndo = (before, after) => {
+      if(!shouldRecordUndo){ return; }
+      try{
+        const undoApi = Shared?.undoManager;
+        const equals = (a, b) => a && b && a.x === b.x && a.y === b.y
+          && String(a.transform || '') === String(b.transform || '');
+        const apply = (position, reason) => {
+          if(!position || !isInteractionOwnerActive()){ return false; }
+          try{
+            applyPosition(position.x, position.y);
+            if(position.transform == null){ el.removeAttribute('transform'); }
+            else{ el.setAttribute('transform', position.transform); }
+            safeCall(onDragMove, [{ x: position.x, y: position.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onDragMove error');
+            safeCall(onPositionChange, [{ x: position.x, y: position.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onPositionChange error');
+            safeCall(onDragEnd, [{ x: position.x, y: position.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onDragEnd error');
+            logDebug('enableLabelDrag apply position', { reason, x: position.x, y: position.y });
+            return true;
+          }catch(applyErr){
+            console.error('Shared.enableLabelDrag apply position error', applyErr);
+            return false;
+          }
+        };
+        if(undoApi && typeof undoApi.recordStateChange === 'function' && !equals(before, after)){
+          undoApi.recordStateChange({
+            element: el,
+            label: `move:${el.tagName.toLowerCase()}#${el.id || el.textContent || 'label'}`,
+            from: before,
+            to: after,
+            tabId: boundOwnerTabId || undefined,
+            equals,
+            apply
+          });
+        }
+      }catch(err){
+        console.error('Shared.enableLabelDrag undo record error', err);
+      }
+    };
     const constrainPosition = (position, reason) => {
       if(!shouldConstrainToSvg){
         return position;
@@ -2963,10 +3186,33 @@
     };
 
     let activePointerId = null;
+    let unregisterPointerGesture = null;
+    const clearPointerGesture = () => {
+      global.removeEventListener('pointermove', handlePointerMove, true);
+      global.removeEventListener('pointerup', handlePointerUp, true);
+      global.removeEventListener('pointercancel', handlePointerUp, true);
+      global.removeEventListener('mousemove', handlePointerMove, true);
+      global.removeEventListener('mouseup', handlePointerUp, true);
+      if(activePointerId != null && typeof el.releasePointerCapture === 'function'){
+        try{ el.releasePointerCapture(activePointerId); }catch(err){}
+      }
+      activePointerId = null;
+      pointerDown = false;
+      dragging = false;
+      unregisterPointerGesture?.();
+      unregisterPointerGesture = null;
+    };
+    const cancelPointerGesture = reason => {
+      if(!pointerDown) return false;
+      clearPointerGesture();
+      logDebug('enableLabelDrag cancelled', { reason: reason || 'cancelled', tabId: boundOwnerTabId || null });
+      return true;
+    };
 
     const handlePointerDown = (e) => {
       // Don't start drag if user is editing text
-      if (el.dataset.editing === 'true') return;
+      if (el.dataset.editing === 'true' || !isInteractionOwnerActive()) return;
+      if(pointerDown) return;
       if (e.button !== undefined && e.button !== 0) {
         return;
       }
@@ -2982,6 +3228,7 @@
         x: parseFloat(el.getAttribute('x') || '0'),
         y: parseFloat(el.getAttribute('y') || '0')
       };
+      origTransform = el.getAttribute('transform');
       currentPos = { x: origPos.x, y: origPos.y };
       if(activePointerId != null && typeof el.setPointerCapture === 'function'){
         try{ el.setPointerCapture(activePointerId); }catch(err){}
@@ -2991,10 +3238,15 @@
       global.addEventListener('pointercancel', handlePointerUp, true);
       global.addEventListener('mousemove', handlePointerMove, true);
       global.addEventListener('mouseup', handlePointerUp, true);
+      unregisterPointerGesture = registerSvgPointerGesture(boundOwnerTabId, cancelPointerGesture);
     };
 
     const handlePointerMove = (e) => {
       if (!pointerDown) return;
+      if(!isInteractionOwnerActive()){
+        cancelPointerGesture('owner-changed');
+        return;
+      }
       if(activePointerId != null && typeof e.pointerId === 'number' && e.pointerId !== activePointerId){
         return;
       }
@@ -3048,18 +3300,12 @@
       if(activePointerId != null && typeof e.pointerId === 'number' && e.pointerId !== activePointerId){
         return;
       }
-      global.removeEventListener('pointermove', handlePointerMove, true);
-      global.removeEventListener('pointerup', handlePointerUp, true);
-      global.removeEventListener('pointercancel', handlePointerUp, true);
-      global.removeEventListener('mousemove', handlePointerMove, true);
-      global.removeEventListener('mouseup', handlePointerUp, true);
-      const wasDragging = dragging;
-      pointerDown = false;
-      dragging = false;
-      if(activePointerId != null && typeof el.releasePointerCapture === 'function'){
-        try{ el.releasePointerCapture(activePointerId); }catch(err){}
+      if(!isInteractionOwnerActive()){
+        cancelPointerGesture('owner-changed');
+        return;
       }
-      activePointerId = null;
+      const wasDragging = dragging;
+      clearPointerGesture();
       if (!wasDragging) {
         return;
       }
@@ -3085,40 +3331,10 @@
       finalY = constrained.y;
       currentPos = { x: finalX, y: finalY };
       applyPosition(finalX, finalY);
-      // Record undo/redo entry for label movement
-      if (shouldRecordUndo) {
-        try {
-          const undoApi = Shared && Shared.undoManager;
-          const before = { x: origPos.x, y: origPos.y, transform: el.getAttribute('transform') };
-          const after = { x: finalX, y: finalY, transform: el.getAttribute('transform') };
-          const equals = (a, b) => a && b && a.x === b.x && a.y === b.y && String(a.transform || '') === String(b.transform || '');
-          const apply = (pos, reason) => {
-            if (!pos) return false;
-            try {
-              applyPosition(pos.x, pos.y);
-              safeCall(onDragMove, [{ x: pos.x, y: pos.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onDragMove error');
-              safeCall(onPositionChange, [{ x: pos.x, y: pos.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onPositionChange error');
-              logDebug('enableLabelDrag apply position', { reason, x: pos.x, y: pos.y });
-              return true;
-            } catch (applyErr) {
-              console.error('Shared.enableLabelDrag apply position error', applyErr);
-              return false;
-            }
-          };
-          if (undoApi && typeof undoApi.recordStateChange === 'function' && !equals(before, after)) {
-            undoApi.recordStateChange({
-              element: el,
-              label: `move:${el.tagName.toLowerCase()}#${el.id || el.textContent || 'label'}`,
-              from: before,
-              to: after,
-              equals,
-              apply
-            });
-          }
-        } catch (err) {
-          console.error('Shared.enableLabelDrag undo record error', err);
-        }
-      }
+      recordPositionUndo(
+        { x: origPos.x, y: origPos.y, transform: origTransform },
+        { x: finalX, y: finalY, transform: el.getAttribute('transform') }
+      );
       safeCall(onPositionChange, [{ x: finalX, y: finalY, element: el, reason: 'drag-end' }], 'enableLabelDrag onPositionChange error');
       if (typeof onDragEnd === 'function') {
         safeCall(onDragEnd, [{ x: finalX, y: finalY, element: el }], 'enableLabelDrag onDragEnd error');
@@ -3126,8 +3342,76 @@
       logDebug('enableLabelDrag end', { x: finalX, y: finalY });
     };
 
+    const handleKeyDown = event => {
+      if(event.target !== el || el.dataset.editing === 'true'
+        || event.altKey || event.ctrlKey || event.metaKey
+        || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+        || !isInteractionOwnerActive()){
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const step = event.shiftKey ? 32 : 8;
+      const screenDelta = {
+        x: event.key === 'ArrowLeft' ? -step : (event.key === 'ArrowRight' ? step : 0),
+        y: event.key === 'ArrowUp' ? -step : (event.key === 'ArrowDown' ? step : 0)
+      };
+      const svgDelta = screenVectorToSvgVector(svg, screenDelta.x, screenDelta.y) || screenDelta;
+      const before = {
+        x: Number.parseFloat(el.getAttribute('x') || '0'),
+        y: Number.parseFloat(el.getAttribute('y') || '0'),
+        transform: el.getAttribute('transform')
+      };
+      origPos = { x: before.x, y: before.y };
+      origTransform = before.transform;
+      captureChildAnchors(origPos);
+      let next = {
+        x: axisLock === 'y' ? before.x : before.x + svgDelta.x,
+        y: axisLock === 'x' ? before.y : before.y + svgDelta.y
+      };
+      const normalized = safeCall(normalizePosition, [{
+        ...next,
+        origin: { x: before.x, y: before.y },
+        element: el,
+        reason: 'keyboard-move'
+      }], 'enableLabelDrag keyboard normalizePosition error');
+      if(normalized && Number.isFinite(Number(normalized.x)) && Number.isFinite(Number(normalized.y))){
+        next = { x: Number(normalized.x), y: Number(normalized.y) };
+      }
+      const constrained = constrainPosition(next, 'keyboard-move');
+      next = { x: constrained.x, y: constrained.y };
+      if(next.x === before.x && next.y === before.y
+        && String(el.getAttribute('transform') || '') === String(before.transform || '')){
+        applyPosition(before.x, before.y);
+        if(before.transform == null){ el.removeAttribute('transform'); }
+        else{ el.setAttribute('transform', before.transform); }
+        return;
+      }
+      queueSvgKeyboardFocusRestore(el, boundOwnerTabId);
+      safeCall(onDragStart, [{ x: before.x, y: before.y, element: el, reason: 'keyboard-move' }], 'enableLabelDrag keyboard onDragStart error');
+      applyPosition(next.x, next.y);
+      currentPos = next;
+      safeCall(onDragMove, [{ ...next, element: el, reason: 'keyboard-move' }], 'enableLabelDrag keyboard onDragMove error');
+      safeCall(onPositionChange, [{ ...next, element: el, reason: 'keyboard-move' }], 'enableLabelDrag keyboard onPositionChange error');
+      recordPositionUndo(before, { ...next, transform: el.getAttribute('transform') });
+      safeCall(onDragEnd, [{ ...next, element: el, reason: 'keyboard-move' }], 'enableLabelDrag keyboard onDragEnd error');
+    };
+
     el.addEventListener('pointerdown', handlePointerDown);
     el.addEventListener('mousedown', handlePointerDown);
+    el.addEventListener('keydown', handleKeyDown);
+    el.__graphitixLabelDragBinding = {
+      svg,
+      tabId: boundOwnerTabId,
+      detach(){
+        el.removeEventListener('pointerdown', handlePointerDown);
+        el.removeEventListener('mousedown', handlePointerDown);
+        el.removeEventListener('keydown', handleKeyDown);
+        if(el.__graphitixLabelDragBinding?.svg === svg){
+          delete el.__graphitixLabelDragBinding;
+        }
+      }
+    };
 
     if(shouldConstrainToSvg && !deferInitialConstraint){
       const initial = {
@@ -3158,6 +3442,53 @@
     }
 
     logDebug('enableLabelDrag bound', { element: el.tagName || 'unknown' });
+  }
+
+  function rehydrateLabelDrag(el, svg, options = {}){
+    if(!el || !svg || typeof options.onPositionChange !== 'function'){
+      return false;
+    }
+    let metrics = null;
+    try{
+      metrics = normalizeLabelDragPositionMetrics(JSON.parse(el.dataset?.labelDragPositionMetrics || 'null'));
+    }catch(_err){
+      metrics = null;
+    }
+    if(!metrics){
+      return false;
+    }
+    const positionKey = String(el.dataset?.labelDragPositionKey || '').trim();
+    enableLabelDrag(el, svg, {
+      tabId: options.tabId || options.owner?.tabId || null,
+      owner: options.owner || null,
+      positionKey,
+      positionMetrics: metrics,
+      deferInitialConstraint: true,
+      onPositionChange: position => options.onPositionChange({
+        ...position,
+        relX: (Number(position?.x) - metrics.xOrigin) / metrics.xScale,
+        relY: (Number(position?.y) - metrics.yOrigin) / metrics.yScale
+      })
+    });
+    return el.__graphitixLabelDragBinding?.svg === svg;
+  }
+
+  function rehydrateLabelDrags(svg, options = {}){
+    if(!svg || typeof options.onPositionChange !== 'function'){
+      return false;
+    }
+    const labels = Array.from(svg.querySelectorAll?.('[data-keyboard-movable="label"][data-label-drag-position-key]') || []);
+    return labels.every(label => {
+      const key = String(label?.dataset?.labelDragPositionKey || '').trim();
+      if(!key){
+        return false;
+      }
+      return rehydrateLabelDrag(label, svg, {
+        owner: options.owner || null,
+        tabId: options.tabId || options.owner?.tabId || null,
+        onPositionChange: position => options.onPositionChange(key, label, position)
+      });
+    });
   }
 
   function normalizeLegendPoint(point) {
@@ -3307,6 +3638,48 @@
     const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
     const dragThresholdSq = dragThreshold * dragThreshold;
     const cursor = options.cursor || 'move';
+    const ownerRoot = group.closest?.('[data-workspace-tab-id],[data-tab-id]') || null;
+    const explicitOwnerId = options.owner?.tabId || options.owner || options.tabId || '';
+    const boundOwnerTabId = String(
+      (typeof explicitOwnerId === 'object' ? explicitOwnerId.id : explicitOwnerId)
+      || ownerRoot?.dataset?.workspaceTabId
+      || ownerRoot?.dataset?.tabId
+      || ''
+    ).trim();
+    const resolveBoundOwnerTabId = () => {
+      const currentOwner = group.__graphitixLegendDragBinding?.owner;
+      const currentOwnerId = typeof currentOwner === 'object'
+        ? (currentOwner.tabId || currentOwner.id)
+        : currentOwner;
+      return String(
+        currentOwnerId
+        || boundOwnerTabId
+        || ownerRoot?.dataset?.workspaceTabId
+        || ownerRoot?.dataset?.tabId
+        || ''
+      ).trim();
+    };
+    const legendName = String(group.getAttribute('aria-label') || options.ariaLabel || 'graph legend')
+      .replace(/^move\s+/i, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    group.setAttribute('tabindex', '0');
+    if(!group.hasAttribute('role')){ group.setAttribute('role', 'group'); }
+    group.setAttribute('aria-label', `Move ${legendName}`);
+    group.setAttribute('aria-roledescription', 'movable graph legend');
+    group.setAttribute('aria-keyshortcuts', 'ArrowLeft ArrowRight ArrowUp ArrowDown');
+    group.setAttribute('aria-description', 'Use the arrow keys to move; hold Shift for larger steps.');
+    if(group.dataset){ group.dataset.keyboardMovable = 'legend'; }
+    const isInteractionOwnerActive = () => {
+      if(!isSvgInteractionOwnerActive(group)){ return false; }
+      const ownerTabId = resolveBoundOwnerTabId();
+      if(!ownerTabId){ return true; }
+      const activeTabId = String(
+        Shared.workspaceTabs?.resolveTab?.(null)?.id
+        || global.Main?.session?.workspaceState?.activeTabId
+        || global.Main?.session?.getActiveTab?.()?.id
+        || ''
+      ).trim();
+      return !!activeTabId && activeTabId === ownerTabId;
+    };
     if (group.style) {
       group.style.cursor = cursor;
       group.style.touchAction = 'none';
@@ -3373,7 +3746,7 @@
     const undoApi = Shared && Shared.undoManager;
     const equals = (a, b) => a && b && a.x === b.x && a.y === b.y;
     const applyUndoPosition = (pos, reason) => {
-      if (!pos) {
+      if (!pos || !isInteractionOwnerActive()) {
         return false;
       }
       try {
@@ -3381,6 +3754,9 @@
         setPosition(boundedPosition);
         if (typeof options.onPositionChange === 'function') {
           options.onPositionChange(boundedPosition);
+        }
+        if (typeof options.onDragEnd === 'function') {
+          options.onDragEnd({ ...boundedPosition, element: group, reason: reason || 'history' });
         }
         logDebug('enableLegendDrag apply position', { reason, x: boundedPosition.x, y: boundedPosition.y });
         return true;
@@ -3403,8 +3779,9 @@
           label: options.undoLabel || 'legend-position',
           from: before,
           to: after,
+          tabId: resolveBoundOwnerTabId() || undefined,
           equals,
-          apply: value => applyUndoPosition(value, 'undo')
+          apply: (value, reason) => applyUndoPosition(value, reason)
         });
       } catch (err) {
         console.error('enableLegendDrag undo record error', err);
@@ -3412,12 +3789,39 @@
     };
 
     let activePointerId = null;
+    let gestureOwnerTabId = '';
+    let unregisterPointerGesture = null;
+    const isActiveGestureOwner = () => isInteractionOwnerActive()
+      && (!gestureOwnerTabId || resolveBoundOwnerTabId() === gestureOwnerTabId);
+    const clearPointerGesture = () => {
+      global.removeEventListener('pointermove', handlePointerMove, true);
+      global.removeEventListener('pointerup', handlePointerUp, true);
+      global.removeEventListener('pointercancel', handlePointerUp, true);
+      if(activePointerId != null && typeof group.releasePointerCapture === 'function'){
+        try{ group.releasePointerCapture(activePointerId); }catch(err){}
+      }
+      activePointerId = null;
+      gestureOwnerTabId = '';
+      pointerDown = false;
+      dragging = false;
+      unregisterPointerGesture?.();
+      unregisterPointerGesture = null;
+    };
+    const cancelPointerGesture = reason => {
+      if(!pointerDown) return false;
+      const ownerTabId = gestureOwnerTabId || null;
+      clearPointerGesture();
+      logDebug('enableLegendDrag cancelled', { reason: reason || 'cancelled', tabId: ownerTabId });
+      return true;
+    };
 
     const handlePointerDown = event => {
-      if (event.button !== undefined && event.button !== 0) {
+      if (!isInteractionOwnerActive() || (event.button !== undefined && event.button !== 0)) {
         return;
       }
+      if(pointerDown) return;
       activePointerId = typeof event.pointerId === 'number' ? event.pointerId : null;
+      gestureOwnerTabId = resolveBoundOwnerTabId();
       pointerDown = true;
       dragging = false;
       startPoint = pointerToSvg(event.clientX, event.clientY);
@@ -3427,10 +3831,15 @@
       global.addEventListener('pointermove', handlePointerMove, true);
       global.addEventListener('pointerup', handlePointerUp, true);
       global.addEventListener('pointercancel', handlePointerUp, true);
+      unregisterPointerGesture = registerSvgPointerGesture(gestureOwnerTabId, cancelPointerGesture);
     };
 
     const handlePointerMove = event => {
       if (!pointerDown) {
+        return;
+      }
+      if(!isActiveGestureOwner()){
+        cancelPointerGesture('owner-changed');
         return;
       }
       if(activePointerId != null && typeof event.pointerId === 'number' && event.pointerId !== activePointerId){
@@ -3475,16 +3884,12 @@
       if(activePointerId != null && typeof event.pointerId === 'number' && event.pointerId !== activePointerId){
         return;
       }
-      global.removeEventListener('pointermove', handlePointerMove, true);
-      global.removeEventListener('pointerup', handlePointerUp, true);
-      global.removeEventListener('pointercancel', handlePointerUp, true);
-      const wasDragging = dragging;
-      pointerDown = false;
-      dragging = false;
-      if(activePointerId != null && typeof group.releasePointerCapture === 'function'){
-        try{ group.releasePointerCapture(activePointerId); }catch(err){}
+      if(!isActiveGestureOwner()){
+        cancelPointerGesture('owner-changed');
+        return;
       }
-      activePointerId = null;
+      const wasDragging = dragging;
+      clearPointerGesture();
       if (!wasDragging) {
         return;
       }
@@ -3498,8 +3903,39 @@
       logDebug('enableLegendDrag end', { x: finalPos.x, y: finalPos.y });
     };
 
+    const handleKeyDown = event => {
+      if(event.target !== group || event.altKey || event.ctrlKey || event.metaKey
+        || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+        || !isInteractionOwnerActive()){
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const step = event.shiftKey ? 32 : 8;
+      const screenDelta = {
+        x: event.key === 'ArrowLeft' ? -step : (event.key === 'ArrowRight' ? step : 0),
+        y: event.key === 'ArrowUp' ? -step : (event.key === 'ArrowDown' ? step : 0)
+      };
+      const svgDelta = screenVectorToSvgVector(svg, screenDelta.x, screenDelta.y) || screenDelta;
+      const before = normalizeLegendPoint(getPosition());
+      const next = constrainPosition({ x: before.x + svgDelta.x, y: before.y + svgDelta.y });
+      if(equals(before, next)){ return; }
+      queueSvgKeyboardFocusRestore(group, resolveBoundOwnerTabId());
+      if(typeof options.onDragStart === 'function'){
+        safeCall(options.onDragStart, [{ ...before, element: group, reason: 'keyboard-move' }], 'enableLegendDrag keyboard onDragStart error');
+      }
+      const appliedPosition = setPosition(next);
+      currentPos = appliedPosition && Number.isFinite(appliedPosition.x) && Number.isFinite(appliedPosition.y)
+        ? normalizeLegendPoint(appliedPosition)
+        : normalizeLegendPoint(next);
+      safeCall(options.onPositionChange, [currentPos], 'enableLegendDrag keyboard onPositionChange error');
+      recordUndo(before, currentPos);
+      safeCall(options.onDragEnd, [{ ...currentPos, element: group, reason: 'keyboard-move' }], 'enableLegendDrag keyboard onDragEnd error');
+    };
+
     group.addEventListener('pointerdown', handlePointerDown);
-    group.__graphitixLegendDragControl = { svg, constrainCurrentPosition };
+    group.addEventListener('keydown', handleKeyDown);
+    group.__graphitixLegendDragControl = { svg, constrainCurrentPosition, handleKeyDown };
     logDebug('enableLegendDrag bound', { element: group.tagName || 'g' });
   }
 
@@ -3552,6 +3988,8 @@
     }
     enableLegendDrag(group, svg, {
       undoLabel: options.undoLabel || 'legend-position',
+      owner: options.owner || null,
+      tabId: options.tabId || null,
       positionAnchor: options.positionAnchor || null,
       deferInitialConstraint: options.deferInitialConstraint,
       viewportPadding: options.viewportPadding,
@@ -3833,19 +4271,19 @@
           svg.setAttribute('width', '100%');
           svg.setAttribute('height', '100%');
           if(lockActive && resizeAxis === 'y' && stableRenderedSize?.width > 0){
-            svg.style.width = `${stableRenderedSize.width}px`;
+            svg.style.width = `${toSvgCssSize(svg, stableRenderedSize).width}px`;
             frozenRenderedSize.width = true;
           }else if(lockActive && resizeAxis === 'x' && currentSlotSize?.width > 0){
-            svg.style.width = `${currentSlotSize.width}px`;
+            svg.style.width = `${toSvgCssSize(svg, currentSlotSize).width}px`;
             frozenRenderedSize.width = true;
           }else{
             svg.style.width = '100%';
           }
           if(lockActive && resizeAxis === 'x' && stableRenderedSize?.height > 0){
-            svg.style.height = `${stableRenderedSize.height}px`;
+            svg.style.height = `${toSvgCssSize(svg, stableRenderedSize).height}px`;
             frozenRenderedSize.height = true;
           }else if(lockActive && resizeAxis === 'y' && currentSlotSize?.height > 0){
-            svg.style.height = `${currentSlotSize.height}px`;
+            svg.style.height = `${toSvgCssSize(svg, currentSlotSize).height}px`;
             frozenRenderedSize.height = true;
           }else{
             svg.style.height = '100%';
@@ -4271,6 +4709,8 @@
 
   Shared.makeEditable = makeEditable;
   Shared.enableLabelDrag = enableLabelDrag;
+  Shared.rehydrateLabelDrag = rehydrateLabelDrag;
+  Shared.rehydrateLabelDrags = rehydrateLabelDrags;
   Shared.constrainSvgLabelPosition = constrainSvgLabelPosition;
   Shared.constrainLegendPositionToViewport = constrainLegendPositionToViewport;
   Shared.enableLegendDrag = enableLegendDrag;

@@ -1,11 +1,15 @@
 const originalDebug = console.debug;
 const originalLog = console.log;
 const { loadProductionBootstrap } = require('../../test-support/productionLoader');
+const { waitForIntegrationOwnerReady } = require('../../test-support/readiness');
 
-async function flushAsyncWork(iterations = 25) {
-  for (let i = 0; i < iterations; i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 0));
-  }
+async function waitForSurvivalOwner(tabId, condition = null) {
+  return waitForIntegrationOwnerReady({
+    type: 'survival',
+    expectedTabId: tabId,
+    requireMountedRoot: true,
+    condition: condition || undefined
+  });
 }
 
 async function selectSurvivalGraph() {
@@ -15,7 +19,9 @@ async function selectSurvivalGraph() {
   if (maybe && typeof maybe.then === 'function') {
     await maybe;
   }
-  await flushAsyncWork();
+  const tabId = window.Main?.session?.getActiveTab?.()?.id || null;
+  await waitForSurvivalOwner(tabId);
+  return tabId;
 }
 
 const cloneForTest = value => JSON.parse(JSON.stringify(value));
@@ -58,25 +64,46 @@ describe('Survival statistics pipeline', () => {
   });
 
   test('Hazard ratios and Cox model stats render and persist', async () => {
-    await selectSurvivalGraph();
+    const tabId = await selectSurvivalGraph();
 
     const loadBtn = document.getElementById('survivalLoadExample');
     expect(loadBtn).toBeTruthy();
     loadBtn.click();
-    await flushAsyncWork();
+    await waitForSurvivalOwner(tabId, () => (
+      window.Components?.survival?.__getState?.()?.lastSummary?.series?.length || 0
+    ) > 0);
 
     const hazardToggle = document.getElementById('survivalShowHazardRatios');
     const coxToggle = document.getElementById('survivalFitCox');
     expect(hazardToggle).toBeTruthy();
     expect(coxToggle).toBeTruthy();
+    expect(hazardToggle.checked).toBe(false);
+    expect(coxToggle.checked).toBe(false);
 
     hazardToggle.checked = true;
     coxToggle.checked = true;
     hazardToggle.dispatchEvent(new Event('change', { bubbles: true }));
     coxToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitForSurvivalOwner(tabId, () => {
+      const controls = window.Components?.survival?.__getState?.()?.controls;
+      return controls?.showHazardRatios === true && controls?.fitCoxModel === true;
+    });
 
-    window.Components?.survival?.draw?.();
-    await flushAsyncWork(200);
+    await window.Components?.survival?.draw?.({
+      tabId,
+      reason: 'survival-stats-controls-selected'
+    });
+    const logRankPanel = document.getElementById('survivalStatsLogRank');
+    expect(logRankPanel?.textContent).toMatch(/Calculate statistics/i);
+    expect(window.Components?.survival?.getPayload?.()?.stats).toBeNull();
+    const calculateButton = document.getElementById('survivalComputeStats');
+    expect(calculateButton).toBeTruthy();
+    expect(calculateButton.disabled).toBe(false);
+    calculateButton.click();
+    await waitForSurvivalOwner(tabId, () => {
+      const stats = window.Components?.survival?.getPayload?.()?.stats;
+      return stats?.flags?.statisticsCalculated === true && stats?.logRank?.available === true;
+    });
 
     const hazardSection = document.getElementById('survivalStatsHazardRatios');
     const coxSection = document.getElementById('survivalStatsCox');
@@ -87,17 +114,89 @@ describe('Survival statistics pipeline', () => {
     expect(payload).toBeTruthy();
     expect(payload.config.showHazardRatios).toBe(true);
     expect(payload.config.fitCoxModel).toBe(true);
-    await flushAsyncWork();
+    expect(payload.stats?.logRank?.available).toBe(true);
+    expect(payload.stats?.analysisSignature).toMatch(/^survival-stats-v2-/);
+  }, 30000);
+
+  test('a selected covariate enables and calculates a one-cohort Cox model', async () => {
+    const tabId = await selectSurvivalGraph();
+    const survival = window.Components.survival;
+    const payload = survival.createEmptyPayload();
+    const ages = [5, 8, 3, 9, 6, 4, 7, 1, 10, 2, 11, 6];
+    payload.data = ages.map((age, index) => ['Cohort', index + 1, index % 4 === 3 ? 0 : 1, '', age]);
+    payload.config.fitCoxModel = true;
+    payload.config.showHazardRatios = false;
+    payload.config.covariateSettings = { 4: { enabled: true, type: 'baseline' } };
+
+    survival.loadFromPayload(payload, { tabId, skipDraw: true, source: 'single-cohort-cox-test' });
+    await survival.draw({ tabId, force: true, reason: 'single-cohort-cox-test' });
+    const calculateButton = document.getElementById('survivalComputeStats');
+    expect(calculateButton?.disabled).toBe(false);
+
+    calculateButton.click();
+    await waitForSurvivalOwner(tabId, () => {
+      const stats = survival.getPayload()?.stats;
+      return stats?.coxModel?.available === true && stats?.flags?.statisticsCalculated === true;
+    });
+    expect(survival.getPayload()?.stats?.coxModel?.available).toBe(true);
+    expect(survival.getPayload()?.stats?.flags?.statisticsCalculated).toBe(true);
+  }, 30000);
+
+  test('changing survival correction reuses raw pairwise results', async () => {
+    const tabId = await selectSurvivalGraph();
+    const survival = window.Components.survival;
+    const payload = survival.createEmptyPayload();
+    payload.data = [
+      ...[4, 6, 8, 10, 12, 14].map(time => ['A', time, 1, '']),
+      ...[2, 4, 6, 8, 10, 12].map(time => ['B', time, 1, '']),
+      ...[1, 3, 5, 7, 9, 11].map(time => ['C', time, 1, ''])
+    ];
+    payload.config.pairwiseCorrection = 'bh';
+    survival.loadFromPayload(payload, { tabId, skipDraw: true, source: 'survival-correction-reuse-test' });
+    await survival.draw({ tabId, force: true, reason: 'survival-correction-reuse-test' });
+    const calculateButton = document.getElementById('survivalComputeStats');
+    expect(calculateButton).toBeTruthy();
+    expect(calculateButton.disabled).toBe(false);
+    calculateButton.click();
+    await waitForSurvivalOwner(tabId, () => (
+      survival.getPayload()?.stats?.pairwiseComparisons?.available === true
+    ));
+    const before = survival.getPayload()?.stats?.pairwiseComparisons;
+    expect(before?.available).toBe(true);
+    const rawPValues = before.rows.map(row => row.p);
+
+    const correction = document.getElementById('survivalPairwiseCorrection');
+    correction.value = 'holm';
+    correction.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitForSurvivalOwner(tabId, () => {
+      const comparisons = survival.getPayload()?.stats?.pairwiseComparisons;
+      return comparisons?.available === true && comparisons?.correction?.key === 'holm';
+    });
+    const after = survival.getPayload()?.stats?.pairwiseComparisons;
+
+    expect(after?.available).toBe(true);
+    expect(after.rows.map(row => row.p)).toEqual(rawPValues);
+    expect(after.correction?.key).toBe('holm');
+
+    const session = survival.__testHooks.getSession(tabId);
+    const currentStats = survival.getPayload()?.stats;
+    const legacyStats = { ...currentStats, analysisSignature: survival.__testHooks.buildLegacyStatsAnalysisSignature() };
+    session.results.stats = legacyStats;
+    survival.__getState().lastStats = legacyStats;
+    await survival.draw({ tabId, force: true, reason: 'survival-legacy-stat-signature-reuse' });
+    expect(survival.getPayload()?.stats?.analysisSignature).toMatch(/^survival-stats-v2-/);
+    expect(survival.getPayload()?.stats?.pairwiseComparisons?.available).toBe(true);
   }, 30000);
 
 
   test('passive cache hydration preserves the durable stats-panel model exactly', async () => {
-    await selectSurvivalGraph();
+    const tabId = await selectSurvivalGraph();
 
     document.getElementById('survivalLoadExample')?.click();
-    await flushAsyncWork();
-    window.Components?.survival?.draw?.();
-    await flushAsyncWork(200);
+    await waitForSurvivalOwner(tabId, () => (
+      window.Components?.survival?.__getState?.()?.lastSummary?.series?.length || 0
+    ) > 0);
+    await window.Components.survival.draw({ tabId, reason: 'survival-passive-cache-hydration-test' });
 
     const before = window.Components?.survival?.getPayload?.();
     expect(before?.config?.statsPanels).toBeTruthy();
@@ -115,7 +214,6 @@ describe('Survival statistics pipeline', () => {
     expect(after?.config?.statsPanels).toStrictEqual(before.config.statsPanels);
     expect(after?.stats?.statsPanels).toStrictEqual(before.stats?.statsPanels);
 
-    const tabId = window.Main?.session?.getActiveTab?.()?.id || null;
     const runtime = window.Components.survival.captureRuntimeState({
       tabId,
       reason: 'survival-passive-stats-runtime-round-trip'
@@ -131,12 +229,13 @@ describe('Survival statistics pipeline', () => {
   }, 30000);
 
   test('axis labels are edited inline after removing the Labels panel controls', async () => {
-    await selectSurvivalGraph();
+    const tabId = await selectSurvivalGraph();
 
     document.getElementById('survivalLoadExample')?.click();
-    await flushAsyncWork();
-    window.Components?.survival?.draw?.();
-    await flushAsyncWork();
+    await waitForSurvivalOwner(tabId, () => (
+      window.Components?.survival?.__getState?.()?.lastSummary?.series?.length || 0
+    ) > 0);
+    await window.Components.survival.draw({ tabId, reason: 'survival-axis-label-edit-test' });
 
     const configLegends = Array.from(document.querySelectorAll('#survivalGraphPanel .config-panel legend'))
       .map(node => node.textContent.trim());
@@ -149,14 +248,13 @@ describe('Survival statistics pipeline', () => {
     expect(xAxisTitle).toBeTruthy();
 
     xAxisTitle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-    await flushAsyncWork();
+    await waitForSurvivalOwner(tabId, () => !!document.querySelector('.inline-edit-input'));
 
     const editor = document.querySelector('.inline-edit-input');
     expect(editor).toBeTruthy();
     editor.value = 'Months';
     editor.dispatchEvent(new Event('input', { bubbles: true }));
     document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
-    await flushAsyncWork();
 
     expect(document.querySelector('.inline-edit-input')).toBeNull();
     const payload = window.Components?.survival?.getPayload?.();
@@ -190,11 +288,12 @@ describe('Survival statistics pipeline', () => {
     expect(hooks.cumulativeCensoredCount(censorGroup, 4)).toBe(1);
     expect(hooks.cumulativeCensoredCount(censorGroup, 8)).toBe(2);
 
-    await selectSurvivalGraph();
+    const tabId = await selectSurvivalGraph();
     document.getElementById('survivalLoadExample')?.click();
-    await flushAsyncWork();
-    await window.Components.survival.draw({ reason: 'test-risk-table-defaults' });
-    await flushAsyncWork();
+    await waitForSurvivalOwner(tabId, () => (
+      window.Components?.survival?.__getState?.()?.lastSummary?.series?.length || 0
+    ) > 0);
+    await window.Components.survival.draw({ tabId, reason: 'test-risk-table-defaults' });
     const risk = document.getElementById('survivalShowRiskTable');
     const summary = document.getElementById('survivalShowPlotStats');
     const legend = document.getElementById('survivalShowLegend');
@@ -228,13 +327,16 @@ describe('Survival statistics pipeline', () => {
   });
 
   test('legacy payloads and recovery snapshots do not acquire new figure annotations on restore', async () => {
-    await selectSurvivalGraph();
+    const tabId = await selectSurvivalGraph();
     document.getElementById('survivalLoadExample')?.click();
-    await flushAsyncWork();
+    await waitForSurvivalOwner(tabId, () => (
+      window.Components?.survival?.__getState?.()?.lastSummary?.series?.length || 0
+    ) > 0);
     const survival = window.Components.survival;
-    const tabId = window.Main?.tabs?.getActiveTab?.()?.id || null;
 
     const legacyPayload = JSON.parse(JSON.stringify(survival.getPayload()));
+    delete legacyPayload.config.showHazardRatios;
+    delete legacyPayload.config.fitCoxModel;
     delete legacyPayload.config.showRiskTable;
     delete legacyPayload.config.showPlotStats;
     delete legacyPayload.config.showLegend;
@@ -244,9 +346,14 @@ describe('Survival statistics pipeline', () => {
       skipDraw: true,
       skipInitialDraw: true
     });
-    await flushAsyncWork();
+    await waitForSurvivalOwner(tabId, () => (
+      document.getElementById('survivalShowHazardRatios')?.checked === true
+      && document.getElementById('survivalFitCox')?.checked === true
+    ));
     expect(document.getElementById('survivalShowRiskTable').checked).toBe(false);
     expect(document.getElementById('survivalShowPlotStats').checked).toBe(false);
+    expect(document.getElementById('survivalShowHazardRatios').checked).toBe(true);
+    expect(document.getElementById('survivalFitCox').checked).toBe(true);
     expect(document.getElementById('survivalShowLegend').checked).toBe(true);
 
     const legacySnapshot = JSON.parse(JSON.stringify(survival.captureRuntimeState({
@@ -256,14 +363,21 @@ describe('Survival statistics pipeline', () => {
     expect(legacySnapshot?.state?.controls).toBeTruthy();
     delete legacySnapshot.state.controls.showRiskTable;
     delete legacySnapshot.state.controls.showPlotStats;
+    delete legacySnapshot.state.controls.showHazardRatios;
+    delete legacySnapshot.state.controls.fitCoxModel;
     delete legacySnapshot.state.controls.showLegend;
     expect(survival.applyRuntimeState(legacySnapshot, {
       tabId,
       reason: 'legacy-survival-runtime-apply-test'
     })).toBe(true);
-    await flushAsyncWork();
+    await waitForSurvivalOwner(tabId, () => (
+      document.getElementById('survivalShowHazardRatios')?.checked === true
+      && document.getElementById('survivalFitCox')?.checked === true
+    ));
     expect(document.getElementById('survivalShowRiskTable').checked).toBe(false);
     expect(document.getElementById('survivalShowPlotStats').checked).toBe(false);
+    expect(document.getElementById('survivalShowHazardRatios').checked).toBe(true);
+    expect(document.getElementById('survivalFitCox').checked).toBe(true);
     expect(document.getElementById('survivalShowLegend').checked).toBe(true);
   }, 30000);
 

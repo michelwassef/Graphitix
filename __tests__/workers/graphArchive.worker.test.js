@@ -80,10 +80,12 @@ describe('graphArchive.worker — utility logic via build-archive', () => {
   });
 
   test('single-tab archive contains required files', async () => {
+    const matrixSignature = 'hot-matrix:worker-test:r1:rows2:cols2';
     const msg = await send(ctx, '2', 'build-archive', {
       tabs: [{
         title: 'My Scatter',
         type: 'scatter',
+        matrixSignatures: [{ path: ['data'], signature: matrixSignature }],
         payload: { type: 'scatter', config: { colorScheme: 'scientific' }, data: [['x', 'y'], [1, 2]] }
       }]
     });
@@ -96,8 +98,10 @@ describe('graphArchive.worker — utility logic via build-archive', () => {
     // payload.json and config.json must exist
     const payloadFile = zip.file(manifest.tabs[0].files.payload);
     const configFile = zip.file(manifest.tabs[0].files.config);
+    const tabInfo = JSON.parse(await zip.file(manifest.tabs[0].files.tab).async('string'));
     expect(payloadFile).not.toBeNull();
     expect(configFile).not.toBeNull();
+    expect(tabInfo.matrixSignatures).toEqual([{ path: ['data'], signature: matrixSignature }]);
   });
 
   test('manifest activeIndex is clamped to valid range', async () => {

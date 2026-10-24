@@ -24,9 +24,12 @@ describe('Regression controls persistence', () => {
   test('Scatter regression payload captures summary', async () => {
     const scatter = window.Components?.scatter;
     expect(scatter).toBeTruthy();
+    const scatterTabId = 'regression-scatter-test-tab';
+    const scatterRoot = document.getElementById('scatterPage');
+    registerActiveProductionTab({ type: 'scatter', tabId: scatterTabId, root: scatterRoot });
     scatter.ensure({
-      tabId: 'regression-scatter-test-tab',
-      root: document.getElementById('scatterPage'),
+      tabId: scatterTabId,
+      root: scatterRoot,
       reason: 'regression-persistence-test'
     });
 
@@ -35,17 +38,17 @@ describe('Regression controls persistence', () => {
     data[0][0] = 'Label';
     data[0][1] = 'X';
     data[0][2] = 'Y';
-    data[1][0] = 'A'; data[1][1] = 0; data[1][2] = 0;
-    data[2][0] = 'B'; data[2][1] = 1; data[2][2] = 0;
-    data[3][0] = 'C'; data[3][1] = 2; data[3][2] = 1;
-    data[4][0] = 'D'; data[4][1] = 3; data[4][2] = 1;
+    data[1][0] = 'A'; data[1][1] = 0; data[1][2] = 1.0;
+    data[2][0] = 'B'; data[2][1] = 1; data[2][2] = 2.1;
+    data[3][0] = 'C'; data[3][1] = 2; data[3][2] = 3.8;
+    data[4][0] = 'D'; data[4][1] = 3; data[4][2] = 5.1;
 
     const showLine = document.getElementById('scatterShowLine');
     showLine.checked = true;
     showLine.dispatchEvent(new window.Event('change'));
 
     const regressionSelect = document.getElementById('scatterRegressionMode');
-    regressionSelect.value = 'logistic';
+    regressionSelect.value = 'linear';
     regressionSelect.dispatchEvent(new window.Event('change'));
     const fitMethodSelect = document.getElementById('scatterFitMethod');
     if(fitMethodSelect){
@@ -55,13 +58,9 @@ describe('Regression controls persistence', () => {
     const fitRangeMin = document.getElementById('scatterFitRangeMinX');
     const fitRangeMax = document.getElementById('scatterFitRangeMaxX');
     const confidenceLevel = document.getElementById('scatterConfidenceLevel');
-    const initialJson = document.getElementById('scatterInitialValuesJson');
-    const constraintsJson = document.getElementById('scatterParameterConstraintsJson');
-    if(fitRangeMin){ fitRangeMin.value = '-8'; fitRangeMin.dispatchEvent(new window.Event('change')); }
-    if(fitRangeMax){ fitRangeMax.value = '-4'; fitRangeMax.dispatchEvent(new window.Event('change')); }
+    if(fitRangeMin){ fitRangeMin.value = '0.5'; fitRangeMin.dispatchEvent(new window.Event('change')); }
+    if(fitRangeMax){ fitRangeMax.value = '2.5'; fitRangeMax.dispatchEvent(new window.Event('change')); }
     if(confidenceLevel){ confidenceLevel.value = '90'; confidenceLevel.dispatchEvent(new window.Event('change')); }
-    if(initialJson){ initialJson.value = '{"0":1000}'; initialJson.dispatchEvent(new window.Event('change')); }
-    if(constraintsJson){ constraintsJson.value = '{"HillSlope":{"lower":-5,"upper":5}}'; constraintsJson.dispatchEvent(new window.Event('change')); }
 
     scatter.draw();
     // Allow initial draw/UI sync, then compute stats explicitly (required for summaries).
@@ -83,14 +82,14 @@ describe('Regression controls persistence', () => {
     }
 
     const nextPayload = scatter.getPayload();
-    expect(typeof nextPayload.config.regression.mode).toBe('string');
+    expect(nextPayload.config.regression.mode).toBe('linear');
     expect(nextPayload.config.regression.method).toBe('huber');
     expect(nextPayload.config.regression.fitSpec).toBeTruthy();
     if (nextPayload.config.regression.fitSpec.confidenceLevel != null) {
       expect(nextPayload.config.regression.fitSpec.confidenceLevel).toBe(90);
     }
     if (nextPayload.config.regression.fitSpec.range) {
-      expect(nextPayload.config.regression.fitSpec.range).toEqual(expect.objectContaining({ minX: -8, maxX: -4 }));
+      expect(nextPayload.config.regression.fitSpec.range).toEqual(expect.objectContaining({ minX: 0.5, maxX: 2.5 }));
     }
     const summary = nextPayload.config.regression.summary;
     if (summary) {

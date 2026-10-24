@@ -1,5 +1,7 @@
 'use strict';
 
+const { loadComponentTestBootstrap } = require('../../test-support/componentTestBootstrap');
+
 describe('PCA preprocessing and metric helpers', () => {
   let hooks;
 
@@ -8,8 +10,7 @@ describe('PCA preprocessing and metric helpers', () => {
     global.Shared = window.Shared = {};
     global.Components = window.Components = {};
     global.Main = window.Main = {};
-    require('../../js/shared/chartStyle.js');
-    require('../../js/components/pca.js');
+    loadComponentTestBootstrap('pca');
     hooks = global.Components.pca.__testHooks;
   });
 
@@ -23,6 +24,37 @@ describe('PCA preprocessing and metric helpers', () => {
     expect(result.sizeFactors[0]).toBeCloseTo(1, 12);
     expect(result.sizeFactors[1]).toBeCloseTo(2, 12);
     expect(result.sizeFactors[2]).toBeCloseTo(0.5, 12);
+  });
+
+  test('parallel analysis is deterministic and applies the empirical 95th-percentile rule', () => {
+    const svdLib = require('svd-js');
+    const matrix = [
+      [2, 1], [3, 5], [6, 2], [4, 9], [8, 3], [7, 6], [5, 4], [9, 8]
+    ];
+    const first = hooks.computeParallelAnalysis(matrix, svdLib, { iterations: 200 });
+    const second = hooks.computeParallelAnalysis(matrix, svdLib, { iterations: 200 });
+    expect(first).toEqual(second);
+    expect(first.iterations).toBe(200);
+    expect(first.averageEigenvalues).toHaveLength(2);
+    expect(first.percentile95Eigenvalues).toHaveLength(2);
+    expect(first.percentile95Eigenvalues.every(value => Number.isFinite(value) && value >= 0)).toBe(true);
+
+    const summary = hooks.computeComponentSelectionSummary(
+      [{ eigenvalue: 3 }, { eigenvalue: 0.5 }], matrix, svdLib,
+      { rule: 'parallel', parallelIterations: 200 }
+    );
+    const expectedRetained = summary.parallelAnalysis.percentile95Eigenvalues
+      .reduce((count, value, index) => count + ([3, 0.5][index] > value ? 1 : 0), 0);
+    expect(summary.parallelIterations).toBe(200);
+    expect(summary.retainedCount).toBe(summary.parallelCount);
+    expect(summary.retainedCount).toBe(expectedRetained);
+
+    const higherBudget = hooks.computeComponentSelectionSummary(
+      [{ eigenvalue: 3 }, { eigenvalue: 0.5 }], matrix, svdLib,
+      { rule: 'parallel', parallelIterations: 500 }
+    );
+    expect(higherBudget.parallelIterations).toBe(500);
+    expect(higherBudget.retainedCount).toBe(summary.retainedCount);
   });
 
   test('matches DESeq2 ratio normalization by excluding genes containing any zero', () => {
@@ -105,30 +137,27 @@ describe('PCA preprocessing and metric helpers', () => {
     expect(layout.rightExtension).toBeGreaterThan(0);
   });
 
-  test('PCA axis-length transaction solves the final metric frame in one pass', () => {
+  test('PCA explicit axis sizing solves the final metric frame in one pass', () => {
     const plan = hooks.compute2dAxisLengthResizePlan({
       axis: 'x',
       requestedLength: 230,
       currentX: 278.3343684043447,
       currentY: 139.16718420217234,
       boxHeight: 318,
-      svgHeight: 229,
-      baseHeight: 229,
+      drawableHeight: 229,
       plotHeight: 139.16718420217234,
       marginTop: 40,
-      marginBottom: 49.83281579782766,
-      frameAspect: 1
+      marginBottom: 49.83281579782766
     });
 
     expect(plan).toBeTruthy();
     expect(plan.metricAspect).toBeCloseTo(2, 12);
     expect(plan.targetPhysicalY).toBeCloseTo(115, 12);
     expect(plan.targetInternalPlotHeight).toBeCloseTo(115, 12);
-    expect(plan.targetBaseHeight).toBeCloseTo(204.83281579782766, 12);
-    expect(plan.width).toBeCloseTo(plan.height, 12);
+    expect(plan.targetDrawableHeight).toBeCloseTo(204.83281579782766, 12);
     expect(plan.height).toBeCloseTo(293.83281579782766, 12);
 
-    const lockedPlotHeight = plan.targetBaseHeight - 40 - 49.83281579782766;
+    const lockedPlotHeight = plan.targetDrawableHeight - 40 - 49.83281579782766;
     expect(lockedPlotHeight).toBeCloseTo(115, 12);
     expect(lockedPlotHeight * plan.metricAspect).toBeCloseTo(230, 12);
   });

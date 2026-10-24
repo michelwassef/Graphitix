@@ -9,6 +9,33 @@ describe('Main.components.ensureComponent', () => {
     global.window.Shared = undefined;
   });
 
+  test('does not initialize a component for a different active owner', () => {
+    const ensure = jest.fn();
+    window.Components = { box: { ensure } };
+    window.Main = { session: { workspaceState: { activeTabId: 'b' } } };
+    require('../../js/main/components.js');
+    window.Main.components.ensureComponent('box', { ensureOptions: { tabId: 'a' } });
+    expect(ensure).not.toHaveBeenCalled();
+  });
+
+  test('a delayed bundle cannot bind stale controls after a newer activation of the same owner', async () => {
+    const ensure = jest.fn();
+    let token = 1;
+    window.Components = {};
+    window.Main = { session: { workspaceState: { activeTabId: 'a' } },
+      domControls: { isActivationCurrent: candidate => candidate === token } };
+    jest.doMock('../../js/components/box.js', () => {
+      window.Components.box = { ensure };
+      return {};
+    });
+    require('../../js/main/components.js');
+    const result = window.Main.components.ensureComponent('box', { ensureOptions: { tabId: 'a', workspaceActivationToken: 1 } });
+    token = 2;
+    await result;
+    expect(ensure).not.toHaveBeenCalled();
+    jest.dontMock('../../js/components/box.js');
+  });
+
   test('returns loaded component synchronously when present globally', () => {
     if (typeof global.window.Components !== 'object') {
       global.window.Components = {};

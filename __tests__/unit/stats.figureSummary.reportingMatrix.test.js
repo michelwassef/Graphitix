@@ -50,6 +50,15 @@ function rowsIn(summary, key) {
   return summary?.sections?.find(section => section?.key === key)?.rows || [];
 }
 
+function expectProjected(summary, type, fragments) {
+  require('../../js/shared/statsFigureSummary.js');
+  const model = window.Shared.statsFigureSummary.normalizeModel({ figureSummary:summary }, 'summary-test', type);
+  expect(model).toBeTruthy();
+  const text = summaryText(model);
+  fragments.forEach(fragment => expect(text).toContain(fragment));
+  expect(text).not.toMatch(/invalid probability|NaN|undefined/);
+}
+
 describe('statistical figure-summary reporting matrix', () => {
   test('ROC reports every curve and names the selected directional AUC comparison', () => {
     const hooks = loadComponent('roc');
@@ -57,7 +66,7 @@ describe('statistical figure-summary reporting matrix', () => {
       { name:'Assay A', positiveCount:18, negativeCount:22, auc:0.91, aucCiLow:0.82, aucCiHigh:0.98, mannWhitneyU:356, pVal:0.0004, pMethod:'exact Mann–Whitney', thr:2.4, recall:0.83, specificity:0.86 },
       { name:'Assay B', positiveCount:18, negativeCount:22, auc:0.79, aucCiLow:0.66, aucCiHigh:0.90, mannWhitneyU:305, pVal:0.009, pMethod:'asymptotic Mann–Whitney', thr:1.6, recall:0.72, specificity:0.77 },
       { name:'Assay C', positiveCount:18, negativeCount:22, auc:0.73, aucCiLow:0.58, aucCiHigh:0.86, mannWhitneyU:280, pVal:0.041, pMethod:'asymptotic Mann–Whitney', thr:0.9, recall:0.67, specificity:0.73 }
-    ];
+    ].map(curve => ({ ...curve, positiveClass:1, negativeClass:0 }));
     const summary = hooks.buildFigureSummary(curves, 'roc', {
       diff:0.18, ci:[0.05,0.31], z:2.7, p:0.007, pairedCount:40, method:'delong'
     }, {
@@ -72,6 +81,7 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(text).toMatch(/unadjusted across curves/i);
     expect(text).toMatch(/single-curve p-values use exact Mann–Whitney; asymptotic Mann–Whitney/i);
     expect((text.match(/Mann–Whitney/gi) || []).length).toBe(2);
+    expectProjected(summary, 'roc', ['U = 356', 'p = 0.009', 'p = 0.041']);
   });
 
   test('precision–recall without a curve-comparison p value is an analysis summary, not inferential', () => {
@@ -87,8 +97,8 @@ describe('statistical figure-summary reporting matrix', () => {
   test('precision–recall comparison names the pair, method, confidence interval, and prespecified inference scope', () => {
     const hooks = loadComponent('roc');
     const summary = hooks.buildFigureSummary([
-      { name:'Model A', positiveCount:20, negativeCount:30, avgPrecision:0.88 },
-      { name:'Model B', positiveCount:20, negativeCount:30, avgPrecision:0.74 }
+      { name:'Model A', positiveClass:1, negativeClass:0, positiveCount:20, negativeCount:30, avgPrecision:0.88 },
+      { name:'Model B', positiveClass:1, negativeClass:0, positiveCount:20, negativeCount:30, avgPrecision:0.74 }
     ], 'pr', {
       diff:0.14, ci:[0.04,0.24], p:0.012, pairedCount:50, iterations:5000, method:'paired-bootstrap'
     }, {
@@ -102,6 +112,7 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(text).toMatch(/Bootstrap/i);
     expect(text).toMatch(/one prespecified paired comparison/i);
     expect(text).toMatch(/no multiplicity adjustment required/i);
+    expectProjected(summary, 'roc', ['ΔAP = 0.140', 'p = 0.012', 'paired n = 50']);
   });
 
   test('Histogram distinguishes one-series diagnostics, exactly-two-series KS, and unavailable three-series KS', () => {
@@ -113,6 +124,7 @@ describe('statistical figure-summary reporting matrix', () => {
       modelComparison:{ available:true, normalAicc:101, lognormalAicc:106, deltaAicc:5, preferred:'normal' }
     });
     const one = hooks.buildFigureSummary([makeEntry('A',20,4)], { diagnosticsMode:'normal-vs-lognormal', comparisonMode:'off', graphLabel:'Histogram' });
+    expectProjected(one, 'hist', ['KS D = 0.11', 'p = 0.42', 'AD A² = 0.37', 'p = 0.35']);
     expect(summaryText(one)).toMatch(/500 successful simulations/i);
     expect(summaryText(one)).toMatch(/unadjusted model diagnostics/i);
     expect(summaryText(one)).toMatch(/A normal fit.*n\s*=\s*20/i);
@@ -213,6 +225,7 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(text).toContain('Control vs Drug B');
     expect(text).toMatch(/Holm/i);
     expect(text).toMatch(/expected count/i);
+    expectProjected(summary, 'pie', ['χ²(2) = 8.41', 'N = 162', 'p = 0.0149', 'raw p = 0.024']);
   });
 
   test('Pie goodness-of-fit reports the omnibus statistic, effect size, and no irrelevant pairwise multiplicity language', () => {
@@ -255,6 +268,7 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(text).toMatch(/2 requested hazard-ratio contrasts.*unadjusted/i);
     expect(text).toMatch(/HR: Drug A vs Control/i);
     expect(text).toMatch(/HR: Drug B vs Control/i);
+    expectProjected(summary, 'survival', ['χ²(2) = 8.7', 'p = 0.0129', 'n = 30', 'events = 18', 'HR = 0.610']);
   });
 
   test('Survival with one group and no inferential model is explicitly descriptive', () => {
@@ -278,6 +292,7 @@ describe('statistical figure-summary reporting matrix', () => {
     smallPairs.forEach(pair => expect(smallText).toContain(`${pair.left} vs ${pair.right}`));
     expect(smallText).toMatch(/Student t approximation/i);
     expect((smallText.match(/Student t approximation/gi) || []).length).toBe(1);
+    expectProjected(small, 'heatmap', ['r = 0.8', 'n = 10', 'raw p = 0.006', 'adjusted p = 0.018']);
 
     const largePairs = Array.from({length:10},(_,i)=>({ left:`G${i}`, right:`G${i+1}`, raw:0.9-(i*0.02), n:30, rawPValue:0.001*(i+1), adjustedPValue:0.002*(i+1), pMethod:'two-sided Student t approximation' }));
     const large = hooks.buildFigureSummary({ type:'correlation',method:'pearson',itemCount:6,pairCount:10,showSignificance:true,significanceCorrection:'bh',inferenceLevel:0.05,pairResults:largePairs,decimals:3 });
@@ -304,6 +319,7 @@ describe('statistical figure-summary reporting matrix', () => {
     const text = summaryText(three);
     ['A ∩ B','A ∩ C','B ∩ C'].forEach(label => expect(text).toContain(label));
     expect(text).toMatch(/Holm adjustment across 3/i);
+    expectProjected(three, 'venn', ['observed overlap = 20', 'expected under the hypergeometric null = 12', 'raw p = 0.01', 'Holm-adjusted p = 0.03']);
   });
 
   test('PCA and Surface remain descriptive and never invent inferential statistics', () => {
@@ -315,11 +331,13 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(pca.kind).toBe('analysis');
     expect(summaryText(pca)).toMatch(/12 samples.*500 variables/i);
     expect(summaryText(pca)).not.toMatch(/\bp\s*[=<]/i);
+    expectProjected(pca, 'pca', ['80% cumulative variance', '62% variance explained', 'eigenvalue = 4.1']);
 
     const surface = loadComponent('surface').buildFigureSummary({ gridColumns:20,gridRows:10,gridExpected:200,gridComplete:true,vertexCount:200,faceCount:342,zMin:-2,zMax:6,skipped:3 });
     expect(surface.kind).toBe('analysis');
     expect(summaryText(surface)).toMatch(/20 × 10 coordinate grid/i);
     expect(summaryText(surface)).toMatch(/3 rows with missing or non-numeric/i);
+    expectProjected(surface, 'surface', ['20 × 10', '200 vertices', '342 triangular faces', '-2 to 6']);
   });
 
   test('Scatter single-dataset summary reports association and coefficient inference with distinct CI scopes', () => {
@@ -346,6 +364,7 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(text).toMatch(/t\(13\)/i);
     expect(text).toMatch(/association p-values use Student t approximation/i);
     expect(text).not.toMatch(/Student t approximation; two-sided/i);
+    expectProjected(summary, 'scatter', ['n = 15', 'p = 0.002', 't(13) = 4', 'p = 0.0015']);
   });
 
   test('Scatter model-fit-only summary stays descriptive when no coefficient or association inference is available', () => {
@@ -401,6 +420,7 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(rowsIn(summary, 'analysis').map(row => row.label)).toContain('Inference');
     expect(text).toMatch(/per-series inferential p-values are not multiplicity-adjusted/i);
     expect(text).toMatch(/F\(1, 8\)/i);
+    expectProjected(summary, 'line', ['n = 10', 'p = 0.014', 'F(1, 8) = 9.8', 'p = 0.034']);
     expect(text).toMatch(/association p-values use Student t approximation/i);
     expect(text).not.toMatch(/Student t approximation; two-sided/i);
   });
@@ -454,6 +474,41 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(manyText).toMatch(/Holm correction across 3/i);
     expect(manyText).toMatch(/raw p/i);
     expect(manyText).toMatch(/adjusted p/i);
+    expectProjected(many, 'box', ['t = 3.4', 'df = 20', 'raw p = 0.003', 'adjusted p = 0.009']);
+  });
+
+  test.each([
+    ['tukey', 'parametric', false, 'classic'],
+    ['gamesHowell', 'parametric', false, 'welch'],
+    ['nemenyi', 'nonparametric', true, 'friedman']
+  ])('Box %s computed q statistics reach the compact summary', (statsPostHoc, statsTest, statsPaired, variant) => {
+    const hooks = loadComponent('box');
+    const groups = [[1, 3, 4, 7, 6], [4, 5, 8, 9, 10], [9, 11, 12, 14, 15]];
+    const model = window.Shared.boxStatsModel.computeBoxStatsModel({
+      mode:'single', statsMode:'all', statsPostHoc, statsTest, statsPaired,
+      statsParametricVariant:statsTest === 'parametric' ? variant : 'classic',
+      statsNonParametricVariant:statsTest === 'nonparametric' ? variant : 'kruskalWallis',
+      selection:groups.map((values, index) => ({ values, index, label:`Group ${index}` }))
+    });
+    expect(model.ok).toBe(true);
+    expect(model.pairs).toHaveLength(3);
+    const summary = hooks.buildFigureSummary(model, model.report);
+    require('../../js/shared/statsFigureSummary.js');
+    const projected = window.Shared.statsFigureSummary.normalizeModel({ figureSummary:summary }, 'box-summary', 'box');
+    if(statsPaired){
+      const overall = /Q = ([\d.]+)/.exec(summaryText(projected));
+      expect(overall).toBeTruthy();
+      expect(Number(overall[1])).toBeCloseTo(model.overall.Q, 2);
+    }
+    model.pairs.forEach(pair => {
+      expect(pair.statName).toBe('q');
+      const row = allRows(projected).find(item => item.label === `${pair.labelA} vs ${pair.labelB}`);
+      expect(row).toBeTruthy();
+      const reported = /statistic = q = ([\d.]+)/.exec(row.value);
+      expect(reported).toBeTruthy();
+      expect(Number(reported[1])).toBeCloseTo(pair.stat, 2);
+    });
+    expect(summaryText(projected)).not.toContain('unavailable');
   });
 
   test('Box factorial summary reports each effect as F(df1, df2) with the model-specific error term', () => {

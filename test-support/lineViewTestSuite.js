@@ -2,11 +2,13 @@
 'use strict';
 
 const { ensureJStatStub } = require('../__tests__/helpers/jstatTestStub');
+const { installSvgTextGeometry } = require('../__tests__/setup/svgTextGeometry');
 const { loadProductionBootstrap } = require('./productionLoader');
 const { installProductionTestEventTracker } = require('./productionTestLifecycle');
 
 function createLineViewTestContext() {
   let restoreJStat = null;
+  let restoreSvgTextGeometry = null;
   const productionEvents = installProductionTestEventTracker();
   const cancelPreviousLineAsyncWork = () => {
     const previousLine = window.Components?.line || null;
@@ -59,9 +61,9 @@ function createLineViewTestContext() {
       actions: options.actions || ['draw-settled'],
       afterCursor,
       timeoutMs: options.timeoutMs || 4000,
-      predicate: options.reason
-        ? event => event.reason === options.reason
-        : null
+      predicate: typeof options.predicate === 'function'
+        ? options.predicate
+        : (options.reason ? event => event.reason === options.reason : null)
     });
   };
   const loadCurrentLineExample = async () => {
@@ -96,14 +98,20 @@ function createLineViewTestContext() {
   const loadLineExampleAndComputeStats = async () => {
     const exampleBtn = document.getElementById('lineLoadExample');
     expect(exampleBtn).toBeTruthy();
+    const activeTabId = window.Main?.session?.getActiveTab?.()?.id || null;
+    expect(activeTabId).toBeTruthy();
     const drawCursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
     exampleBtn.click();
-    await waitForLineLifecycle(drawCursor, { reason: 'line-example-load' });
+    const drawSettled = await waitForLineLifecycle(drawCursor, {
+      tabId: activeTabId,
+      timeoutMs: 8000,
+      predicate: event => event.phase === 'complete'
+    });
+    expect(drawSettled.tabId).toBe(activeTabId);
     const computeBtn = document.getElementById('lineComputeStats');
     expect(computeBtn).toBeTruthy();
     computeBtn.click();
     await Promise.resolve();
-    const activeTabId = window.Main?.session?.getActiveTab?.()?.id || null;
     const session = window.Components?.line?.__testHooks?.getSessionForTab?.(activeTabId) || null;
     expect(session?.tabId).toBe(activeTabId);
     expect(session?.state?.statsState?.context?.series?.length).toBeGreaterThan(0);
@@ -142,7 +150,7 @@ function createLineViewTestContext() {
     const matches = entries.filter(entry => String(entry?.label || '') === 'line.draw');
     return matches.length ? matches[matches.length - 1].meta || null : null;
   };
-  
+
   beforeEach(async () => {
     productionEvents.reset();
     cancelPreviousLineAsyncWork();
@@ -169,6 +177,7 @@ function createLineViewTestContext() {
       delete global.Components.line;
     }
     restoreJStat = ensureJStatStub();
+    restoreSvgTextGeometry = installSvgTextGeometry();
   
     loadProductionBootstrap({
       vendorMode: 'fake',
@@ -187,12 +196,16 @@ function createLineViewTestContext() {
   afterEach(() => {
     productionEvents.reset();
     cancelPreviousLineAsyncWork();
+    if(typeof restoreSvgTextGeometry === 'function'){
+      restoreSvgTextGeometry();
+      restoreSvgTextGeometry = null;
+    }
     if(typeof restoreJStat === 'function'){
       restoreJStat();
       restoreJStat = null;
     }
   });
-  
+
   afterAll(() => {
     productionEvents.restore();
   });

@@ -14,6 +14,7 @@ const {
   getCommandTestFiles,
   selectManifestEntries,
   writeManifestEvidenceArtifacts,
+  pruneExpiredGeneratedArtifacts,
   isPlaywrightCommand,
   shouldContinueAfterCommandFailure,
   parseArgs
@@ -43,9 +44,48 @@ const {
 } = require('../../scripts/run-full-jest.cjs');
 
 describe('test lane runner', () => {
+  test('prunes only expired generated outputs and removes their empty folders', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graphitix-artifact-retention-'));
+    const now = Date.UTC(2026, 9, 22);
+    const expiredTime = new Date(now - 15 * 24 * 60 * 60 * 1000);
+    const currentTime = new Date(now - 24 * 60 * 60 * 1000);
+    const expiredFiles = [
+      path.join(root, 'artifacts', 'test-reports', 'nested', 'old.json'),
+      path.join(root, 'coverage', 'old.html'),
+      path.join(root, 'test-results', 'old.txt'),
+      path.join(root, 'artifacts', 'full-test-run-20261001-120000', 'runner.log')
+    ];
+    const currentFile = path.join(root, 'artifacts', 'test-reports', 'current.json');
+    const unrelatedFile = path.join(root, 'artifacts', 'manual-evidence', 'old.png');
+    try {
+      for (const file of expiredFiles) {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, 'expired');
+        fs.utimesSync(file, expiredTime, expiredTime);
+      }
+      fs.mkdirSync(path.dirname(currentFile), { recursive: true });
+      fs.writeFileSync(currentFile, 'current');
+      fs.utimesSync(currentFile, currentTime, currentTime);
+      fs.mkdirSync(path.dirname(unrelatedFile), { recursive: true });
+      fs.writeFileSync(unrelatedFile, 'keep');
+      fs.utimesSync(unrelatedFile, expiredTime, expiredTime);
+
+      const result = pruneExpiredGeneratedArtifacts(root, now);
+
+      expect(result).toEqual({ files: expiredFiles.length, bytes: expiredFiles.length * 'expired'.length });
+      expect(expiredFiles.some(file => fs.existsSync(file))).toBe(false);
+      expect(fs.existsSync(path.join(root, 'artifacts', 'full-test-run-20261001-120000'))).toBe(false);
+      expect(fs.existsSync(path.join(root, 'coverage'))).toBe(false);
+      expect(fs.existsSync(currentFile)).toBe(true);
+      expect(fs.existsSync(unrelatedFile)).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('defines explicit static and Chromium contract lanes', () => {
     expect(getLaneSpec('static').map(command => command.label)).toEqual([
-      'lint', 'component-contracts', 'testing-inventory-doc', 'production-bootstrap', 'vendor-provenance', 'test-runtime', 'welcome-assets', 'test-inventory'
+      'ui-source-validation', 'lint', 'component-contracts', 'testing-inventory-doc', 'production-bootstrap', 'vendor-provenance', 'test-runtime', 'welcome-assets', 'test-inventory'
     ]);
     expect(getLaneSpec('e2e-contracts-firefox')[0].args).toContain('--project=firefox');
     expect(getLaneSpec('e2e-matrix')[0].args).toEqual(expect.arrayContaining([
@@ -165,10 +205,16 @@ describe('test lane runner', () => {
   test('PowerShell full wrapper delegates status and reports to the canonical Node lane', () => {
     const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8'));
     const wrapper = fs.readFileSync(path.resolve(__dirname, '../../scripts/run-full-tests.ps1'), 'utf8');
+    const runner = fs.readFileSync(path.resolve(__dirname, '../../scripts/run-test-lane.cjs'), 'utf8');
     expect(packageJson.scripts.test).toBe('jest');
     expect(packageJson.scripts['test:full']).toContain('scripts/run-full-tests.ps1');
-    expect(wrapper).toContain('& node scripts/run-test-lane.cjs --lane full --json --report-file $laneReport');
+    expect(runner).toContain("stdio: quietOutput ? ['inherit', process.stderr.fd, process.stderr.fd] : 'inherit'");
+    expect(runner).not.toContain("stdio: quietOutput ? ['inherit', 'pipe', 'pipe']");
+    expect(wrapper).toContain('Start-Process -FilePath $nodeExecutable -ArgumentList $nodeArguments');
+    expect(wrapper).toContain('-RedirectStandardOutput $runnerJson');
+    expect(wrapper).toContain('-RedirectStandardError $runnerLog');
     expect(wrapper).toContain('$runner = Get-Content $runnerJson -Raw | ConvertFrom-Json');
+    expect(wrapper).toContain('$caughtError | Format-List * -Force');
     expect(wrapper).toContain('exit $initialStatus');
     expect(wrapper).not.toContain('exit $diagnosticStatus');
     expect(wrapper).toContain('Lane report: $laneReport');

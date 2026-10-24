@@ -36,7 +36,7 @@ describe('Cross-component inference UI contract', () => {
     expect(box).toContain("Shared.statsInference?.getTargetFdr");
     expect(box).not.toContain('state.statsAlpha');
     expect(box).toMatch(/clearBoxStatsResultsState\(reasonText \|\| 'stats-config-change'/);
-    expect(read('index.html')).toContain('Decision (* / NS; D / ND for FDR)');
+    expect(read('js/shared/significanceControls.js')).toContain('Decision (* / NS; D / ND for FDR)');
   });
 
   test('descriptive diagnostics and regression confidence levels are not reused as inferential alpha', () => {
@@ -132,11 +132,12 @@ describe('Cross-component inference UI contract', () => {
 
   test('Box graph annotations default to P-value while retaining decision mode', () => {
     const box = read('js/components/box.js');
-    const html = read('index.html');
+    const controls = read('js/shared/significanceControls.js');
     expect(box).toContain("DEFAULT_SIGNIFICANCE_LABEL_MODE = 'p'");
     expect(box).toContain("return value === 'decision' ? 'decision' : DEFAULT_SIGNIFICANCE_LABEL_MODE;");
     expect(box).not.toContain("significanceLabelMode: 'stars'");
-    expect(html).toContain('<option value="p" selected>P-value</option>');
+    expect(controls).toContain("new Option('P-value', 'p')");
+    expect(read('index.html')).not.toContain('boxSignificanceLabelCtl');
   });
 
   test('Scatter keeps alpha available for model-only fits because regression coefficients still have inferential p-values', () => {

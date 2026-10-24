@@ -345,19 +345,45 @@
 
   const getSessionActionsContext = () => tabsManager.getSessionActionsContext();
 
+  function reportSessionSaveFailure(result) {
+    if (result?.status !== 'error' || typeof window.alert !== 'function') {
+      return;
+    }
+    const fileName = result.fileName || workspaceState?.sessionFileName || 'the current graph';
+    const detail = result.reason === 'existing-file-write-permission-denied'
+      ? `The browser did not grant write access to ${fileName}. Your changes remain unsaved.`
+      : result.reason === 'existing-file-handle-unavailable'
+        ? `Graphitix cannot update ${fileName} because the browser did not provide write access. Reopen the original with Graphitix Open. Your changes remain unsaved.`
+        : result.reason === 'existing-file-target-mismatch'
+          ? `The current save target does not belong to this tab. Your changes remain unsaved.`
+          : `Graphitix could not save ${fileName}. Your changes remain unsaved.`;
+    window.alert(detail);
+  }
+
   async function handleSessionSaveClick(options) {
     const rawOptions = (options && typeof options === 'object' && typeof options.preventDefault !== 'function')
       ? options
       : {};
-    return MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), {
-      ...rawOptions,
-      scope: rawOptions.scope || 'workspace'
-    });
+    try {
+      const result = await MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), rawOptions);
+      reportSessionSaveFailure(result);
+      return result;
+    } catch (err) {
+      console.error('Graphitix save failed', { message: err?.message || String(err) });
+      reportSessionSaveFailure({ status: 'error', reason: 'save-failed' });
+      return { status: 'error', error: err };
+    }
   }
 
   async function handleSessionLoadClick(options) {
     return MainSessionActions.handleSessionLoadClick(getSessionActionsContext(), options);
   }
+
+  Main.fileActions = Object.freeze({
+    save: () => handleSessionSaveClick({ reason: 'component-file-action-save' }),
+    saveAs: () => handleSessionSaveClick({ reason: 'component-file-action-save-as', forcePicker: true }),
+    open: () => handleSessionLoadClick({ reason: 'component-file-action-open' })
+  });
 
   function handleSessionInputChange(event) {
     MainSessionActions.handleSessionInputChange(getSessionActionsContext(), event);
@@ -407,9 +433,13 @@
     }
     return new Promise(resolve => {
       let settled = false;
+      const modal = Shared.modalLifecycle;
       const cleanup = () => {
-        prompt.setAttribute('hidden', 'hidden');
-        prompt.removeEventListener('keydown', onKeyDown);
+        if (modal?.isOpen?.(prompt)) {
+          modal.close(prompt);
+        } else {
+          prompt.setAttribute('hidden', 'hidden');
+        }
         addBtn.removeEventListener('click', onAdd);
         replaceBtn.removeEventListener('click', onReplace);
         cancelBtn.removeEventListener('click', onCancel);
@@ -425,18 +455,20 @@
       const onAdd = () => finish('append');
       const onReplace = () => finish('replace');
       const onCancel = () => finish(null);
-      const onKeyDown = event => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          finish(null);
-        }
-      };
       addBtn.addEventListener('click', onAdd);
       replaceBtn.addEventListener('click', onReplace);
       cancelBtn.addEventListener('click', onCancel);
-      prompt.addEventListener('keydown', onKeyDown);
-      prompt.removeAttribute('hidden');
-      prompt.focus?.();
+      if (modal?.open) {
+        modal.open(prompt, {
+          initialFocus: addBtn,
+          returnFocus: () => document.querySelector('.workspace-tab[aria-selected="true"]')
+            || dom.welcomeFileDropZone,
+          onEscape: () => finish(null)
+        });
+      } else {
+        prompt.removeAttribute('hidden');
+        addBtn.focus?.();
+      }
     });
   }
 
@@ -477,9 +509,13 @@
     }
     return new Promise(resolve => {
       let settled = false;
+      const modal = Shared.modalLifecycle;
       const cleanup = () => {
-        prompt.setAttribute('hidden', 'hidden');
-        prompt.removeEventListener('keydown', onKeyDown);
+        if (modal?.isOpen?.(prompt)) {
+          modal.close(prompt);
+        } else {
+          prompt.setAttribute('hidden', 'hidden');
+        }
         saveBtn.removeEventListener('click', onSave);
         discardBtn.removeEventListener('click', onDiscard);
         cancelBtn.removeEventListener('click', onCancel);
@@ -495,18 +531,20 @@
       const onSave = () => finish('save');
       const onDiscard = () => finish('discard');
       const onCancel = () => finish('cancel');
-      const onKeyDown = event => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          finish('cancel');
-        }
-      };
       saveBtn.addEventListener('click', onSave);
       discardBtn.addEventListener('click', onDiscard);
       cancelBtn.addEventListener('click', onCancel);
-      prompt.addEventListener('keydown', onKeyDown);
-      prompt.removeAttribute('hidden');
-      prompt.focus?.();
+      if (modal?.open) {
+        modal.open(prompt, {
+          initialFocus: saveBtn,
+          returnFocus: () => document.querySelector('.workspace-tab[aria-selected="true"]')
+            || dom.welcomeFileDropZone,
+          onEscape: () => finish('cancel')
+        });
+      } else {
+        prompt.removeAttribute('hidden');
+        saveBtn.focus?.();
+      }
     });
   }
 
@@ -537,11 +575,8 @@
       return { proceed: false, loadMode: null };
     }
     if (unsavedChoice === 'save') {
-      const forcePicker = !workspaceState?.sessionFileHandle;
       const saveResult = await handleSessionSaveClick({
-        reason: 'welcome-open-before-replace-save',
-        scope: 'workspace',
-        forcePicker
+        reason: 'welcome-open-before-replace-save'
       });
       const saveStatus = saveResult?.status || null;
       if (saveStatus !== 'saved' && saveStatus !== 'downloaded') {
@@ -663,10 +698,10 @@
     }));
     menu.replaceChildren(...types.map(type => {
       const definition = getWelcomeGraphDefinition(type);
-      const option = document.createElement('button');
-      option.type = 'button';
+      const option = document.createElement('li');
       option.className = 'welcome-import-component-option';
       option.setAttribute('role', 'option');
+      option.tabIndex = -1;
       option.dataset.component = type;
       const icon = document.createElement('span');
       icon.className = 'welcome-import-component-icon graph-card__icon';
@@ -927,9 +962,12 @@
         setWelcomeComponentPickerOpen(false);
       };
       const cleanup = () => {
-        prompt.setAttribute('hidden', 'hidden');
         setWelcomeComponentPickerOpen(false);
-        prompt.removeEventListener('keydown', onKeyDown);
+        if (Shared.modalLifecycle?.isOpen?.(prompt)) {
+          Shared.modalLifecycle.close(prompt);
+        } else {
+          prompt.setAttribute('hidden', 'hidden');
+        }
         openBtn.removeEventListener('click', onOpen);
         cancelBtn.removeEventListener('click', onCancel);
         componentButton?.removeEventListener('click', onComponentButtonClick);
@@ -948,17 +986,6 @@
       const onOpen = () => finish(getWelcomeDataImportOptions());
       const onCancel = () => finish(null);
       const onKeyDown = event => {
-        if (event.key === 'Escape') {
-          if (componentMenu?.hidden === false) {
-            event.preventDefault();
-            setWelcomeComponentPickerOpen(false);
-            componentButton?.focus?.();
-            return;
-          }
-          event.preventDefault();
-          finish(null);
-          return;
-        }
         if (event.key === 'Enter' && componentMenu?.hidden !== false) {
           event.preventDefault();
           onOpen();
@@ -973,8 +1000,27 @@
       componentMenu?.addEventListener('keydown', onComponentMenuKeyDown);
       document.addEventListener('pointerdown', onDocumentPointerDown, true);
       listeners.forEach(([node, event, handler]) => node.addEventListener(event, handler));
-      prompt.removeAttribute('hidden');
-      (fixedComponent ? delimiter : componentButton)?.focus?.();
+      if (Shared.modalLifecycle?.open) {
+        Shared.modalLifecycle.open(prompt, {
+          initialFocus: fixedComponent ? delimiter : componentButton,
+          returnFocus: () => fixedComponent
+            ? Array.from(document.querySelectorAll('.workspace-tab'))
+              .find(tab => tab.getAttribute('aria-selected') === 'true')
+            : dom.welcomeFileDropZone,
+          fallbackFocus: () => dom.welcomeFileDropZone,
+          onEscape: () => {
+            if (componentMenu?.hidden === false) {
+              setWelcomeComponentPickerOpen(false);
+              componentButton?.focus?.();
+              return;
+            }
+            finish(null);
+          }
+        });
+      } else {
+        prompt.removeAttribute('hidden');
+        (fixedComponent ? delimiter : componentButton)?.focus?.();
+      }
       void renderPreview();
     });
   }
@@ -1469,7 +1515,7 @@
       }
       event.preventDefault();
       event.stopImmediatePropagation();
-      void handleSessionSaveClick({ reason: 'desktop-keyboard-save', scope: 'workspace' });
+      void handleSessionSaveClick({ reason: 'desktop-keyboard-save' });
     }, true);
   }
 

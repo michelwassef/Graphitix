@@ -40,6 +40,13 @@ async function assertZoomPresentation(page, component, readyExpression, options 
     await page.waitForSelector('#linePage:not([hidden]) #lineSvg [data-legend-viewport-content="true"]');
   }
 
+  await page.locator(`#${component}Page:not([hidden])`).getByRole('button', {
+    name: 'View graph at actual size', exact: true
+  }).click();
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true, requirePublished: true, requireIdle: true, timeout: 30_000
+  });
+
   const before = await page.evaluate((componentKey) => {
     const root = document.querySelector('[id$="Page"]:not([hidden])');
     const svgBox = root?.querySelector('.svgbox');
@@ -53,6 +60,8 @@ async function assertZoomPresentation(page, component, readyExpression, options 
       svg: graphSvg?.getBoundingClientRect?.().toJSON?.() || null,
       svgAttrs: { width: graphSvg?.getAttribute?.('width') || '', height: graphSvg?.getAttribute?.('height') || '' },
       envelope: box ? {
+        canonicalRight: Number(graphSvg?.dataset?.graphContentReserveRight)
+          * (Number(graphSvg?.dataset?.graphContentRenderedScaleX) || 1),
         extraRight: box.style.getPropertyValue('--graph-content-extra-right'),
         extraBottom: box.style.getPropertyValue('--graph-content-extra-bottom'),
         marginRight: getComputedStyle(box).marginRight,
@@ -94,10 +103,11 @@ async function assertZoomPresentation(page, component, readyExpression, options 
     };
   }, component);
 
-  await page.evaluate(() => {
-    const button = document.querySelector('[id$="Page"]:not([hidden]) button[aria-label="Zoom in graph view"]');
-    button?.click();
+  const zoomInput = page.locator(`#${component}Page:not([hidden])`).getByRole('spinbutton', {
+    name: 'Zoom level percent', exact: true
   });
+  await zoomInput.fill('110');
+  await zoomInput.press('Enter');
   await page.waitForFunction(() => Number(
     document.querySelector('[id$="Page"]:not([hidden]) .svgbox')?.dataset?.resizerZoomLevel
   ) === 1.1);
@@ -146,10 +156,10 @@ async function assertZoomPresentation(page, component, readyExpression, options 
   expect(resizePhase?.boxWidth).toBe(after.width);
   expect(after.events.filter(event => event.action === 'draw-request' || event.action === 'draw-executed')).toHaveLength(0);
   expect(after.mutations.filter(mutation => mutation.type === 'childList')).toHaveLength(0);
-  const beforeExtraRight = Number.parseFloat(before.geometry.envelope?.extraRight || '');
+  const beforeExtraRight = before.geometry.envelope?.canonicalRight;
   const afterExtraRight = Number.parseFloat(after.geometry.envelope?.extraRight || '');
   if(Number.isFinite(beforeExtraRight) && beforeExtraRight > 0){
-    expect(afterExtraRight).toBeCloseTo(beforeExtraRight * 1.1, 0);
+    expect(afterExtraRight).toBe(Math.round(beforeExtraRight * 1.1));
     expect(after.geometry.svg.right).toBeLessThanOrEqual(
       after.geometry.box.right + afterExtraRight + 2
     );

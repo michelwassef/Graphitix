@@ -21,9 +21,16 @@ const CASES = [
 
 const ownerSelector = (componentCase, selector) =>
   `#${componentCase.type}Page:not([hidden]) ${selector}`;
-const ownerLegendControlSelector = componentCase => componentCase.type === 'survival'
-  ? `#survivalPage:not([hidden]) .svgbox ${componentCase.toggle}`
-  : ownerSelector(componentCase, componentCase.toggle);
+
+async function waitForComponentReady(page, type) {
+  await page.evaluate(async componentType => {
+    const component = window.Components?.[componentType];
+    const tab = window.Main?.session?.getActiveTab?.();
+    if (component?.awaitReadyForSnapshot && tab) {
+      await component.awaitReadyForSnapshot({ tab, tabId: tab.id, reason: 'e2e-legend-viewport', settleFrames: 2 });
+    }
+  }, type);
+}
 
 test('Pie example honors the initially checked legend option', async ({ page }) => {
   test.setTimeout(45_000);
@@ -67,7 +74,7 @@ async function setLegend(page, componentCase, visible) {
         tabId: tab.id
       });
     }
-  }, { selector: ownerLegendControlSelector(componentCase), checked: visible });
+  }, { selector: ownerSelector(componentCase, componentCase.toggle), checked: visible });
   await page.evaluate(async componentType => {
     const component = window.Components?.[componentType];
     const tab = window.Main?.session?.getActiveTab?.();
@@ -210,7 +217,7 @@ async function waitForLegendProjection(page, componentCase, visible) {
     };
     }, {
     selector: ownerSelector(componentCase, componentCase.svg),
-    controlSelector: ownerLegendControlSelector(componentCase),
+    controlSelector: ownerSelector(componentCase, componentCase.toggle),
     expectedVisible: visible
     }), {
     timeout: 30_000
@@ -248,7 +255,6 @@ async function captureViewport(page, componentCase) {
     const legendRect = legend?.getBoundingClientRect?.();
     const svgRect = svg?.getBoundingClientRect?.();
     const svgBox = svg?.closest?.('.svgbox') || null;
-    const shellStyle = svgBox ? getComputedStyle(svgBox, '::after') : null;
     const svgBoxRect = svgBox?.getBoundingClientRect?.() || null;
     const edgeCandidates = Array.from(svg?.querySelectorAll?.('path,line,rect,circle,ellipse,polygon,polyline,text,image') || [])
       .filter(node => {
@@ -307,7 +313,6 @@ async function captureViewport(page, componentCase) {
       legendClippedBy,
       legendColumnCount: Number(legend?.dataset?.legendColumnCount) || 0,
       boxWidth: svgBox?.getBoundingClientRect?.().width || 0,
-      shellWidth: Number.parseFloat(shellStyle?.width) || 0,
       envelopeExtraRightPx,
       svgWidthPx: svgRect?.width || 0,
       svgRightOverflowPx: svgRect && svgBoxRect ? Math.max(0, svgRect.right - svgBoxRect.right) : 0,
@@ -470,6 +475,7 @@ for (const componentCase of CASES) {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     const component = COMPONENT_MATRIX.find(entry => entry.type === componentCase.type);
     await openComponentFromWelcome(page, component, { first: true, loadExample: true });
+    await waitForComponentReady(page, componentCase.type);
     if (componentCase.type === 'survival') {
       await page.waitForFunction(selector => {
         const svg = document.querySelector(selector);
@@ -492,7 +498,7 @@ for (const componentCase of CASES) {
     if (componentCase.type === 'hist') {
       await page.evaluate(async () => {
         const component = window.Components.hist;
-        const tab = window.Main.tabs.getActiveTab();
+        const tab = window.Main.session.getActiveTab();
         const payload = component.createEmptyPayload();
         payload.data = [
           ['Control', 'Treatment'],
@@ -567,7 +573,6 @@ for (const componentCase of CASES) {
     expect(Number.isFinite(visible.legendShellRightGapPx), JSON.stringify(visible)).toBe(true);
     expect(visible.legendShellRightGapPx, JSON.stringify(visible)).toBeGreaterThanOrEqual(0);
     expect(visible.hasEnvelope).toBe(true);
-    expect(visible.shellWidth).toBeGreaterThan(0);
     expect(visible.envelopeExtraRightPx).toBeGreaterThan(0);
     // The envelope may deliberately include shell safety/chrome beyond the raw SVG
     // overflow. The invariant is containment, not an exact width-difference formula.

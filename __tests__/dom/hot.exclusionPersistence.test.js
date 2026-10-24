@@ -184,4 +184,64 @@ describe('Shared.hot exclusion persistence ownership', () => {
       userInitiated: true
     }));
   });
+
+  test('deferred column reorder after a tab switch commits only to the originating table owner', () => {
+    let ownerGridOptions = null;
+    let frameCallback = null;
+    const originalCreateGrid = window.agGrid.createGrid;
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    window.agGrid.createGrid = (container, gridOptions) => {
+      if(container.id === `${ownerTab.id}-hot`){
+        ownerGridOptions = gridOptions;
+      }
+      return originalCreateGrid(container, gridOptions);
+    };
+    window.requestAnimationFrame = callback => {
+      frameCallback = callback;
+      return 71;
+    };
+
+    try{
+      const siblingTab = activeTab;
+      const { table: ownerTable } = createOwnedTable(ownerTab);
+      createOwnedTable(siblingTab);
+      let displayed = Array.from({ length: ownerTable.countCols() }, (_, index) => `c${index}`);
+      let reportOrderReady = false;
+      ownerTable.columnApi = {
+        getAllDisplayedColumns: () => (reportOrderReady ? displayed : []).map(colId => ({ getColId: () => colId })),
+        moveColumns: jest.fn()
+      };
+      activeTab = ownerTab;
+      session.workspaceState.activeTabId = ownerTab.id;
+
+      ownerGridOptions.onColumnMoved({
+        source: 'ui',
+        finished: true,
+        columns: [{ colId: 'c0' }]
+      });
+
+      expect(frameCallback).toEqual(expect.any(Function));
+      expect(ownerTab.payload.data[0].slice(0, 2)).toEqual(['B']);
+      expect(siblingTab.payload.data).toEqual([['A'], [1]]);
+
+      displayed = displayed.slice();
+      displayed.splice(0, 2, 'c1', 'c0');
+      reportOrderReady = true;
+      activeTab = siblingTab;
+      session.workspaceState.activeTabId = siblingTab.id;
+      frameCallback();
+
+      expect(ownerTab.payload.data[0].slice(0, 2)).toEqual(['B', 'A']);
+      expect(ownerTab.payload.data[1].slice(0, 2)).toEqual([2, 1]);
+      expect(siblingTab.payload.data).toEqual([['A'], [1]]);
+      expect(session.commitTabPayload).toHaveBeenCalledWith(
+        ownerTab,
+        expect.objectContaining({ data: expect.any(Array) }),
+        expect.objectContaining({ origin: 'user', reason: 'table-column-reorder' })
+      );
+    } finally {
+      window.agGrid.createGrid = originalCreateGrid;
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+    }
+  });
 });

@@ -159,6 +159,12 @@ describe('Shared.themeCatalog', () => {
   });
 
   describe('setTypeDefault / getTypeDefault', () => {
+    test('provides canonical component defaults', () => {
+      expect(catalog.getTypeDefault('scatter')).toBe('normal');
+      expect(catalog.getTypeDefault('box')).toBe('grayscale');
+      expect(catalog.getTypeDefault('surface')).toBe('surface-viridis');
+    });
+
     test('stores and retrieves a type default', () => {
       catalog.setTypeDefault('scatter', 'dark');
       expect(catalog.getTypeDefault('scatter')).toBe('dark');
@@ -169,8 +175,8 @@ describe('Shared.themeCatalog', () => {
       expect(catalog.getTypeDefault('scatter')).toBe('dark');
     });
 
-    test('returns "scientific" when no default set and no fallback', () => {
-      expect(catalog.getTypeDefault('line')).toBe('scientific');
+    test('returns "normal" when no default set and no fallback', () => {
+      expect(catalog.getTypeDefault('line')).toBe('normal');
     });
 
     test('returns custom fallback when no default set', () => {

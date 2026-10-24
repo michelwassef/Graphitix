@@ -61,8 +61,9 @@ describe('Venn additional tabs — cache and recovery', () => {
     expect(cache.stringNetwork).toBeUndefined();
     expect(cache.goChart).toBeUndefined();
     expect(state.ui.vennExportControls?.querySelectorAll('.export-select-wrapper').length).toBeGreaterThanOrEqual(2);
-    expect(state.ui.svgBox?.querySelector('.resizer-options-control')).toBeTruthy();
-    expect(state.ui.svgBox?.querySelector('.resizer-zoom-control')).toBeTruthy();
+    const controlsHost = state.ui.svgBox?.closest('.graph-frame')?.querySelector('.graph-controls-header') || state.ui.svgBox;
+    expect(controlsHost?.querySelector('.resizer-options-control')).toBeTruthy();
+    expect(controlsHost?.querySelector('.resizer-zoom-control')).toBeTruthy();
 
     state.ui.inputs.A.value = '';
     state.ui.inputs.B.value = '';
@@ -72,7 +73,7 @@ describe('Venn additional tabs — cache and recovery', () => {
     await flush();
     expect(state.ui.emptyNotice?.hidden).toBe(false);
     state.ui.vennExportControls.innerHTML = '';
-    state.ui.svgBox?.querySelector('.resizer-control-tray')?.remove();
+    state.ui.svgBox?.closest('.graph-frame')?.querySelector('.graph-controls-header .resizer-control-tray')?.remove();
 
     venn.loadFromPayload(tab.payload, {
       tabId: tab.id,
@@ -86,8 +87,9 @@ describe('Venn additional tabs — cache and recovery', () => {
     expect(state.ui.emptyNotice?.hidden).toBe(true);
     expect(state.ui.stage?.querySelector('[data-venn-trace-id]')).toBeTruthy();
     expect(state.ui.vennExportControls?.querySelectorAll('.export-select-wrapper').length).toBeGreaterThanOrEqual(2);
-    expect(state.ui.svgBox?.querySelector('.resizer-options-control')).toBeTruthy();
-    expect(state.ui.svgBox?.querySelector('.resizer-zoom-control')).toBeTruthy();
+    const restoredControlsHost = state.ui.svgBox?.closest('.graph-frame')?.querySelector('.graph-controls-header') || state.ui.svgBox;
+    expect(restoredControlsHost?.querySelector('.resizer-options-control')).toBeTruthy();
+    expect(restoredControlsHost?.querySelector('.resizer-zoom-control')).toBeTruthy();
   });
 
   test('venn recovery persist does not drift from restored payload schema', async () => {

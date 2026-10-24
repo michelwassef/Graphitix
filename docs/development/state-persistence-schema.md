@@ -2,7 +2,13 @@
 
 This document describes the current persistence model used by `Main.session`, `.graph` archive save/load flows, and component payload contracts.
 
+PCA 2D physical axis edits store `config.explicitAxisLayout` (version 1) in the owning session and archive payload. It contains numerical scales/ticks, vertical plot margins, and a coordinate-context key. Frame size stays in shared layout state; equal pixels per coordinate unit stays renderer-owned. PCA declares `cartesianRatioSource: 'layout'` so each published coordinate layout supplies the shared resize ratio, including after tick/domain changes; ordinary user ratio locks retain their existing authority. Normal draws and archive hydration use this same model, and render caches must match it before restoring. Changes to analysis data/settings, method, selected axes, manual tick intervals, or equal-axis-length mode invalidate the model. Zoom, ordinary resizing, titles, and appearance preserve it. Older archives without the model retain automatic layout.
+
+Graph image exports store `uiState.export.transparentBackground` per workspace tab. Missing or false means an opaque background matching the graph appearance; true means transparent. Copy and Download project the same value when opened. `Main.session.setExportOptions` writes it immediately and marks the document changed; normal workspace UI capture, duplication, recovery, and archive save/load preserve it. This export preference does not change graph geometry or graph appearance.
+
 ## 1. Canonical Workspace State (`Main.session.workspaceState`)
+
+Background workspace preparation is disposable runtime state in `Main.workspacePreparation`, not an archive field or a canonical component session. Prepared payloads are independently copied; graph fragments remain detached. Both are invalidated by owner/document identity, source references, signatures and payload/layout/render-commit versions. Reopening always hydrates normal owner sessions through the existing activation path. Preparation neither changes dirty state nor serializes DOM, managers, promises or component bindings. A loaded-workspace record is committed only after successful graph publication, including the explicit no-primary-graph case for non-renderable saved data.
 
 Defined in `js/main/session.js`.
 
@@ -103,6 +109,8 @@ Document lifecycle state is shared by the web and Electron builds. `sessionFileH
 
 `documentOperation` is transient, plain-data UI state for an active document-level transaction. It is never archived. While it is active, tab activation, add/close, rename, context, and drag mutations are rejected at their command boundaries and the application shell is inert.
 
+Manual archive saves enter `Shared.fileIO` before preparing a checkpoint. FileIO obtains the destination or existing-file write permission during the click, then requests the lazy archive payload. Canceling a picker performs no checkpoint capture or serialization. The save owns its starting document identity, target tab and revision: replacement or owner closure cancels stale work, and newer edits remain dirty. Ownership is checked across readiness, preview capture, serialization and completion; destination metadata is published only after a successful write to the current document. Autosave retains its existing readiness deferral and never opens a picker.
+
 `sessionDirty` means the in-memory workspace has observed any state transition. `sessionUserDirty` means a user-originated change still needs persistence. Lifecycle transitions such as tab activation, archive save, autosave, recovery snapshots, and workspace binding can update runtime/cache metadata without setting `sessionUserDirty` only when they pass explicit `origin: 'lifecycle'` metadata. Missing origin metadata is treated as user-originated so future callers fail dirty rather than silently dropping a user edit.
 
 ## 2. Document UI, Autosave, And Recovery
@@ -114,6 +122,14 @@ Autosave is off by default and persisted in `localStorage` under `graphitix.auto
 Crash recovery is separate from Autosave. `Main.documentState` writes a private `.graph` archive from canonical tab payload/layout/UI state through `Main.sessionActions.buildWorkspaceArchiveBlob`. Lean recovery skips live DOM projection capture when that canonical state is current, and falls back to capture only when a tab is still payload-dirty. Browser builds store the Blob in IndexedDB. Electron writes `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through binary preload IPC and atomic main-process writes. Recovery scheduling is revision-aware and rejects a completed checkpoint if `sessionRevision` changed while it was serialized.
 
 To cover a renderer/process loss before that rich archive finishes, dirty document events also write a small owner-scoped canonical journal in the `canonical-journal` IndexedDB store. Native controls are marked dirty in the capture phase, then the owning payload/layout is captured after the control handler; a synchronous `localStorage` mirror is written for a hard reload, while the IndexedDB journal is coalesced from the settled owner state. A stopped-propagation control uses a next-turn fallback, and the unload path repeats the synchronous owner capture. The journal contains the latest revision, tab order/metadata, and canonical payload/layout/UI state; it deliberately contains no preview or render-cache data. Only the changed tab is written after the initial workspace baseline, and recovery promotes the journal or mirror to a lean archive when its revision is newer than the rich private snapshot. This keeps mutation-time protection cheap while leaving heavy preview/cache serialization on the existing recovery path.
+
+Advisor state is live, tab-owned state: Box uses `session.state.stats.statsAdvisor`, Line uses `session.state.advisorState`, and Scatter, Pie, ROC, Survival and Histogram use `session.advisor`. Reads and snapshot capture preserve these objects and their answers so mounted controls keep editing the owner. Serialization creates detached copies; loading a payload or applying a runtime snapshot may replace state, followed by rebuilding its controls. Capture must never apply its own exported snapshot back into the live session.
+
+Box, Scatter, Line, Pie, ROC and Survival use `Shared.statsAdvisor` for owner-bound projection and fresh-plan application. Disclosure hides summaries, warnings and questions together. Answer changes retain settings until explicit Apply. Line and Survival runtime capture/remember paths export snapshots without rehydrating their live sessions; explicit payload/runtime application remains the hydration boundary.
+
+Scatter analysis controls are canonical in `session.state.analysisSettings`, separate from statistical results. The existing archive fields (`config.stats`, `config.regression` and overlay flags) retain their schema. Runtime snapshots include `analysisSettings`; older snapshots without that field retain the already hydrated owner settings. User events and advisor Apply patch these settings before controls/rendering.
+
+Histogram stores advisor state in `config.stats.advisor` and the top-level runtime snapshot `advisor` field. Only the disclosure flag and whitelisted question answers are persisted; recommendations and data summaries are recomputed from the owning tab's included, unbinned source observations, following generated frequency views back to their source. Answer changes do not apply statistical settings. Explicit Apply rechecks the current data, patches the owning `statsSettings`, then projects active controls and schedules an owner-scoped analysis draw. Capturing/remembering a Histogram runtime snapshot does not hydrate the session; explicit runtime application does. Older payloads without advisor state start closed with no answers.
 
 Snapshot capture policy is centralized in `js/main/snapshotPolicy.js` and consumed by `Main.sessionActions` + `Main.documentState`. This keeps manual save, autosave, and recovery behavior consistent:
 
@@ -150,6 +166,7 @@ archive worker, which performs cloning and runtime-id rehoming off the main thre
       previewMarkup: string | null,
       previewSignature: string | null,
       previewMeta: object | null,
+      matrixSignatures: Array<{ path: Array<string | number>, signature: string }>,
       archiveRenderCache: object | null,
       archiveRenderCacheSignature: string | null,
       archiveRenderCacheLayoutSignature: string | null,
@@ -159,7 +176,13 @@ archive worker, which performs cloning and runtime-id rehoming off the main thre
 }
 ```
 
+`matrixSignatures` is optional for older archives. New archives include the non-enumerable matrix signature sidecars by payload path in each tab's `tab.json`; parsing restores them before the archive cache signature is validated. The main-thread and worker writers emit the same field. This preserves render-cache provenance across JSON cloning and CSV-backed Raw data in both full and lite payload modes.
+
 `Main.session.applySessionData()` expects this same shape when restoring.
+
+New figures have a screen-independent 360 × 360 pixel outer frame. `layout.graphView` stores `{ version: 1, mode: 'fit' }` or `{ version: 1, mode: 'manual', zoomLevel }`. During live use, viewing intent belongs to the component session record's `runtime.graphView`; controls and the current numeric zoom are projections. Fit captures serialize unzoomed frame dimensions and zoom 1, then recalculate display scale using the recipient's browser dimensions. All components share that calculation: 80% of one third of browser width and 80% of browser height, relative to the default frame, capped at 100% and bounded by the shared zoom limits. Panel widths, labels, legends, and summary envelopes do not change default zoom. Manual zoom and resizing replace fit intent and preserve the chosen zoom. Layouts without `graphView` retain their saved numeric zoom and frame dimensions.
+
+Viewing scale never becomes figure geometry or export size. Controls occupy the separate shared frame header and may wrap without constraining graph zoom or manual shrinking; constrained panels keep their existing horizontal scrolling. Saved resize bounds remain authoritative on hydration, including frames smaller than today's new-figure minimum. Canonical drawable dimensions subtract unzoomed frame insets. Shared text-bound measurement still has a documented zoom-dependent export-envelope defect in `issues.txt`.
 
 Font style records are persisted inside each component's existing payload path (`config.fontStyles`, or Venn's `style.fontStyles`) through `Shared.fontControls` import/export. Title-block alignment is the optional `textAlign` property on those records; archives without it retain centered title alignment. Multiline title text remains canonical component state, while SVG line wrappers, measured bounds, and reserves are rendered or derived state and are not additional archive fields.
 
@@ -196,7 +219,8 @@ Derived from each `createEmptyPayload` implementation.
 
 - `box` (`js/components/box.js`)
   - top-level: `type`, `data`, `exclusions`, `config`
-  - `config.stats` pre-seeded with test/correction/assumption defaults
+  - `config.stats` pre-seeded with test/correction/assumption defaults; new sessions request automatic post-hoc selection, while archives missing `postHoc` hydrate as legacy `standard`
+  - `config.stats.correctionExplicit` records whether the correction was explicitly selected, so ANOVA-pooled comparisons can default to Holm without replacing a saved correction choice
 
 - `scatter` (`js/components/scatter.js`)
   - top-level: `type`, `data`, `exclusions`, `series`, `config`

@@ -363,8 +363,9 @@ async function requestRendererClearRecovery(win) {
         if (!api || typeof api.clearRecoverySnapshot !== 'function') {
           return { ok: false, reason: 'recovery-handler-unavailable' };
         }
-        await api.clearRecoverySnapshot('desktop-exit-without-saving');
-        return { ok: true };
+        const revision = Number(window.Main?.session?.workspaceState?.sessionRevision) || 0;
+        const cleared = await api.clearRecoverySnapshot('desktop-exit-without-saving', revision, { allowDirty: true });
+        return cleared === true ? { ok: true } : { ok: false, reason: 'recovery-clear-incomplete' };
       } catch (err) {
         return { ok: false, reason: String((err && err.message) || err) };
       }
@@ -402,7 +403,19 @@ async function handleCloseAttempt(win) {
   }
 
   if (decision.response === 1) {
-    await requestRendererClearRecovery(win);
+    const clearResult = await requestRendererClearRecovery(win);
+    if (!clearResult.ok) {
+      await dialog.showMessageBox(win, {
+        type: 'error',
+        title: 'Could not discard unsaved changes',
+        message: 'Graphitix could not clear its recovery data, so the window remains open.',
+        detail: 'Retry the discard action or save the graph before closing.',
+        buttons: ['OK'],
+        defaultId: 0,
+        noLink: true
+      });
+      return;
+    }
     win.__allowClose = true;
     win.destroy();
     return;

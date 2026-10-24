@@ -97,4 +97,87 @@ describe('ROC render-cache capture contract', () => {
     expect(Array.from(svg.querySelectorAll('path[data-series][d]'))).toEqual(seriesBefore);
     expect(mutations).toHaveLength(0);
   });
+
+  test('a retained inactive grid control cannot mix active controls into the old ROC session', async () => {
+    const Main = window.Main;
+    const roc = window.Components?.roc;
+    const tabA = Main?.session?.getActiveTab?.();
+    const rootA = document.querySelector('#rocPage:not([hidden])');
+    const gridA = rootA?.querySelector('#rocShowGrid');
+    const sessionA = roc?.__testHooks?.getSession?.(tabA?.id);
+    expect(Main && roc && tabA && rootA && gridA && sessionA?.state?.controls).toBeTruthy();
+
+    Main.tabs.handleAddTabClick();
+    await flushAsyncWork(3);
+    const selection = Main.tabs.handleGraphSelection('roc', { reason: 'roc-stale-grid-owner-test-b' });
+    if(selection && typeof selection.then === 'function') await selection;
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      document.getElementById('duplicateEmpty')?.click();
+    }
+    await flushAsyncWork(4);
+
+    const tabB = Main.session.getActiveTab();
+    const rootB = document.querySelector('#rocPage:not([hidden])');
+    const graphTypeB = rootB?.querySelector('#rocGraphType');
+    const sessionB = roc.__testHooks.getSession(tabB?.id);
+    expect(tabB?.id).not.toBe(tabA.id);
+    expect(rootB && graphTypeB && sessionB?.state?.controls).toBeTruthy();
+    graphTypeB.value = 'pr';
+    graphTypeB.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(3);
+    expect(sessionB.state.controls.graphType).toBe('pr');
+
+    const controlsA = JSON.parse(JSON.stringify(sessionA.state.controls));
+    const controlsB = JSON.parse(JSON.stringify(sessionB.state.controls));
+    rootA.setAttribute('data-workspace-tab-id', tabA.id);
+    expect(window.Shared.componentLifecycle.resolveTabIdFromTarget(gridA)).toBe(tabA.id);
+    gridA.checked = !gridA.checked;
+    gridA.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(3);
+
+    expect(sessionA.state.controls).toEqual(controlsA);
+    expect(sessionB.state.controls).toEqual(controlsB);
+    const returnToA = Main.tabs.activateTab(tabA.id, { reason: 'roc-stale-grid-owner-return-a' });
+    if(returnToA && typeof returnToA.then === 'function') await returnToA;
+    await flushAsyncWork(4);
+    const activeRootA = document.querySelector('#rocPage:not([hidden])');
+    expect(activeRootA?.querySelector('#rocGraphType')?.value).toBe(controlsA.graphType);
+    expect(activeRootA?.querySelector('#rocShowGrid')?.checked).toBe(controlsA.showGrid);
+  });
+
+  test('snapshot readiness with a missing explicit owner does not schedule the active ROC sibling', async () => {
+    const Main = window.Main;
+    const roc = window.Components?.roc;
+    const activeTab = Main?.session?.getActiveTab?.();
+    const activeSession = roc?.__testHooks?.getSession?.(activeTab?.id);
+    const activeRoot = document.querySelector('#rocPage:not([hidden])');
+    const plot = activeRoot?.querySelector('#rocPlot');
+    expect(Main && roc && activeTab && activeSession && plot).toBeTruthy();
+
+    roc.cancelCurrentDraw({ tabId: activeTab.id, reason: 'roc-stale-snapshot-owner-reset' });
+    plot.replaceChildren();
+    const runtimeBefore = roc.__testHooks.getDrawRuntime(activeTab.id);
+    const payloadBefore = JSON.parse(JSON.stringify(activeTab.payload));
+    const missingOwnerTabId = 'closed-roc-snapshot-owner';
+
+    const readiness = await roc.awaitReadyForSnapshot({
+      tabId: missingOwnerTabId,
+      timeoutMs: 100,
+      settleFrames: 0,
+      reason: 'roc-stale-snapshot-owner'
+    });
+    await flushAsyncWork(6);
+
+    expect(readiness).toEqual(expect.objectContaining({
+      ok: false,
+      componentKey: 'roc',
+      tabId: missingOwnerTabId,
+      reason: 'roc-snapshot-owner-unresolved'
+    }));
+    expect(roc.__testHooks.getDrawRuntime(activeTab.id)).toEqual(runtimeBefore);
+    expect(activeTab.payload).toEqual(payloadBefore);
+    expect(Main.session.getActiveTab()?.id).toBe(activeTab.id);
+    expect(plot.querySelector('#rocSvg')).toBeNull();
+  });
 });

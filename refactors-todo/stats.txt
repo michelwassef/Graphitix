@@ -1,0 +1,458 @@
+# Graphitix — Fix studentized-range numerical accuracy and performance
+
+## Objective
+
+Correct the remaining numerical accuracy and performance problems in Graphitix's studentized-range distribution implementation.
+
+The latest audit of the code confirmed that:
+
+1. Studentized-range upper-tail probabilities remain inaccurate, sometimes returning p = 0 for finite, statistically meaningful probabilities.
+2. Games–Howell becomes unacceptably slow with increasing numbers of groups, taking approximately 16 seconds for 10 groups (45 comparisons) in a Node.js benchmark.
+3. The Games–Howell zero-variance defect identified previously has been corrected and must remain corrected.
+4. The broader ANOVA/post-hoc refactor, including method selection, is functioning correctly in the checks performed and must not be reopened unnecessarily.
+
+**This task is a focused numerical correction and optimization, not a redesign of Box statistics.**
+
+Follow `AGENTS.md` strictly. Fix the underlying algorithm, preserve existing architecture and APIs where appropriate, and avoid unnecessary complexity or unrelated modifications.
+
+## 1. Confirmed root cause
+
+The relevant code is primarily in:
+
+`js/shared/boxStatsModel.js`
+
+Investigate:
+
+- `studentizedRangeCDFInfinite`
+- `studentizedRangeCDF`
+- `adaptiveSimpsonIntegral`
+- `resolveStudentizedRangeCritical`
+- `computeTukeyComparisons`
+- `computeGamesHowellComparisons`
+- Other callers, including Nemenyi
+
+The present implementation computes studentized-range probabilities through nested numerical integration.
+
+It calculates upper-tail probabilities using:
+
+```javascript
+const cdf = studentizedRangeCDF(q, k, df);
+const p = Math.max(0, Math.min(1, 1 - cdf));
+```
+
+The current absolute integration tolerance is approximately `1e-7`.
+
+This architecture has two fundamental problems.
+
+**Accuracy:** The numerical integration cannot reliably resolve small upper-tail probabilities. Subtracting an approximate CDF from 1 magnifies relative error and can return zero despite a finite positive probability.
+
+**Performance:** Each finite-df evaluation is expensive. Confidence-interval calculations repeatedly invert the CDF, resulting in many additional nested integrations. Games–Howell is particularly expensive because the pair-specific Satterthwaite degrees of freedom often differ.
+
+Do not address this by simply reducing integration tolerances, increasing iteration counts, clamping probabilities, or caching inaccurate results.
+
+The underlying numerical approach must be replaced or substantially redesigned.
+
+## 2. Required numerical implementation
+
+Implement a scientifically validated, efficient studentized-range distribution calculation suitable for execution in JavaScript, both in the browser and Web Workers.
+
+The solution must provide:
+
+- Accurate survival probabilities, `SF(q, k, df)`.
+- Accurate cumulative probabilities, `CDF(q, k, df)`, where required.
+- Accurate inverse distribution/critical values.
+- Finite positive degrees of freedom, including fractional values.
+- Infinite degrees of freedom.
+- Integer group counts k ≥ 2.
+- Good numerical behavior in extreme upper tails.
+- Predictable, bounded execution time.
+
+### 2.1 Algorithm selection
+
+Investigate established numerical algorithms and implementations, including those underlying:
+
+- R `ptukey` and `qtukey`.
+- SciPy `scipy.stats.studentized_range`.
+- Other independently validated implementations with suitable numerical characteristics.
+
+Evaluate candidate algorithms for:
+
+1. Numerical accuracy across the required domain.
+2. Direct or numerically stable upper-tail evaluation.
+3. Computational complexity.
+4. Convergence reliability.
+5. Performance for repeated evaluations.
+6. JavaScript/browser compatibility.
+7. Licensing compatibility with Graphitix.
+
+Select the simplest maintainable solution that satisfies the accuracy and performance requirements.
+
+Do not blindly port a GPL implementation into Graphitix. Check licenses and document the origin of any adapted mathematical or numerical algorithm.
+
+A numerical algorithm should not be selected merely because it is easy to implement.
+
+### 2.2 Survival-function accuracy
+
+The implementation must avoid the unstable pattern of deriving very small p-values by subtracting an insufficiently accurate CDF from 1.
+
+Prefer a directly evaluated survival probability, a numerically stable complementary formulation, or another validated technique that achieves equivalent accuracy.
+
+Do not disguise numerical error through:
+
+- Arbitrary epsilon floors.
+- Artificial minimum p-values.
+- Rounding.
+- Replacing a failed integration with zero.
+- Increasing precision settings without addressing algorithmic limitations.
+- Returning a plausible-looking result when convergence has failed.
+
+Use explicit numerical validity/error semantics consistent with Graphitix's existing result contracts.
+
+For mathematically valid finite inputs, p = 0 must not result simply from inadequate quadrature precision.
+
+Distinguish genuine floating-point underflow from failed numerical convergence.
+
+### 2.3 Boundary cases
+
+Test and correctly handle:
+
+| Input                  | Expected behavior                   |
+| ---------------------- | ----------------------------------- |
+| q = 0                  | CDF = 0, SF = 1                     |
+| q = +Infinity          | CDF = 1, SF = 0                     |
+| Finite positive q      | Valid distribution probability      |
+| df = +Infinity         | Correct infinite-df limit           |
+| Positive fractional df | Supported                           |
+| Invalid df             | Unavailable/error, not fabricated p |
+| Invalid k              | Unavailable/error                   |
+| NaN                    | Unavailable/error                   |
+
+The previous implementation incorrectly returned CDF = 0 for q = +Infinity. Correct this at the distribution boundary.
+
+Ensure monotonicity:
+
+- CDF must be nondecreasing with q.
+- SF must be nonincreasing with q.
+
+## 3. Optimize computation without compromising correctness
+
+The updated algorithm must be substantially faster than the existing nested integration.
+
+The previously measured performance was approximately:
+
+| Games–Howell | Existing runtime |
+| ------------ | ---------------: |
+| 3 groups     |           495 ms |
+| 5 groups     |         3,890 ms |
+| 10 groups    |        16,287 ms |
+
+These figures were measured in Node.js and are reference baselines, not universal hardware-independent timings.
+
+### 3.1 Performance targets
+
+The corrected implementation should:
+
+- Provide at least an order-of-magnitude speedup for representative multi-group workloads, where feasible.
+- Aim to complete a 10-group Games–Howell analysis in under one second in the comparable Node.js test environment.
+- Remain responsive for 25 groups (300 comparisons).
+- Avoid long synchronous calculations blocking the browser UI.
+- Maintain acceptable performance for small/fractional df and extreme tails.
+
+Treat these as performance goals to verify, not as justification for inaccurate approximations.
+
+If a target cannot be achieved without sacrificing numerical reliability, investigate alternative algorithms and report the measured tradeoff.
+
+### 3.2 Critical-value computation
+
+Pay particular attention to `resolveStudentizedRangeCritical`.
+
+The existing repeated CDF inversion is a major source of computational expense.
+
+Use an efficient, convergent root-finding procedure compatible with the new probability evaluator.
+
+Prefer solving the survival-function equation directly for upper-tail critical values when numerically advantageous:
+
+`SF(qCritical, k, df) = alpha`
+
+Use a mathematically valid bracket and a bounded convergence criterion.
+
+Avoid unnecessary distribution evaluations.
+
+For Tukey, reuse a critical value when all comparisons share the same k, df, and confidence level.
+
+For Games–Howell, recognize that individual pairs have different df. Optimize the underlying algorithm rather than relying on caching alone.
+
+### 3.3 Caching
+
+Only introduce caching where profiling demonstrates a meaningful benefit.
+
+If used:
+
+- Cache only deterministic numerical results.
+- Key caches by all relevant parameters.
+- Keep caches bounded.
+- Do not introduce mutable per-tab statistical state.
+- Do not cache failed or insufficiently accurate evaluations as valid results.
+
+Correctness must never depend on a previous computation having populated a cache.
+
+## 4. Preserve and validate statistical procedures
+
+All consumers must use the corrected shared numerical implementation.
+
+### Tukey HSD
+
+Preserve:
+
+- The conventional ANOVA residual mean square.
+- Residual degrees of freedom.
+- Tukey q-statistics.
+- Mean differences.
+- Effect-size calculations.
+- Simultaneous confidence-interval semantics.
+
+Only correct the adjusted p-values and confidence limits where the previous numerical algorithm was inaccurate.
+
+### Games–Howell
+
+Preserve:
+
+- Pair-specific sample variances.
+- Welch-style standard errors.
+- Satterthwaite degrees of freedom.
+- Games–Howell q-statistics.
+- Intrinsic multiple-comparison correction.
+- Simultaneous confidence intervals.
+
+**Do not regress the recently corrected zero-variance behavior.**
+
+In particular:
+
+- A group with exactly zero variance must retain variance = 0.
+- A zero-variance group paired with a positive-variance group can yield a valid comparison.
+- A pair with zero combined variance must be rejected appropriately.
+- Never replace real zero variances with `Number.EPSILON`.
+
+### Nemenyi and other consumers
+
+Audit all callers of the current studentized-range functions.
+
+Ensure that nonparametric post-hoc approximations continue to use the correct distribution and scaling conventions.
+
+Do not change exact or permutation-based nonparametric procedures unnecessarily.
+
+### Unrelated statistical methods
+
+The following must remain numerically unchanged:
+
+- Ordinary ANOVA.
+- Welch ANOVA.
+- ANOVA-pooled pairwise t-tests + Holm.
+- Independent Student/Welch pairwise t-tests.
+- Other multiplicity corrections.
+- Unrelated parametric and nonparametric tests.
+
+Do not modify method defaults, statistical advisor decisions, or method-selection behavior.
+
+## 5. Independent numerical validation
+
+Use independently generated reference values from SciPy. Do not validate Graphitix against itself.
+
+Extend the existing `scripts/stats_oracle.py` infrastructure where appropriate.
+
+### 5.1 Required BRCA1 regression dataset
+
+```text
+A = [1.22918958, 2.52757502, 2.29278175]
+B = [-0.97978524, -1.31618847, -0.63270399]
+C = [-3.78427131, -3.55639335, -3.70043972]
+```
+
+The current defective implementation and SciPy give:
+
+| Comparison | Current Graphitix |         SciPy |
+| ---------- | ----------------: | ------------: |
+| A vs B     |       0.000462003 |   0.000454063 |
+| A vs C     |     0.00000884521 | 0.00001135484 |
+| B vs C     |       0.000791794 |   0.000792127 |
+
+Recalculate the independent references at adequate precision.
+
+The corrected JavaScript implementation must reproduce these SciPy reference probabilities within strict numerical tolerances.
+
+Do not alter the Tukey statistics, df, or mean differences.
+
+Verify the simultaneous confidence intervals independently.
+
+### 5.2 Additional confirmed failing distribution cases
+
+The previous implementation produced:
+
+| Parameters                |     Current p |        SciPy p |
+| ------------------------- | ------------: | -------------: |
+| q = 21.904, k = 3, df = 6 | 0.00001104834 |  0.00001135484 |
+| q = 35, k = 3, df = 6     |             0 | 0.000000711394 |
+| q = 35, k = 3, df = 9     |             0 | 0.000000003720 |
+| q = 10, k = 10, df = 25   | 0.00000774712 |  0.00000805341 |
+
+These cases are mandatory regressions.
+
+The corrected code must not return false zeros.
+
+### 5.3 Numerical coverage
+
+Test a deterministic parameter matrix covering:
+
+- k = 2, 3, 5, 10 and 20.
+- Small df.
+- Moderate df.
+- Large df.
+- Fractional df.
+- Infinite df.
+- Central probabilities.
+- Upper tails around 10⁻² through 10⁻¹⁰.
+- Cases approaching floating-point underflow.
+- Critical values corresponding to 90%, 95%, and 99% confidence intervals.
+
+Independently verify:
+
+- CDF.
+- SF.
+- Quantiles.
+- CDF/SF consistency where numerically resolvable.
+- Monotonicity.
+- Inverse consistency.
+
+### 5.4 Required accuracy
+
+For probabilities between 10⁻² and 10⁻¹⁰, target relative error ≤ 0.5% against high-quality independent references, with tighter accuracy wherever practical.
+
+For moderate probabilities, require appropriately stringent absolute errors.
+
+For quantiles and confidence intervals, use explicit numerical tolerances justified by the reference precision and expected downstream effect.
+
+Do not rely on permissive `toBeCloseTo` assertions that can allow substantial relative errors in small p-values.
+
+Use a mixed absolute/relative comparison with appropriate handling of values near zero.
+
+The implemented JavaScript function must be tested directly, not only a Python reproduction of its mathematical formula.
+
+## 6. Performance validation
+
+Create reproducible benchmarks for the old and new numerical implementations.
+
+Use identical datasets, hardware, execution environments and warm-up conditions for meaningful comparisons.
+
+Benchmark:
+
+- Tukey HSD with 3, 10 and 25 groups.
+- Games–Howell with 3, 10 and 25 groups.
+- Central and extreme-tail probabilities.
+- Confidence intervals at 95% and 99%.
+- Fractional df.
+- Repeated computations where caching may apply.
+
+Report median runtime over several repetitions, not only a single measurement.
+
+Benchmark the actual JavaScript implementation in Node.js and, where practical, in the real browser/worker environment.
+
+Distinguish numerical computation time from UI rendering time.
+
+Performance improvements must not be achieved by silently reducing required accuracy or skipping comparisons.
+
+## 7. Regression tests and architecture
+
+Inspect and update existing tests before introducing new test suites.
+
+Pay particular attention to:
+
+- `__tests__/architecture/statistics.cross-component.regression.test.js`
+- Box statistical model tests.
+- Box post-hoc selection tests.
+- Independent statistical oracle tests.
+- Worker execution tests.
+- Box reporting and persistence regressions.
+
+Strengthen existing numerical tests rather than duplicating coverage unnecessarily.
+
+Retain the existing Games–Howell zero-variance regression tests.
+
+Also verify:
+
+1. Correct p-values appear in result tables.
+2. Significance annotations use the same corrected adjusted p-values.
+3. Reported confidence intervals correspond to the correct numerical quantiles.
+4. Exported results match the displayed results.
+5. In-flight worker operations remain correctly associated with their owning tab.
+6. Switching between multiple Box tabs does not leak results or cached numerical state.
+7. Saved `.graph` files reopen with the same statistics and graphical annotations.
+8. Corrected computations do not invalidate unrelated statistical configurations.
+
+Do not change Graphitix's session or persistence architecture unless strictly necessary.
+
+If existing saved results were calculated using the previous numerical implementation, inspect the current signature/cache validation contracts and ensure that corrected results are recomputed when necessary without breaking immediate save/reopen fidelity.
+
+Avoid introducing an additional independent cache or a separate source of truth.
+
+## 8. Implementation constraints
+
+The work should principally affect the shared numerical implementation in:
+
+`js/shared/boxStatsModel.js`
+
+Touch other source files only when needed for correct integration or testing.
+
+Follow these rules:
+
+- Fix the numerical root cause.
+- Use the smallest coherent shared implementation.
+- Do not create parallel statistical engines.
+- Do not introduce arbitrary numeric fudge factors.
+- Do not hide convergence failures.
+- Do not change statistical defaults or unrelated methods.
+- Do not modify generated `desktop/app/` files.
+- Do not perform opportunistic cleanup.
+- Do not introduce unnecessary dependencies or generalized frameworks.
+- Preserve maintainable, readable, clearly documented numerical code.
+
+If the correct solution requires a larger shared numerical-library refactor, stop and describe the necessary architectural boundary before applying a narrow workaround.
+
+Update `CHANGELOG.md` after successful implementation.
+
+Record any distinct confirmed unresolved issue in root `issues.txt`, avoiding duplicates.
+
+## 9. Completion criteria
+
+Consider the correction complete only when all of the following are satisfied:
+
+- Studentized-range probabilities agree with SciPy across the required domain.
+- Extreme-tail probabilities no longer become spuriously zero.
+- Positive-infinity and other distribution boundaries behave correctly.
+- Tukey HSD produces accurate adjusted p-values.
+- Games–Howell produces accurate adjusted p-values.
+- Both procedures produce accurate simultaneous confidence intervals.
+- Zero-variance behavior remains correct.
+- Nemenyi and other shared consumers remain correct.
+- The 10-group Games–Howell benchmark shows a substantial speed improvement, with interactive responsiveness.
+- No unrelated statistical methods regress.
+- Graphitix reporting, annotations, exports, tab isolation and persistence remain consistent.
+- All relevant tests pass.
+
+## 10. Final report
+
+After implementation, provide a concise but precise report covering:
+
+1. Root cause and selected numerical algorithm.
+2. Why the algorithm is more accurate and faster.
+3. Files changed.
+4. Before/after BRCA1 numerical comparisons against SciPy.
+5. Extreme-tail validation.
+6. Confidence-interval validation.
+7. Games–Howell zero-variance regression results.
+8. Before/after performance benchmarks.
+9. Tests executed and outcomes.
+10. Remaining limitations, if any.
+
+**Do not declare success based only on a passing test suite. Demonstrate numerical correctness independently and measure actual performance.**
+
+The finished implementation must be mathematically reliable, performant, maintainable, and fully consistent with the existing Graphitix statistics architecture. No slop.

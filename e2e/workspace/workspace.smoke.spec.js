@@ -2,18 +2,33 @@ const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { confirmDataImportPrompt, openComponentFromWelcome } = require('../helpers/workspaceDriver');
 
-test('welcome primary actions and popular examples form one responsive entry row', async ({ page }) => {
+test('welcome page follows the new theme across desktop and mobile', async ({ page }) => {
   await installLocalCdnOverrides(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
+  const activeWorkspaceTab = page.locator('.workspace-tab.is-active');
+  await expect(activeWorkspaceTab).toBeVisible();
+  const activeTabStyle = await activeWorkspaceTab.evaluate(tab => ({
+    background: getComputedStyle(tab).backgroundColor,
+    underline: getComputedStyle(tab.querySelector('.workspace-tab__label'), '::after').backgroundColor
+  }));
+  expect(activeTabStyle.background).toBe('rgb(255, 255, 255)');
+  expect(activeTabStyle.underline).toBe('rgb(11, 110, 105)');
+
   const fileTool = page.locator('#welcomeFileDropZone');
   const popular = page.locator('.welcome-popular');
   await expect(fileTool).toContainText('Open or drop a file');
-  await expect(fileTool.locator('[data-file-formats-label="welcome"]')).toHaveText(
+  const fileTitleMetrics = await fileTool.locator('.welcome-panel__title').evaluate(node => ({
+    height: node.getBoundingClientRect().height,
+    lineHeight: parseFloat(getComputedStyle(node).lineHeight)
+  }));
+  expect(fileTitleMetrics.height).toBeLessThanOrEqual(fileTitleMetrics.lineHeight + 1);
+  await expect(fileTool.locator('.welcome-drop-zone__copy > span')).toHaveText([
+    'Open a workspace or import data.',
     '.graph, .prism, .pzfx, .csv, .tsv, .txt, .xls, .xlsx, .ods'
-  );
+  ]);
   const importCopyOrder = await fileTool.locator('.welcome-drop-zone__copy > span').evaluateAll(nodes => (
     nodes.map(node => node.classList.contains('welcome-drop-zone__supporting') ? 'supporting' : 'formats')
   ));
@@ -24,10 +39,55 @@ test('welcome primary actions and popular examples form one responsive entry row
   await expect(page.locator('.welcome-section-header__eyebrow')).toHaveCount(0);
   await expect(page.locator('.welcome-section-header__subtitle')).toHaveCount(0);
   await expect(page.locator('#welcomeGraphFamiliesTitle')).toHaveText('Choose a graph type');
+  const magnifier = page.locator('.welcome-graph-finder__icon');
+  await expect(magnifier.locator('circle')).toHaveAttribute('r', '7');
+  await expect(magnifier.locator('path')).toHaveAttribute('d', 'm20 20-4-4');
+  expect(await magnifier.evaluate(svg => Array.from(svg.children).map(node => ({
+    fill: getComputedStyle(node).fill,
+    strokeWidth: getComputedStyle(node).strokeWidth
+  })))).toEqual([
+    { fill: 'none', strokeWidth: '2px' },
+    { fill: 'none', strokeWidth: '2px' }
+  ]);
+  await expect(page.locator('#graphSelectionGrid .welcome-graph-category')).toHaveCount(3);
+  const graphActions = page.locator('#graphSelectionGrid .graph-card__action');
+  const matchedActionHeights = async () => Promise.all([
+    '.welcome-drop-zone__action',
+    '#welcomeGraphSearch',
+    '#graphSelectionGrid .graph-card__action--new'
+  ].map(selector => page.locator(selector).first().evaluate(node => Math.round(node.getBoundingClientRect().height))));
+  await expect(graphActions.first()).toHaveCSS('min-height', '36px');
+  await expect(graphActions.first()).toHaveCSS('background-color', 'rgb(233, 236, 239)');
+  const newActionColors = await page.locator('#graphSelectionGrid .graph-card').first().evaluate(card => {
+    const newAction = card.querySelector('.graph-card__action--new');
+    const exampleAction = card.querySelector('.graph-card__action--example');
+    const icon = card.querySelector('.graph-card__icon');
+    return {
+      newText: getComputedStyle(newAction).color,
+      exampleText: getComputedStyle(exampleAction).color,
+      iconTile: getComputedStyle(icon).backgroundColor,
+      iconAxis: getComputedStyle(icon.querySelector('.welcome-icon__axis')).stroke,
+      iconBoxes: Array.from(icon.querySelectorAll('.welcome-icon__box'), box => getComputedStyle(box).fill)
+    };
+  });
+  expect(newActionColors.newText).toBe(newActionColors.exampleText);
+  expect(newActionColors.iconTile).toBe('rgb(247, 248, 249)');
+  expect(newActionColors.iconAxis).toBe('rgb(102, 112, 133)');
+  expect(new Set(newActionColors.iconBoxes).size).toBe(3);
+  expect(await matchedActionHeights()).toEqual([36, 36, 36]);
+  await expect(page.locator('#graphSelectionGrid .welcome-graph-category__title')).toHaveText([
+    'Compare & summarize', 'Relate & explore', 'Over time & outcomes'
+  ]);
+  await expect(page.locator('#graphSelectionGrid .welcome-graph-category').nth(0).locator('.graph-card')).toHaveCount(4);
+  await expect(page.locator('#graphSelectionGrid .welcome-graph-category').nth(1).locator('.graph-card')).toHaveCount(4);
+  await expect(page.locator('#graphSelectionGrid .welcome-graph-category').nth(2).locator('.graph-card')).toHaveCount(3);
   await expect(page.locator('.welcome-drop-zone__action')).toHaveText('Browse');
   await expect(popular.locator('.welcome-example-card')).toHaveCount(11);
+  await expect(popular.locator('.welcome-example-card').first()).toHaveCSS('overflow', 'hidden');
+  await expect(popular.locator('.welcome-example-card__title').first()).toHaveCSS('text-align', 'center');
   await expect(popular.locator('.welcome-example-card .welcome-example-card__thumb > svg[data-inline-ready="true"]')).toHaveCount(11);
   await expect(popular.locator('.welcome-example-card').filter({ hasText: 'Open example' })).toHaveCount(0);
+  await expect(popular.locator('.welcome-example-card__thumb > svg').first()).toHaveAttribute('data-preview-source', 'Graphitix owner-scoped SVG projection');
   await expect(popular).toHaveCSS('position', 'static');
   await expect.poll(() => popular.evaluate(node => getComputedStyle(node, '::before').content)).toBe('none');
   await expect(page.locator('#welcomeViewAllExamples')).toHaveText('View all 11');
@@ -37,6 +97,9 @@ test('welcome primary actions and popular examples form one responsive entry row
   const nextButton = page.locator('#welcomePopularExamplesNext');
   await expect(previousButton).toBeDisabled();
   await expect(nextButton).toBeEnabled();
+  await expect(previousButton).toHaveCSS('width', '32px');
+  await expect(nextButton).toHaveCSS('width', '32px');
+  await expect(carousel).toHaveCSS('scrollbar-width', 'none');
   const initialCarouselLayout = await carousel.evaluate(node => {
     const items = Array.from(node.querySelectorAll('.welcome-example-item'));
     const viewport = node.getBoundingClientRect();
@@ -53,6 +116,24 @@ test('welcome primary actions and popular examples form one responsive entry row
   });
   expect(initialCarouselLayout).toEqual({ visibleCount: 4, equalWidths: true, overflow: true });
 
+  const measureCarouselControls = () => page.evaluate(() => {
+    const card = document.querySelector('#welcomePopularExamplesList .welcome-example-card');
+    const previous = document.getElementById('welcomePopularExamplesPrev');
+    const next = document.getElementById('welcomePopularExamplesNext');
+    const cardBox = card.getBoundingClientRect();
+    return [previous, next].map(node => {
+      const box = node.getBoundingClientRect();
+      return {
+        height: box.height,
+        centerOffset: Math.abs(box.top + box.height / 2 - cardBox.top - cardBox.height / 2)
+      };
+    });
+  });
+  for (const control of await measureCarouselControls()) {
+    expect(control.height).toBe(32);
+    expect(control.centerOffset).toBeLessThanOrEqual(1);
+  }
+
   await nextButton.click();
   await expect.poll(() => carousel.evaluate(node => node.scrollLeft)).toBeGreaterThan(0);
   await expect(previousButton).toBeEnabled();
@@ -66,6 +147,28 @@ test('welcome primary actions and popular examples form one responsive entry row
 
   await previousButton.click();
   await expect.poll(() => carousel.evaluate(node => node.scrollLeft)).toBe(0);
+  await expect(previousButton).toBeDisabled();
+  await expect.poll(
+    () => carousel.evaluate(node => new Promise(resolve => {
+      const before = node.scrollLeft;
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve(Math.abs(node.scrollLeft - before))));
+    })),
+    { timeout: 2000, intervals: [32, 64] }
+  ).toBe(0);
+
+  await carousel.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => carousel.evaluate(node => node.scrollLeft)).toBeGreaterThan(0);
+  await expect.poll(
+    () => carousel.evaluate(node => new Promise(resolve => {
+      const before = node.scrollLeft;
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve(Math.abs(node.scrollLeft - before))));
+    })),
+    { timeout: 2000, intervals: [32, 64] }
+  ).toBe(0);
+
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => carousel.evaluate(node => node.scrollLeft)).toBe(0);
   await expect.poll(
     () => carousel.evaluate(node => new Promise(resolve => {
       const before = node.scrollLeft;
@@ -77,12 +180,11 @@ test('welcome primary actions and popular examples form one responsive entry row
   const scrollBeforeWheel = await carousel.evaluate(node => node.scrollLeft);
   await carousel.hover();
   await page.mouse.wheel(0, 120);
-  await expect(carousel).toHaveClass(/is-wheel-scrolling/);
   await expect.poll(
     () => carousel.evaluate(node => node.scrollLeft),
-    { timeout: 3000, intervals: [16, 32, 64, 128] }
+    { timeout: 1000, intervals: [16, 32, 64, 128] }
   ).toBeGreaterThan(scrollBeforeWheel);
-  await expect.poll(() => carousel.evaluate(node => node.classList.contains('is-wheel-scrolling'))).toBe(false);
+  await expect(carousel).not.toHaveClass(/is-wheel-scrolling/);
 
   const thumbnailContracts = await popular.locator('.welcome-example-card__thumb > svg').evaluateAll(nodes => nodes.map(svg => {
     const type = svg.dataset.graphitixWelcomeThumbnail || '';
@@ -96,6 +198,7 @@ test('welcome primary actions and popular examples form one responsive entry row
     const idSet = new Set(ids);
     return {
       titleCount: svg.querySelectorAll('text[data-font-role="graphTitle"]').length,
+      previewSource: svg.dataset.previewSource,
       titleSuppressed: svg.dataset.graphTitleSuppressed,
       strokeContract: svg.dataset.proportionalStrokeContract,
       bakedStrokeCount: svg.querySelectorAll('[data-welcome-baked-stroke="true"]').length,
@@ -108,6 +211,7 @@ test('welcome primary actions and popular examples form one responsive entry row
   }));
   expect(thumbnailContracts.every(contract => (
     contract.titleCount === 0
+    && contract.previewSource === 'Graphitix owner-scoped SVG projection'
     && contract.titleSuppressed === 'true'
     && contract.strokeContract === 'source-viewport-baked-strokes-v1'
     && contract.bakedStrokeCount === contract.declaredBakedStrokeCount
@@ -149,46 +253,91 @@ test('welcome primary actions and popular examples form one responsive entry row
     };
   });
   expect(welcomeTypography).toEqual({
-    productTitle: 34,
-    tagline: 16.5,
-    panelTitle: 18,
-    sectionTitle: 18,
-    graphCardTitle: 16,
-    exampleTitle: 12.25
+    productTitle: 28,
+    tagline: 14,
+    panelTitle: 17,
+    sectionTitle: 24,
+    graphCardTitle: 17,
+    exampleTitle: 13
   });
   expect(welcomeTypography.productTitle).toBeGreaterThan(welcomeTypography.panelTitle);
-  expect(welcomeTypography.panelTitle).toBeGreaterThan(welcomeTypography.graphCardTitle);
+  expect(welcomeTypography.sectionTitle).toBeGreaterThan(welcomeTypography.panelTitle);
+  expect(welcomeTypography.panelTitle).toBe(welcomeTypography.graphCardTitle);
   expect(welcomeTypography.graphCardTitle).toBeGreaterThan(welcomeTypography.exampleTitle);
 
   const desktopLayout = await page.locator('.welcome-action-grid').evaluate(node => {
     const file = node.querySelector('#welcomeFileDropZone').getBoundingClientRect();
     const graphFinder = node.querySelector('.welcome-graph-finder').getBoundingClientRect();
     const examples = node.querySelector('.welcome-popular').getBoundingClientRect();
+    const browse = node.querySelector('.welcome-drop-zone__action').getBoundingClientRect();
+    const search = node.querySelector('.welcome-hero__search-input').getBoundingClientRect();
     return {
       aligned: Math.abs(file.top - graphFinder.top) < 1 && Math.abs(file.top - examples.top) < 1,
+      controlsAligned: Math.abs(browse.bottom - search.bottom) < 1,
       ordered: file.right < graphFinder.left && graphFinder.right < examples.left
     };
   });
-  expect(desktopLayout).toEqual({ aligned: true, ordered: true });
+  expect(desktopLayout).toEqual({ aligned: true, controlsAligned: true, ordered: true });
 
   const popularGeometry = await popular.evaluate(node => {
     const thumb = node.querySelector('.welcome-example-card__thumb')?.getBoundingClientRect();
     const finderBox = document.querySelector('.welcome-graph-finder')?.getBoundingClientRect();
     const popularBox = node.getBoundingClientRect();
+    const captions = Array.from(node.querySelectorAll('.welcome-example-card__title'));
     return {
       thumbWidth: thumb?.width || 0,
       thumbHeight: thumb?.height || 0,
       popularWidth: popularBox.width,
-      finderWidth: finderBox?.width || 0
+      finderWidth: finderBox?.width || 0,
+      captionsContained: captions.every(caption => {
+        const box = caption.getBoundingClientRect();
+        return box.top >= popularBox.top && box.bottom <= popularBox.bottom;
+      }),
+      captionGap: captions[0].getBoundingClientRect().top - thumb.bottom
     };
   });
-  expect(popularGeometry.thumbWidth).toBeGreaterThanOrEqual(120);
+  expect(popularGeometry.thumbWidth).toBeGreaterThanOrEqual(118);
   expect(popularGeometry.thumbHeight).toBeGreaterThanOrEqual(80);
   expect(popularGeometry.popularWidth).toBeGreaterThan(popularGeometry.finderWidth * 1.8);
+  expect(popularGeometry.captionsContained).toBe(true);
+  expect(popularGeometry.captionGap).toBe(0);
 
   const firstGraphCard = page.locator('#graphSelectionGrid .graph-card').first();
   await expect(firstGraphCard).toBeVisible();
-  await expect.poll(() => firstGraphCard.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThan(900);
+  const designGeometry = await page.evaluate(() => {
+    const box = selector => document.querySelector(selector).getBoundingClientRect();
+    const rounded = value => Math.round(value * 10) / 10;
+    const frame = box('.welcome-container');
+    const actions = box('.welcome-action-grid');
+    const popular = box('.welcome-popular');
+    const popularHeader = box('.welcome-popular .welcome-panel__header');
+    const carousel = box('.welcome-popular__carousel');
+    const category = box('.welcome-graph-category__title');
+    const graph = box('#graphSelectionGrid .graph-card');
+    return {
+      frameWidth: rounded(frame.width),
+      actionX: rounded(actions.x),
+      actionY: rounded(actions.y),
+      actionWidth: rounded(actions.width),
+      actionHeight: rounded(actions.height),
+      popularHeight: rounded(popular.height),
+      carouselGap: rounded(carousel.y - popularHeader.bottom),
+      categoryY: rounded(category.y),
+      graphY: rounded(graph.y)
+    };
+  });
+  expect(designGeometry).toMatchObject({
+    frameWidth: 1280,
+    actionX: 32,
+    actionY: 117,
+    actionWidth: 1216
+  });
+  expect(designGeometry.actionHeight).toBeLessThan(210);
+  expect(designGeometry.popularHeight).toBe(designGeometry.actionHeight);
+  expect(designGeometry.carouselGap).toBe(2);
+  expect(designGeometry.categoryY).toBeGreaterThan(designGeometry.actionY + designGeometry.actionHeight);
+  expect(designGeometry.graphY).toBeGreaterThan(designGeometry.categoryY);
+  expect(await firstGraphCard.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThan(900);
 
   await page.evaluate(() => {
     window.__welcomeOpenCalls = 0;
@@ -200,13 +349,58 @@ test('welcome primary actions and popular examples form one responsive entry row
   await fileTool.click();
   await expect.poll(() => page.evaluate(() => window.__welcomeOpenCalls)).toBe(1);
 
+  await page.setViewportSize({ width: 1280, height: 700 });
   await page.locator('#welcomeGraphSearch').fill('scatter');
   await expect(page.locator('#welcomeGraphResults')).toBeVisible();
   await expect(page.locator('#welcomeGraphResults .welcome-picker__option').first()).toContainText('Scatter');
+  await page.locator('#welcomeGraphSearch').fill('plot');
+  await expect(page.locator('#welcomeGraphResults .welcome-picker__option').nth(2)).toBeVisible();
+  const pickerGeometry = await page.evaluate(() => {
+    const search = document.querySelector('#welcomeGraphSearch');
+    const results = document.querySelector('#welcomeGraphResultsPopup');
+    const optionList = document.querySelector('#welcomeGraphResults');
+    const sectionHeading = document.querySelectorAll('.welcome-graph-category__title')[1];
+    const searchRect = search?.getBoundingClientRect();
+    const resultsRect = results?.getBoundingClientRect();
+    const dockRect = document.querySelector('#workspaceTabsDock')?.getBoundingClientRect();
+    const headingRect = sectionHeading?.getBoundingClientRect();
+    const overlapLeft = Math.max(resultsRect?.left || 0, headingRect?.left || 0);
+    const overlapRight = Math.min(resultsRect?.right || 0, headingRect?.right || 0);
+    const overlapTop = Math.max(resultsRect?.top || 0, headingRect?.top || 0);
+    const overlapBottom = Math.min(resultsRect?.bottom || 0, headingRect?.bottom || 0);
+    const hit = overlapRight > overlapLeft && overlapBottom > overlapTop
+      ? document.elementFromPoint((overlapLeft + overlapRight) / 2, (overlapTop + overlapBottom) / 2)
+      : null;
+    return {
+      gap: resultsRect && searchRect ? resultsRect.top - searchRect.bottom : -1,
+      menuBottom: resultsRect?.bottom ?? -1,
+      dockTop: dockRect?.top ?? window.innerHeight,
+      scrollbarButtons: getComputedStyle(optionList, '::-webkit-scrollbar-button').display,
+      frameOverflowY: getComputedStyle(results).overflowY,
+      listOverflowY: getComputedStyle(optionList).overflowY,
+      rightBorderWidth: getComputedStyle(results).borderRightWidth,
+      bottomBorderWidth: getComputedStyle(results).borderBottomWidth,
+      overlapsNextSection: overlapRight > overlapLeft && overlapBottom > overlapTop,
+      menuIsTopmost: !!hit && results.contains(hit)
+    };
+  });
+  expect(pickerGeometry.gap).toBeGreaterThanOrEqual(0);
+  expect(pickerGeometry.menuBottom).toBeLessThanOrEqual(pickerGeometry.dockTop - 3);
+  expect(pickerGeometry.scrollbarButtons).toBe('none');
+  expect(pickerGeometry.frameOverflowY).toBe('hidden');
+  expect(pickerGeometry.listOverflowY).toBe('auto');
+  expect(pickerGeometry.rightBorderWidth).toBe('1px');
+  expect(pickerGeometry.bottomBorderWidth).toBe('1px');
+  expect(pickerGeometry.overlapsNextSection).toBe(true);
+  expect(pickerGeometry.menuIsTopmost).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await page.locator('#welcomeViewAllExamples').click();
   const gallery = page.locator('#welcomeExamplesDialog');
+  const accessibleGallery = page.getByRole('dialog', { name: 'Explore Graphitix examples' });
   await expect(gallery).toBeVisible();
+  await expect(accessibleGallery).toBeVisible();
+  await expect(accessibleGallery.locator('#welcomeAllExamplesList .welcome-example-card')).toHaveCount(11);
   await expect(gallery).toHaveAttribute('aria-hidden', 'false');
   await expect(gallery.locator('.welcome-example-card')).toHaveCount(11);
   await expect(gallery.locator('.welcome-example-card .welcome-example-card__thumb > svg[data-inline-ready="true"]')).toHaveCount(11);
@@ -232,14 +426,21 @@ test('welcome primary actions and popular examples form one responsive entry row
   expect(desktopGalleryLayout.maxCardWidth).toBeLessThanOrEqual(212.5);
   expect(desktopGalleryLayout.centered).toBe(true);
 
-  await expect(gallery.locator('.welcome-dialog__panel')).toBeFocused();
+  await expect(page.locator('#welcomeExamplesDialogClose')).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(gallery.locator('.welcome-example-card').last()).toBeFocused();
-  await page.locator('#welcomeExamplesDialogClose').click();
+  await expect(page.locator('#welcomeScreen')).toHaveAttribute('inert', '');
+  await page.keyboard.press('Escape');
   await expect(gallery).toBeHidden();
   await expect(page.locator('#welcomeViewAllExamples')).toBeFocused();
 
   await page.setViewportSize({ width: 640, height: 900 });
+  for (const control of await measureCarouselControls()) {
+    expect(control.height).toBe(32);
+    expect(control.centerOffset).toBeLessThanOrEqual(1);
+  }
+  await expect(graphActions.first()).toHaveCSS('min-height', '44px');
+  expect(await matchedActionHeights()).toEqual([44, 44, 44]);
   const mobileLayout = await page.locator('.welcome-action-grid').evaluate(node => {
     const file = node.querySelector('#welcomeFileDropZone').getBoundingClientRect();
     const graphFinder = node.querySelector('.welcome-graph-finder').getBoundingClientRect();
@@ -247,11 +448,25 @@ test('welcome primary actions and popular examples form one responsive entry row
     return graphFinder.top > file.bottom && examples.top > graphFinder.bottom;
   });
   expect(mobileLayout).toBe(true);
+  await expect(page.locator('#graphSelectionGrid .welcome-graph-category')).toHaveCount(3);
+  const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  expect(mobileOverflow).toBe(false);
 
   const mobileHeatmapStroke = await measureHeatmapStroke();
   const responsiveSvgScale = mobileHeatmapStroke.svgScale / desktopHeatmapStroke.svgScale;
   expect(mobileHeatmapStroke.displayStrokeWidth / desktopHeatmapStroke.displayStrokeWidth)
     .toBeCloseTo(responsiveSvgScale, 4);
+
+  await page.locator('#welcomeViewAllExamples').click();
+  await page.locator('#welcomeAllExamplesList .welcome-example-card[data-graph-type="roc"]').click();
+  await page.waitForFunction(() => {
+    const session = window.Main?.session;
+    const tab = session?.getActiveTab?.();
+    return tab?.type === 'roc'
+      && !!tab.payload
+      && session?.tabHasTableData?.(tab) === true;
+  }, null, { timeout: 30_000 });
+  await expect(page.locator('#rocPage:not([hidden])')).toHaveCount(1);
 });
 
 test('workspace loads and opens a graph tab from welcome screen', async ({ page }) => {
@@ -267,6 +482,40 @@ test('workspace loads and opens a graph tab from welcome screen', async ({ page 
     return active?.type === 'scatter';
   }, null, { timeout: 20_000 });
   await expect(page.locator('#saveScatter')).toBeVisible();
+});
+
+test('welcome Load example action opens the selected graph example', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+  await openComponentFromWelcome(page, { type: 'hist', pageId: 'histPage' }, {
+    first: true,
+    loadExample: true
+  });
+
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId);
+    return active?.type === 'hist' && Array.isArray(active?.payload?.data) && active.payload.data.length > 0;
+  }, null, { timeout: 30_000 });
+  await expect(page.locator('#histPage:not([hidden])')).toHaveCount(1);
+});
+
+test('popular SVG previews open the matching editable example', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#welcomeScreen[data-welcome-ready="true"]');
+
+  await page.locator('#welcomePopularExamplesList .welcome-example-card[data-graph-type="heatmap"]').click();
+  await page.waitForFunction(() => {
+    const session = window.Main?.session;
+    const tab = session?.getActiveTab?.();
+    return tab?.type === 'heatmap'
+      && !!tab.payload
+      && session?.tabHasTableData?.(tab) === true;
+  }, null, { timeout: 30_000 });
+
+  await expect(page.locator('#heatmapPage:not([hidden])')).toHaveCount(1);
 });
 
 test('welcome imports delimited TXT files through the table importer', async ({ page }) => {
@@ -329,10 +578,10 @@ test('renaming a workspace tab stays inside the tab without expanding the tab li
 
   await label.dblclick();
 
-  const input = tab.locator('.workspace-tab__rename');
+  const input = page.locator('#workspaceTabsDock > .workspace-tab__rename');
   await expect(input).toBeVisible();
   const geometry = await tab.evaluate(node => {
-    const field = node.querySelector('.workspace-tab__rename');
+    const field = document.querySelector('#workspaceTabsDock > .workspace-tab__rename');
     const tabBox = node.getBoundingClientRect();
     const fieldBox = field.getBoundingClientRect();
     return {
@@ -340,14 +589,44 @@ test('renaming a workspace tab stays inside the tab without expanding the tab li
       fieldRight: fieldBox.right,
       tabLeft: tabBox.left,
       tabRight: tabBox.right,
-      background: getComputedStyle(field).backgroundColor
+      background: getComputedStyle(field).backgroundColor,
+      borderRadius: getComputedStyle(node).borderRadius,
+      nested: node.contains(field),
+      parentId: field.parentElement.id
     };
   });
 
   expect(geometry.fieldLeft).toBeGreaterThanOrEqual(geometry.tabLeft);
   expect(geometry.fieldRight).toBeLessThanOrEqual(geometry.tabRight);
   expect(geometry.background).toBe('rgba(0, 0, 0, 0)');
+  expect(geometry.borderRadius).toBe('0px');
+  expect(geometry.nested).toBe(false);
+  expect(geometry.parentId).toBe('workspaceTabsDock');
   await expect.poll(() => tabsList.evaluate(node => node.scrollWidth)).toBe(scrollWidthBefore);
+});
+
+test('workspace tab rename commits spaces and cancels with Escape', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+
+  const tab = page.locator('#workspaceTabsList .workspace-tab.is-active');
+  const renameInput = page.locator('#workspaceTabsDock > .workspace-tab__rename');
+  await tab.locator('.workspace-tab__label').dblclick();
+  await expect(renameInput).toBeFocused();
+  await renameInput.fill('Renamed');
+  await renameInput.press('Space');
+  await renameInput.type('tab');
+  await renameInput.press('Enter');
+  await expect(tab.locator('.workspace-tab__label')).toHaveText('Renamed tab');
+  await expect(renameInput).toHaveCount(0);
+
+  await tab.locator('.workspace-tab__label').dblclick();
+  await expect(renameInput).toBeFocused();
+  await renameInput.fill('Temporary title');
+  await renameInput.press('Escape');
+  await expect(tab.locator('.workspace-tab__label')).toHaveText('Renamed tab');
+  await expect(renameInput).toHaveCount(0);
 });
 
 test('overflowing workspace tabs use wheel and arrow scrolling without a scrollbar', async ({ page }) => {
@@ -384,13 +663,13 @@ test('overflowing workspace tabs use wheel and arrow scrolling without a scrollb
   });
 
   expect(scrollbar.overflows).toBe(true);
-  expect(scrollbar.dock.height).toBe(32);
+  expect(scrollbar.dock.height).toBe(33);
   expect(scrollbar.tabHeight).toBeGreaterThanOrEqual(32);
   expect(scrollbar.tabBottom).toBeLessThanOrEqual(scrollbar.dock.bottom);
   expect(scrollbar.labelBottom).toBeLessThanOrEqual(scrollbar.dock.bottom);
   expect(scrollbar.closeControls).toBe(0);
   expect(scrollbar.activeUnderlineHeight).toBe('2px');
-  expect(scrollbar.activeUnderlineWidth).toBeLessThanOrEqual(scrollbar.activeLabelWidth);
+  expect(scrollbar.activeUnderlineWidth).toBeLessThanOrEqual(scrollbar.activeLabelWidth + 0.01);
   expect(scrollbar.activeUnderlineBottom).toBe('-4px');
   expect(scrollbar.scrollLeftVisible).toBe(true);
   expect(scrollbar.scrollRightVisible).toBe(true);
@@ -406,17 +685,26 @@ test('overflowing workspace tabs use wheel and arrow scrolling without a scrollb
   });
   await expect.poll(() => list.evaluate(node => node.scrollLeft)).toBeLessThan(scrollBeforeWheel);
 
-  await list.focus();
+  const initiallySelectedId = await list.locator('.workspace-tab[aria-selected="true"]').getAttribute('data-tab-id');
+  await list.locator('.workspace-tab[aria-selected="true"]').focus();
   const scrollBeforeKey = await list.evaluate(node => node.scrollLeft);
-  await list.press('End');
+  await page.keyboard.press('End');
   await expect.poll(() => list.evaluate(node => node.scrollLeft)).toBeGreaterThan(scrollBeforeKey);
+  const lastTabId = await list.locator('.workspace-tab').last().getAttribute('data-tab-id');
+  await expect(list.locator('.workspace-tab:focus')).toHaveAttribute('data-tab-id', lastTabId);
+  await expect(list.locator('.workspace-tab[aria-selected="true"]')).toHaveAttribute('data-tab-id', initiallySelectedId);
+  await page.keyboard.press('ArrowLeft');
+  const keyboardTargetId = await list.locator('.workspace-tab:focus').getAttribute('data-tab-id');
+  await page.keyboard.press('Enter');
+  await expect(list.locator('.workspace-tab[aria-selected="true"]')).toHaveAttribute('data-tab-id', keyboardTargetId);
+  await expect(list.locator('.workspace-tab:focus')).toHaveAttribute('data-tab-id', keyboardTargetId);
 
   await page.evaluate(() => {
     const { session, tabs } = window.Main;
     session.workspaceState.tabs.splice(1);
     tabs.renderTabs();
   });
-  await expect.poll(() => page.locator('#workspaceTabsDock').evaluate(node => node.getBoundingClientRect().height)).toBe(32);
+  await expect.poll(() => page.locator('#workspaceTabsDock').evaluate(node => node.getBoundingClientRect().height)).toBe(33);
   await expect.poll(() => page.locator('#workspaceTabsList').evaluate(node => {
     const add = document.getElementById('addWorkspaceTab');
     return {

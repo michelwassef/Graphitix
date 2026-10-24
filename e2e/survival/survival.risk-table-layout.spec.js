@@ -4,6 +4,44 @@ const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
+test('Survival locked resize keeps rendered content inside its SVG viewport', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'survival', pageId: 'survivalPage' }, { first: true, loadExample: true });
+  const component = { type: 'survival', pageId: 'survivalPage' };
+  await waitForComponentOwnerReady(page, component, { requireMountedRoot: true, requireIdle: true });
+  await page.evaluate(() => {
+    const input = document.querySelector('#survivalPage:not([hidden]) .resizer-aspect-checkbox');
+    if (!input.checked) {
+      input.checked = true;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  for (const [axis, value] of [['width', 240], ['width', 480], ['width', 180], ['height', 180], ['width', 300]]) {
+    await page.evaluate(({ axis, value }) => {
+      const input = document.querySelector(`#survivalPage:not([hidden]) .resizer-size-${axis}`);
+      input.value = String(value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, { axis, value });
+    await waitForComponentOwnerReady(page, component, { requireMountedRoot: true, requireIdle: true });
+    const bounds = await page.evaluate(() => {
+      const svg = document.querySelector('#survivalPage:not([hidden]) #survivalSvg');
+      const b = svg.getBBox();
+      const v = svg.viewBox.baseVal;
+      const box = svg.closest('.svgbox');
+      const rect = box.getBoundingClientRect();
+      const sr = svg.getBoundingClientRect();
+      const style = getComputedStyle(box);
+      return { left: v.x - b.x, top: v.y - b.y, right: b.x + b.width - v.x - v.width, bottom: b.y + b.height - v.y - v.height,
+        screenRight: sr.right - rect.right - (parseFloat(style.getPropertyValue('--graph-content-extra-right')) || 0),
+        screenBottom: sr.bottom - rect.bottom - (parseFloat(style.getPropertyValue('--graph-content-extra-bottom')) || 0) };
+    });
+    expect(Math.max(...Object.values(bounds)), JSON.stringify({ axis, value, bounds })).toBeLessThanOrEqual(1);
+  }
+});
+
 test('Survival risk table widens its viewport and keeps uniform font scaling', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);

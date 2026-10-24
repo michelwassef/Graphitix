@@ -255,9 +255,7 @@ function loadStatsHooks(components) {
     window.Shared = global.Shared;
     window.Components = global.Components;
   }
-  require('../js/vendor.js');
-  require('../js/shared/stats.js');
-  require('../js/shared/regression.js');
+  require('./componentTestBootstrap').loadSharedProductionModules();
   components.forEach(component => require(`../js/components/${component}.js`));
   return components.reduce((hooks, component) => {
     hooks[component] = window.Components?.[component]?.__testHooks;

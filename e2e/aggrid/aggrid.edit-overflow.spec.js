@@ -133,6 +133,8 @@ test('AG Grid long inline edits open across neighboring cells like a spreadsheet
       return null;
     }
 
+    const cellStyle = getComputedStyle(editCell);
+    const inputStyle = getComputedStyle(input);
     const cellRect = editCell.getBoundingClientRect();
     const nextRect = nextCell.getBoundingClientRect();
     const inputRect = input.getBoundingClientRect();
@@ -170,6 +172,17 @@ test('AG Grid long inline edits open across neighboring cells like a spreadsheet
         .filter(entry => entry.fullyInsideViewport)
         .every(entry => inputRect.right >= entry.right - 1),
       rightEdgeDisplay: getComputedStyle(rightEdge).display,
+      cellOverflow: cellStyle.overflow,
+      cellBorderRightColor: cellStyle.borderRightColor,
+      inputBackground: inputStyle.backgroundColor,
+      inputBorderStyle: inputStyle.borderTopStyle,
+      inputOutlineStyle: inputStyle.outlineStyle,
+      inputBorderRadius: inputStyle.borderTopLeftRadius,
+      inputBoxShadow: inputStyle.boxShadow,
+      inputPadding: inputStyle.padding,
+      inputMargin: inputStyle.margin,
+      inputMaxWidth: inputStyle.maxWidth,
+      inputBoxSizing: inputStyle.boxSizing,
       cellLeft: cellRect.left,
       nextLeft: nextRect.left,
       nextWidth: nextRect.width,
@@ -184,6 +197,17 @@ test('AG Grid long inline edits open across neighboring cells like a spreadsheet
   expect(expandedState.allTouchedNeighborsFullyCovered).toBe(true);
   expect(expandedState.allFullyVisibleTouchedCellsEndUnderEditor).toBe(true);
   expect(expandedState.rightEdgeDisplay).toBe('none');
+  expect(expandedState.cellOverflow).toBe('visible');
+  expect(expandedState.cellBorderRightColor).toBe('rgba(0, 0, 0, 0)');
+  expect(expandedState.inputBackground).not.toBe('rgba(0, 0, 0, 0)');
+  expect(expandedState.inputBorderStyle).toBe('none');
+  expect(expandedState.inputOutlineStyle).toBe('none');
+  expect(expandedState.inputBorderRadius).toBe('0px');
+  expect(expandedState.inputBoxShadow).toBe('none');
+  expect(expandedState.inputPadding).toBe('0px');
+  expect(expandedState.inputMargin).toBe('0px');
+  expect(expandedState.inputMaxWidth).toBe('none');
+  expect(expandedState.inputBoxSizing).toBe('border-box');
   expect(expandedState.scrollLeft).toBe(beforeState.scrollLeft);
   expect(Math.abs(expandedState.cellLeft - beforeState.cellLeft)).toBeLessThanOrEqual(1);
   expect(Math.abs(expandedState.cellWidth - beforeState.cellWidth)).toBeLessThanOrEqual(1);

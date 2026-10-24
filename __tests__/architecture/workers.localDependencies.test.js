@@ -3,6 +3,7 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '../..');
 const WORKERS = [
+  'js/workers/hist.worker.js',
   'js/workers/scatter.worker.js',
   'js/workers/pca.worker.js',
   'js/workers/pca-embed.worker.js',

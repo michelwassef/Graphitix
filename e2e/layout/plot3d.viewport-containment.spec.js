@@ -1,6 +1,9 @@
+const { selectReplicateMode } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
+const { readContainment, expectContained } = require('../helpers/plot3dContainment');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
@@ -13,75 +16,11 @@ const CASES = [
 
 async function select3d(page, component) {
   if (component.tableFormatId) {
-    await page.locator(`#${component.tableFormatId}`).selectOption('3d');
+    await selectReplicateMode(page, component.type, '3d');
   }
   if (component.viewModeId) {
     await page.locator(`#${component.viewModeId}`).selectOption('3d');
   }
-}
-
-async function readContainment(page, selector) {
-  return page.evaluate(svgSelector => {
-    const svg = document.querySelector(svgSelector);
-    if (!svg) return null;
-    const view = String(svg.getAttribute('viewBox') || '').trim().split(/[ ,]+/).map(Number);
-    const inverse = svg.getScreenCTM?.()?.inverse?.() || null;
-    const toSvgPoint = (x, y) => {
-      if (!inverse) return null;
-      const point = svg.createSVGPoint?.();
-      if (!point) return null;
-      point.x = x;
-      point.y = y;
-      return point.matrixTransform(inverse);
-    };
-    const renderedNodes = Array.from(svg.querySelectorAll('text, line, circle, ellipse, path, polygon, polyline, rect'))
-      .filter(node => !node.closest('defs'))
-      .map(node => {
-        const rect = node.getBoundingClientRect();
-        if (!(rect.width > 0 && rect.height > 0)) return null;
-        const points = [
-          toSvgPoint(rect.left, rect.top),
-          toSvgPoint(rect.right, rect.top),
-          toSvgPoint(rect.left, rect.bottom),
-          toSvgPoint(rect.right, rect.bottom)
-        ].filter(Boolean);
-        if (points.length !== 4) return null;
-        return {
-          tag: node.tagName,
-          role: node.getAttribute('data-font-role') || node.getAttribute('data-role') || '',
-          className: String(node.getAttribute('class') || ''),
-          text: String(node.textContent || '').trim().slice(0, 48),
-          left: Math.min(...points.map(point => point.x)),
-          top: Math.min(...points.map(point => point.y)),
-          right: Math.max(...points.map(point => point.x)),
-          bottom: Math.max(...points.map(point => point.y))
-        };
-      })
-      .filter(Boolean);
-    const content = renderedNodes.reduce((bounds, rect) => ({
-      left: Math.min(bounds.left, rect.left),
-      top: Math.min(bounds.top, rect.top),
-      right: Math.max(bounds.right, rect.right),
-      bottom: Math.max(bounds.bottom, rect.bottom)
-    }), {
-      left: Number.POSITIVE_INFINITY,
-      top: Number.POSITIVE_INFINITY,
-      right: Number.NEGATIVE_INFINITY,
-      bottom: Number.NEGATIVE_INFINITY
-    });
-    return {
-      view,
-      content,
-      marker: svg.dataset.plot3dViewport || null,
-      reserves: ['left', 'top', 'right', 'bottom'].map(side => svg.dataset[`plot3dReserve${side[0].toUpperCase()}${side.slice(1)}`] || null),
-      envelope: svg.closest('.svgbox') ? [
-        svg.closest('.svgbox').style.getPropertyValue('--graph-content-extra-left'),
-        svg.closest('.svgbox').style.getPropertyValue('--graph-content-extra-top'),
-        svg.closest('.svgbox').style.getPropertyValue('--graph-content-extra-right'),
-        svg.closest('.svgbox').style.getPropertyValue('--graph-content-extra-bottom')
-      ] : []
-    };
-  }, selector);
 }
 
 async function readOuterLayout(page, selector, pageId) {
@@ -93,20 +32,33 @@ async function readOuterLayout(page, selector, pageId) {
   }, { svgSelector: selector, rootId: pageId });
 }
 
-function expectContained(result, label) {
-  expect(result, `${label} should expose a viewport`).not.toBeNull();
-  expect(result.marker, `${label} should use the shared 3D viewport contract`).toBe('true');
-  expect(result.reserves.every(value => Number(value) > 0), `${label} should persist positive rotation-safe reserves`).toBe(true);
-  const [minX, minY, width, height] = result.view;
-  const content = result.content;
-  expect(content.left, `${label} content should not cross the left viewport edge`).toBeGreaterThanOrEqual(minX - 1);
-  expect(content.top, `${label} content should not cross the top viewport edge`).toBeGreaterThanOrEqual(minY - 1);
-  expect(content.right, `${label} content should not cross the right viewport edge`).toBeLessThanOrEqual(minX + width + 1);
-  expect(content.bottom, `${label} content should not cross the bottom viewport edge`).toBeLessThanOrEqual(minY + height + 1);
+async function checkLegendGeometry(page, component) {
+  const read = () => page.locator(component.svg).evaluate(svg => ({
+    axes: Array.from(svg.querySelectorAll('[data-axis-line]')).map(node => ['x1', 'y1', 'x2', 'y2'].map(key => Number(node.getAttribute(key)))),
+    points: Array.from(svg.querySelectorAll('[data-plot-point="1"], g[data-layer="points"] circle, g[data-layer="line-3d-series"] path, g.surface-faces polygon')).map(node => node.getAttribute('points') || node.getAttribute('d') || [node.getAttribute('cx'), node.getAttribute('cy')]),
+    width: Number(svg.dataset.plot3dBaseWidth),
+    height: Number(svg.dataset.plot3dBaseHeight)
+  }));
+  const toggle = async checked => {
+    await page.locator(`#${component.pageId}:not([hidden]) #${component.type}ShowLegend`).evaluate((control, value) => {
+      control.checked = value;
+      control.dispatchEvent(new Event('change', { bubbles: true }));
+    }, checked);
+    await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
+    await expect.poll(() => page.locator(component.svg).evaluate(svg => !!svg.querySelector('[data-legend-viewport-content="true"], g.surface-legend'))).toBe(checked);
+  };
+  await toggle(true);
+  const visible = await read();
+  expect(visible.axes).toHaveLength(3);
+  expect(visible.points.length).toBeGreaterThan(0);
+  await toggle(false);
+  expect(await read(), `${component.type} hiding a legend must preserve projected geometry`).toEqual(visible);
+  await toggle(true);
+  expect(await read(), `${component.type} showing a legend must preserve projected geometry`).toEqual(visible);
 }
 
 for (const component of CASES) {
-  test(`${component.type} 3D viewport contains labels after redraw and rotation`, async ({ page }) => {
+  test(`${component.type} 3D viewport contains labels after redraw and rotation`, async ({ page }, testInfo) => {
     test.setTimeout(120_000);
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
@@ -123,6 +75,7 @@ for (const component of CASES) {
       return !!svg && (type === 'surface' || svg.dataset?.viewMode === '3d');
     }, { selector: component.svg, type: component.type }, { timeout: 45_000 });
     await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 45_000 });
+    await checkLegendGeometry(page, component);
     const loadedLayout = await readOuterLayout(page, component.svg, component.pageId);
     expect(loadedLayout, `${component.type} loaded graph should have an outer layout`).not.toBeNull();
     expect(emptyLayout, `${component.type} empty graph should have an outer layout`).not.toBeNull();
@@ -131,6 +84,8 @@ for (const component of CASES) {
 
     const initial = await readContainment(page, component.svg);
     expectContained(initial, `${component.type} initial`);
+    await testInfo.attach('initial-geometry', { body: Buffer.from(JSON.stringify(initial, null, 2)), contentType: 'application/json' });
+    await testInfo.attach('initial-graph', { body: await page.locator(`#${component.pageId}:not([hidden]) .graph-frame`).first().screenshot(), contentType: 'image/png' });
     const initialSignature = JSON.stringify({ view: initial.view, envelope: initial.envelope, reserves: initial.reserves });
 
     await page.evaluate(async () => {
@@ -141,6 +96,22 @@ for (const component of CASES) {
       });
       if (result && typeof result.then === 'function') await result;
     });
+    await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 45_000 });
+    const cacheResult = await page.evaluate(type => {
+      const component = window.Components[type];
+      const tabId = window.Main.session.getActiveTab().id;
+      const cache = component.captureRenderCache({ tabId });
+      if (!cache) return { captured: false };
+      let obsoleteRejected = true;
+      const previousLayoutVersion = window.Shared.plot3d.FRAME_LAYOUT_VERSION - 1;
+      if (type !== 'surface') {
+        obsoleteRejected = component.restoreRenderCache({ ...cache, rotationModel: { ...cache.rotationModel, version: previousLayoutVersion } }, { tabId }) === false;
+      } else {
+        obsoleteRejected = component.restoreRenderCache({ ...cache, __graphitixRenderCache: { ...cache.__graphitixRenderCache, frameLayoutVersion: previousLayoutVersion } }, { tabId }) === false;
+      }
+      return { captured: true, obsoleteRejected, restored: component.restoreRenderCache(cache, { tabId }) };
+    }, component.type);
+    expect(cacheResult).toEqual({ captured: true, obsoleteRejected: true, restored: true });
     await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 45_000 });
     const cacheRestored = await readContainment(page, component.svg);
     expectContained(cacheRestored, `${component.type} cache-restored`);
@@ -170,6 +141,23 @@ for (const component of CASES) {
       expectContained(rotated, `${component.type} rotated at ${target.x},${target.y}`);
       expect(rotated.view, `${component.type} rotation should retain the authoritative viewport`).toEqual(redrawn.view);
     }
+    await checkLegendGeometry(page, component);
+    const beforeReopen = await readContainment(page, component.svg);
+    const archivePath = testInfo.outputPath(`${component.type}-3d-frame.graph`);
+    await saveWorkspaceArchive(page, archivePath, { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE', reason: 'e2e-3d-legend-frame-reopen' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+    await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+    await waitForDocumentOpenComplete(page);
+    await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 45_000 });
+    const reopened = await readContainment(page, component.svg);
+    expectContained(reopened, `${component.type} reopened`);
+    expect(reopened.view).toEqual(beforeReopen.view);
+    // The resizer projects zoomed reserves to whole display pixels on restore.
+    const displayPixels = envelope => envelope.map(value => Math.round(Number.parseFloat(value) || 0));
+    expect(displayPixels(reopened.envelope)).toEqual(displayPixels(beforeReopen.envelope));
+    await checkLegendGeometry(page, component);
+    await testInfo.attach('rotated-graph', { body: await page.locator(`#${component.pageId}:not([hidden]) .graph-frame`).first().screenshot(), contentType: 'image/png' });
     expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
   });
 }

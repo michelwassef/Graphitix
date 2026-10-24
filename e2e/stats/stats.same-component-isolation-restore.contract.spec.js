@@ -28,19 +28,19 @@ const CASES = [
         const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
         const controls = root.querySelector('#statsControls');
         const familyRow = Array.from(controls?.querySelectorAll?.('.box-stats-options__row') || [])
-          .find(row => /Analysis family:/i.test(String(row.textContent || '')));
+          .find(row => row.querySelector(':scope > label')?.textContent?.trim() === 'Analysis family');
         const select = familyRow?.querySelector?.('select') || null;
         if (!select) throw new Error('Box analysis-family select not found');
         select.value = value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }, variant === 'A' ? 'parametric' : 'nonparametric');
-      await waitForOwnerProjection(page, 'box', '#statsControls .stats-advisor', { visible: true });
+      await waitForOwnerProjection(page, 'box', '#boxStatsAdvisor .stats-advisor', { visible: true });
       await page.evaluate((shouldOpen) => {
         const state = window.Main?.session?.workspaceState;
         const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
         const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
-        const advisor = root.querySelector('#statsControls .stats-advisor');
-        const toggle = root.querySelector('#statsControls .stats-advisor__toggle');
+        const advisor = root.querySelector('#boxStatsAdvisor .stats-advisor');
+        const toggle = root.querySelector('#boxStatsAdvisor .stats-advisor__toggle');
         if (!advisor || !toggle) throw new Error('Box Statistics advisor unavailable');
         const open = advisor.dataset.open === '1';
         if (open !== shouldOpen) toggle.click();
@@ -52,7 +52,6 @@ const CASES = [
       const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
       const payload = window.Components?.box?.getPayload?.() || {};
       const stats = payload?.config?.stats || {};
-      const controlsText = String(root.querySelector('#statsControls')?.textContent || '').trim();
       const status = String(root.querySelector('#boxStatsStatus')?.textContent || '').trim();
       const results = String(root.querySelector('#statsResults')?.textContent || '').replace(/\s+/g, ' ').trim();
       const session = window.Components?.box?.__testHooks?.getSession?.(active?.id || null) || null;
@@ -64,7 +63,11 @@ const CASES = [
         tabOption: active?.payload?.config?.stats?.test || null,
         status,
         results,
-        hasControls: /Analysis family:|Conditions to compare:/i.test(controlsText),
+        hasControls: !!(
+          root.querySelector('#statsControls .stats-conditions-title')
+          || Array.from(root.querySelectorAll('#statsControls .box-stats-options__row > label'))
+            .some(label => label.textContent?.trim() === 'Analysis family')
+        ),
         hasTopStatus: /Statistics up to date/i.test(status),
         hasResultsModel: !!stats.resultsModel,
         hasReportModel: !!stats.reportModel,
@@ -158,7 +161,8 @@ const CASES = [
           ? { test: 'chi-square', sparseThreshold: 4, yates: true, advancedOpen: true, advisorOpen: true }
           : { test: 'g-test', sparseThreshold: 11, yates: false, advancedOpen: false, advisorOpen: false };
         const rows = Array.from(controls?.querySelectorAll?.('.box-stats-options__row') || []);
-        const testRow = rows.find(row => /Choose test:/i.test(String(row.textContent || '')));
+        const labelText = row => row.querySelector(':scope > label')?.textContent?.trim() || '';
+        const testRow = rows.find(row => labelText(row) === 'Choose test');
         const select = testRow?.querySelector?.('select') || null;
         if (!select) throw new Error('Pie test select not found');
         select.value = desired.test;
@@ -166,7 +170,7 @@ const CASES = [
 
         const refreshedControls = root.querySelector('#pieStatsControls');
         const refreshedRows = Array.from(refreshedControls?.querySelectorAll?.('.box-stats-options__row') || []);
-        const sparseRow = refreshedRows.find(row => /Sparse threshold:/i.test(String(row.textContent || '')));
+        const sparseRow = refreshedRows.find(row => labelText(row) === 'Sparse threshold');
         const sparseInput = sparseRow?.querySelector?.('input[type="number"]') || null;
         if (!sparseInput) throw new Error('Pie sparse threshold input not found');
         sparseInput.value = String(desired.sparseThreshold);
@@ -183,8 +187,8 @@ const CASES = [
         if (!advanced || !summary) throw new Error('Pie Advanced parameters control not found');
         if (!!advanced.open !== desired.advancedOpen) summary.click();
 
-        const advisorToggle = root.querySelector('#pieStatsControls .stats-advisor__toggle');
-        const advisorOpen = root.querySelector('#pieStatsControls .stats-advisor')?.dataset?.open === '1';
+        const advisorToggle = root.querySelector('#pieStatsAdvisor .stats-advisor__toggle');
+        const advisorOpen = root.querySelector('#pieStatsAdvisor .stats-advisor')?.dataset?.open === '1';
         if (advisorToggle && advisorOpen !== desired.advisorOpen) advisorToggle.click();
       }, variant);
     },
@@ -192,13 +196,16 @@ const CASES = [
       const state = window.Main?.session?.workspaceState;
       const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
       const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'pie') || document;
+      const sessionBeforePayload = window.Components?.pie?.__testHooks?.getSession?.(active?.id || null) || null;
+      const sessionAdvancedOpenBeforePayload = sessionBeforePayload?.state?.stats?.advancedOpen === true;
       const payload = window.Components?.pie?.getPayload?.() || {};
       const stats = payload?.config?.stats || {};
+      const labelText = row => row.querySelector(':scope > label')?.textContent?.trim() || '';
       const testRow = Array.from(root.querySelectorAll?.('#pieStatsControls .box-stats-options__row') || [])
-        .find(row => /Choose test:/i.test(String(row.textContent || '')));
+        .find(row => labelText(row) === 'Choose test');
       const domTest = testRow?.querySelector?.('select')?.value || stats.test || '';
       const scopeRow = Array.from(root.querySelectorAll?.('#pieStatsControls .box-stats-options__row') || [])
-        .find(row => /Comparison scope:/i.test(String(row.textContent || '')));
+        .find(row => labelText(row) === 'Comparison scope');
       const domScope = scopeRow?.querySelector?.('select')?.value || stats.scope || '';
       const status = String(root.querySelector('#pieStatsStatus')?.textContent || '').trim();
       const results = String(root.querySelector('#pieStatsResults')?.textContent || '').replace(/\s+/g, ' ').trim();
@@ -209,55 +216,72 @@ const CASES = [
       const yatesCorrection = (ownedStats.yatesCorrection ?? stats.yatesCorrection) === true;
       const advancedOpen = (ownedStats.advancedOpen ?? stats.advancedOpen) === true;
       const advisorOpen = ownedAdvisor.open === true;
+      const figureSummary = stats.reportModel?.figureSummary || null;
+      const figureSummarySections = Array.isArray(figureSummary?.sections) ? figureSummary.sections : [];
       return {
         option: `${domScope}:${domTest}|sparse=${sparseThreshold}|yates=${yatesCorrection}|advanced=${advancedOpen}|advisor=${advisorOpen}`,
-        payloadOption: `${stats.scope || ''}:${stats.test || ''}`,
         selectedColumns: Array.isArray(stats.selectedColumns) ? stats.selectedColumns.slice() : [],
-        valueColumn: stats.valueColumn ?? null,
-        expectedColumn: stats.expectedColumn ?? null,
         sparseThreshold,
         yatesCorrection,
         advancedOpen,
+        sessionAdvancedOpenBeforePayload,
+        payloadAdvancedOpen: stats.advancedOpen === true,
+        sessionAdvancedOpenAfterPayload: session?.state?.stats?.advancedOpen === true,
         advisorOpen,
         canonicalSplit: !!(session?.state?.stats && session?.advisor && session?.results && !Object.prototype.hasOwnProperty.call(session.state, 'statsDataModel')),
         status,
         results,
         hasResultsModel: !!stats.resultsModel,
-        hasReportModel: !!stats.reportModel
+        hasReportModel: !!stats.reportModel,
+        resultsModelChildCount: Array.isArray(stats.resultsModel?.children) ? stats.resultsModel.children.length : 0,
+        figureSummaryRowCount: figureSummarySections.reduce((count, section) => count + (Array.isArray(section?.rows) ? section.rows.length : 0), 0),
+        resultsRendered: !!root.querySelector('#pieStatsResults .stats-report-panel, #pieStatsResults .stats-table-card, #pieStatsResults table'),
+        domAdvancedOpen: !!root.querySelector('#pieStatsControls details.box-stats-advanced')?.open
       };
     }),
     assertVariant: snapshot => {
       expect(snapshot.status).toMatch(/Statistics up to date/i);
+      expect(snapshot.resultsRendered).toBe(true);
       expect(snapshot.hasResultsModel || snapshot.hasReportModel).toBe(true);
+      expect(snapshot.resultsModelChildCount).toBeGreaterThan(0);
+      expect(snapshot.figureSummaryRowCount).toBeGreaterThan(0);
       expect(snapshot.selectedColumns.length).toBeGreaterThan(0);
       expect(snapshot.canonicalSplit).toBe(true);
+      const advancedState = JSON.stringify({
+        advancedOpen: snapshot.advancedOpen,
+        sessionBeforePayload: snapshot.sessionAdvancedOpenBeforePayload,
+        payload: snapshot.payloadAdvancedOpen,
+        sessionAfterPayload: snapshot.sessionAdvancedOpenAfterPayload,
+        dom: snapshot.domAdvancedOpen
+      });
+      expect(snapshot.sessionAdvancedOpenBeforePayload, advancedState).toBe(snapshot.advancedOpen);
+      expect(snapshot.payloadAdvancedOpen, advancedState).toBe(snapshot.advancedOpen);
+      expect(snapshot.domAdvancedOpen, advancedState).toBe(snapshot.advancedOpen);
     }
   },
   {
     key: 'roc',
     component: { type: 'roc', pageId: 'rocPage' },
     exampleButtonId: 'rocLoadExample',
-    computeSelector: null,
-    statusSelector: null,
+    computeSelector: '#rocComputeStats',
+    statusSelector: '#rocStatsStatus',
     resultsSelector: '#rocStatsResults',
     configure: async (page, variant) => {
       await page.evaluate((variantName) => {
         const state = window.Main?.session?.workspaceState;
         const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
         const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'roc') || document;
-        const select = root.querySelector('#rocStatsControls select:last-of-type');
+        const select = root.querySelector('#rocCompareSelection');
         if (!select) return;
-        const options = Array.from(select.options || []);
-        if (!options.length) return;
+        const options = Array.from(select.options || []).filter(option => /^\d+,\d+$/.test(String(option.value || '')));
+        if (!options.length) throw new Error('ROC comparison pair is unavailable');
         select.value = variantName === 'A' ? options[0].value : options[options.length - 1].value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }, variant);
     },
     compute: async page => {
-      await page.evaluate(async () => {
-        window.Components?.roc?.draw?.({ reason: 'e2e-stats-contract' });
-        await window.Components?.roc?.awaitReadyForSnapshot?.({ reason: 'e2e-stats-contract-ready' });
-      });
+      await expect(page.locator('#rocComputeStats')).toBeEnabled({ timeout: 25_000 });
+      await page.locator('#rocComputeStats').click();
       await expect(page.locator('#rocStatsResults')).toContainText(/ROC metrics|AUC|Reporting and reproducibility/i, { timeout: 40_000 });
     },
     settleAfterRestore: async page => {
@@ -277,7 +301,7 @@ const CASES = [
       const rootDoc = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'roc') || document;
       const payload = window.Components?.roc?.getPayload?.() || {};
       const stats = payload?.stats || {};
-      const compare = rootDoc.querySelector('#rocStatsControls select:last-of-type');
+      const compare = rootDoc.querySelector('#rocCompareSelection');
       const selectedOption = compare?.selectedOptions?.[0] || null;
       const results = String(rootDoc.querySelector('#rocStatsResults')?.textContent || '').replace(/\s+/g, ' ').trim();
       const root = rootDoc.querySelector('#rocStatsResults');
@@ -634,7 +658,21 @@ for (const componentCase of CASES) {
     const reopenedSecond = await componentCase.capture(page);
     componentCase.assertVariant(reopenedSecond);
     const reopenedSecondPFormat = await captureActivePValueFormat(page, componentCase);
-    expect(new Set([reopenedFirst.option, reopenedSecond.option])).toEqual(new Set([snapshotA.option, snapshotB.option]));
+    if (componentCase.key === 'pie') {
+      await activateTab(page, reopenedIds[0], componentCase);
+      const reopenedFirstAfterSibling = await componentCase.capture(page);
+      componentCase.assertVariant(reopenedFirstAfterSibling);
+      expect(reopenedFirstAfterSibling.option).toBe(snapshotA.option);
+
+      await activateTab(page, reopenedIds[1], componentCase);
+      const reopenedSecondAfterSibling = await componentCase.capture(page);
+      componentCase.assertVariant(reopenedSecondAfterSibling);
+      expect(reopenedSecondAfterSibling.option).toBe(snapshotB.option);
+    }
+    expect(new Set([reopenedFirst.option, reopenedSecond.option]), JSON.stringify({
+      saved: [snapshotA, snapshotB].map(snapshot => ({ option: snapshot.option, advancedOpen: snapshot.advancedOpen, domAdvancedOpen: snapshot.domAdvancedOpen })),
+      reopened: [reopenedFirst, reopenedSecond].map(snapshot => ({ option: snapshot.option, advancedOpen: snapshot.advancedOpen, sessionAdvancedOpenBeforePayload: snapshot.sessionAdvancedOpenBeforePayload, payloadAdvancedOpen: snapshot.payloadAdvancedOpen, sessionAdvancedOpenAfterPayload: snapshot.sessionAdvancedOpenAfterPayload, domAdvancedOpen: snapshot.domAdvancedOpen, resultsModelChildCount: snapshot.resultsModelChildCount, figureSummaryRowCount: snapshot.figureSummaryRowCount }))
+    })).toEqual(new Set([snapshotA.option, snapshotB.option]));
     expect(new Set([reopenedFirstPFormat.reporting, reopenedSecondPFormat.reporting])).toEqual(new Set([false, true]));
     expect(new Set([
       reopenedFirstPFormat.payload === true,

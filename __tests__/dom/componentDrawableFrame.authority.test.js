@@ -1,3 +1,5 @@
+const { loadSharedProductionModules } = require('../../test-support/componentTestBootstrap');
+
 const COMPONENTS = [
   { key: 'venn', modulePath: '../../js/components/venn.js', plotId: 'stage', pageId: 'vennPage', panelId: 'vennGraphPanel', tag: 'svg' },
   { key: 'line', modulePath: '../../js/components/line.js', plotId: 'linePlot', pageId: 'linePage', panelId: 'lineGraphPanel' },
@@ -26,12 +28,10 @@ function loadComponent({ key, modulePath, plotId, pageId, panelId, tag = 'div' }
     </div>
   `;
   window.Shared = {
-    isDebugEnabled: () => false,
-    chartStyle: {},
-    componentLifecycle: {}
+    isDebugEnabled: () => false
   };
   window.Components = {};
-  require('../../js/shared/componentLayout.js');
+  loadSharedProductionModules();
   require(modulePath);
 
   const component = window.Components[key];

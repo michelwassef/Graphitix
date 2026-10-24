@@ -1,5 +1,5 @@
 // Histogram component module
-// Exposes: window.Components.hist = { init(root), draw(), save(), open(), loadFromFile(file) }
+// Exposes: window.Components.hist = { init(root), draw(), save(), saveAs(), open() }
 (function(global){
   'use strict';
   const NS='http://www.w3.org/2000/svg';
@@ -124,12 +124,7 @@
     if(!snapshot || typeof snapshot !== 'object'){
       return null;
     }
-    setHistSessionStateFromRuntimeRecord(snapshot, {
-      ...(meta || {}),
-      tab: tabLike || meta?.tab || null,
-      tabId: meta?.tabId || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null,
-      reason: meta?.reason || 'hist-owned-runtime-remember'
-    });
+    // Remembering exports a snapshot; only applyRuntimeState hydrates the owner.
     return getHistRuntimeOwner()?.capture(snapshot, {
       ...(meta || {}),
       tab: tabLike || meta?.tab || null,
@@ -144,12 +139,6 @@
       componentKey: 'hist',
       reason: meta?.reason || 'hist-owned-runtime-resolve'
     }) || snapshot || null;
-    if(resolved && typeof resolved === 'object'){
-      setHistSessionStateFromRuntimeRecord(resolved, {
-        ...(meta || {}),
-        reason: meta?.reason || 'hist-owned-runtime-resolve'
-      });
-    }
     return resolved;
   }
 
@@ -236,10 +225,6 @@
   }
   hist.__installed = true;
   hist.ready = false; // set true after successful init
-  const fileIO = Shared.fileIO = Shared.fileIO || {};
-  if(!fileIO.saveGraphFile){
-    histDebug('Debug: hist component awaiting Shared.fileIO helpers');
-  }
   if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
     histDebug('Debug: hist component awaiting Shared.tableImport helpers');
   }
@@ -353,10 +338,294 @@
     };
   }
 
+  const HIST_ADVISOR_QUESTIONS = Object.freeze([
+    { id: 'goal', prompt: 'What do you want to learn?', options: [
+      ['describe', 'Describe and plot the measurements'],
+      ['fit', 'Check a normal or log-normal distribution model'],
+      ['compare', 'Compare two complete distributions'],
+      ['location', 'Compare group means or medians']
+    ] },
+    { id: 'data', prompt: 'What do the table values represent?', help: 'Use individual observations. Distribution comparisons preserve ties; normal/log-normal checks still need continuous measurements.', options: [
+      ['continuous', 'Individual continuous measurements (possibly rounded)'],
+      ['discrete', 'Individual numeric counts or ordered categories'],
+      ['summarized', 'Bin counts, frequencies, or other summaries'],
+      ['unknown', 'I am not sure']
+    ] },
+    { id: 'design', prompt: 'How were the observations collected?', options: [
+      ['independent', 'Independent observations within each series, and independent groups'],
+      ['paired', 'Independent subjects, with one measurement per subject in each paired series'],
+      ['dependent', 'Repeated or clustered observations within a series'],
+      ['unknown', 'I am not sure']
+    ] },
+    { id: 'model', prompt: 'Which model do you want to check?', options: [
+      ['normal', 'Normal'],
+      ['lognormal', 'Log-normal (strictly positive measurements)'],
+      ['compare', 'Compare normal and log-normal fits using AICc']
+    ] }
+  ].map(question => Object.freeze({ ...question, options: Object.freeze(question.options.map(option => Object.freeze(option))) })));
+
+  function createDefaultHistAdvisorState(source = {}){
+    const answers = {};
+    HIST_ADVISOR_QUESTIONS.forEach(question => {
+      const value = source?.answers?.[question.id];
+      if(question.options.some(option => option[0] === value)){ answers[question.id] = value; }
+    });
+    return { open: source?.open === true, answers };
+  }
+
+  // This compact, plain-data context uses the same unbinned, included source as
+  // the renderer. No fitted results or p-values select an analysis branch.
+  function buildHistAdvisorContext(series = []){
+    const seenInSeries = new Map();
+    let hasTies = false;
+    const summaries = [];
+    for(const entry of series){
+      let n = 0;
+      let withinSeriesTies = false;
+      let min = Infinity;
+      let max = -Infinity;
+      for(const value of entry.values || []){
+        if(!Number.isFinite(value)){ continue; }
+        n += 1;
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+        const previousSeries = seenInSeries.get(value);
+        if(previousSeries !== undefined){ hasTies = true; }
+        if(previousSeries === summaries.length){ withinSeriesTies = true; }
+        seenInSeries.set(value, summaries.length);
+      }
+      if(n){ summaries.push({ n, min, max, hasTies: withinSeriesTies }); }
+    }
+    return { series: summaries, hasTies };
+  }
+
+  function readHistAdvisorContext(session){
+    if(!isHistSessionActiveForModuleState(session) || !session.managers.hot){ return { series: [], hasTies: false }; }
+    const view = resolveHistViewContext(session.managers.hot);
+    return buildHistAdvisorContext(collectHistSeries({ matrix: view.sourceData }));
+  }
+
+  function computeHistAdvisorRecommendation(answers, context = {}){
+    const a = createDefaultHistAdvisorState({ answers }).answers;
+    const series = Array.isArray(context.series) ? context.series : [];
+    const result = { ready: false, summary: '', warnings: [], settings: null };
+    const stop = summary => ({ ...result, summary });
+    if(!a.goal){ return stop('Choose an analysis goal to receive guidance.'); }
+    if(a.goal === 'location'){
+      return stop('Use Distribution Charts to compare means or medians. Choose its independent-group or paired/repeated design to match your study; Histogram compares complete distributions.');
+    }
+    if(!series.length){ return stop('Add at least one column of individual numeric measurements. Empty and excluded observations are not analyzed.'); }
+    if(a.goal === 'describe'){
+      return { ...result, ready: true, summary: 'Suggested: descriptive statistics only, with fit diagnostics and distribution comparison off.', settings: { diagnosticsMode: 'off', comparisonMode: 'off' } };
+    }
+    if(a.data === 'summarized'){
+      return stop('Use individual observations for these tests. Bin counts and frequencies must not be treated as repeated raw measurements. Generated frequency views are analyzed through their original source data.');
+    }
+    if(a.goal === 'compare'){
+      if(!['continuous', 'discrete'].includes(a.data)){
+        return stop('Confirm that the columns contain individual ordered numeric observations.');
+      }
+      if(a.design === 'dependent'){
+        return stop('This comparison assumes independent observations and does not account for repeated or clustered data. Use a method that preserves that dependence.');
+      }
+      if(a.design === 'paired'){
+        return stop('The independent-sample KS comparison does not account for pairing. Use a paired method that preserves subject links; Distribution Charts supports paired mean or rank comparisons.');
+      }
+      if(a.design !== 'independent'){
+        return stop('Confirm that observations and groups are independent. The table cannot establish this.');
+      }
+      if(series.length !== 2){ return stop(`The two-sample Kolmogorov–Smirnov test requires exactly two non-empty included series; currently ${series.length} are available.`); }
+      if(series.some(entry => entry.n < 2)){
+        return stop('Each series needs at least two finite observations for a distribution comparison.');
+      }
+      result.ready = true;
+      result.settings = { diagnosticsMode: 'off', comparisonMode: 'ks' };
+      result.summary = 'Suggested: two-sample Kolmogorov–Smirnov to compare the complete ordered distributions. Exact or Monte Carlo permutation calibration preserves ties.';
+      result.warnings.push('A non-significant result does not establish equivalence. This is not a dedicated test of means or medians.');
+      result.warnings.push('Permutation inference assumes independent observations and exchangeable group labels under the equal-distribution null; it does not adjust for covariates or establish causation.');
+      if(context.hasTies === true || series.some(entry => entry.hasTies)){
+        result.warnings.push('Tied values are present. Permutation calibration preserves the observed ties; if they reflect rounding, the test compares distributions at the recorded precision.');
+      }
+      return result;
+    }
+    if(a.data === 'discrete'){
+      return stop('Normal/log-normal model checks require continuous measurements. For ordered numeric counts or categories, use a method designed for discrete data.');
+    }
+    if(a.data !== 'continuous'){ return stop('Confirm that the source columns contain individual continuous measurements.'); }
+    if(a.design === 'dependent'){
+      return stop('These model checks do not account for repeated or clustered observations within a series. Use a method that preserves that dependence.');
+    }
+    if(!['independent', 'paired'].includes(a.design)){ return stop('Confirm independence from your study design. The table cannot establish it.'); }
+    if(!a.model){ return stop('Choose the distribution model you want to check.'); }
+    if(series.some(entry => entry.n < 2 || !(entry.max > entry.min))){
+      return stop('Each included series needs at least two finite, non-constant measurements to estimate these distribution models.');
+    }
+    if(a.model !== 'normal' && series.some(entry => !(entry.min > 0))){
+      return stop('Log-normal fitting and the normal/log-normal comparison require every included observation to be strictly positive. Do not discard zero or negative values to force a fit; choose Normal only if scientifically appropriate.');
+    }
+    if(a.model === 'compare' && series.some(entry => entry.n <= 3)){
+      return stop('Normal/log-normal AICc comparison needs more than three observations per series for these two-parameter models. Choose a single model or add observations.');
+    }
+    result.ready = true;
+    result.settings = { diagnosticsMode: { normal: 'normal-fit', lognormal: 'lognormal-fit', compare: 'normal-vs-lognormal' }[a.model], comparisonMode: 'off' };
+    result.summary = a.model === 'compare'
+      ? 'Suggested: normal and log-normal model comparison using AICc, with fitted-normal KS and Anderson–Darling diagnostics.'
+      : `Suggested: fitted-${a.model === 'normal' ? 'normal' : 'log-normal'} KS and Anderson–Darling model diagnostics.`;
+    // Fitted-parameter calibration: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.goodness_of_fit.html
+    result.warnings.push('Model-check p-values are diagnostics, not an automatic selector for later parametric or rank-based tests. A non-significant result does not prove the model is correct.');
+    if(a.design === 'paired'){ result.warnings.push('These are separate model checks for each series. A paired analysis may require checking within-pair differences instead.'); }
+    if(a.model === 'compare'){ result.warnings.push('Lower AICc expresses relative support among these candidates; it does not establish that either model is adequate.'); }
+    if(series.some(entry => entry.hasTies)){ result.warnings.push('Ties or measurement rounding can affect continuous-model diagnostic calibration. Interpret these p-values cautiously.'); }
+    return result;
+  }
+
+  function renderHistStatsAdvisor(session){
+    if(!session || !isHistSessionActiveForModuleState(session)){ return; }
+    const host = getHistNodeById('histStatsAdvisor', session.tabId);
+    if(!host){ return; }
+    const advisor = session.advisor;
+    const view = Shared.statsAdvisor.begin({
+      host, component:'hist', tabId:session.tabId, advisor,
+      getAdvisor:() => session.advisor,
+      isActive:() => isHistSessionActiveForModuleState(session)
+    });
+    const current = view.isCurrent;
+    const container = document.createElement('div');
+    container.className = 'stats-advisor';
+    container.dataset.open = advisor.open ? '1' : '0';
+    const header = document.createElement('div');
+    header.className = 'stats-advisor__header';
+    const title = host.querySelector('#histStatsSettingsTitle');
+    header.appendChild(title);
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'stats-advisor__toggle';
+    toggle.dataset.advisorFocus = 'toggle';
+    toggle.textContent = 'Help me choose';
+    toggle.setAttribute('aria-expanded', String(advisor.open));
+    const bodyId = `hist-advisor-body-${session.tabId}`;
+    toggle.setAttribute('aria-controls', bodyId);
+    toggle.addEventListener('click', () => {
+      if(!current()){ return; }
+      advisor.open = !advisor.open;
+      renderHistStatsAdvisor(session);
+      persistHistOwnerState(null, session, 'hist-advisor-toggle');
+    });
+    header.appendChild(toggle);
+    container.appendChild(header);
+    const body = document.createElement('div');
+    body.id = bodyId;
+    body.className = 'stats-advisor__questions';
+    body.setAttribute('role', 'region');
+    body.setAttribute('aria-label', 'Statistics advisor');
+    body.hidden = !advisor.open;
+    if(advisor.open){
+      const context = readHistAdvisorContext(session);
+      const count = document.createElement('p');
+      count.className = 'stats-advisor__hint';
+      count.textContent = `${context.series.length} non-empty included series. Recommendations use the unbinned source observations.`;
+      body.appendChild(count);
+      HIST_ADVISOR_QUESTIONS.forEach(question => {
+        const analyticalGoal = ['fit', 'compare'].includes(advisor.answers.goal);
+        if(question.id !== 'goal' && !analyticalGoal){ return; }
+        if(question.id === 'model' && advisor.answers.goal !== 'fit'){ return; }
+        const fieldset = document.createElement('fieldset');
+        fieldset.className = 'stats-advisor__question';
+        const legend = document.createElement('legend');
+        legend.textContent = question.prompt;
+        fieldset.appendChild(legend);
+        if(question.help){
+          const help = document.createElement('p');
+          help.className = 'stats-advisor__hint';
+          help.textContent = question.help;
+          fieldset.appendChild(help);
+        }
+        question.options.forEach(([value, label]) => {
+          const wrap = document.createElement('label');
+          wrap.className = 'stats-advisor__option';
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `hist-advisor-${session.tabId}-${question.id}`;
+          input.value = value;
+          input.checked = advisor.answers[question.id] === value;
+          input.dataset.advisorFocus = question.id;
+          input.dataset.advisorQuestion = question.id;
+          input.addEventListener('change', () => {
+            if(!current() || !input.checked){ return; }
+            advisor.answers[question.id] = value;
+            renderHistStatsAdvisor(session);
+            persistHistOwnerState(null, session, 'hist-advisor-answer');
+          });
+          wrap.append(input, document.createTextNode(label));
+          fieldset.appendChild(wrap);
+        });
+        body.appendChild(fieldset);
+      });
+      const recommendation = computeHistAdvisorRecommendation(advisor.answers, context);
+      const summary = document.createElement('div');
+      summary.className = 'stats-advisor__summary';
+      summary.id = `${bodyId}-recommendation`;
+      summary.setAttribute('role', 'status');
+      const line = document.createElement('div');
+      line.className = 'stats-advisor__summary-line';
+      line.textContent = recommendation.summary;
+      summary.appendChild(line);
+      if(recommendation.warnings.length){
+        const list = document.createElement('ul');
+        list.className = 'stats-advisor__rationale';
+        recommendation.warnings.forEach(warning => {
+          const item = document.createElement('li');
+          item.textContent = warning;
+          list.appendChild(item);
+        });
+        summary.appendChild(list);
+      }
+      body.appendChild(summary);
+      const actions = document.createElement('div');
+      actions.className = 'stats-advisor__actions';
+      const apply = document.createElement('button');
+      apply.type = 'button';
+      apply.textContent = 'Apply recommendation';
+      apply.dataset.advisorFocus = 'apply';
+      apply.setAttribute('aria-describedby', summary.id);
+      apply.disabled = !recommendation.ready;
+      apply.addEventListener('click', () => {
+        view.apply({
+          readContext:() => readHistAdvisorContext(session),
+          decide:computeHistAdvisorRecommendation,
+          refresh:() => renderHistStatsAdvisor(session),
+          commit:next => {
+            session.state.statsSettings = { ...session.state.statsSettings, ...next.settings };
+            state.statsSettings = { ...session.state.statsSettings };
+            invalidateHistStatsAnalysis(session);
+            syncHistStatsControls();
+            persistHistOwnerState(null, session, 'hist-advisor-apply');
+            scheduleHistOwnerDraw({ tabId: session.tabId, session }, { reason: 'hist-advisor-apply', renderImpact: 'analysis' });
+          }
+        });
+      });
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.textContent = 'Reset answers';
+      reset.dataset.advisorFocus = 'reset';
+      reset.addEventListener('click', () => {
+        if(!current()){ return; }
+        advisor.answers = {};
+        renderHistStatsAdvisor(session);
+        persistHistOwnerState(null, session, 'hist-advisor-reset');
+      });
+      actions.append(apply, reset);
+      body.appendChild(actions);
+    }
+    container.appendChild(body);
+    host.replaceChildren(container);
+    view.finish(container);
+  }
+
   function createDefaultHistStatsSettings(){
     return {
-      diagnosticsMode: 'normal-vs-lognormal',
-      comparisonMode: 'ks'
+      diagnosticsMode: 'off',
+      comparisonMode: 'off'
     };
   }
   function createDefaultHistRuntimeControls(){
@@ -715,57 +984,60 @@
   }
 
 
-  let state = {
-    hot: null,
-    scheduleDraw: null,
-    fileHandle: null,
-    fileName: 'histogram.graph',
-    plotMode: HIST_PLOT_MODE_HISTOGRAM,
-    seriesLayout: createDefaultHistSeriesLayout(),
-    titleText: getHistDefaultTitle(HIST_PLOT_MODE_HISTOGRAM),
-    titleAuto: true,
-    xLabelText: 'Value',
-    yLabelText: getHistDefaultYLabel(HIST_PLOT_MODE_HISTOGRAM),
-    yLabelAuto: true,
-    showLegend: true,
-    seriesColors: {},
-    densityLineColors: {},
-    traceOpacity: null,
-    seriesOpacities: {},
-    barFill: HIST_DEFAULT_FILL,
-    barBorder: HIST_DEFAULT_BORDER,
-    barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
-    svgBox: null,
-    layout: null,
-    minSvgWidth: 0,
-    autoDrawEnabled: true,
-    autoDrawReason: null,
-    autoDrawLockedByThreshold: false,
-    drawPending: false,
-    lastDataShape: { rows: 0, cols: 0 },
-    lastAutoDrawEvaluation: null,
-    axisSettings: createDefaultAxisSettings(),
-    gridStyle: null,
-    frequencySettings: createDefaultHistFrequencySettings(),
-    distributionSettings: createDefaultDistributionSettings(),
-    distributionOptions: [],
-    statsSettings: createDefaultHistStatsSettings(),
-    lastStatsPanelModel: { resultsModel: null, reportModel: null },
-    runtimeControls: createDefaultHistRuntimeControls(),
-    notes: {
-      text: '',
-      open: false,
-      control: null
-    },
-    labelPositions: {
-      title: null,
-      xLabel: null,
-      yLabel: null,
-      legend: null,
-      stats: null
-    },
-    root: null
-  };
+  function createDefaultHistModuleState(){
+    return {
+      hot: null,
+      scheduleDraw: null,
+      fileName: 'histogram.graph',
+      plotMode: HIST_PLOT_MODE_HISTOGRAM,
+      seriesLayout: createDefaultHistSeriesLayout(),
+      titleText: getHistDefaultTitle(HIST_PLOT_MODE_HISTOGRAM),
+      titleAuto: true,
+      xLabelText: 'Value',
+      yLabelText: getHistDefaultYLabel(HIST_PLOT_MODE_HISTOGRAM),
+      yLabelAuto: true,
+      showLegend: true,
+      seriesColors: {},
+      densityLineColors: {},
+      traceOpacity: null,
+      seriesOpacities: {},
+      barFill: HIST_DEFAULT_FILL,
+      barBorder: HIST_DEFAULT_BORDER,
+      barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
+      svgBox: null,
+      layout: null,
+      minSvgWidth: 0,
+      autoDrawEnabled: true,
+      autoDrawReason: null,
+      autoDrawLockedByThreshold: false,
+      drawPending: false,
+      lastDataShape: { rows: 0, cols: 0 },
+      lastAutoDrawEvaluation: null,
+      axisSettings: createDefaultAxisSettings(),
+      gridStyle: null,
+      frequencySettings: createDefaultHistFrequencySettings(),
+      distributionSettings: createDefaultDistributionSettings(),
+      distributionOptions: [],
+      statsSettings: createDefaultHistStatsSettings(),
+      lastStatsPanelModel: { resultsModel: null, reportModel: null },
+      runtimeControls: createDefaultHistRuntimeControls(),
+      notes: {
+        text: '',
+        open: false,
+        control: null
+      },
+      labelPositions: {
+        title: null,
+        xLabel: null,
+        yLabel: null,
+        legend: null,
+        stats: null
+      },
+      root: null
+    };
+  }
+
+  let state = createDefaultHistModuleState();
 
 
   const histSessionsByTabId = new Map();
@@ -905,7 +1177,50 @@
   function createDefaultHistResultsState(source = {}){
     const src = source && typeof source === 'object' ? source : {};
     return {
-      statsPanelModel: createDefaultHistStatsPanelModel(src.statsPanelModel || src.statsPanel || src.stats || {})
+      statsPanelModel: createDefaultHistStatsPanelModel(src.statsPanelModel || src.statsPanel || src.stats || {}),
+      analysisModel: normalizeHistStatsAnalysisModel(src.analysisModel || src.statsAnalysis || null)
+    };
+  }
+
+  function normalizeHistStatsAnalysisModel(source){
+    const src = source && typeof source === 'object' ? source : null;
+    const signature = typeof src?.signature === 'string' && src.signature
+      ? src.signature
+      : (typeof src?.analysisSignature === 'string' ? src.analysisSignature : '');
+    if(!signature){ return null; }
+    const diagnosticsByKey = {};
+    Object.entries(src.diagnosticsByKey || {}).forEach(([key, value]) => {
+      const diagnostic = value && typeof value === 'object' ? value : {};
+      diagnosticsByKey[key] = {
+        available: diagnostic.available === true,
+        gof: cloneSimple(diagnostic.gof) || null,
+        message: diagnostic.message == null ? null : String(diagnostic.message)
+      };
+    });
+    const modelComparisonByKey = {};
+    const finiteOrNull = candidate => {
+      if(candidate == null || (typeof candidate === 'string' && !candidate.trim())){ return null; }
+      const numeric = typeof candidate === 'number' ? candidate : Number(candidate);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+    Object.entries(src.modelComparisonByKey || {}).forEach(([key, value]) => {
+      const comparison = value && typeof value === 'object' ? value : {};
+      modelComparisonByKey[key] = {
+        available: comparison.available === true,
+        preferred: comparison.preferred === 'lognormal' ? 'lognormal' : (comparison.preferred === 'normal' ? 'normal' : null),
+        normalAicc: finiteOrNull(comparison.normalAicc),
+        lognormalAicc: finiteOrNull(comparison.lognormalAicc),
+        deltaAicc: finiteOrNull(comparison.deltaAicc),
+        message: comparison.message == null ? null : String(comparison.message)
+      };
+    });
+    return {
+      signature,
+      diagnosticsMode: sanitizeHistDiagnosticsMode(src.diagnosticsMode),
+      comparisonMode: sanitizeHistComparisonMode(src.comparisonMode),
+      diagnosticsByKey,
+      modelComparisonByKey,
+      ksResult: cloneSimple(src.ksResult) || null
     };
   }
 
@@ -1102,10 +1417,6 @@
       bins: null,
       importButton: null,
       fileInput: null,
-      openButton: null,
-      saveButton: null,
-      saveAsButton: null,
-      graphFileInput: null,
       notesControl: null
     };
   }
@@ -1119,8 +1430,10 @@
       tabId: normalizedTabId,
       root: root || null,
       state: createDefaultHistDurableState(durableSource),
+      advisor: createDefaultHistAdvisorState(source.advisor),
       results: createDefaultHistResultsState({
-        statsPanelModel: durableSource.statsPanelModel || durableSource.statsPanel || source.statsPanel || source.stats
+        statsPanelModel: durableSource.statsPanelModel || durableSource.statsPanel || source.statsPanel || source.stats,
+        analysisModel: source.results?.analysisModel || durableSource.statsAnalysis || source.statsAnalysis
       }),
       refs: createDefaultHistRefs(root || null),
       cache: {
@@ -1137,7 +1450,6 @@
         autoDraw: null,
         dataViews: null,
         layout: null,
-        fileHandle: null
       },
       notes: createDefaultHistNotesState(source.notes || durableSource.notes || {}),
       createdAt: Date.now(),
@@ -1153,9 +1465,14 @@
         normalize: value => createDefaultHistDurableState(value || {})
       },
       {
+        key: 'advisor',
+        normalize: value => createDefaultHistAdvisorState(value)
+      },
+      {
         key: 'results',
         normalize: (value, session) => createDefaultHistResultsState(value || {
-          statsPanelModel: session.state?.statsPanelModel
+          statsPanelModel: session.state?.statsPanelModel,
+          analysisModel: session.results?.analysisModel
         })
       },
       {
@@ -1186,7 +1503,6 @@
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'autoDraw')){ session.managers.autoDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'dataViews')){ session.managers.dataViews = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
-    if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
     histSessionShapeGuard(session);
     session.updatedAt = Number.isFinite(Number(session.updatedAt)) ? Number(session.updatedAt) : Date.now();
     return session;
@@ -1579,10 +1895,6 @@
       bins: queryHistRoot('#histBins'),
       importButton: queryHistRoot('#histImport'),
       fileInput: queryHistRoot('#histFile'),
-      openButton: queryHistRoot('#openHistGraph'),
-      saveButton: queryHistRoot('#saveHistGraph'),
-      saveAsButton: queryHistRoot('#saveAsHist'),
-      graphFileInput: queryHistRoot('#histGraphFile'),
       notesControl: canUseHistNotesControl(state.notes?.control) ? state.notes.control : null
     });
     shaped.updatedAt = Date.now();
@@ -1618,7 +1930,6 @@
     }
     if(sessionIsActive){
       bindHistLayoutManagerForSession(shaped);
-      shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
       shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
     }
     shaped.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || shaped.cache.emptyPayloadTemplate || null;
@@ -1634,39 +1945,6 @@
       return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
     }
     return !!root && (!noteControl.element || root.contains?.(noteControl.element));
-  }
-
-  function setHistFileHandleForOwner(handle, owner = null){
-    const session = ensureHistSessionOwnershipShape(
-      owner?.session
-      || (owner?.tabId ? getHistSession(owner.tabId, { reason: 'hist-file-handle-owner' }, { create: false }) : null)
-      || getActiveHistSessionForState()
-    );
-    if(session?.managers){
-      session.managers.fileHandle = handle || null;
-      session.updatedAt = Date.now();
-    }
-    if(!session || isHistSessionActiveForModuleState(session)){
-      state.fileHandle = handle || null;
-    }
-    return handle || null;
-  }
-
-  function setHistFileNameForOwner(name, owner = null){
-    const nextName = name || 'histogram.graph';
-    const session = ensureHistSessionOwnershipShape(
-      owner?.session
-      || (owner?.tabId ? getHistSession(owner.tabId, { reason: 'hist-file-name-owner' }, { create: false }) : null)
-      || getActiveHistSessionForState()
-    );
-    if(session?.state){
-      session.state.fileName = nextName;
-      session.updatedAt = Date.now();
-    }
-    if(!session || isHistSessionActiveForModuleState(session)){
-      state.fileName = nextName;
-    }
-    return nextName;
   }
 
   function captureHistNotesMirror(){
@@ -1734,11 +2012,14 @@
         lastDataShape: state.lastDataShape,
         lastAutoDrawEvaluation: state.lastAutoDrawEvaluation
       },
-      fileName: state.fileName,
+      fileName: shaped.state?.fileName || 'histogram.graph',
       minSvgWidth: state.minSvgWidth,
       labelPositions: state.labelPositions
     });
-    shaped.results = createDefaultHistResultsState({ statsPanelModel });
+    shaped.results = createDefaultHistResultsState({
+      statsPanelModel,
+      analysisModel: shaped.results?.analysisModel
+    });
     shaped.notes = captureHistNotesMirror();
     syncHistSessionRefsFromActive(shaped);
     syncHistSessionManagersFromActive(shaped);
@@ -1792,9 +2073,8 @@
     state.drawPending = false;
     state.lastDataShape = cloneSimple(autoDraw.lastDataShape) || { rows: 0, cols: 0 };
     state.lastAutoDrawEvaluation = cloneSimple(autoDraw.lastAutoDrawEvaluation) || null;
-    state.fileName = durable.fileName || state.fileName || 'histogram.graph';
+    state.fileName = durable.fileName || 'histogram.graph';
     state.minSvgWidth = Number.isFinite(Number(durable.minSvgWidth)) ? Number(durable.minSvgWidth) : 0;
-    state.fileHandle = shaped.managers.fileHandle || state.fileHandle || null;
     if(options.restoreEmptyPayload !== false && shaped.cache?.emptyPayloadTemplate){
       emptyPayloadTemplate = cloneSimple(shaped.cache.emptyPayloadTemplate) || emptyPayloadTemplate;
     }
@@ -1864,6 +2144,9 @@
     if(!session){ return null; }
     const nextState = createDefaultHistDurableState(record.state && typeof record.state === 'object' ? record.state : record);
     if(existingSession?.state){
+      // File identity is session-owned metadata. Older runtime records omit it, so
+      // applying one must not silently reset a newer Save As name.
+      nextState.fileName = existingSession.state.fileName || nextState.fileName;
       // Runtime records are projections and can lag behind the owner session. The
       // panel contract is payload-backed durable state, so a runtime replay must
       // never replace a newer in-session layout. A runtime record may seed the field
@@ -1871,8 +2154,12 @@
       nextState.seriesLayout = sanitizeHistSeriesLayout(existingSession.state.seriesLayout || {});
     }
     session.state = nextState;
+    if(Object.prototype.hasOwnProperty.call(record, 'advisor')){
+      session.advisor = createDefaultHistAdvisorState(record.advisor);
+    }
     session.results = createDefaultHistResultsState({
-      statsPanelModel: record.statsPanelModel || record.statsPanel || record.stats || record.state?.statsPanelModel
+      statsPanelModel: record.statsPanelModel || record.statsPanel || record.stats || record.state?.statsPanelModel,
+      analysisModel: record.statsAnalysis || record.analysisModel || record.results?.analysisModel
     });
     session.notes = createDefaultHistNotesState(record.notes || record.state?.notes || {});
     session.updatedAt = Date.now();
@@ -1952,7 +2239,7 @@
       densityLineColors: {},
       traceOpacity: null,
       seriesOpacities: {},
-      colorScheme: Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'scientific',
+      colorScheme: Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'normal',
       fill: HIST_DEFAULT_FILL,
       border: HIST_DEFAULT_BORDER,
       borderWidth: String(HIST_DEFAULT_BORDER_WIDTH),
@@ -1973,7 +2260,7 @@
         alpha: defaultDistributionSettings.alpha,
         options: distributionOptions
       },
-      stats: createDefaultHistStatsSettings(),
+      stats: { ...createDefaultHistStatsSettings(), advisor: createDefaultHistAdvisorState() },
       notes: {
         text: '',
         open: false
@@ -2008,6 +2295,16 @@
     if(!target || !reporting || typeof reporting.ensureReportHost !== 'function'){
       return target?.__statsReportHost || null;
     }
+    if(!target.__statsExtraControlFactory){
+      target.__statsExtraControlFactory = context => {
+        const hasPValueColumn = Array.from(context.target.querySelectorAll('table th, table [role="columnheader"]'))
+          .some(header => /^(?:p|p[-\s]?value|p[-\s]?adj|adjusted p)$/i.test(String(header.textContent || '').trim()));
+        if(!hasPValueColumn){ return null; }
+        return reporting.createResultsHeaderControls(context.target, {
+          document: context.document
+        });
+      };
+    }
     return reporting.ensureReportHost(target, {
       id: 'histStatsReportHost',
       className: 'stats-report-host',
@@ -2023,11 +2320,272 @@
   }
 
   function normalizeHistStatsPanelModel(source = {}){
-    if(Shared.statsReporting && typeof Shared.statsReporting.normalizeSavedPanelModel === 'function'){
-      return Shared.statsReporting.normalizeSavedPanelModel(source);
-    }
     const src = source && typeof source === 'object' ? source : {};
-    return { resultsModel: cloneSimple(src.resultsModel) || null, reportModel: cloneSimple(src.reportModel) || null };
+    let normalized;
+    if(Shared.statsReporting && typeof Shared.statsReporting.normalizeSavedPanelModel === 'function'){
+      normalized = Shared.statsReporting.normalizeSavedPanelModel(src);
+    }else{
+      normalized = {
+        resultsModel: cloneSimple(src.resultsModel) || null,
+        reportModel: cloneSimple(src.reportModel) || null
+      };
+    }
+    return {
+      ...normalized,
+      analysisSignature: typeof src.analysisSignature === 'string' ? src.analysisSignature : ''
+    };
+  }
+
+  function invalidateHistStatsAnalysis(session = null){
+    const owner = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    if(!owner){ return false; }
+    Shared.jobs?.getActiveFor?.({ component: 'hist', tabId: owner.tabId, kind: 'analysis' })
+      ?.cancel?.('hist-statistics-input-changed');
+    owner.timers.statsCalculationToken = (Number(owner.timers.statsCalculationToken) || 0) + 1;
+    cancelHistKolmogorovSmirnovWorker(owner, 'hist-statistics-input-changed');
+    const stalePanel = createDefaultHistStatsPanelModel({
+      resultsModel: null,
+      reportModel: null,
+      analysisSignature: 'stale'
+    });
+    owner.results = createDefaultHistResultsState({
+      statsPanelModel: stalePanel,
+      analysisModel: null
+    });
+    owner.state.statsPanelModel = stalePanel;
+    owner.updatedAt = Date.now();
+    if(isHistSessionActiveForModuleState(owner)){
+      state.lastStatsPanelModel = createDefaultHistStatsPanelModel(stalePanel);
+      const target = getHistNodeById('histStatsResults', owner.tabId);
+      if(target){
+        Shared.statsReporting?.markPanelStale?.(target);
+      }
+      const settings = owner.state?.statsSettings || state.statsSettings;
+      const hasSelectedAnalysis = sanitizeHistDiagnosticsMode(settings?.diagnosticsMode) !== 'off'
+        || sanitizeHistComparisonMode(settings?.comparisonMode) !== 'off';
+      const status = getHistNodeById('histStatsStatus', owner.tabId);
+      if(status){
+        status.textContent = hasSelectedAnalysis
+          ? 'Statistics settings or data changed. Calculate statistics to update the results.'
+          : 'Descriptive results are available; select an optional analysis to run tests.';
+      }
+    }
+    return true;
+  }
+
+  async function calculateHistStatisticsForOwner(owner){
+    const tabId = String(owner?.tabId || owner?.session?.tabId || '').trim();
+    const session = ensureHistSessionOwnershipShape(owner?.session || (tabId ? getHistSession(tabId, {}, { create: false }) : null));
+    if(!tabId || !session || session.tabId !== tabId || !isHistCallbackOwnerActive({ tabId, session })){
+      return false;
+    }
+    const settings = {
+      diagnosticsMode: sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode),
+      comparisonMode: sanitizeHistComparisonMode(state.statsSettings?.comparisonMode)
+    };
+    if(settings.diagnosticsMode === 'off' && settings.comparisonMode === 'off'){
+      return false;
+    }
+    session.state.statsSettings = { ...settings };
+    session.updatedAt = Date.now();
+    const button = getHistNodeById('histComputeStats', tabId);
+    const status = getHistNodeById('histStatsStatus', tabId);
+    const buttonWasDisabled = button?.disabled;
+    let token = null;
+    let resultPublished = false;
+    let jobSettled = false;
+    const job = Shared.jobs?.start?.({
+      kind: 'analysis',
+      component: 'hist',
+      tabId,
+      label: 'Calculating Histogram statistics',
+      reason: 'hist-calculate-statistics',
+      replaceForOwner: true,
+      onCancel: ({ reason } = {}) => {
+        if(token != null && session.timers.statsCalculationToken === token){
+          session.timers.statsCalculationToken = token + 1;
+        }
+        session.timers.statsCalculationPending = false;
+        cancelHistKolmogorovSmirnovWorker(session, reason || 'hist-statistics-cancelled');
+        if(isHistCallbackOwnerActive({ tabId, session })){
+          const currentStatus = getHistNodeById('histStatsStatus', tabId);
+          const currentButton = getHistNodeById('histComputeStats', tabId);
+          if(currentButton && typeof buttonWasDisabled === 'boolean'){
+            currentButton.disabled = buttonWasDisabled;
+          }
+          if(currentStatus?.textContent?.includes('Calculating statistics')){
+            currentStatus.textContent = reason === 'hist-statistics-input-changed'
+              ? 'Statistics settings or data changed; calculate statistics again.'
+              : 'Statistics calculation cancelled.';
+          }
+        }
+      }
+    }) || null;
+    const settleJob = (method, detail) => {
+      if(!job || jobSettled){ return false; }
+      jobSettled = true;
+      return job[method]?.(detail) === true;
+    };
+    token = (Number(session.timers.statsCalculationToken) || 0) + 1;
+    session.timers.statsCalculationToken = token;
+    session.timers.statsCalculationPending = true;
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'hist',
+      tabId,
+      kind: 'analysis',
+      budgetMs: 10
+    }) || null;
+    const isCurrent = () => session.timers.statsCalculationToken === token
+      && execution?.isCurrent?.() !== false
+      && isHistCallbackOwnerActive({ tabId, session });
+    if(button){ button.disabled = true; }
+    if(status){ status.textContent = 'Calculating statistics…'; }
+    let visibleSeriesCount = NaN;
+    try{
+      const committed = commitHistActiveStateToOwner({ ...owner, tabId, session }, {
+        reason: 'hist-calculate-statistics',
+        captureStatsPanel: true
+      });
+      if(!committed || !isCurrent()){ return false; }
+      const hot = owner.hot || session.managers?.hot || state.hot;
+      const viewContext = resolveHistViewContext(hot);
+      const checkpoint = async () => {
+        try{
+          await execution?.checkpoint?.();
+          return isCurrent() && !execution?.signal?.aborted;
+        }catch(error){
+          if(execution?.signal?.aborted || execution?.isCurrent?.() === false){ return false; }
+          throw error;
+        }
+      };
+      const series = await collectHistSeriesCooperatively({ matrix: viewContext.sourceData, checkpoint });
+      if(!series || !isCurrent()){ return false; }
+      const visibleSeries = series.filter(entry => Array.isArray(entry?.values) && entry.values.some(Number.isFinite));
+      visibleSeriesCount = visibleSeries.length;
+      if(!visibleSeries.length || (settings.comparisonMode === 'ks' && visibleSeries.length !== 2)){
+        syncHistStatsControls(visibleSeries.length);
+        if(status){
+          status.textContent = settings.comparisonMode === 'ks'
+            ? 'The selected KS comparison requires exactly two visible series.'
+            : 'Add numeric data before calculating statistics.';
+        }
+        return false;
+      }
+      const inferenceAlpha = Number(Shared.statsInference?.getAlpha?.({ tabId }));
+      const alpha = Number.isFinite(inferenceAlpha) ? inferenceAlpha : 0.05;
+      const signature = createHistStatsAnalysisSignature(visibleSeries, settings);
+      const analysisResults = { diagnosticsByKey: {}, modelComparisonByKey: {} };
+      if(settings.diagnosticsMode !== 'off'){
+        const distribution = getHistDiagnosticDistribution(settings.diagnosticsMode);
+        for(const entry of visibleSeries){
+          if(!isCurrent()){ return false; }
+          analysisResults.diagnosticsByKey[entry.key] = computeHistFitDiagnostic(entry.values, distribution, {
+            alpha,
+            cacheSession: session
+          });
+          if(settings.diagnosticsMode === 'normal-vs-lognormal'){
+            analysisResults.modelComparisonByKey[entry.key] = computeHistLognormalComparison(entry.values);
+          }
+        }
+      }
+      let ksResult;
+      if(settings.comparisonMode === 'ks'){
+        ksResult = await computeHistKolmogorovSmirnovTwoSampleAsync(
+          visibleSeries[0].values,
+          visibleSeries[1].values,
+          session,
+          execution
+        );
+      }
+      if(!isCurrent()){ return false; }
+      analysisResults.analysisSignature = signature;
+      analysisResults.diagnosticsMode = settings.diagnosticsMode;
+      analysisResults.comparisonMode = settings.comparisonMode;
+      analysisResults.ksResult = ksResult || null;
+      const statsEntries = visibleSeries.map(entry => ({
+        ...entry,
+        distributionSummaries: prepareDistributionFits(entry.values).map(fit => ({ fit }))
+      }));
+      updateHistStats(statsEntries, session, ksResult, analysisResults);
+      if(!isCurrent()){ return false; }
+      const panelModel = normalizeHistStatsPanelModel({
+        ...captureHistStatsPanelModel(null, session),
+        analysisSignature: signature
+      });
+      session.results = createDefaultHistResultsState({
+        statsPanelModel: panelModel,
+        analysisModel: normalizeHistStatsAnalysisModel(analysisResults)
+      });
+      session.state.statsPanelModel = createDefaultHistStatsPanelModel(panelModel);
+      session.updatedAt = Date.now();
+      state.lastStatsPanelModel = createDefaultHistStatsPanelModel(panelModel);
+      if(status){ status.textContent = 'Statistics calculated for the current data and settings.'; }
+      persistHistOwnerState({ tabId, session }, session, 'hist-calculate-statistics');
+      resultPublished = true;
+      return true;
+    }catch(error){
+      if(isCurrent()){
+        if(status){ status.textContent = `Statistics could not be calculated: ${error?.message || 'Please try again.'}`; }
+        histDebug('Debug: hist statistics calculation failed', { tabId, message: error?.message || String(error) });
+        session.timers.statsCalculationPending = false;
+        syncHistStatsControls(visibleSeriesCount);
+        settleJob('fail', error);
+      }
+      return false;
+    }finally{
+      const current = isCurrent();
+      if(session.timers.statsCalculationToken === token){
+        session.timers.statsCalculationPending = false;
+      }
+      if(current){
+        syncHistStatsControls(visibleSeriesCount);
+      }
+      const activeJob = Shared.jobs?.getActiveFor?.({ component: 'hist', tabId, kind: 'analysis' });
+      if(job && activeJob?.id === job.id){
+        if(current){ settleJob('complete', { published: resultPublished }); }
+        else{ settleJob('cancel', 'hist-statistics-owner-stale'); }
+      }
+    }
+  }
+
+  function createHistStatsSignature(entries, settings = {}, alpha = null){
+    const series = Array.isArray(entries) ? entries : [];
+    let first = 0x811c9dc5;
+    let second = 0x9e3779b9;
+    const feed = value => {
+      const text = String(value);
+      const length = text.length;
+      for(let index = 0; index < length; index += 1){
+        const code = text.charCodeAt(index);
+        first = Math.imul(first ^ code, 0x01000193) >>> 0;
+        second = Math.imul(second ^ code, 0x85ebca6b) >>> 0;
+      }
+      first = Math.imul(first ^ 255, 0x01000193) >>> 0;
+      second = Math.imul(second ^ 254, 0x85ebca6b) >>> 0;
+    };
+    feed(alpha == null ? 'hist-stats-v2' : 'hist-stats-v1');
+    feed(sanitizeHistDiagnosticsMode(settings.diagnosticsMode));
+    feed(sanitizeHistComparisonMode(settings.comparisonMode));
+    if(alpha != null){
+      feed(Number.isFinite(Number(alpha)) ? Number(alpha) : 0.05);
+    }
+    feed(series.length);
+    series.forEach(entry => {
+      feed(entry?.key || '');
+      feed(entry?.label || '');
+      const values = Array.isArray(entry?.values) ? entry.values : [];
+      feed(values.length);
+      values.forEach(value => feed(Number(value)));
+    });
+    return `hist-stats-v1-${first.toString(16).padStart(8, '0')}${second.toString(16).padStart(8, '0')}`;
+  }
+
+  function createHistStatsAnalysisSignature(entries, settings = {}){
+    return createHistStatsSignature(entries, settings, null).replace(/^hist-stats-v1-/, 'hist-stats-v2-');
+  }
+
+  function createLegacyHistStatsAnalysisSignature(entries, settings = {}, alpha = 0.05){
+    return createHistStatsSignature(entries, settings, alpha);
   }
 
   function resolveHistStatsPanelContext(session = null){
@@ -2061,9 +2619,14 @@
       return previous;
     }
     const captured = normalizeHistStatsPanelModel(Shared.statsReporting.capturePanelModel(context.target) || {});
-    const normalized = histStatsPanelModelHasContent(captured) ? captured : previous;
+    const normalized = histStatsPanelModelHasContent(captured)
+      ? { ...captured, analysisSignature: previous.analysisSignature || '' }
+      : previous;
     if(context.owner){
-      context.owner.results = createDefaultHistResultsState({ statsPanelModel: normalized });
+      context.owner.results = createDefaultHistResultsState({
+        statsPanelModel: normalized,
+        analysisModel: context.owner.results?.analysisModel
+      });
       context.owner.state.statsPanelModel = createDefaultHistStatsPanelModel(normalized);
       context.owner.updatedAt = Date.now();
     }
@@ -2092,7 +2655,10 @@
     const context = resolveHistStatsPanelContext(session);
     const normalized = normalizeHistStatsPanelModel(model);
     if(context.owner){
-      context.owner.results = createDefaultHistResultsState({ statsPanelModel: normalized });
+      context.owner.results = createDefaultHistResultsState({
+        statsPanelModel: normalized,
+        analysisModel: context.owner.results?.analysisModel
+      });
       context.owner.state.statsPanelModel = createDefaultHistStatsPanelModel(normalized);
       context.owner.updatedAt = Date.now();
     }
@@ -2602,7 +3168,24 @@
     if(comparisonLabel){
       comparisonLabel.title = title;
     }
+    const calculateButton = getHistNodeById('histComputeStats');
+    const hasSelectedAnalysis = resolvedDiagnostics !== 'off' || resolvedComparison !== 'off';
+    if(calculateButton){
+      const hasSeries = Number.isFinite(count) && count > 0;
+      const selectionValid = resolvedComparison !== 'ks' || (Number.isFinite(count) && count === 2);
+      calculateButton.disabled = !hasSelectedAnalysis || !hasSeries || !selectionValid;
+      calculateButton.title = !hasSelectedAnalysis
+        ? 'Select diagnostics or a comparison to calculate statistics.'
+        : (!hasSeries
+          ? 'Add numeric data before calculating statistics.'
+          : (selectionValid ? '' : title));
+    }
+    const status = getHistNodeById('histStatsStatus');
+    if(status && !hasSelectedAnalysis){
+      status.textContent = 'Descriptive results are available; select an optional analysis to run tests.';
+    }
     ensureHistStatsInferenceControls()?.refresh?.();
+    renderHistStatsAdvisor(getActiveHistSessionForState());
   }
 
   function syncHistRuntimeControlsFromState(seriesCount){
@@ -2838,6 +3421,9 @@
             refreshDataViews: true,
             drawPending: !isFrequencyView
           });
+          if(!isFrequencyView){
+            invalidateHistStatsAnalysis(committedSession);
+          }
           persistHistOwnerState(viewOwner, committedSession, isFrequencyView
             ? 'hist-frequency-dataview-switch'
             : 'hist-dataview-switch');
@@ -3857,7 +4443,7 @@
   };
 
   function getHistCategoricalPalette(){
-    const selectedSchemeId = Shared.colorSchemes?.getSelectedSchemeId?.('hist') || Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'scientific';
+    const selectedSchemeId = Shared.colorSchemes?.getSelectedSchemeId?.('hist') || Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'normal';
     const schemes = Shared.colorSchemes?.getSchemes?.() || {};
     const scheme = schemes && typeof schemes === 'object' ? schemes[selectedSchemeId] : null;
     const categorical = Array.isArray(scheme?.categorical) && scheme.categorical.length
@@ -3982,7 +4568,7 @@
 
   function collectHistSeries(options = {}){
     const explicitMatrix = Array.isArray(options?.matrix) ? options.matrix : null;
-    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    const hot = explicitMatrix ? null : (state.ensureHotForActiveTab?.() || state.hot);
     const matrix = explicitMatrix || (
       hot && typeof hot.getIncludedDataMatrix === 'function'
         ? hot.getIncludedDataMatrix()
@@ -4031,7 +4617,7 @@
   async function collectHistSeriesCooperatively(options = {}){
     const checkpoint = typeof options.checkpoint === 'function' ? options.checkpoint : null;
     const explicitMatrix = Array.isArray(options.matrix) ? options.matrix : null;
-    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    const hot = explicitMatrix ? null : (state.ensureHotForActiveTab?.() || state.hot);
     const matrix = explicitMatrix || (
       hot && typeof hot.getIncludedDataMatrix === 'function'
         ? hot.getIncludedDataMatrix()
@@ -4437,11 +5023,11 @@
           showSummary: false,
           showScope: true,
           showPattern: true,
-          scopeLabel: 'Scope',
-          colorLabel: 'Line',
-          thicknessLabel: 'Line width',
-          patternLabel: 'Line pattern',
-          transparencyLabel: 'Line transparency',
+
+
+
+
+
           thicknessMin: 0.2,
           thicknessStep: 0.1,
           thicknessMax: 20
@@ -4909,6 +5495,7 @@
       if(shouldSkipHistHotSchedule(scheduleMeta)){
         return;
       }
+      invalidateHistStatsAnalysis(getHistProjectionSession({ reason: scheduleMeta?.source || 'hist-table-change' }));
       histScheduleProxyCount += 1;
       if(histScheduleProxyCount <= 5){
         histDebug('Debug: hist scheduleDraw proxy invoked', {
@@ -4934,6 +5521,7 @@
       let instance = null;
       instance = Shared.hot.createStandardTable(container, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, scheduleHistDrawProxy, {
         debugLabel: 'hist',
+        ariaLabel: 'Histogram input data table',
         data,
         firstRowClassName: 'hot-header-row htCenter',
         pinFirstRow: true,
@@ -5034,6 +5622,7 @@
   function initControls(){
     const histPlotMode=getHistNodeById('histPlotMode'), histSeriesDisplay=getHistNodeById('histSeriesDisplay'), histPanelArrangement=getHistNodeById('histPanelArrangement'), histSharedYScale=getHistNodeById('histSharedYScale'), histShowLegend=getHistNodeById('histShowLegend'), histShowStatsSummary=getHistNodeById('histShowStatsSummary'), histBins=getHistNodeById('histBins'), histShowGrid=getHistNodeById('histShowGrid'), histShowFrame=getHistNodeById('histShowFrame'), histLogY=getHistNodeById('histLogY'), histXMin=getHistNodeById('histXMin'), histXMax=getHistNodeById('histXMax'), histYMax=getHistNodeById('histYMax'), histFontSize=getHistNodeById('histFontSize'), histFontSizeVal=getHistNodeById('histFontSizeVal');
     const histStatsDiagnosticsMode=getHistNodeById('histStatsDiagnosticsMode'), histStatsComparisonMode=getHistNodeById('histStatsComparisonMode');
+    const histComputeStats=getHistNodeById('histComputeStats');
     const histFrequencyCreateMode=getHistNodeById('histFrequencyCreateMode');
     const histFrequencyTabulateMode=getHistNodeById('histFrequencyTabulateMode');
     const histBinningMode=getHistNodeById('histBinningMode');
@@ -5143,10 +5732,10 @@
       histStatsDiagnosticsMode.addEventListener('change', event => {
         runHistEventOwnerCallback(event, 'hist-stats-diagnostics-change', owner => {
           state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(histStatsDiagnosticsMode.value);
-          syncHistStatsControls();
+          invalidateHistStatsAnalysis(owner.session);
+          syncHistStatsControls(collectHistSeries().length);
           const ownerSession = commitHistActiveStateToOwner(owner, { reason: 'hist-stats-diagnostics-change' });
           persistHistOwnerState(owner, ownerSession, 'hist-stats-diagnostics-change');
-          scheduleHistOwnerDraw(owner, { reason: 'hist-stats-diagnostics-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
         });
       });
     }
@@ -5155,10 +5744,17 @@
       histStatsComparisonMode.addEventListener('change', event => {
         runHistEventOwnerCallback(event, 'hist-stats-comparison-change', owner => {
           state.statsSettings.comparisonMode = sanitizeHistComparisonMode(histStatsComparisonMode.value);
-          syncHistStatsControls();
+          invalidateHistStatsAnalysis(owner.session);
+          syncHistStatsControls(collectHistSeries().length);
           const ownerSession = commitHistActiveStateToOwner(owner, { reason: 'hist-stats-comparison-change' });
           persistHistOwnerState(owner, ownerSession, 'hist-stats-comparison-change');
-          scheduleHistOwnerDraw(owner, { reason: 'hist-stats-comparison-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
+        });
+      });
+    }
+    if(histComputeStats){
+      histComputeStats.addEventListener('click', event => {
+        runHistEventOwnerCallback(event, 'hist-calculate-statistics', owner => {
+          calculateHistStatisticsForOwner(owner);
         });
       });
     }
@@ -5311,6 +5907,7 @@
       Shared.exampleDatasets?.applyNotesState?.(state.notes, exampleRecord);
       histDebug('biomedical histogram example loaded', { rows: example.length - 1, series: example[0].length });
       commitHistActiveStateToOwner(owner, { reason: 'hist-example-load' });
+      Shared.colorSchemes?.applyToActiveTab?.('hist', Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'normal');
       scheduleHistOwnerDraw(owner, { reason: 'hist-example-load', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
     });
     if(exampleBtn){
@@ -5476,7 +6073,10 @@
       const activeSession = getActiveHistSessionForState();
       const statsPanelModel = captureHistStatsPanelModel(null, activeSession);
       if(activeSession){
-        activeSession.results = createDefaultHistResultsState({ statsPanelModel });
+        activeSession.results = createDefaultHistResultsState({
+          statsPanelModel,
+          analysisModel: activeSession.results?.analysisModel
+        });
         activeSession.updatedAt = Date.now();
       }
       const c={
@@ -5490,7 +6090,7 @@
         densityLineColors: state.densityLineColors && typeof state.densityLineColors === 'object' ? { ...state.densityLineColors } : {},
         traceOpacity: normalizeHistTraceOpacity(state.traceOpacity),
         seriesOpacities: normalizeHistSeriesOpacities(state.seriesOpacities),
-        colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('hist') || 'scientific',
+        colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('hist') || 'normal',
         fill:state.barFill,
         border:state.barBorder,
         borderWidth:state.barBorderWidth,
@@ -5531,6 +6131,9 @@
         stats: {
           diagnosticsMode: sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode),
           comparisonMode: sanitizeHistComparisonMode(state.statsSettings?.comparisonMode),
+          advisor: createDefaultHistAdvisorState(activeSession?.advisor),
+          analysisSignature: statsPanelModel.analysisSignature || '',
+          analysisModel: normalizeHistStatsAnalysisModel(activeSession?.results?.analysisModel),
           resultsModel: statsPanelModel.resultsModel || null,
           reportModel: statsPanelModel.reportModel || null
         },
@@ -5542,7 +6145,7 @@
       };
     const payload = {
         type:'hist',
-        data: Shared.hot.trimTrailingEmptyCols(payloadSourceData),
+        data: includeDataViews ? payloadSourceData : Shared.hot.trimTrailingEmptyCols(payloadSourceData),
         exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
         filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
         dataViews: includeDataViews ? dataViewsPayload : undefined,
@@ -5598,7 +6201,7 @@
             container: state.hot.__histHostContainer || getHistNodeById('histHot')
           })
         : null;
-      if(dataManager){
+      if(!styleOnly && dataManager){
         if(serializedViews){
           dataManager.deserialize(serializedViews, {
             fallbackData: rawDataMatrix,
@@ -5719,12 +6322,21 @@
         state.distributionSettings.selections = mergeDistributionSelections(defaultSelections, state.distributionOptions);
       }
       projectHistDistributionControlsFromState({ rebuild: true });
-      state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(config.stats?.diagnosticsMode);
-      state.statsSettings.comparisonMode = sanitizeHistComparisonMode(config.stats?.comparisonMode);
-      state.lastStatsPanelModel = normalizeHistStatsPanelModel(config.stats || {});
-      syncHistStatsControls();
-      if(histStatsPanelModelHasContent(state.lastStatsPanelModel)){
-        restoreHistStatsPanelModel(state.lastStatsPanelModel, scheduleTargetSession);
+      if(!styleOnly){
+        state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(config.stats?.diagnosticsMode);
+        state.statsSettings.comparisonMode = sanitizeHistComparisonMode(config.stats?.comparisonMode);
+        state.lastStatsPanelModel = normalizeHistStatsPanelModel(config.stats || {});
+        if(scheduleTargetSession){
+          scheduleTargetSession.advisor = createDefaultHistAdvisorState(config.stats?.advisor);
+          scheduleTargetSession.results = createDefaultHistResultsState({
+            statsPanelModel: state.lastStatsPanelModel,
+            analysisModel: config.stats?.analysisModel
+          });
+        }
+        syncHistStatsControls();
+        if(histStatsPanelModelHasContent(state.lastStatsPanelModel)){
+          restoreHistStatsPanelModel(state.lastStatsPanelModel, scheduleTargetSession);
+        }
       }
       if(config.notes && typeof config.notes === 'object'){
         state.notes.text = config.notes.text == null ? '' : String(config.notes.text);
@@ -5745,7 +6357,7 @@
       state.labelPositions = normalizeHistLabelPositions(config.labelPositions);
       syncHistRuntimeControlsFromDom();
       if(!skipDraw){
-        scheduleActiveHistDraw({ reason: `hist-payload-${source}`, renderImpact: 'analysis' });
+        scheduleActiveHistDraw({ reason: `hist-payload-${source}`, renderImpact: styleOnly ? 'layout' : 'analysis' });
       }
       // Restore the live scheduler before capturing the owner session. During
       // skipDraw restores, captureHistSessionStateFromActive() mirrors
@@ -5773,133 +6385,6 @@
       hist.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
       hist.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
     }
-    hist.captureRuntimeState = function captureHistRuntimeState(meta = {}){
-      const requestedSession = getHistSession(meta?.tab || meta?.tabId || null, meta, { create: false, fallbackActive: true })
-        || getActiveHistSessionForState();
-      const activeSession = getActiveHistSessionForState();
-      const session = requestedSession === activeSession
-        ? captureHistSessionStateFromActive(requestedSession, {
-            ...(meta || {}),
-            reason: meta?.reason || 'hist-runtime-capture',
-            syncControls: true,
-            captureStatsPanel: true
-          })
-        : ensureHistSessionOwnershipShape(requestedSession);
-      const sessionState = createDefaultHistDurableState(session?.state || state);
-      const sessionResults = createDefaultHistResultsState(session?.results || {
-        statsPanelModel: sessionState.statsPanelModel
-      });
-      const sessionNotes = createDefaultHistNotesState(session?.notes || state.notes);
-      const snapshotDistributionOptions = cloneSimple(sessionState.distributionOptions) || [];
-      const snapshotDistributionSettings = {
-        ...createDefaultDistributionSettings(),
-        ...(cloneSimple(sessionState.distributionSettings) || {})
-      };
-      snapshotDistributionSettings.selections = mergeDistributionSelections(
-        snapshotDistributionSettings.selections || {},
-        snapshotDistributionOptions
-      );
-      const snapshotFrequencySettings = sanitizeHistFrequencySettings(sessionState.frequencySettings || {});
-      if(sessionState.plotMode === HIST_PLOT_MODE_DENSITY){
-        snapshotDistributionSettings.showCdf = false;
-      }else if(snapshotFrequencySettings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative){
-        snapshotDistributionSettings.showPdf = false;
-      }
-      const snapshot = {
-        plotMode: sessionState.plotMode,
-        seriesLayout: sanitizeHistSeriesLayout(sessionState.seriesLayout || {}),
-        labels: cloneSimple(sessionState.labels) || createDefaultHistLabelsState(),
-        showLegend: sessionState.showLegend !== false,
-        colors: cloneSimple(sessionState.colors) || createDefaultHistColorState(),
-        axisSettings: cloneSimple(sessionState.axisSettings) || null,
-        gridStyle: cloneSimple(sessionState.gridStyle) || null,
-        frequencySettings: cloneSimple(snapshotFrequencySettings) || null,
-        distributionSettings: snapshotDistributionSettings,
-        distributionOptions: snapshotDistributionOptions,
-        statsSettings: cloneSimple(sessionState.statsSettings) || null,
-        statsPanel: createDefaultHistStatsPanelModel(sessionResults.statsPanelModel || sessionState.statsPanelModel || {}),
-        runtimeControls: normalizeHistRuntimeControls(sessionState.runtimeControls || {}),
-        notes: sessionNotes,
-        autoDraw: createDefaultHistAutoDrawState(sessionState.autoDraw || {}),
-        reason: meta?.reason || 'hist-runtime-capture'
-      };
-      histDebug('Debug: hist runtime snapshot captured', {
-        tabId: session?.tabId || meta?.tabId || getHistProjectionTabId() || null,
-        plotMode: snapshot.plotMode,
-        notesOpen: sessionNotes.open,
-        fromActive: requestedSession === activeSession,
-        reason: snapshot.reason
-      });
-      rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || session?.tabId || null, snapshot, {
-        ...(meta || {}),
-        reason: snapshot.reason || meta?.reason || 'hist-runtime-capture'
-      });
-      return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(hist, snapshot, {
-        ...(meta || {}),
-        reason: snapshot.reason || meta?.reason || 'hist-runtime-capture'
-      }) || snapshot;
-    };
-
-    hist.applyRuntimeState = function applyHistRuntimeState(snapshot, meta = {}){
-      snapshot = resolveHistOwnedRuntimeSnapshot(snapshot, meta)
-        || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(hist, snapshot, meta)
-        || snapshot;
-      if(!snapshot || typeof snapshot !== 'object'){
-        histDebug('Debug: hist runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
-        return false;
-      }
-      const appliedSession = setHistSessionStateFromRuntimeRecord(snapshot, {
-        ...(meta || {}),
-        reason: meta?.reason || 'hist-runtime-apply-session'
-      });
-      if(!appliedSession){
-        histDebug('Debug: hist runtime snapshot apply skipped', {
-          tabId: meta?.tabId || getHistProjectionTabId() || null,
-          reason: 'missing-session'
-        });
-        return false;
-      }
-      const isActiveOwner = isHistSessionActiveForModuleState(appliedSession);
-      if(isActiveOwner){
-        applyHistSessionStateToActive(appliedSession, { syncUi: true });
-      }
-      rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || appliedSession.tabId || null, snapshot, {
-        ...(meta || {}),
-        reason: meta?.reason || 'hist-runtime-apply'
-      });
-      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(hist, snapshot, {
-        ...(meta || {}),
-        reason: meta?.reason || 'hist-runtime-apply'
-      });
-      histDebug(isActiveOwner
-        ? 'Debug: hist runtime snapshot applied through session pipeline'
-        : 'Debug: hist inactive runtime snapshot stored without active projection', {
-        tabId: appliedSession.tabId || meta?.tabId || getHistProjectionTabId() || null,
-        activeTabId: getHistActiveTabId() || null,
-        plotMode: appliedSession.state?.plotMode || null,
-        reason: meta?.reason || 'hist-runtime-apply'
-      });
-      return true;
-    };
-
-    hist.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
-      component: hist,
-      componentKey: 'hist',
-      cancel: (tab, meta = {}) => {
-        captureHistSessionForDeactivation(tab, meta);
-        state.drawPending = false;
-      }
-    }) || function deactivateHistTab(tab, meta = {}){
-      captureHistSessionForDeactivation(tab, meta);
-      state.drawPending = false;
-      hist.__runtimeGeneration = (Number(hist.__runtimeGeneration) || 0) + 1;
-      histDebug('Debug: hist tab deactivated', {
-        tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
-        generation: hist.__runtimeGeneration,
-        reason: meta?.reason || 'deactivate-tab'
-      });
-      return true;
-    };
     hist.captureEmptyPayloadTemplate = function captureHistEmptyPayloadTemplate(){
     const snapshot = createImmutableHistDefaultPayload();
     emptyPayloadTemplate = cloneSimple(snapshot) || snapshot;
@@ -5932,164 +6417,11 @@
       });
       return createImmutableHistDefaultPayload();
     };
-    hist.save = async function(){
-      const owner = getHistCallbackOwner({ reason: 'hist-save' });
-      histDebug('Debug: hist.save invoked', { hasHandle: !!state.fileHandle });
-      if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
-        console.error('hist.save missing fileIO.saveGraphFile');
-        return;
-      }
-      const result = await fileIO.saveGraphFile({
-        context: 'hist',
-        owner: { component: 'hist', tabId: owner.tabId || null },
-        fileHandle: state.fileHandle,
-        getPayload,
-        fileName: state.fileName,
-        downloadFileName: state.fileName,
-        setFileHandle: handle => {
-          setHistFileHandleForOwner(handle, owner);
-        },
-        setFileName: name => {
-          setHistFileNameForOwner(name, owner);
-        }
-      });
-      histDebug('Debug: hist.save result', result);
-    };
-    hist.saveAs = async function(){
-      const owner = getHistCallbackOwner({ reason: 'hist-save-as' });
-      histDebug('Debug: hist.saveAs invoked', { currentName: state.fileName });
-      if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
-        console.error('hist.saveAs missing fileIO.saveGraphFileAs');
-        return;
-      }
-      const result = await fileIO.saveGraphFileAs({
-        context: 'hist',
-        owner: { component: 'hist', tabId: owner.tabId || null },
-        getPayload,
-        fileName: state.fileName,
-        downloadFileName: state.fileName,
-        setFileHandle: handle => {
-          setHistFileHandleForOwner(handle, owner);
-        },
-        setFileName: name => {
-          setHistFileNameForOwner(name, owner);
-        }
-      });
-      histDebug('Debug: hist.saveAs result', result);
-    };
-    hist.open = async function(){
-      const owner = getHistCallbackOwner({ reason: 'hist-open' });
-      histDebug('Debug: hist.open invoked');
-      if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
-        console.error('hist.open missing fileIO.openGraphFile');
-        return;
-      }
-      const result = await fileIO.openGraphFile({
-        context: 'hist',
-        owner: { component: 'hist', tabId: owner.tabId || null },
-        setFileHandle: handle => {
-          setHistFileHandleForOwner(handle, owner);
-        },
-        setFileName: name => {
-          setHistFileNameForOwner(name, owner);
-        },
-        loadFromFile: (file, operation) => hist.loadFromFile(file, {
-          tabId: owner.tabId || undefined,
-          owner,
-          operation
-        }),
-        triggerInput: () => {
-          const input = getHistNodeById('histGraphFile');
-          if(input){
-            input.value='';
-            input.click();
-          }
-        }
-      });
-      histDebug('Debug: hist.open result', result);
-    };
-    hist.loadFromFile = function(file, options = {}){
-      const owner = options.owner || getHistCallbackOwner({ tabId: options.tabId || options?.operation?.tabId || null, reason: 'hist-load-file' });
-      const ownerTabId = String(owner?.tabId || options?.tabId || options?.operation?.tabId || '').trim() || null;
-      const operation = fileIO?.createGraphOpenOperation?.({
-        context: 'hist',
-        owner: { component: 'hist', tabId: ownerTabId },
-        operation: options?.operation
-      }) || options?.operation || null;
-      const apply = payload => {
-        if(typeof fileIO?.routeGraphOpenPayload !== 'function'){
-          return isHistCallbackOwnerActive(owner)
-            ? applyHistPayload(payload, { source: 'file', flagOverlay: true, overlayReason: 'graph-file', tabId: ownerTabId || undefined })
-            : false;
-        }
-        const routed = fileIO.routeGraphOpenPayload({
-          context: 'hist',
-          component: 'hist',
-          operation,
-          owner: { component: 'hist', tabId: ownerTabId },
-          payload,
-          reason: 'hist-graph-file-open',
-          apply: (nextPayload, routedOwner) => applyHistPayload(nextPayload, {
-            source: 'file',
-            flagOverlay: true,
-            overlayReason: 'graph-file',
-            tabId: routedOwner?.tabId || ownerTabId || undefined
-          })
-        });
-        return routed?.value === true;
-      };
-      if(file instanceof Blob){
-        const reader=new FileReader();
-        reader.onload=e=>{
-          try{
-            const obj=JSON.parse(e.target.result);
-            if(!apply(obj)){
-              console.warn('hist payload rejected from file', { hasType: !!obj?.type });
-            }
-          }catch(err){
-            console.error('loadHistGraph error',err);
-          }
-        };
-        reader.readAsText(file);
-        return;
-      }
-      if(typeof file === 'string'){
-        try{
-          const parsed = JSON.parse(file);
-          if(!apply(parsed)){
-            console.warn('hist payload rejected from string');
-          }
-        }catch(err){
-          console.error('loadHistGraph string parse error',err);
-        }
-        return;
-      }
-      if(file && typeof file === 'object'){
-        apply(file);
-      }
-    };
     hist.loadFromPayload = function loadFromPayload(payload, options = {}){
       if(!applyHistPayload(payload, { source: 'payload', ...options })){
         console.warn('hist payload application failed', { source: 'payload' });
       }
     };
-    // Wire buttons
-    getHistNodeById('openHistGraph')?.addEventListener('click', hist.open);
-    getHistNodeById('saveHistGraph')?.addEventListener('click', hist.save);
-    getHistNodeById('saveAsHist').addEventListener('click', hist.saveAs);
-    getHistNodeById('histGraphFile')?.addEventListener('change', e => {
-      const owner = getHistCallbackOwner({
-        event: e,
-        target: e?.currentTarget || e?.target || null,
-        reason: 'hist-graph-file-input'
-      });
-      const f = e.target.files?.[0] || null;
-      if(f){
-        setHistFileNameForOwner(f.name, owner);
-        setHistFileHandleForOwner(null, owner);
-        hist.loadFromFile(f, { tabId: owner.tabId || undefined, owner });
-      }
-    });
   }
 
   function initNotes(){
@@ -6350,9 +6682,6 @@
     if(!Array.isArray(values)){
       return null;
     }
-    const alpha = Number.isFinite(Number(options.alpha)) && Number(options.alpha) > 0
-      ? Number(options.alpha)
-      : 0.05;
     const parametersEstimated = options.parametersEstimated !== false;
     const requestedIterations = Number(options.iterations);
     const iterations = parametersEstimated
@@ -6361,9 +6690,8 @@
     const seed = (Number(options.seed) || 1337) >>> 0;
     try{
       return JSON.stringify({
-        version: 1,
+        version: 2,
         distribution,
-        alpha,
         parametersEstimated,
         iterations,
         seed,
@@ -6383,6 +6711,39 @@
     delete cloned.pdf;
     delete cloned.cdf;
     return cloned;
+  }
+
+  function applyHistGoodnessOfFitDecision(gof, alpha){
+    const source = cloneSimple(gof);
+    if(!source || typeof source !== 'object'){ return source; }
+    const level = Number.isFinite(Number(alpha)) && Number(alpha) > 0 && Number(alpha) < 1
+      ? Number(alpha)
+      : 0.05;
+    source.alpha = level;
+    ['ks', 'ad'].forEach(key => {
+      const result = source[key];
+      const pValue = Number(result?.pValue);
+      if(!result || !Number.isFinite(pValue)){ return; }
+      const reject = pValue < level;
+      source[key] = {
+        ...result,
+        reject,
+        decision: reject ? 'Reject H₀' : 'Fail to reject H₀'
+      };
+    });
+    return source;
+  }
+
+  function reclassifyHistStatsAnalysisModel(source, alpha){
+    const model = normalizeHistStatsAnalysisModel(source);
+    if(!model){ return null; }
+    Object.keys(model.diagnosticsByKey).forEach(key => {
+      const diagnostic = model.diagnosticsByKey[key];
+      if(diagnostic?.gof){
+        diagnostic.gof = applyHistGoodnessOfFitDecision(diagnostic.gof, alpha);
+      }
+    });
+    return model;
   }
 
   function readHistDiagnosticCache(session, key){
@@ -6442,14 +6803,15 @@
     const cacheKey = createHistDiagnosticCacheKey(values, distributionKey, options);
     const cached = readHistDiagnosticCache(cacheSession, cacheKey);
     if(cached){
+      const alpha = Number.isFinite(options.alpha) && options.alpha > 0 && options.alpha < 1 ? Number(options.alpha) : 0.05;
       return {
         available: cached.available,
         fit,
-        gof: cached.gof,
+        gof: applyHistGoodnessOfFitDecision(cached.gof, alpha),
         message: cached.message || (cached.gof?.message || (cached.available ? null : `${distributionLabel} goodness-of-fit unavailable.`))
       };
     }
-    const alpha = Number.isFinite(options.alpha) && options.alpha > 0 ? Number(options.alpha) : 0.05;
+    const alpha = Number.isFinite(options.alpha) && options.alpha > 0 && options.alpha < 1 ? Number(options.alpha) : 0.05;
     const gof = statsHelpers.goodnessOfFit(values, {
       distribution: distributionKey,
       fit,
@@ -6500,8 +6862,9 @@
     const preferred = (Number.isFinite(lognormalAicc) && (!Number.isFinite(normalAicc) || lognormalAicc < normalAicc))
       ? 'lognormal'
       : 'normal';
+    const available = Number.isFinite(normalAicc) && Number.isFinite(lognormalAicc);
     return {
-      preferred,
+      preferred: available ? preferred : null,
       normalAicc,
       lognormalAicc,
       deltaAicc: Number.isFinite(normalAicc) && Number.isFinite(lognormalAicc)
@@ -6509,70 +6872,244 @@
         : NaN,
       normalFit,
       lognormalFit,
-      available: Number.isFinite(normalAicc) && Number.isFinite(lognormalAicc),
-      message: null
+      available,
+      message: available
+        ? null
+        : (cleaned.length <= 3
+          ? 'AICc model comparison requires more than three observations per series for these two-parameter models.'
+          : 'AICc model comparison is unavailable because at least one candidate fit could not be estimated.')
     };
   }
 
   function computeHistKolmogorovSmirnovTwoSample(a, b){
-    const arrA = (Array.isArray(a) ? a : []).map(Number).filter(Number.isFinite).sort((x, y) => x - y);
-    const arrB = (Array.isArray(b) ? b : []).map(Number).filter(Number.isFinite).sort((x, y) => x - y);
-    const na = arrA.length;
-    const nb = arrB.length;
-    if(!na || !nb){
+    const nA = Array.isArray(a) ? a.filter(Number.isFinite).length : 0;
+    const nB = Array.isArray(b) ? b.filter(Number.isFinite).length : 0;
+    if(nA < 2 || nB < 2){
+      const pooled = [
+        ...(Array.isArray(a) ? a.filter(Number.isFinite) : []),
+        ...(Array.isArray(b) ? b.filter(Number.isFinite) : [])
+      ];
       return {
-        available: false,
-        D: NaN,
-        p: NaN,
-        nA: na,
-        nB: nb,
-        method: 'asymptotic',
-        alternative: 'two-sided',
-        message: 'Kolmogorov-Smirnov test needs at least one observation per group.'
+        available: false,D: NaN,p: NaN,nA,nB,method: null,
+        alternative: 'two-sided',hasTies: new Set(pooled).size < pooled.length,
+        message: 'Each series needs at least two finite observations for a distribution comparison.'
       };
     }
-    let i = 0;
-    let j = 0;
-    let d = 0;
-    while(i < na || j < nb){
-      const nextA = i < na ? arrA[i] : Infinity;
-      const nextB = j < nb ? arrB[j] : Infinity;
-      const x = Math.min(nextA, nextB);
-      while(i < na && arrA[i] <= x){
-        i += 1;
-      }
-      while(j < nb && arrB[j] <= x){
-        j += 1;
-      }
-      d = Math.max(d, Math.abs((i / na) - (j / nb)));
+    const test = Shared.stats?.kolmogorovSmirnovTwoSample;
+    if(typeof test !== 'function'){
+      return {
+        available: false,D: NaN,p: NaN,nA: 0,nB: 0,method: null,
+        alternative: 'two-sided',hasTies: false,
+        message: 'Shared two-sample Kolmogorov-Smirnov test is unavailable.'
+      };
     }
-    const effectiveN = (na * nb) / (na + nb);
-    const sqrtN = Math.sqrt(Math.max(effectiveN, 0));
-    const lambda = (sqrtN + 0.12 + (0.11 / (sqrtN || 1))) * d;
-    let sum = 0;
-    for(let k = 1; k <= 100; k += 1){
-      const term = Math.exp(-2 * k * k * lambda * lambda);
-      sum += ((k % 2 ? 1 : -1) * term);
-      if(term < 1e-10){
-        break;
-      }
+    return test(a, b, { resamplingMode: 'permutation', iterations: 19999 });
+  }
+
+  const HIST_KS_SYNC_OBSERVATION_LIMIT = 40;
+  const HIST_KS_SESSION_WORKER_KEY = 'distribution-comparison:ks:permutation:19999:v1';
+
+  function normalizeHistKolmogorovSmirnovSample(values){
+    if(!Array.isArray(values)){
+      return [];
     }
-    const hasTies = new Set(arrA).size < na || new Set(arrB).size < nb;
-    const p = d === 0 ? 1 : Math.max(0, Math.min(1, 2 * sum));
-    return {
-      available: Number.isFinite(p) && p >= 0 && p <= 1,
-      D: d,
-      p,
-      nA: na,
-      nB: nb,
-      method: 'asymptotic',
+    // Keep an immutable-by-ownership snapshot: source arrays can be edited in
+    // place while a worker is running or after its result has been cached.
+    return values.filter(Number.isFinite);
+  }
+
+  function histKolmogorovSmirnovSamplesMatch(record, sampleA, sampleB){
+    if(!record || !Array.isArray(record.sampleA) || !Array.isArray(record.sampleB)
+      || record.sampleA.length !== sampleA.length || record.sampleB.length !== sampleB.length){
+      return false;
+    }
+    for(let index = 0; index < sampleA.length; index += 1){
+      if(record.sampleA[index] !== sampleA[index]){ return false; }
+    }
+    for(let index = 0; index < sampleB.length; index += 1){
+      if(record.sampleB[index] !== sampleB[index]){ return false; }
+    }
+    return true;
+  }
+
+  function validateHistKolmogorovSmirnovWorkerResult(result, sampleA, sampleB){
+    if(!result || typeof result.available !== 'boolean'){
+      throw new Error('Histogram statistics worker returned an invalid result.');
+    }
+    if(Number(result.nA) !== sampleA.length || Number(result.nB) !== sampleB.length){
+      throw new Error('Histogram statistics worker returned mismatched sample counts.');
+    }
+    if(result.available && (
+      !Number.isFinite(Number(result.D))
+      || Number(result.D) < 0
+      || Number(result.D) > 1
+      || !Number.isFinite(Number(result.p))
+      || Number(result.p) < 0
+      || Number(result.p) > 1
+      || typeof result.method !== 'string'
+      || !result.method.trim()
+    )){
+      throw new Error('Histogram statistics worker returned invalid test statistics.');
+    }
+    if(!result.available && typeof result.message !== 'string'){
+      throw new Error('Histogram statistics worker returned an invalid unavailable result.');
+    }
+    return result;
+  }
+
+  function cancelHistKolmogorovSmirnovWorker(session, reason = 'hist-draw-cancel'){
+    const workerRecords = session?.workers;
+    const record = workerRecords instanceof Map
+      ? workerRecords.get(HIST_KS_SESSION_WORKER_KEY) || null
+      : null;
+    if(!record || record.status !== 'pending'){
+      return false;
+    }
+    workerRecords.delete(HIST_KS_SESSION_WORKER_KEY);
+    record.status = 'cancelled';
+    record.task?.cancel?.(reason);
+    session.updatedAt = Date.now();
+    return true;
+  }
+
+  function computeHistKolmogorovSmirnovTwoSampleAsync(a, b, ownerSession, execution){
+    const valuesA = normalizeHistKolmogorovSmirnovSample(a);
+    const valuesB = normalizeHistKolmogorovSmirnovSample(b);
+    const totalObservations = valuesA.length + valuesB.length;
+    const workerApi = Shared.Workers;
+    const tabId = ownerSession?.tabId || null;
+    const workerRecords = ownerSession?.workers instanceof Map ? ownerSession.workers : null;
+    const cachedRecord = workerRecords?.get(HIST_KS_SESSION_WORKER_KEY) || null;
+    const forCurrentDraw = promise => Promise.resolve(promise).then(result => (
+      execution?.isCurrent?.() === false ? null : result
+    ));
+    const unavailable = message => ({
+      available: false,
+      D: NaN,
+      DTwoSided: NaN,
+      DPlus: NaN,
+      DMinus: NaN,
+      p: NaN,
+      nA: valuesA.length,
+      nB: valuesB.length,
+      method: null,
+      methodCode: null,
       alternative: 'two-sided',
-      hasTies,
-      message: Number.isFinite(p) && p >= 0 && p <= 1
-        ? null
-        : 'Kolmogorov-Smirnov p-value could not be evaluated.',
-      warning: hasTies ? 'The continuous two-sample KS asymptotic calibration is approximate because tied values are present.' : null
+      hasTies: new Set([...valuesA, ...valuesB]).size < totalObservations,
+      iterations: 0,
+      seed: null,
+      warning: null,
+      message
+    });
+    if(histKolmogorovSmirnovSamplesMatch(cachedRecord, valuesA, valuesB)){
+      if(cachedRecord.status === 'complete' && cachedRecord.result){
+        return forCurrentDraw(cachedRecord.result);
+      }
+      if(cachedRecord.status === 'pending' && cachedRecord.promise){
+        return forCurrentDraw(cachedRecord.promise);
+      }
+    }else if(cachedRecord){
+      workerRecords.delete(HIST_KS_SESSION_WORKER_KEY);
+      cachedRecord.task?.cancel?.('hist-distribution-comparison-input-replaced');
+    }
+    const useWorker = totalObservations >= 20
+      && !!tabId
+      && !!execution
+      && typeof workerApi?.runTask === 'function'
+      && (typeof workerApi.isSupported !== 'function' || workerApi.isSupported());
+    if(!useWorker){
+      if(totalObservations <= HIST_KS_SYNC_OBSERVATION_LIMIT){
+        return Promise.resolve(computeHistKolmogorovSmirnovTwoSample(valuesA, valuesB));
+      }
+      return Promise.resolve(unavailable('The background statistics worker is unavailable for this sample size, so no p-value was reported.'));
+    }
+
+    if(!workerRecords){
+      if(totalObservations <= HIST_KS_SYNC_OBSERVATION_LIMIT){
+        return forCurrentDraw(computeHistKolmogorovSmirnovTwoSample(valuesA, valuesB));
+      }
+      return forCurrentDraw(unavailable('The statistics comparison could not be attached to its owning Histogram session. No p-value was reported.'));
+    }
+
+    const payload = {
+      meta: { tabId, operation: 'distribution-comparison' },
+      sampleA: valuesA,
+      sampleB: valuesB,
+      options: { resamplingMode: 'permutation', iterations: 19999 }
     };
+    const workerRecord = {
+      componentKey: 'hist',
+      tabId,
+      operation: 'distribution-comparison',
+      method: 'kolmogorov-smirnov-two-sample',
+      status: 'pending',
+      sampleA: valuesA,
+      sampleB: valuesB,
+      task: null,
+      promise: null,
+      result: null,
+      startedAt: Date.now(),
+      completedAt: null
+    };
+    workerRecords.set(HIST_KS_SESSION_WORKER_KEY, workerRecord);
+    ownerSession.updatedAt = Date.now();
+    const isCurrentWorkerRecord = () => workerRecords.get(HIST_KS_SESSION_WORKER_KEY) === workerRecord;
+    let task;
+    try{
+      task = workerApi.runTask({
+        name: `hist:${tabId}:distribution-comparison`,
+        cancelStrategy: 'terminate',
+        url: 'js/workers/hist.worker.js',
+        action: 'hist-ks-two-sample',
+        payload,
+        timeoutMs: 120000
+      });
+    }catch(error){
+      task = Promise.reject(error);
+    }
+    workerRecord.task = task;
+    const request = Promise.resolve(task).then(result => {
+      validateHistKolmogorovSmirnovWorkerResult(result, valuesA, valuesB);
+      if(!isCurrentWorkerRecord()){
+        return null;
+      }
+      workerRecord.status = 'complete';
+      workerRecord.result = result;
+      workerRecord.task = null;
+      workerRecord.promise = null;
+      workerRecord.completedAt = Date.now();
+      ownerSession.updatedAt = Date.now();
+      return result;
+    }).catch(error => {
+      const timedOut = /timeout/i.test(String(error?.message || ''));
+      if(!isCurrentWorkerRecord() || (workerApi.isCancellationError?.(error) && !timedOut)){
+        if(isCurrentWorkerRecord()){
+          workerRecords.delete(HIST_KS_SESSION_WORKER_KEY);
+          ownerSession.updatedAt = Date.now();
+        }
+        return null;
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        histDebug('Debug: hist KS worker failed', {
+          tabId,
+          message: error?.message || String(error)
+        });
+      }
+      workerRecords.delete(HIST_KS_SESSION_WORKER_KEY);
+      workerRecord.status = timedOut ? 'timeout' : 'error';
+      workerRecord.task = null;
+      workerRecord.promise = null;
+      workerRecord.completedAt = Date.now();
+      ownerSession.updatedAt = Date.now();
+      if(totalObservations <= HIST_KS_SYNC_OBSERVATION_LIMIT){
+        return forCurrentDraw(computeHistKolmogorovSmirnovTwoSample(valuesA, valuesB));
+      }
+      return forCurrentDraw(unavailable(timedOut
+        ? 'The background distribution comparison took too long. No p-value was reported; retry with fewer observations.'
+        : 'The background distribution comparison did not complete. No p-value was reported; retry the analysis.'));
+    });
+    workerRecord.promise = request;
+    return forCurrentDraw(request);
   }
 
   function formatHistPExpression(value){
@@ -6610,8 +7147,10 @@
       ? sanitizeHistComparisonMode(options.comparisonMode)
       : sanitizeHistComparisonMode(state.statsSettings?.comparisonMode);
     if(series.length === 2 && comparisonMode === 'ks'){
-      const result = computeHistKolmogorovSmirnovTwoSample(series[0].values, series[1].values);
-      if(result.available){
+      const result = Object.prototype.hasOwnProperty.call(options || {}, 'ksResult')
+        ? options.ksResult
+        : null;
+      if(result?.available){
         return [`Two-sample KS: D = ${formatNumber(result.D, 3)}; ${formatHistPExpression(result.p)}`];
       }
     }
@@ -6758,10 +7297,10 @@
           ksResult.method ? ` (${ksResult.method})` : ''
         ]
       });
-      if(ksResult.hasTies || ksResult.warning){
+      if(ksResult.warning){
         diagnosticRows.push({
-          label:'KS approximation',
-          value:String(ksResult.warning || 'Tied observations are present; the continuous-distribution two-sample KS p-value is approximate.')
+          label:'KS calibration',
+          value:String(ksResult.warning)
         });
       }
     }
@@ -6784,7 +7323,7 @@
     };
   }
 
-  function updateHistStats(seriesEntries, ownerSession = null){
+  function updateHistStats(seriesEntries, ownerSession = null, preparedKsResult = undefined, analysisResults = null){
     const target = getHistNodeById('histStatsResults');
     const statsSession = ownerSession || getActiveHistSessionForState();
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -6802,10 +7341,14 @@
     target.innerHTML = '';
     if(!entries.length){
       target.textContent = 'No data';
+      Shared.statsReporting?.markPanelCurrent?.(target);
       state.lastStatsPanelModel = { resultsModel: null, reportModel: null };
       const emptyStatsSession = getActiveHistSessionForState();
       if(emptyStatsSession){
-        emptyStatsSession.results = createDefaultHistResultsState({ statsPanelModel: state.lastStatsPanelModel });
+        emptyStatsSession.results = createDefaultHistResultsState({
+          statsPanelModel: state.lastStatsPanelModel,
+          analysisModel: emptyStatsSession.results?.analysisModel
+        });
         emptyStatsSession.state.statsPanelModel = createDefaultHistStatsPanelModel(state.lastStatsPanelModel);
         emptyStatsSession.updatedAt = Date.now();
       }
@@ -6814,7 +7357,6 @@
       }
       return;
     }
-    const alpha = Number(state.distributionSettings?.alpha);
     const diagnosticsMode = sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode);
     const diagnosticDistribution = getHistDiagnosticDistribution(diagnosticsMode);
     const diagnosticLabel = getHistDiagnosticDistributionLabel(diagnosticDistribution);
@@ -6831,28 +7373,10 @@
         summary,
         bestFit: bestFit?.fit?.label || null,
         diagnostics: diagnosticsMode !== 'off'
-          ? (() => {
-              const cachedSummary = Array.isArray(entry.distributionSummaries)
-                ? entry.distributionSummaries.find(candidate => candidate?.fit?.key === diagnosticDistribution && candidate?.gof)
-                : null;
-              if(cachedSummary){
-                return {
-                  available: cachedSummary.gof?.available === true,
-                  fit: cachedSummary.fit || null,
-                  gof: cachedSummary.gof,
-                  message: cachedSummary.gof?.available === true
-                    ? null
-                    : (cachedSummary.gof?.message || `${getHistDiagnosticDistributionLabel(diagnosticDistribution)} goodness-of-fit unavailable.`)
-                };
-              }
-              return computeHistFitDiagnostic(entry.values, diagnosticDistribution, {
-                alpha: Number.isFinite(alpha) && alpha > 0 ? alpha : 0.05,
-                cacheSession: statsSession
-              });
-            })()
+          ? (analysisResults?.diagnosticsByKey?.[entry.key] || null)
           : null,
         modelComparison: diagnosticsMode === 'normal-vs-lognormal'
-          ? computeHistLognormalComparison(entry.values)
+          ? (analysisResults?.modelComparisonByKey?.[entry.key] || null)
           : null
       };
     }).filter(entry => !!entry.summary);
@@ -6882,7 +7406,7 @@
     }));
     const bestFitFootnotes = summaries
       .filter(entry => entry.bestFit)
-      .map(entry => `${entry.label}: best fit ${entry.bestFit}`);
+      .map(entry => `${entry.label}: plotted fit ${entry.bestFit}`);
     renderHistStatsModel(target, {
       caption: 'Descriptive statistics',
       section: 'descriptive',
@@ -6917,7 +7441,7 @@
         { key: 'kurtosis', label: 'Kurtosis', align: 'right' },
         { key: 'geometricMean', label: 'Geometric mean', align: 'right' },
         { key: 'harmonicMean', label: 'Harmonic mean', align: 'right' },
-        { key: 'bestFit', label: 'Best fit' }
+        { key: 'bestFit', label: 'Plotted fit' }
       ],
       rows: shapeRows,
       footnotes: ['Geometric and harmonic means are shown only for strictly positive series.'],
@@ -6926,7 +7450,7 @@
         contextLabel: 'hist-shape-stats'
       }
     }, true);
-    const diagnosticRows = diagnosticsMode === 'off'
+    const diagnosticRows = diagnosticsMode === 'off' || !analysisResults
       ? []
       : summaries.map(entry => ({
         column: entry.label,
@@ -6934,28 +7458,39 @@
         ksPValue: formatPValue(entry.diagnostics?.gof?.ks?.pValue),
         adStatistic: formatNumber(entry.diagnostics?.gof?.ad?.statistic, 4),
         adPValue: formatPValue(entry.diagnostics?.gof?.ad?.pValue),
-        preferred: entry.modelComparison?.preferred === 'lognormal' ? 'Log-normal' : 'Normal',
-        normalAicc: formatNumber(entry.modelComparison?.normalAicc, 2),
-        lognormalAicc: formatNumber(entry.modelComparison?.lognormalAicc, 2),
-        deltaAicc: formatNumber(entry.modelComparison?.deltaAicc, 2)
+        preferred: entry.modelComparison?.available === true
+          ? (entry.modelComparison.preferred === 'lognormal' ? 'Log-normal' : (entry.modelComparison.preferred === 'normal' ? 'Normal' : '\u2014'))
+          : '\u2014',
+        normalAicc: entry.modelComparison?.available === true ? formatNumber(entry.modelComparison.normalAicc, 2) : '\u2014',
+        lognormalAicc: entry.modelComparison?.available === true ? formatNumber(entry.modelComparison.lognormalAicc, 2) : '\u2014',
+        deltaAicc: entry.modelComparison?.available === true ? formatNumber(entry.modelComparison.deltaAicc, 2) : '\u2014'
       }));
     if(diagnosticRows.length){
       const diagnosticColumns = [
-        { key: 'column', label: 'Column' },
+        { key: 'column', label: 'Column' }
+      ];
+      if(diagnosticsMode === 'normal-vs-lognormal'){
+        diagnosticColumns.push(
+          { key: 'preferred', label: 'Preferred model (AICc)' },
+          { key: 'deltaAicc', label: '\u0394AICc', align: 'right' }
+        );
+      }
+      diagnosticColumns.push(
         { key: 'ksStatistic', label: `${diagnosticLabel} KS D`, align: 'right' },
         { key: 'ksPValue', label: `${diagnosticLabel} KS p`, align: 'right' },
         { key: 'adStatistic', label: `${diagnosticLabel} AD A\u00b2`, align: 'right' },
         { key: 'adPValue', label: `${diagnosticLabel} AD p`, align: 'right' }
-      ];
+      );
       const diagnosticMessages = summaries
         .filter(entry => entry?.diagnostics?.message)
         .map(entry => `${entry.label}: ${entry.diagnostics.message}`);
+      diagnosticMessages.push(...summaries
+        .filter(entry => entry?.modelComparison?.available === false && entry.modelComparison.message)
+        .map(entry => `${entry.label}: ${entry.modelComparison.message}`));
       if(diagnosticsMode === 'normal-vs-lognormal'){
         diagnosticColumns.push(
-          { key: 'preferred', label: 'Preferred model' },
           { key: 'normalAicc', label: 'Normal AICc', align: 'right' },
-          { key: 'lognormalAicc', label: 'Log-normal AICc', align: 'right' },
-          { key: 'deltaAicc', label: '\u0394AICc', align: 'right' }
+          { key: 'lognormalAicc', label: 'Log-normal AICc', align: 'right' }
         );
       }
       renderHistStatsModel(target, {
@@ -6978,9 +7513,18 @@
       }, true);
     }
     let ksResult = null;
-    if(comparisonMode === 'ks'){
+    if(comparisonMode === 'ks' && analysisResults){
       if(summaries.length === 2){
-        ksResult = computeHistKolmogorovSmirnovTwoSample(summaries[0].summary.values, summaries[1].summary.values);
+        ksResult = preparedKsResult === undefined ? null : preparedKsResult;
+        if(!ksResult){
+          renderHistStatsModel(target, {
+            caption: 'Distribution comparison',
+            section: 'comparisons',
+            columns: [{ key: 'note', label: 'Note' }],
+            rows: [{ note: 'Calculate statistics to run the selected distribution comparison.' }],
+            options: { fileName: 'histogram-distribution-comparison', contextLabel: 'hist-distribution-comparison' }
+          }, true);
+        }else{
         renderHistStatsModel(target, {
           caption: 'Distribution comparison',
           section: 'comparisons',
@@ -6996,14 +7540,19 @@
             seriesB: summaries[1].label,
             d: formatNumber(ksResult.D, 4),
             p: histComparisonPValueToken(ksResult.p),
-            method: ksResult.method || '\u2014'
+            method: ksResult.method || (ksResult.available ? '\u2014' : 'Unavailable')
           }],
-          footnotes: ['Two-sample Kolmogorov-Smirnov compares the full empirical distributions, not only their means or medians.'],
+          footnotes: [
+            'Two-sample KS compares the full empirical distributions, not only their means or medians.',
+            'Permutation inference assumes independent observations and exchangeable group labels. Non-significance does not establish equivalence; numeric order is required.',
+            ...(ksResult.message ? [ksResult.message] : [])
+          ],
           options: {
             fileName: 'histogram-distribution-comparison',
             contextLabel: 'hist-distribution-comparison'
           }
         }, true);
+        }
       }else{
         renderHistStatsModel(target, {
           caption: 'Distribution comparison',
@@ -7017,33 +7566,45 @@
         }, true);
       }
     }
+    if(!analysisResults && (diagnosticsMode !== 'off' || comparisonMode !== 'off')){
+      const notice = document.createElement('p');
+      notice.className = 'stats-analysis-prompt';
+      notice.textContent = 'Calculate statistics to run the selected diagnostics or comparison.';
+      target.appendChild(notice);
+    }
     if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
       const methods = [
         `${graphLabel} descriptive statistics were computed for ${summaries.length} visible series spanning ${totalObservations} finite numeric observations.`,
         'Missing, blank, and non-numeric cells were excluded independently for each series before binning and summary calculation.',
         'Expanded summaries include SEM, variance, CV, IQR, skewness, kurtosis, and positive-only geometric and harmonic means.'
       ];
-      if(diagnosticsMode === 'normal-fit'){
+    if(analysisResults && diagnosticsMode === 'normal-fit'){
         methods.push('Normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted normal model.');
-      }else if(diagnosticsMode === 'lognormal-fit'){
+    }else if(analysisResults && diagnosticsMode === 'lognormal-fit'){
         methods.push('Log-normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted log-normal model; non-positive observations are unavailable for this fit.');
-      }else if(diagnosticsMode === 'normal-vs-lognormal'){
+    }else if(analysisResults && diagnosticsMode === 'normal-vs-lognormal'){
         methods.push('Fit diagnostics report normal-model KS and Anderson-Darling results and compare normal versus log-normal fits with AICc.');
       }
-      if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
-        methods.push(`A two-sample Kolmogorov-Smirnov test compared the complete empirical distributions of the two visible series using the reported exact or asymptotic calibration; significance was interpreted at α = ${Shared.statsInference?.formatLevel?.(Shared.statsInference?.getAlpha?.({ tabId: getHistStatsInferenceTabId() })) || '0.05'}.`);
+      if(analysisResults && comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
+        methods.push(`A two-sample Kolmogorov-Smirnov test compared the complete empirical distributions of the two visible series using ${ksResult.method || 'the reported calibration'}${Number.isFinite(ksResult.seed) ? ` with seed ${ksResult.seed}` : ''}; significance was interpreted at α = ${Shared.statsInference?.formatLevel?.(Shared.statsInference?.getAlpha?.({ tabId: getHistStatsInferenceTabId() })) || '0.05'}.`);
+        methods.push('Permutation inference preserves ties and assumes exchangeable group labels under the equal-distribution null. It does not adjust for covariates or establish causation.');
       }
       const resultFragments = summaries.map(entry => `${entry.label}: mean = ${formatNumber(entry.summary.mean, 2)}, median = ${formatNumber(entry.summary.median, 2)}, SD = ${formatNumber(entry.summary.sd, 2)}, skewness = ${formatNumber(entry.summary.skewness, 3)}.`);
       const resultParts = resultFragments.map((text, index) => index === 0 ? text : ` ${text}`);
-      if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
-        resultFragments.push(`KS D = ${formatNumber(ksResult.D, 4)}, ${formatHistPExpression(ksResult.p)}.`);
+      if(analysisResults && comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
+        resultFragments.push(`KS D = ${formatNumber(ksResult.D, 4)}, ${formatHistPExpression(ksResult.p)} (${ksResult.method}).`);
         resultParts.push(' ', `KS D = ${formatNumber(ksResult.D, 4)}, p = `, histComparisonPValueToken(ksResult.p), '.');
       }
       Shared.statsReporting.appendReportPanel(target, {
         methodsText: methods.join(' '),
         resultsText: resultFragments.join(' '),
         resultsParts: resultParts,
-        figureSummary: buildHistFigureSummary(summaries, { diagnosticsMode, comparisonMode, ksResult, graphLabel }),
+        figureSummary: buildHistFigureSummary(summaries, {
+          diagnosticsMode: analysisResults ? diagnosticsMode : 'off',
+          comparisonMode: analysisResults ? comparisonMode : 'off',
+          ksResult,
+          graphLabel
+        }),
         analysisSpec: {
           component: 'hist',
           n: totalObservations,
@@ -7053,6 +7614,9 @@
           bestFit: bestFitFootnotes.length ? bestFitFootnotes.join('; ') : null,
           ksStatistic: ksResult?.available ? ksResult.D : null,
           ksPValue: ksResult?.available ? ksResult.p : null,
+          ksMethod: ksResult?.available ? ksResult.method : null,
+          ksIterations: ksResult?.available ? ksResult.iterations : null,
+          ksSeed: ksResult?.available ? ksResult.seed : null,
           inference: ksResult?.available
             ? Shared.statsInference?.createSnapshot?.({ tabId: getHistStatsInferenceTabId(), includeOverall: true, includeComparisons: false }) || null
             : null
@@ -7061,10 +7625,16 @@
     }
     captureHistStatsPanelModel(null, statsSession);
     if(statsSession){
-      statsSession.results = createDefaultHistResultsState({ statsPanelModel: state.lastStatsPanelModel });
+      statsSession.results = createDefaultHistResultsState({
+        statsPanelModel: state.lastStatsPanelModel,
+        analysisModel: analysisResults?.analysisSignature
+          ? normalizeHistStatsAnalysisModel(analysisResults)
+          : statsSession.results?.analysisModel
+      });
       statsSession.state.statsPanelModel = createDefaultHistStatsPanelModel(state.lastStatsPanelModel);
       statsSession.updatedAt = Date.now();
     }
+    Shared.statsReporting?.markPanelCurrent?.(target);
     if(debugEnabled){
       histDebug('Debug: hist stats rendered', {
         summaryRows: descriptiveRows.length,
@@ -8737,6 +9307,13 @@
     markFontEditable(xLabel, 'xTitle', 'xTitle');
     bindHistInlineTextInteraction(xLabel, drawSession, 'x');
     Shared.enableLabelDrag?.(xLabel, svg, {
+      positionKey: 'xLabel',
+      positionMetrics: {
+        xOrigin: globalPlotLeft,
+        xScale: Math.max(globalPlotWidth, 1),
+        yOrigin: outer.top + contentHeight + histPanelTitleShiftY,
+        yScale: Math.max(outer.bottom, 1)
+      },
       onDragEnd: position => patchHistLabelPosition(drawSession, 'xLabel', {
         x: position.x,
         y: position.y,
@@ -8763,6 +9340,13 @@
     markFontEditable(yLabel, 'yTitle', 'yTitle');
     bindHistInlineTextInteraction(yLabel, drawSession, 'y');
     Shared.enableLabelDrag?.(yLabel, svg, {
+      positionKey: 'yLabel',
+      positionMetrics: {
+        xOrigin: -histPanelTitleShiftX,
+        xScale: Math.max(outer.left, 1),
+        yOrigin: globalPlotTop,
+        yScale: Math.max(globalPlotHeight, 1)
+      },
       onDragEnd: position => patchHistLabelPosition(drawSession, 'yLabel', {
         x: position.x,
         y: position.y,
@@ -8788,6 +9372,12 @@
     markFontEditable(title, 'graphTitle', 'graphTitle');
     bindHistInlineTextInteraction(title, drawSession, 'title');
     Shared.enableLabelDrag?.(title, svg, {
+      positionMetrics: {
+        xOrigin: globalPlotLeft,
+        xScale: globalPlotWidth,
+        yOrigin: 0,
+        yScale: outer.top
+      },
       onDragEnd: position => patchHistLabelPosition(drawSession, 'title', {
         x: position.x,
         y: position.y,
@@ -8866,6 +9456,7 @@
         rounding: { mode: 'none', precision: 6 }
       });
     }
+    registerHistChartMarks(plotEl, svg, drawSession?.tabId || null);
     const panelLayoutPublished = histPanelCartesianPlan
       ? Shared.cartesianLayout?.publishCartesianLayout?.(state.svgBox, histPanelCartesianPlan, {
            tabId: histPanelLayoutOwner.tabId,
@@ -8892,29 +9483,104 @@
     }
   }
 
-  function publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode, ownerSession = null){
+  function publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode, ownerSession = null, execution = null){
+    if(execution?.isCurrent?.() === false){
+      return false;
+    }
+    const statsSettings = ownerSession?.state?.statsSettings || state.statsSettings || createDefaultHistStatsSettings();
+    syncHistStatsControls(fitSets.length);
+    const inferenceAlpha = Number(Shared.statsInference?.getAlpha?.({ tabId: ownerSession?.tabId || null }));
+    const seriesForSignature = fitSets.map(entry => ({ key: entry.key, label: entry.label, values: entry.values }));
+    const currentAlpha = Number.isFinite(inferenceAlpha) ? inferenceAlpha : alpha;
+    const analysisSignature = createHistStatsAnalysisSignature(seriesForSignature, statsSettings);
+    const legacyAnalysisSignature = createLegacyHistStatsAnalysisSignature(seriesForSignature, statsSettings, currentAlpha);
+    const existingStatsPanelModel = normalizeHistStatsPanelModel(
+      ownerSession?.results?.statsPanelModel
+      || ownerSession?.state?.statsPanelModel
+      || state.lastStatsPanelModel
+      || {}
+    );
+    const analysisModel = reclassifyHistStatsAnalysisModel(ownerSession?.results?.analysisModel, currentAlpha);
+    if(analysisModel?.signature === analysisSignature){
+      existingStatsPanelModel.analysisSignature = analysisSignature;
+      if(ownerSession){
+        ownerSession.results = createDefaultHistResultsState({
+          statsPanelModel: existingStatsPanelModel,
+          analysisModel
+        });
+        ownerSession.state.statsPanelModel = createDefaultHistStatsPanelModel(existingStatsPanelModel);
+      }
+      updateHistStats(fitSets.map((entry, seriesIndex) => ({
+        key: entry.key,
+        colIndex: entry.colIndex,
+        label: entry.label,
+        values: entry.values,
+        distributionSummaries: entry.fits.map(fit => ({
+          fit,
+          color: fitSets.length > 1 ? getHistSeriesColor(entry.key, seriesIndex) : fit?.color
+        }))
+      })), ownerSession, analysisModel.ksResult, analysisModel);
+      const status = getHistNodeById('histStatsStatus', ownerSession?.tabId || null);
+      if(status){ status.textContent = 'Statistics are up to date.'; }
+      if(!densityMode){
+        syncHistFrequencyTableDataView(frequencyModel, frequencySettings, {
+          context: viewContext,
+          activate: false,
+          reason: 'hist-frequency-view-sync'
+        });
+      }
+      return true;
+    }
+    const hasStoredStats = histStatsPanelModelHasContent(existingStatsPanelModel);
+    const storedSignatureMatches = existingStatsPanelModel.analysisSignature === analysisSignature
+      || existingStatsPanelModel.analysisSignature === legacyAnalysisSignature;
+    const legacyStatsCanBeBound = !existingStatsPanelModel.analysisSignature && hasStoredStats;
+    if(storedSignatureMatches || legacyStatsCanBeBound){
+      if(legacyStatsCanBeBound){
+        existingStatsPanelModel.analysisSignature = analysisSignature;
+      }
+      restoreHistStatsPanelModel(existingStatsPanelModel, ownerSession);
+      if(ownerSession){
+        ownerSession.results = createDefaultHistResultsState({
+          statsPanelModel: existingStatsPanelModel,
+          analysisModel: ownerSession.results?.analysisModel
+        });
+        ownerSession.state.statsPanelModel = createDefaultHistStatsPanelModel(existingStatsPanelModel);
+        ownerSession.updatedAt = Date.now();
+      }
+      const status = getHistNodeById('histStatsStatus', ownerSession?.tabId || null);
+      if(status){ status.textContent = 'Statistics are up to date.'; }
+      if(!densityMode){
+        const synced = syncHistFrequencyTableDataView(frequencyModel, frequencySettings, {
+          context: viewContext,
+          activate: false,
+          reason: 'hist-frequency-view-sync'
+        });
+        if(!synced){
+          syncHistFrequencyTableDataView(null, frequencySettings, {
+            context: viewContext,
+            reason: 'hist-frequency-view-clear'
+          });
+        }
+      }
+      return true;
+    }
     updateHistStats(fitSets.map((entry, seriesIndex) => ({
       key: entry.key,
       colIndex: entry.colIndex,
       label: entry.label,
       values: entry.values,
-      distributionSummaries: entry.fits.map(fit => {
-        let gof = null;
-        if(fit && fit.valid !== false && typeof Shared.stats?.goodnessOfFit === 'function'){
-          try{
-            gof = computeHistFitDiagnostic(entry.values, fit.key, {
-              alpha,
-              fit,
-              cacheSession: ownerSession
-            });
-            gof = gof?.gof || null;
-          }catch(err){
-            console.error('hist goodnessOfFit error', { key: fit?.key, message: err?.message, series: entry.label });
-          }
-        }
-        return { fit, gof, color: fitSets.length > 1 ? getHistSeriesColor(entry.key, seriesIndex) : fit?.color };
-      })
+      distributionSummaries: entry.fits.map(fit => ({
+        fit,
+        color: fitSets.length > 1 ? getHistSeriesColor(entry.key, seriesIndex) : fit?.color
+      }))
     })), ownerSession);
+    const status = getHistNodeById('histStatsStatus', ownerSession?.tabId || null);
+    if(status){
+      status.textContent = sanitizeHistDiagnosticsMode(statsSettings.diagnosticsMode) !== 'off' || sanitizeHistComparisonMode(statsSettings.comparisonMode) !== 'off'
+          ? 'Statistics settings or data changed. Calculate statistics to update the results.'
+          : 'Descriptive results are available; select an optional analysis to run tests.';
+    }
     if(!densityMode){
       const synced = syncHistFrequencyTableDataView(frequencyModel, frequencySettings, {
         context: viewContext,
@@ -8928,6 +9594,7 @@
         });
       }
     }
+    return true;
   }
 
   function histParameterSlug(value){
@@ -9029,7 +9696,7 @@
         plotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
       }
       updateHistStats([]);
-      return false;
+      return true;
     }
     const fitSets = [];
     for(let seriesIndex = 0; seriesIndex < seriesEntries.length; seriesIndex += 1){
@@ -9109,6 +9776,7 @@
       rawSize: controls.fontSize,
       width: drawableFrame.width,
       height: drawableFrame.height,
+      zoomScale: 1,
       svgBox: state.svgBox,
       input: getHistNodeById('histFontSize')
     });
@@ -9223,7 +9891,17 @@
       if(!panelResult?.ok){
         return false;
       }
-      publishHistAnalysisResults(fitSets, panelResult.frequencyModel, frequencySettings, alpha, viewContext, densityMode, drawSession);
+      const analysisPublished = publishHistAnalysisResults(
+        fitSets,
+        panelResult.frequencyModel,
+        frequencySettings,
+        alpha,
+        viewContext,
+        densityMode,
+        drawSession,
+        execution
+      );
+      if(!analysisPublished){ return false; }
       state.layout?.syncPanels?.({ skipSchedule: true });
       syncHistAutoDrawNoticeWidth('draw');
       histDebug('Debug: drawHistogram complete', {
@@ -9645,7 +10323,8 @@
       leftWidth: histCartesianPlan?.contentEnvelope?.extensionLeft || 0,
       topHeight: histCartesianPlan?.contentEnvelope?.extensionTop || 0,
       bottomHeight: histCartesianPlan?.contentEnvelope?.extensionBottom || 0,
-      legendWidth
+      legendWidth,
+      refineContentBounds: false
     });
     histDebug('Debug: hist layout',{margin,requiredMargins,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,binWidth,envelope:histCartesianPlan?.contentEnvelope || null});
     const showGrid=!!controls.showGrid;
@@ -10047,6 +10726,13 @@
     bindHistInlineTextInteraction(xText, drawSession, 'x');
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xText, svg, {
+        positionKey: 'xLabel',
+        positionMetrics: {
+          xOrigin: margin.left,
+          xScale: Math.max(plotW, 1),
+          yOrigin: xAxisBase,
+          yScale: Math.max(plotH + margin.top, 1)
+        },
         onDragEnd: pos => {
           patchHistLabelPosition(drawSession, 'xLabel', {
             x: pos.x,
@@ -10065,6 +10751,13 @@
     bindHistInlineTextInteraction(yText, drawSession, 'y');
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yText, svg, {
+        positionKey: 'yLabel',
+        positionMetrics: {
+          xOrigin: margin.left - histTitleShiftX,
+          xScale: Math.max(yLabelOffsetSpan, 1),
+          yOrigin: margin.top,
+          yScale: Math.max(plotH, 1)
+        },
         onDragEnd: pos => {
           patchHistLabelPosition(drawSession, 'yLabel', {
             x: pos.x,
@@ -10082,6 +10775,12 @@
     bindHistInlineTextInteraction(titleText, drawSession, 'title');
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
+        positionMetrics: {
+          xOrigin: margin.left,
+          xScale: Math.max(plotW, 1),
+          yOrigin: margin.top - histTitleShiftY,
+          yScale: Math.max(plotH, 1)
+        },
         onDragEnd: pos => {
           patchHistLabelPosition(drawSession, 'title', {
             x: pos.x,
@@ -10094,8 +10793,13 @@
     }
     if(controls.showStatsSummary){
       const ownerStatsSettings = drawSession?.state?.statsSettings || state.statsSettings || {};
+      const ownerStatsAnalysis = normalizeHistStatsAnalysisModel(drawSession?.results?.analysisModel);
+      const ownerAnalysisSignature = createHistStatsAnalysisSignature(seriesEntries, ownerStatsSettings);
       const summaryLines = buildHistPlotSummaryLines(seriesEntries, {
-        comparisonMode: ownerStatsSettings.comparisonMode
+        comparisonMode: ownerStatsSettings.comparisonMode,
+        ksResult: ownerStatsAnalysis?.signature === ownerAnalysisSignature
+          ? ownerStatsAnalysis.ksResult
+          : null
       });
       if(summaryLines.length){
         const statsFontSize = chartStyle.resolveStatsAnnotationFontMetrics(fs, { styles: histFontStyles }).fontSizePx;
@@ -10239,6 +10943,7 @@
         rounding: { mode: 'none', precision: 6 }
       });
     }
+    registerHistChartMarks(plotEl, svg, drawSession?.tabId || null);
     const histLayoutPublished = histCartesianPlan
       ? Shared.cartesianLayout?.publishCartesianLayout?.(state.svgBox, histCartesianPlan, {
            tabId: histLayoutOwner.tabId,
@@ -10261,7 +10966,17 @@
     }
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHistAutoDrawNoticeWidth('draw');
-    publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode, drawSession);
+    const analysisPublished = publishHistAnalysisResults(
+      fitSets,
+      frequencyModel,
+      frequencySettings,
+      alpha,
+      viewContext,
+      densityMode,
+      drawSession,
+      execution
+    );
+    if(!analysisPublished){ return false; }
     histDebug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
     return true;
     }finally{
@@ -10296,13 +11011,20 @@
   };
   hist.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getHistProjectionTabId() || null;
-    try{ hist.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'hist-draw-cancel'); }catch(_err){}
-    resolveHistOverlay({ reason: meta?.reason || 'cancelled', tabId });
+    const reason = meta?.reason || 'hist-draw-cancel';
+    try{ hist.__asyncScope?.cancelAllForTab?.(tabId, reason); }catch(_err){}
+    // A replacement redraw can consume the same session-owned KS work. An explicit
+    // Stop/cancel must terminate it, while a superseded draw must leave it reusable.
+    if(reason !== 'owner-job-replaced'){
+      const owner = getHistSession(tabId, { tabId, reason: 'hist-draw-cancel-worker' }, { create: false });
+      cancelHistKolmogorovSmirnovWorker(owner, reason);
+    }
+    resolveHistOverlay({ reason, tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'hist',
       tabId,
       action: 'draw-cancelled',
-      reason: meta?.reason || 'hist-draw-cancel'
+      reason
     });
     return true;
   };
@@ -10341,6 +11063,10 @@
     });
     return !!result?.rebound;
   }
+
+  hist.save = () => global.Main?.fileActions?.save?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+  hist.saveAs = () => global.Main?.fileActions?.saveAs?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+  hist.open = () => global.Main?.fileActions?.open?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
 
   hist.init = function init(options = {}){
     const targetTabId = options?.tabId || getHistProjectionTabId() || null;
@@ -10462,7 +11188,8 @@
       }
       let status = 'complete';
       try{
-        await draw(cycleOptions, getHistSessionForDrawOptions(cycleOptions, { reason: cycleOptions?.reason || 'hist-draw-cycle', create: false }));
+        const result = await draw(cycleOptions, getHistSessionForDrawOptions(cycleOptions, { reason: cycleOptions?.reason || 'hist-draw-cycle', create: false }));
+        if(result === false){ status = 'cancelled'; }
       }catch(err){
         status = 'error';
         throw err;
@@ -10675,8 +11402,13 @@
       ...(meta || {}),
       reason: meta?.reason || 'hist-idle-snapshot'
     }, { create: false }) || getActiveHistSessionForState();
-    if(owner && !isHistSessionActiveForModuleState(owner)){
-      return !owner.state?.autoDraw?.drawPending && !owner.state?.drawPending;
+    if(owner){
+      const drawPending = !!(owner.state?.autoDraw?.drawPending || owner.state?.drawPending);
+      const workerPending = owner.workers instanceof Map
+        && Array.from(owner.workers.values()).some(record => record?.status === 'pending');
+      const analysisPending = owner.timers?.statsCalculationPending === true
+        || !!Shared.jobs?.getActiveFor?.({ component: 'hist', tabId: owner.tabId, kind: 'analysis' });
+      return !drawPending && !workerPending && !analysisPending;
     }
     return !state.drawPending;
   };
@@ -10686,8 +11418,13 @@
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
 
-  function bindHistBarFormatInteraction(node){
-    if(!node || node.__graphitixHistBarFormatBound === true){ return false; }
+  function bindHistBarFormatInteraction(node, ownerTabId = null){
+    if(!node){ return false; }
+    registerHistChartMarkKeyboard(node, {
+      kind: node.getAttribute('data-series-role') || 'histogram-mark',
+      seriesName: node.getAttribute('data-series') || ''
+    }, ownerTabId);
+    if(node.__graphitixHistBarFormatBound === true){ return false; }
     node.style.cursor = 'pointer';
     node.addEventListener('click', event => {
       try{ event.stopPropagation(); }catch(_err){}
@@ -10697,8 +11434,13 @@
     return true;
   }
 
-  function bindHistOverlayFormatInteraction(node){
-    if(!node || node.__graphitixHistOverlayFormatBound === true){ return false; }
+  function bindHistOverlayFormatInteraction(node, ownerTabId = null){
+    if(!node){ return false; }
+    registerHistChartMarkKeyboard(node, {
+      kind: 'distribution-overlay',
+      seriesName: node.getAttribute('data-dist') || ''
+    }, ownerTabId);
+    if(node.__graphitixHistOverlayFormatBound === true){ return false; }
     node.style.cursor = 'pointer';
     node.style.pointerEvents = node.style.pointerEvents || 'stroke';
     node.addEventListener('click', event => {
@@ -10707,6 +11449,41 @@
     });
     node.__graphitixHistOverlayFormatBound = true;
     return true;
+  }
+
+  function registerHistChartMarkKeyboard(node, data = {}, ownerTabId = null){
+    if(!node){ return false; }
+    const plotRoot = node.closest?.('#histPlot') || getHistNodeById('histPlot', ownerTabId) || null;
+    if(!plotRoot){ return false; }
+    const resolvedOwnerTabId = ownerTabId
+      || plotRoot.dataset?.histRenderedTabId
+      || plotRoot.dataset?.workspaceTabId
+      || getHistProjectionTabId();
+    Shared.chartPointKeyboard?.attach(plotRoot, {
+      componentKey: 'hist',
+      componentLabel: 'Histogram',
+      instructions: 'Arrow keys move between bars and distribution curves. Enter opens formatting.',
+      pointSelector: '[data-hist-bar="1"], [data-series-role="hist-border"], [data-overlay-type], .hist-overlay',
+      ownerTabId: resolvedOwnerTabId,
+      getCurrentOwnerTabId: getHistProjectionTabId,
+      describePoint: point => {
+        const label = String(point?.seriesName || '').trim();
+        const kind = String(point?.kind || '').trim();
+        return [label ? 'Histogram ' + label : 'Histogram mark', kind].filter(Boolean).join(', ');
+      }
+    });
+    return Shared.chartPointKeyboard?.registerPoint(plotRoot, node, data) === true;
+  }
+
+  function registerHistChartMarks(plotRoot, svg, ownerTabId = null){
+    if(!plotRoot || !svg){ return 0; }
+    const selector = '[data-hist-bar="1"], [data-series-role="hist-border"], [data-overlay-type], .hist-overlay';
+    const marks = Array.from(svg.querySelectorAll?.(selector) || []);
+    marks.forEach(node => registerHistChartMarkKeyboard(node, {
+      kind: node.getAttribute('data-series-role') || node.getAttribute('data-overlay-type') || 'histogram-mark',
+      seriesName: node.getAttribute('data-series') || node.getAttribute('data-dist') || ''
+    }, ownerTabId));
+    return marks.length;
   }
 
   hist.rehydrateGraphInteractions = function rehydrateGraphInteractions(meta = {}){
@@ -10718,14 +11495,38 @@
       buildHistAxisControlConfig(axis, owner, metadata)
     ) !== false;
     const textReady = rehydrateHistInlineTextInteractions(svg, owner);
-    svg.querySelectorAll?.('[data-hist-bar="1"], [data-series-role="hist-border"]').forEach(bindHistBarFormatInteraction);
-    svg.querySelectorAll?.('[data-overlay-type], .hist-overlay').forEach(bindHistOverlayFormatInteraction);
+    const title = svg.querySelector?.('[data-font-role="graphTitle"]') || null;
+    const titleDragReady = !title
+      || Shared.rehydrateLabelDrag?.(title, svg, {
+        owner,
+        tabId: owner.tabId,
+        onPositionChange: position => patchHistLabelPosition(owner, 'title', {
+          x: position.x,
+          y: position.y,
+          relX: position.relX,
+          relY: position.relY
+        }, { reason: 'hist-title-position' })
+      }) === true;
+    const axisLabelDragsReady = Shared.rehydrateLabelDrags?.(svg, {
+      owner,
+      tabId: owner.tabId,
+      onPositionChange: (key, _label, position) => patchHistLabelPosition(owner, key, {
+        x: position.x,
+        y: position.y,
+        relX: position.relX,
+        relY: position.relY
+      }, { reason: `hist-${key}-position` })
+    }) !== false;
+    svg.querySelectorAll?.('[data-hist-bar="1"], [data-series-role="hist-border"]')
+      .forEach(node => bindHistBarFormatInteraction(node, owner.tabId));
+    svg.querySelectorAll?.('[data-overlay-type], .hist-overlay')
+      .forEach(node => bindHistOverlayFormatInteraction(node, owner.tabId));
     bindHistLegendInteractions(
       svg.querySelector?.('[data-legend-viewport-content="true"]') || null,
       svg,
       owner
     );
-    return axesReady && textReady;
+    return axesReady && textReady && titleDragReady && axisLabelDragsReady;
   };
 
   hist.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
@@ -10769,7 +11570,7 @@
   };
 
   hist.__testHooks = Object.assign({}, hist.__testHooks, {
-    getSession: tabLike => getHistSession(tabLike || getHistProjectionTabId() || null, { reason: 'hist-test-session' }, { create: false }),
+    getSession: (tabLike, options = {}) => getHistSession(tabLike || getHistProjectionTabId() || null, { reason: 'hist-test-session' }, { create: options.create === true }),
     captureStatsPanelForOwner: tabLike => {
       const session = getHistSession(tabLike || getHistProjectionTabId() || null, { reason: 'hist-test-stats-capture' }, { create: false });
       return session ? cloneSimple(captureHistStatsPanelModel(null, session)) : null;
@@ -10785,7 +11586,9 @@
     computeLognormalFitDiagnostic: (values, options = {}) => computeHistLognormalFitDiagnostic(values, options || {}),
     buildFigureSummary: (summaries, options = {}) => buildHistFigureSummary(summaries, options),
     computeLognormalComparison: values => computeHistLognormalComparison(values),
+    normalizeStatsAnalysisModel: source => normalizeHistStatsAnalysisModel(source),
     kolmogorovSmirnovTwoSample: (a, b) => computeHistKolmogorovSmirnovTwoSample(a, b),
+    computeKolmogorovSmirnovTwoSampleAsync: (a, b, owner, execution) => computeHistKolmogorovSmirnovTwoSampleAsync(a, b, owner, execution),
     computeAutoBinWidth: (seriesEntries, options = {}) => computeHistAutoBinWidth(seriesEntries, options || {}),
     buildFrequencyModel: (seriesEntries, options = {}) => buildHistFrequencyModel(seriesEntries, options || {}),
     getDefaultFrequencySettings: () => createDefaultHistFrequencySettings(),
@@ -10800,8 +11603,195 @@
     isPanelDisplayActive: seriesLayout => isHistPanelDisplayActive(seriesLayout),
     buildPlotSummaryLines: (seriesEntries, options = {}) => buildHistPlotSummaryLines(seriesEntries, options),
     resolveDrawableFrame: plot => resolveHistDrawableFrame(plot),
+    buildAdvisorContext: series => buildHistAdvisorContext(series),
+    getAdvisorRecommendation: (answers, context) => computeHistAdvisorRecommendation(answers, context),
+    createAdvisorState: source => createDefaultHistAdvisorState(source),
     scheduleOwnerDraw: (owner, options = {}) => scheduleHistOwnerDraw(owner, options || {})
   });
+
+  hist.captureRuntimeState = function captureHistRuntimeState(meta = {}){
+    const requestedSession = getHistSession(meta?.tab || meta?.tabId || null, meta, { create: false, fallbackActive: true })
+      || getActiveHistSessionForState();
+    const activeSession = getActiveHistSessionForState();
+    const session = requestedSession === activeSession
+      ? captureHistSessionStateFromActive(requestedSession, {
+          ...(meta || {}),
+          reason: meta?.reason || 'hist-runtime-capture',
+          syncControls: true,
+          captureStatsPanel: true
+        })
+      : ensureHistSessionOwnershipShape(requestedSession);
+    const sessionState = createDefaultHistDurableState(session?.state || state);
+    const sessionResults = createDefaultHistResultsState(session?.results || {
+      statsPanelModel: sessionState.statsPanelModel
+    });
+    const sessionNotes = createDefaultHistNotesState(session?.notes || state.notes);
+    const snapshotDistributionOptions = cloneSimple(sessionState.distributionOptions) || [];
+    const snapshotDistributionSettings = {
+      ...createDefaultDistributionSettings(),
+      ...(cloneSimple(sessionState.distributionSettings) || {})
+    };
+    snapshotDistributionSettings.selections = mergeDistributionSelections(
+      snapshotDistributionSettings.selections || {},
+      snapshotDistributionOptions
+    );
+    const snapshotFrequencySettings = sanitizeHistFrequencySettings(sessionState.frequencySettings || {});
+    if(sessionState.plotMode === HIST_PLOT_MODE_DENSITY){
+      snapshotDistributionSettings.showCdf = false;
+    }else if(snapshotFrequencySettings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative){
+      snapshotDistributionSettings.showPdf = false;
+    }
+    const snapshot = {
+      plotMode: sessionState.plotMode,
+      fileName: sessionState.fileName,
+      seriesLayout: sanitizeHistSeriesLayout(sessionState.seriesLayout || {}),
+      labels: cloneSimple(sessionState.labels) || createDefaultHistLabelsState(),
+      showLegend: sessionState.showLegend !== false,
+      colors: cloneSimple(sessionState.colors) || createDefaultHistColorState(),
+      axisSettings: cloneSimple(sessionState.axisSettings) || null,
+      gridStyle: cloneSimple(sessionState.gridStyle) || null,
+      frequencySettings: cloneSimple(snapshotFrequencySettings) || null,
+      distributionSettings: snapshotDistributionSettings,
+      distributionOptions: snapshotDistributionOptions,
+      statsSettings: cloneSimple(sessionState.statsSettings) || null,
+      advisor: createDefaultHistAdvisorState(session?.advisor),
+      statsPanel: createDefaultHistStatsPanelModel(sessionResults.statsPanelModel || sessionState.statsPanelModel || {}),
+      statsAnalysis: normalizeHistStatsAnalysisModel(sessionResults.analysisModel),
+      runtimeControls: normalizeHistRuntimeControls(sessionState.runtimeControls || {}),
+      notes: sessionNotes,
+      autoDraw: createDefaultHistAutoDrawState(sessionState.autoDraw || {}),
+      reason: meta?.reason || 'hist-runtime-capture'
+    };
+    histDebug('Debug: hist runtime snapshot captured', {
+      tabId: session?.tabId || meta?.tabId || getHistProjectionTabId() || null,
+      plotMode: snapshot.plotMode,
+      notesOpen: sessionNotes.open,
+      fromActive: requestedSession === activeSession,
+      reason: snapshot.reason
+    });
+    rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || session?.tabId || null, snapshot, {
+      ...(meta || {}),
+      reason: snapshot.reason || meta?.reason || 'hist-runtime-capture'
+    });
+    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(hist, snapshot, {
+      ...(meta || {}),
+      reason: snapshot.reason || meta?.reason || 'hist-runtime-capture'
+    }) || snapshot;
+  };
+
+  hist.applyRuntimeState = function applyHistRuntimeState(snapshot, meta = {}){
+    snapshot = resolveHistOwnedRuntimeSnapshot(snapshot, meta)
+      || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(hist, snapshot, meta)
+      || snapshot;
+    if(!snapshot || typeof snapshot !== 'object'){
+      histDebug('Debug: hist runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
+      return false;
+    }
+    const appliedSession = setHistSessionStateFromRuntimeRecord(snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'hist-runtime-apply-session'
+    });
+    if(!appliedSession){
+      histDebug('Debug: hist runtime snapshot apply skipped', {
+        tabId: meta?.tabId || getHistProjectionTabId() || null,
+        reason: 'missing-session'
+      });
+      return false;
+    }
+    const isActiveOwner = isHistSessionActiveForModuleState(appliedSession);
+    if(isActiveOwner){
+      applyHistSessionStateToActive(appliedSession, { syncUi: true });
+    }
+    rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || appliedSession.tabId || null, snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'hist-runtime-apply'
+    });
+    Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(hist, snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'hist-runtime-apply'
+    });
+    histDebug(isActiveOwner
+      ? 'Debug: hist runtime snapshot applied through session pipeline'
+      : 'Debug: hist inactive runtime snapshot stored without active projection', {
+      tabId: appliedSession.tabId || meta?.tabId || getHistProjectionTabId() || null,
+      activeTabId: getHistActiveTabId() || null,
+      plotMode: appliedSession.state?.plotMode || null,
+      reason: meta?.reason || 'hist-runtime-apply'
+    });
+    return true;
+  };
+
+  hist.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+    component: hist,
+    componentKey: 'hist',
+    cancel: (tab, meta = {}) => {
+      const session = captureHistSessionForDeactivation(tab, meta);
+      if(session?.tabId){
+        Shared.jobs?.getActiveFor?.({ component: 'hist', tabId: session.tabId, kind: 'analysis' })
+          ?.cancel?.(meta.reason || 'hist-tab-deactivated');
+      }
+      state.drawPending = false;
+    }
+  }) || function deactivateHistTab(tab, meta = {}){
+    captureHistSessionForDeactivation(tab, meta);
+    state.drawPending = false;
+    hist.__runtimeGeneration = (Number(hist.__runtimeGeneration) || 0) + 1;
+    histDebug('Debug: hist tab deactivated', {
+      tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
+      generation: hist.__runtimeGeneration,
+      reason: meta?.reason || 'deactivate-tab'
+    });
+    return true;
+  };
+
+  hist.disposeTab = function disposeHistTab(tab, meta = {}){
+    const tabId = normalizeHistSessionTabId(tab, meta);
+    if(!tabId){ return false; }
+    const session = getHistSession(tabId, {
+      ...(meta || {}),
+      tabId,
+      reason: meta?.reason || 'hist-dispose-session'
+    }, { create: false });
+    const pendingWorkers = [];
+    if(session?.workers instanceof Map){
+      session.workers.forEach(record => {
+        if(record?.status === 'pending' && typeof record.task?.cancel === 'function'){
+          pendingWorkers.push(record);
+        }
+      });
+      session.workers.clear();
+    }
+    pendingWorkers.forEach(record => {
+      record.status = 'cancelled';
+      record.task.cancel(meta?.reason || 'hist-dispose-tab');
+    });
+    session?.listeners?.forEach(cleanup => {
+      if(typeof cleanup === 'function'){
+        try{ cleanup(); }
+        catch(error){ histDebug('Debug: hist tab listener cleanup failed', { tabId, message: error?.message || String(error) }); }
+      }
+    });
+    session?.listeners?.clear?.();
+    if(session?.timers){
+      session.timers.scheduleDraw = null;
+      session.timers.pendingDrawOptions = null;
+    }
+    if(projectedHistSession?.tabId === tabId){
+      projectedHistSession = null;
+      hist.__boundTabId = null;
+      hist.__histSessionTabId = null;
+      hist.__domSentinel = null;
+      hist.ready = false;
+      histAutoDrawManager = null;
+      state = createDefaultHistModuleState();
+    }
+    histSessionsByTabId.delete(tabId);
+    histDebug('Debug: hist tab disposed', {
+      tabId,
+      reason: meta?.reason || 'dispose-tab'
+    });
+    return true;
+  };
 
   Shared.componentLifecycle?.installInternalStateBridge?.(hist, {
     componentKey: 'hist',

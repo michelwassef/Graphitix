@@ -157,7 +157,7 @@ describe('domControls default payload authority', () => {
     };
 
     const first = domControls.ensureDefaultPayload(session, 'line', config);
-    expect(first?.config?.colorScheme).toBe('scientific');
+    expect(first?.config?.colorScheme).toBe('normal');
     expect(first?.config?.labelColors?.['Series 1']).not.toBe('#ffffff');
     expect(first?.config?.seriesStyles?.['Series 1']?.color).not.toBe('#ffffff');
 
@@ -167,7 +167,7 @@ describe('domControls default payload authority', () => {
     expect(domControls.setWorkspaceDefaultPayload(session, 'line', contaminated)).toBe(true);
 
     const second = domControls.ensureDefaultPayload(session, 'line', config);
-    expect(second?.config?.colorScheme).toBe('scientific');
+    expect(second?.config?.colorScheme).toBe('normal');
     expect(second?.config?.labelColors?.['Series 1']).not.toBe('#ffffff');
   });
 

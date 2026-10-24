@@ -337,6 +337,28 @@ describe('graphSizing delayed owner isolation', () => {
     );
   });
 
+  test('unknown active owner suppresses component resize callbacks for delayed inactive sizing', () => {
+    document.getElementById('scatterPage').appendChild(roots.A);
+    activeOwnerTabId = null;
+    const ownerBox = roots.A.querySelector('.svgbox');
+
+    graphSizing.applyPayloadSizingForType('scatter', makePayload(705, 507), {
+      context: 'test-unknown-active-owner-resize-callback',
+      tabId: 'A',
+      sessionGeneration: 1,
+      retryDelaysMs: [40]
+    });
+
+    jest.advanceTimersByTime(40);
+
+    expect(ownerBox.style.width).toBe('705px');
+    expect(ownerBox.style.height).toBe('507px');
+    expect(window.Shared.applyResizableBoxSize).toHaveBeenCalledWith(
+      ownerBox,
+      expect.objectContaining({ suppressOnResize: true })
+    );
+  });
+
   test('projected owner sizing keeps its component resize callback enabled', () => {
     document.getElementById('scatterPage').appendChild(roots.A);
     activeOwnerTabId = 'A';

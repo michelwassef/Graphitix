@@ -77,12 +77,6 @@
     if(!snapshot || typeof snapshot !== 'object'){
       return null;
     }
-    setSurvivalSessionStateFromRuntimeRecord(snapshot, {
-      ...(meta || {}),
-      tab: tabLike || meta?.tab || null,
-      tabId: meta?.tabId || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null,
-      reason: meta?.reason || 'survival-owned-runtime-remember'
-    });
     return getSurvivalRuntimeOwner()?.capture(snapshot, {
       ...(meta || {}),
       tab: tabLike || meta?.tab || null,
@@ -97,12 +91,6 @@
       componentKey: 'survival',
       reason: meta?.reason || 'survival-owned-runtime-resolve'
     }) || snapshot || null;
-    if(resolved && typeof resolved === 'object'){
-      setSurvivalSessionStateFromRuntimeRecord(resolved, {
-        ...(meta || {}),
-        reason: meta?.reason || 'survival-owned-runtime-resolve'
-      });
-    }
     return resolved;
   }
 
@@ -280,11 +268,11 @@
           showSummary: false,
           showScope: true,
           showPattern: true,
-          scopeLabel: 'Scope',
-          colorLabel: 'Line',
-          thicknessLabel: 'Line width',
-          patternLabel: 'Line pattern',
-          transparencyLabel: 'Line transparency',
+
+
+
+
+
           thicknessMin: 0.2,
           thicknessStep: 0.1,
           thicknessMax: 20
@@ -432,7 +420,6 @@
     }
   }
   const formControls = Shared.formControls = Shared.formControls || {};
-  const fileIO = Shared.fileIO = Shared.fileIO || {};
   const survivalUndoManager = Shared.undoManager || null;
 
   survival.__installed = true;
@@ -473,6 +460,7 @@
     }
   }
   const BASE_COLUMN_COUNT = 4; // group, time, event, entry time
+  const COX_INFORMATION_RANK_TOLERANCE = 1e-10;
   const SURVIVAL_COL_HEADERS = [
     'Group',
     'Time',
@@ -705,7 +693,6 @@
     groupOrder: [],
     minSvgWidth: 0,
     layout: null,
-    fileHandle: null,
     fileName: 'survival.graph',
     titleText: 'Survival curve',
     lastSummary: null,
@@ -724,6 +711,7 @@
 
 
   const survivalSessionsByTabId = new Map();
+  const survivalStatsActionButtonsBound = new WeakSet();
   // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
   let projectedSurvivalSession = null;
 
@@ -801,10 +789,9 @@
     const src = source && typeof source === 'object' ? source : {};
     return {
       open: !!src.open,
-      activated: !!src.activated,
+
       answers: cloneSimple(src.answers) || {},
-      lastApplied: cloneSimple(src.lastApplied) || null,
-      context: cloneSimple(src.context) || null
+      lastApplied: cloneSimple(src.lastApplied) || null
     };
   }
 
@@ -824,8 +811,8 @@
       statsLogRank: null,
       statsHazardRatios: null,
       statsCox: null,
-      labelColorsDiv: null,
-      labelColorsFieldset: null,
+      computeStats: null,
+      statsStatus: null,
       showCI: null,
       showCensor: null,
       showRiskTable: null,
@@ -833,7 +820,6 @@
       showHazardRatios: null,
       fitCoxModel: null,
       covariateControls: null,
-      covariateHint: null,
       showGrid: null,
       showFrame: null,
       timeMax: null,
@@ -845,10 +831,6 @@
       loadExampleBtn: null,
       importBtn: null,
       fileInput: null,
-      openBtn: null,
-      saveBtn: null,
-      saveAsBtn: null,
-      graphFileInput: null,
       exportContainer: null,
       notesControl: null,
       legendControl: null
@@ -890,17 +872,14 @@
         render: null,
         emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null
       },
-      listeners: new Map(),
       timers: {
         scheduleDraw: null,
         pendingDrawOptions: null
       },
-      workers: new Map(),
       managers: {
         hot: null,
         dataViews: null,
         layout: null,
-        fileHandle: null
       },
       notes: createDefaultSurvivalNotesState(source.notes || durableSource.notes || {}),
       advisor: createDefaultSurvivalAdvisorState(source.advisor || {}),
@@ -926,18 +905,15 @@
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'render')){ session.cache.render = null; }
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
-    session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
-    session.workers = session.workers instanceof Map ? session.workers : new Map();
     session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'dataViews')){ session.managers.dataViews = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
-    if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
     session.notes = createDefaultSurvivalNotesState(session.notes || {});
-    session.advisor = createDefaultSurvivalAdvisorState(session.advisor || {});
+    if(!session.advisor){ session.advisor = createDefaultSurvivalAdvisorState(); }
     session.updatedAt = Number.isFinite(Number(session.updatedAt)) ? Number(session.updatedAt) : Date.now();
     return session;
   }
@@ -1322,7 +1298,6 @@
     }
     if(sessionIsActive){
       bindSurvivalLayoutManagerForSession(shaped);
-      shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
       shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
     }
     shaped.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || shaped.cache.emptyPayloadTemplate || null;
@@ -1338,31 +1313,6 @@
       return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
     }
     return !!root && (!noteControl.element || root.contains?.(noteControl.element));
-  }
-
-  function setSurvivalFileHandleForSession(handle, session = null){
-    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
-    if(owner?.managers){
-      owner.managers.fileHandle = handle || null;
-      owner.updatedAt = Date.now();
-    }
-    if(!owner || isSurvivalSessionActive(owner)){
-      state.fileHandle = handle || null;
-    }
-    return handle || null;
-  }
-
-  function setSurvivalFileNameForSession(name, session = null){
-    const nextName = name || 'survival.graph';
-    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
-    if(owner?.state){
-      owner.state.fileName = nextName;
-      owner.updatedAt = Date.now();
-    }
-    if(!owner || isSurvivalSessionActive(owner)){
-      state.fileName = nextName;
-    }
-    return nextName;
   }
 
   function captureSurvivalNotesMirror(){
@@ -1415,7 +1365,6 @@
     });
     shaped.results = createDefaultSurvivalResultsState({ stats: shaped.state.lastStats, statsPanelModels: statsPanels });
     shaped.notes = captureSurvivalNotesMirror();
-    shaped.advisor = createDefaultSurvivalAdvisorState(getSurvivalAdvisorState(shaped));
     syncSurvivalSessionRefsFromActive(shaped);
     syncSurvivalSessionManagersFromActive(shaped);
     shaped.updatedAt = Date.now();
@@ -1431,7 +1380,7 @@
     state.labelLinePattern = cloneSimple(shaped.state.labelLinePattern) || {};
     state.groupOrder = cloneSimple(shaped.state.groupOrder) || [];
     state.minSvgWidth = Number.isFinite(Number(shaped.state.minSvgWidth)) ? Number(shaped.state.minSvgWidth) : 0;
-    state.fileName = shaped.state.fileName || state.fileName || 'survival.graph';
+    state.fileName = shaped.state.fileName || 'survival.graph';
     state.titleText = shaped.state.titleText != null ? String(shaped.state.titleText) : 'Survival curve';
     state.lastSummary = cloneSimple(shaped.state.lastSummary) || null;
     state.lastStats = cloneSimple(shaped.results.stats ?? shaped.state.lastStats ?? null) || null;
@@ -1445,7 +1394,6 @@
     state.labelPositions = normalizeSurvivalLabelPositions(shaped.state.labelPositions);
     state.controls = normalizeSurvivalRuntimeControls(shaped.state.controls || {});
     state.drawPending = shaped.state.drawPending === true;
-    state.fileHandle = shaped.managers.fileHandle || state.fileHandle || null;
     if(options.restoreEmptyPayload !== false && shaped.cache?.emptyPayloadTemplate){
       emptyPayloadTemplate = cloneSimple(shaped.cache.emptyPayloadTemplate) || emptyPayloadTemplate;
     }
@@ -1927,8 +1875,8 @@
       showCensor: true,
       showRiskTable: false,
       showPlotStats: false,
-      showHazardRatios: true,
-      fitCoxModel: true,
+      showHazardRatios: false,
+      fitCoxModel: false,
       showGrid: false,
       showFrame: false,
       showLegend: true,
@@ -1963,6 +1911,12 @@
     const restored = source && typeof source === 'object' ? (cloneSimple(source) || {}) : {};
     // Preserve historical figures when controls are absent from older snapshots.
     // New workspaces use the defaults from createDefaultSurvivalRuntimeControls().
+    if(!Object.prototype.hasOwnProperty.call(restored, 'showHazardRatios')){
+      restored.showHazardRatios = true;
+    }
+    if(!Object.prototype.hasOwnProperty.call(restored, 'fitCoxModel')){
+      restored.fitCoxModel = true;
+    }
     if(!Object.prototype.hasOwnProperty.call(restored, 'showRiskTable')){
       restored.showRiskTable = false;
     }
@@ -2119,7 +2073,7 @@
     if(/(?:^|\s)(?:stats-table-card|stats-report-panel|stats-assumption-container)(?:\s|$)/.test(className)){ return true; }
     if(/(?:^|\s)stats-table-lead(?:\s|$)/.test(className)){
       const text = survivalStatsPanelNodeText(node);
-      const placeholder = /^(?:enter at least one group|log-rank test results will appear|enable [“"']?show hazard ratios|enable [“"']?fit cox model)/i;
+      const placeholder = /^(?:enter at least one group|log-rank test results will appear|enable [“"']?show hazard ratios|enable [“"']?fit cox model|calculate statistics to|at least two groups are needed)/i;
       return !!text && !placeholder.test(text);
     }
     return Array.isArray(node.children) && node.children.some(survivalStatsPanelNodeHasStatContent);
@@ -2221,25 +2175,22 @@
 
   const survivalAdvisorState = {
     open: false,
-    activated: false,
+
     answers: {},
-    lastApplied: null,
-    context: null
+    lastApplied: null
   };
 
   function getSurvivalAdvisorState(session = null){
     const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
     if(shaped){
-      shaped.advisor = createDefaultSurvivalAdvisorState(shaped.advisor || {});
       return shaped.advisor;
     }
-    Object.assign(survivalAdvisorState, createDefaultSurvivalAdvisorState(survivalAdvisorState));
     return survivalAdvisorState;
   }
 
   function setSurvivalAdvisorState(value, session = null){
-    const next = createDefaultSurvivalAdvisorState(value || {});
     const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    const next = value === shaped?.advisor ? value : createDefaultSurvivalAdvisorState(value || {});
     if(shaped){
       shaped.advisor = next;
       shaped.updatedAt = Date.now();
@@ -2289,11 +2240,11 @@
     refs.statsLogRank = $('#survivalStatsLogRank');
     refs.statsHazardRatios = $('#survivalStatsHazardRatios');
     refs.statsCox = $('#survivalStatsCox');
+    refs.computeStats = $('#survivalComputeStats');
+    refs.statsStatus = $('#survivalStatsStatus');
     ensureSurvivalCoxReportHost();
     attachSurvivalStatsPValueControlFactory();
     ensureSurvivalStatsInferenceControls();
-    refs.labelColorsDiv = $('#survivalLabelColors');
-    refs.labelColorsFieldset = $('#survivalLabelColorsFieldset');
     refs.showCI = $('#survivalShowCI');
     refs.showCensor = $('#survivalShowCensor');
     refs.showRiskTable = $('#survivalShowRiskTable');
@@ -2301,7 +2252,6 @@
     refs.showHazardRatios = $('#survivalShowHazardRatios');
     refs.fitCoxModel = $('#survivalFitCox');
     refs.covariateControls = $('#survivalCovariateControls');
-    refs.covariateHint = $('#survivalCovariateHint');
     refs.showGrid = $('#survivalShowGrid');
     refs.showFrame = $('#survivalShowFrame');
     refs.timeMax = $('#survivalTimeMax');
@@ -2318,10 +2268,6 @@
     refs.loadExampleBtn = $('#survivalLoadExample');
     refs.importBtn = $('#survivalImport');
     refs.fileInput = $('#survivalFile');
-    refs.openBtn = $('#openSurvivalGraph');
-    refs.saveBtn = $('#saveSurvivalGraph');
-    refs.saveAsBtn = $('#saveAsSurvival');
-    refs.graphFileInput = $('#survivalGraphFile');
     refs.exportContainer = $('#survivalExportControls');
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
   }
@@ -2350,6 +2296,7 @@
         scheduleActiveSurvivalDraw({ renderImpact: 'analysis', reason: 'survival-table-change', tabId: getSurvivalProjectionTabId() || null });
       }, {
         debugLabel: 'survival',
+        ariaLabel: 'Survival input data table',
         data: baseData,
         firstRowIsHeader: false,
         scheduleOnLoadData: true,
@@ -2552,7 +2499,9 @@
       hazardRatiosEnabled: !!refs.showHazardRatios?.checked,
       coxEnabled: !!refs.fitCoxModel?.checked,
       coxAnalysisActive: !!refs.showHazardRatios?.checked || !!refs.fitCoxModel?.checked,
+      canRunLogRank: series.length >= 2,
       hasLogRank: !!safeSummary?.logRank?.available,
+      statisticsCalculated: !!(safeSummary?.statisticsCalculated || safeSummary?.flags?.statisticsCalculated),
       maxTime: Number.isFinite(safeSummary?.maxTime) ? safeSummary.maxTime : 0,
       supportsTimeDependent: !!safeSummary?.supportsTimeDependent,
       ...overrides
@@ -2588,9 +2537,7 @@
         answers.covariateStrategy = 'none';
       }
     }
-    if(answers.covariateStrategy === 'timeDependent' && !context.supportsTimeDependent){
-      answers.covariateStrategy = context.covariateCount > 0 ? 'baseline' : 'none';
-    }
+
     return answers;
   }
 
@@ -2653,6 +2600,28 @@
       recommendation.message = 'Enter at least one group with follow-up times to enable recommendations.';
       return recommendation;
     }
+    if(answers.analysisFocus !== 'describe' && context.totalEvents < 1){
+      recommendation.message='Observed events are required for survival comparisons or Cox estimation.';
+      return recommendation;
+    }
+    if(answers.analysisFocus==='adjust' && answers.covariateStrategy==='none' && (context.enabledCovariateCount>0 || context.groupCount<2)){
+      recommendation.message=context.enabledCovariateCount>0
+        ? 'A group-only Cox model requires all covariates to be unchecked. Existing selections will not be changed automatically.'
+        : 'A group-only Cox model requires at least two groups; unselected covariate columns do not provide predictors.';
+      return recommendation;
+    }
+    if(answers.analysisFocus==='adjust' && answers.covariateStrategy==='baseline' && context.enabledTimeCovariates>0){
+      recommendation.message='Uncheck time-dependent covariates or choose time-dependent adjustment. Baseline-only guidance must match the selected predictors.';
+      return recommendation;
+    }
+    if(answers.analysisFocus === 'adjust' && answers.covariateStrategy === 'baseline' && context.enabledBaselineCovariates < 1){
+      recommendation.message='Add and enable at least one baseline covariate before requesting adjusted estimates.';
+      return recommendation;
+    }
+    if(answers.analysisFocus === 'adjust' && answers.covariateStrategy === 'timeDependent' && (!context.supportsTimeDependent || context.enabledTimeCovariates < 1)){
+      recommendation.message='Time-dependent adjustment requires interval start times and at least one enabled time-dependent covariate.';
+      return recommendation;
+    }
     if(!answers.analysisFocus ||
       (answers.analysisFocus === 'compare' && !answers.comparisonDetail) ||
       (answers.analysisFocus === 'adjust' && !answers.covariateStrategy)){
@@ -2671,18 +2640,19 @@
       case 'describe':
         recommendation.showHazardRatios = false;
         recommendation.fitCoxModel = false;
-        recommendation.summary = 'Focus on Kaplan–Meier curves with the log-rank test for overall differences.';
+        recommendation.summary = context.hasLogRank
+          ? 'Describe the Kaplan–Meier curves alongside the completed log-rank comparison; keep hazard ratios and Cox modeling off.'
+          : context.canRunLogRank
+            ? `Describe the Kaplan–Meier curves; ${context.statisticsCalculated ? 'the current data did not yield a log-rank result.' : 'calculate statistics to evaluate a log-rank comparison.'}`
+            : 'Describe the Kaplan–Meier curve without group-comparison tests or Cox modeling.';
         recommendation.rationale.push('Disabling hazard ratios and Cox modeling keeps the emphasis on visual survival patterns.');
-        if(context.groupCount >= 2 && !context.hasLogRank){
-          recommendation.warnings.push('Provide more complete data to enable the log-rank comparison between groups.');
-        }
         break;
       case 'compare':
         if(answers.comparisonDetail === 'hazardRatios'){
           recommendation.showHazardRatios = true;
           recommendation.fitCoxModel = false;
           recommendation.summary = 'Use the log-rank test and display pairwise hazard ratios between groups.';
-          recommendation.rationale.push('Hazard ratios quantify the magnitude of survival differences between every pair of groups.');
+          recommendation.rationale.push('Hazard ratios compare instantaneous event rates between groups; they are not ratios of survival probabilities.');
         } else {
           recommendation.showHazardRatios = false;
           recommendation.fitCoxModel = false;
@@ -2702,15 +2672,9 @@
         if(answers.covariateStrategy === 'timeDependent'){
           recommendation.summary = 'Fit a Cox model with time-dependent covariates and report adjusted hazard ratios.';
           recommendation.rationale.push('Cox regression handles varying predictors over follow-up when covariates are marked time-dependent.');
-          if(context.enabledTimeCovariates === 0){
-            recommendation.warnings.push('Mark at least one covariate as time-dependent in the controls to follow this plan.');
-          }
         } else if(answers.covariateStrategy === 'baseline'){
           recommendation.summary = 'Fit a Cox model with baseline covariates and show adjusted hazard ratios.';
           recommendation.rationale.push('Baseline Cox regression adjusts survival comparisons for fixed covariates.');
-          if(context.enabledBaselineCovariates === 0 && context.covariateCount > 0){
-            recommendation.warnings.push('Enable at least one baseline covariate in the selection panel to include it in the Cox model.');
-          }
         } else {
           if(context.groupCount === 2){
             recommendation.fitCoxModel = false;
@@ -2734,11 +2698,21 @@
         recommendation.message = 'Select an analysis goal to generate a recommendation.';
         return recommendation;
     }
+    recommendation.warnings.push('Kaplan–Meier and log-rank interpretation require independent subjects and non-informative censoring within the compared groups.');
+    if(recommendation.showHazardRatios || recommendation.fitCoxModel){
+      recommendation.warnings.push('Cox hazard-ratio interpretation requires proportional hazards conditional on the included predictors. Inspect the curves and model diagnostics; crossing curves may make a single constant hazard ratio misleading.');
+      if(context.enabledCovariateCount>0){
+        recommendation.warnings.push('All enabled Cox covariates remain in the hazard-ratio model even when the coefficient table is hidden.');
+      }
+      if(recommendation.showHazardRatios && context.groupCount>2){
+        recommendation.warnings.push('The pairwise hazard-ratio Wald p-values are unadjusted across pairs; the log-rank multiplicity setting does not adjust them.');
+      }
+    }
     recommendation.ready = true;
     return recommendation;
   }
 
-  function renderSurvivalStatsAdvisor(summary, providedContext, session = null){
+  function renderSurvivalStatsAdvisor(session = null){
     const advisorSession = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
     if(advisorSession && !isSurvivalSessionActive(advisorSession)){
       return;
@@ -2747,80 +2721,22 @@
     if(!container){
       return;
     }
+    const settingsTitle = container.querySelector('#survivalStatsSettingsTitle');
     const advisorState = getSurvivalAdvisorState(advisorSession);
-    const isAdvisorOwnerCurrent = () => !advisorSession?.tabId || isSurvivalSessionActive(advisorSession);
-    const context = providedContext || buildSurvivalAdvisorContext(summary || state.lastSummary || {});
-    advisorState.context = context;
+    const view = Shared.statsAdvisor.begin({ host: container, component: 'survival', tabId: advisorSession.tabId, advisor: advisorState, getAdvisor: () => getSurvivalAdvisorState(advisorSession), isActive: () => isSurvivalSessionActive(advisorSession) });
+    const isAdvisorOwnerCurrent = view.isCurrent;
+    const readCurrentContext = () => {
+      const dataSummary = collectSeries();
+      const completedSummary = advisorSession?.state?.lastSummary;
+      const summary = completedSummary?.statisticsCalculated
+        ? { ...dataSummary, logRank: completedSummary.logRank, statisticsCalculated: true }
+        : dataSummary;
+      return buildSurvivalAdvisorContext(summary);
+    };
+    const context = readCurrentContext();
     const answers = ensureSurvivalAdvisorDefaults(context, advisorState);
     setSurvivalAdvisorState(advisorState, advisorSession);
     const recommendation = computeSurvivalAdvisorRecommendation(answers, context);
-    const sharedAdvisorUi = Shared.statsUi;
-    if(sharedAdvisorUi && typeof sharedAdvisorUi.renderAdvisorPanel === 'function'){
-      sharedAdvisorUi.renderAdvisorPanel({
-        container,
-        state: advisorState,
-        title: 'Statistics advisor',
-        inactiveMessage: 'Press the "Guide me" button to view advisor recommendations.',
-        recommendation,
-        answers,
-        questions: advisorState.open ? buildSurvivalAdvisorQuestions(context, advisorState) : [],
-        namePrefix: 'survival-advisor',
-        onToggle: (nextOpen)=>{
-          if(!isAdvisorOwnerCurrent()){ return; }
-          advisorState.open = !!nextOpen;
-          if(advisorState.open && !advisorState.activated){
-            advisorState.activated = true;
-            logDebug('stats advisor activated');
-          }
-          logDebug('stats advisor toggled', { open: advisorState.open });
-          setSurvivalAdvisorState(advisorState, advisorSession);
-          persistSurvivalStatsTabState('survival-stats-advisor-toggle', advisorSession);
-          renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
-        },
-        onAnswerChange: (question, value)=>{
-          if(!isAdvisorOwnerCurrent()){ return; }
-          answers[question.id] = value;
-          advisorState.answers = answers;
-          logDebug('stats advisor answer change', { question: question.id, value });
-          setSurvivalAdvisorState(advisorState, advisorSession);
-          persistSurvivalStatsTabState('survival-stats-advisor-answer', advisorSession);
-          renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
-        },
-        onApply: ()=>{
-          if(!isAdvisorOwnerCurrent()){ return; }
-          if(!recommendation.ready){
-            return;
-          }
-          if(refs.showHazardRatios){
-            refs.showHazardRatios.checked = !!recommendation.showHazardRatios;
-          }
-          if(refs.fitCoxModel){
-            refs.fitCoxModel.checked = !!recommendation.fitCoxModel;
-          }
-          advisorState.lastApplied = { ...recommendation, answers: { ...answers } };
-          syncSurvivalRuntimeControlsFromDom();
-          syncSurvivalStateToSession(advisorSession, { controls: state.controls });
-          setSurvivalAdvisorState(advisorState, advisorSession);
-          persistSurvivalStatsTabState('survival-stats-advisor-apply', advisorSession);
-          logDebug('stats advisor recommendation applied', {
-            showHazardRatios: recommendation.showHazardRatios,
-            fitCoxModel: recommendation.fitCoxModel,
-            answers: { ...answers }
-          });
-          scheduleActiveSurvivalDraw({ renderImpact: 'analysis', reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
-          renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
-        },
-        onReset: ()=>{
-          if(!isAdvisorOwnerCurrent()){ return; }
-          advisorState.answers = {};
-          setSurvivalAdvisorState(advisorState, advisorSession);
-          persistSurvivalStatsTabState('survival-stats-advisor-reset', advisorSession);
-          logDebug('stats advisor answers reset');
-          renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
-        }
-      });
-      return;
-    }
     container.innerHTML = '';
     const wrapper = document.createElement('div');
     wrapper.className = 'stats-advisor';
@@ -2829,34 +2745,28 @@
     wrapper.setAttribute('data-parameter-advisor-open', advisorState.open ? 'true' : 'false');
     const header = document.createElement('div');
     header.className = 'stats-advisor__header';
-    const title = document.createElement('strong');
-    title.textContent = 'Test advisor';
-    header.appendChild(title);
+    if(settingsTitle){ header.appendChild(settingsTitle); }
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'stats-advisor__toggle';
-    toggle.textContent = advisorState.open ? 'Hide advisor' : 'Guide me';
+    toggle.dataset.advisorFocus = 'toggle';
+    toggle.setAttribute('aria-expanded', String(!!advisorState.open));
+    toggle.textContent = 'Help me choose';
     toggle.addEventListener('click', () => {
       if(!isAdvisorOwnerCurrent()){ return; }
       advisorState.open = !advisorState.open;
-      if(advisorState.open && !advisorState.activated){
-        advisorState.activated = true;
-        logDebug('stats advisor activated');
-      }
+
       logDebug('stats advisor toggled', { open: advisorState.open });
       setSurvivalAdvisorState(advisorState, advisorSession);
       persistSurvivalStatsTabState('survival-stats-advisor-toggle', advisorSession);
-      renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
+      renderSurvivalStatsAdvisor(advisorSession);
     });
     header.appendChild(toggle);
     wrapper.appendChild(header);
     const summaryBlock = document.createElement('div');
     summaryBlock.className = 'stats-advisor__summary';
-    if(!advisorState.activated){
-      const message = document.createElement('div');
-      message.textContent = 'Press the "Guide me" button to view advisor recommendations.';
-      summaryBlock.appendChild(message);
-    }else if(recommendation.ready){
+    summaryBlock.hidden = !advisorState.open;
+    if(recommendation.ready){
       const summaryLine = document.createElement('div');
       summaryLine.className = 'stats-advisor__summary-line';
       summaryLine.textContent = `Recommendation: ${recommendation.summary}`;
@@ -2922,7 +2832,7 @@
             logDebug('stats advisor answer change', { question: question.id, value: option.value });
             setSurvivalAdvisorState(advisorState, advisorSession);
             persistSurvivalStatsTabState('survival-stats-advisor-answer', advisorSession);
-            renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
+            renderSurvivalStatsAdvisor(advisorSession);
           });
           const span = document.createElement('span');
           span.textContent = option.label;
@@ -2940,28 +2850,27 @@
       applyBtn.textContent = 'Apply recommendation';
       applyBtn.disabled = !recommendation.ready;
       applyBtn.addEventListener('click', () => {
-        if(!isAdvisorOwnerCurrent()){ return; }
-        if(!recommendation.ready){
-          return;
-        }
-        if(refs.showHazardRatios){
-          refs.showHazardRatios.checked = !!recommendation.showHazardRatios;
-        }
-        if(refs.fitCoxModel){
-          refs.fitCoxModel.checked = !!recommendation.fitCoxModel;
-        }
-        advisorState.lastApplied = { ...recommendation, answers: { ...answers } };
-        syncSurvivalRuntimeControlsFromDom();
-        syncSurvivalStateToSession(advisorSession, { controls: state.controls });
-        setSurvivalAdvisorState(advisorState, advisorSession);
-        persistSurvivalStatsTabState('survival-stats-advisor-apply', advisorSession);
-        logDebug('stats advisor recommendation applied', {
-          showHazardRatios: recommendation.showHazardRatios,
-          fitCoxModel: recommendation.fitCoxModel,
-          answers: { ...answers }
+        view.apply({
+          readContext:readCurrentContext, decide:computeSurvivalAdvisorRecommendation,
+          refresh:() => renderSurvivalStatsAdvisor(advisorSession),
+          commit:(recommendation) => {
+            const controls={...advisorSession.state.controls, showHazardRatios:!!recommendation.showHazardRatios, fitCoxModel:!!recommendation.fitCoxModel};
+            syncSurvivalStateToSession(advisorSession,{controls});
+            state.controls={...controls};
+            if(refs.showHazardRatios){ refs.showHazardRatios.checked=controls.showHazardRatios; }
+            if(refs.fitCoxModel){ refs.fitCoxModel.checked=controls.fitCoxModel; }
+            advisorState.lastApplied = { ...recommendation, answers: { ...answers } };
+            setSurvivalAdvisorState(advisorState, advisorSession);
+            persistSurvivalStatsTabState('survival-stats-advisor-apply', advisorSession);
+            logDebug('stats advisor recommendation applied', {
+              showHazardRatios: recommendation.showHazardRatios,
+              fitCoxModel: recommendation.fitCoxModel,
+              answers: { ...answers }
+            });
+            scheduleActiveSurvivalDraw({ renderImpact: 'analysis', reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
+            renderSurvivalStatsAdvisor(advisorSession);
+          }
         });
-        scheduleActiveSurvivalDraw({ renderImpact: 'analysis', reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
-        renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
       });
       actions.appendChild(applyBtn);
       const resetBtn = document.createElement('button');
@@ -2974,64 +2883,28 @@
         setSurvivalAdvisorState(advisorState, advisorSession);
         persistSurvivalStatsTabState('survival-stats-advisor-reset', advisorSession);
         logDebug('stats advisor answers reset');
-        renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
+        renderSurvivalStatsAdvisor(advisorSession);
       });
       actions.appendChild(resetBtn);
       wrapper.appendChild(actions);
     }
     container.appendChild(wrapper);
+    view.finish(wrapper);
   }
 
-  function updateGroupColorPickers(groupNames){
+  function syncGroupColorState(groupNames){
     const activeNames = Array.isArray(groupNames) ? groupNames : [];
-    if(refs.labelColorsDiv){
-      refs.labelColorsDiv.innerHTML = '';
-    }
     Object.keys(state.labelColors).forEach(name => {
       if(!activeNames.includes(name)){
         delete state.labelColors[name];
       }
     });
-    if(!refs.labelColorsDiv || !refs.labelColorsFieldset){
-      activeNames.forEach((name, index) => {
-        if(!state.labelColors[name]){
-          state.labelColors[name] = DEFAULT_COLORS[index % DEFAULT_COLORS.length];
-        }
-      });
-      logDebug('group colors synced without control panel', { count: activeNames.length });
-      return;
-    }
     activeNames.forEach((name, index) => {
       if(!state.labelColors[name]){
         state.labelColors[name] = DEFAULT_COLORS[index % DEFAULT_COLORS.length];
       }
-      const wrapper = document.createElement('label');
-      wrapper.style.display = 'inline-flex';
-      wrapper.style.alignItems = 'center';
-      wrapper.style.gap = '6px';
-      wrapper.style.marginRight = '8px';
-      wrapper.textContent = `${name}`;
-      const input = document.createElement('input');
-      input.type = 'color';
-      input.value = state.labelColors[name];
-      input.dataset.setting = `labelColors.${index}`;
-      input.setAttribute('aria-label', `Color for ${name}`);
-      if(typeof global.attachColorPickerNear === 'function'){
-        global.attachColorPickerNear(input);
-      }
-      input.addEventListener('input', ev => {
-        const owner = getSurvivalSessionForEvent(ev, { reason: 'survival-group-color' }, { create: false });
-        applySurvivalColorValue(name, ev.target.value, {
-          session: owner,
-          source: 'control',
-          reason: 'survival-group-color'
-        });
-      });
-      wrapper.appendChild(input);
-      refs.labelColorsDiv.appendChild(wrapper);
     });
-    refs.labelColorsFieldset.style.display = activeNames.length ? '' : 'none';
-    logDebug('group color pickers updated', { count: activeNames.length });
+    logDebug('group colors synced for rendering', { count: activeNames.length });
   }
 
   function projectSurvivalSeriesColor(groupName, value, session = null){
@@ -3234,15 +3107,8 @@
         || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
     );
 
-    if(refs.covariateHint){
-      refs.covariateHint.style.display = 'none';
-    }
-
     const hint = document.createElement('div');
     hint.className = 'survival-covariate-hint-text';
-    hint.style.fontSize = '12px';
-    hint.style.color = '#4a5568';
-    hint.style.marginBottom = '8px';
 
     if(!columns.length){
       hint.textContent = 'Add named or populated columns after Entry Time to make them available as Cox covariates.';
@@ -3272,12 +3138,7 @@
 
       const row = document.createElement('div');
       row.className = 'survival-covariate-option';
-      row.style.display = 'flex';
-      row.style.alignItems = 'center';
-      row.style.gap = '6px';
-      row.style.flexWrap = 'wrap';
-      row.style.marginBottom = '6px';
-      row.style.opacity = coxAnalysisActive ? '1' : '0.65';
+      row.classList.toggle('survival-covariate-option--inactive', !coxAnalysisActive);
 
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
@@ -3292,15 +3153,12 @@
       const label = document.createElement('label');
       label.setAttribute('for', checkbox.id);
       label.textContent = col.header;
-      label.style.fontWeight = '500';
-      label.style.minWidth = '140px';
       label.title = col.derivedHeader
         ? `${col.header} (generated because the column header was blank)`
         : col.header;
 
       const select = document.createElement('select');
       select.dataset.columnIndex = key;
-      select.style.minWidth = '140px';
       const optionBaseline = document.createElement('option');
       optionBaseline.value = 'baseline';
       optionBaseline.textContent = 'Baseline';
@@ -3558,6 +3416,76 @@
     return null;
   }
 
+  function scaleCoxInformation(information){
+    const dimension = Array.isArray(information) ? information.length : 0;
+    if(!dimension || information.some(row => !Array.isArray(row) || row.length !== dimension)){
+      return null;
+    }
+    const scales = information.map((row, index) => {
+      const diagonal = Number(row[index]);
+      return Number.isFinite(diagonal) && diagonal > 0 ? Math.sqrt(diagonal) : NaN;
+    });
+    if(scales.some(scale => !Number.isFinite(scale) || scale <= 0)){
+      return null;
+    }
+    const matrix = information.map((row, rowIndex) => row.map((value, columnIndex) => (
+      Number(value) / scales[rowIndex] / scales[columnIndex]
+    )));
+    if(matrix.some(row => row.some(value => !Number.isFinite(value)))){
+      return null;
+    }
+    return { matrix, scales };
+  }
+
+  function hasFullRankCoxInformation(information){
+    const scaled = scaleCoxInformation(information);
+    if(!scaled){
+      return false;
+    }
+    const dimension = scaled.matrix.length;
+    const lower = Array.from({ length: dimension }, () => new Array(dimension).fill(0));
+    for(let rowIndex = 0; rowIndex < dimension; rowIndex += 1){
+      for(let columnIndex = 0; columnIndex <= rowIndex; columnIndex += 1){
+        let value = scaled.matrix[rowIndex][columnIndex];
+        if(!Number.isFinite(value)){
+          return false;
+        }
+        for(let previous = 0; previous < columnIndex; previous += 1){
+          value -= lower[rowIndex][previous] * lower[columnIndex][previous];
+        }
+        if(rowIndex === columnIndex){
+          if(value <= COX_INFORMATION_RANK_TOLERANCE){
+            return false;
+          }
+          lower[rowIndex][columnIndex] = Math.sqrt(value);
+        }else{
+          lower[rowIndex][columnIndex] = value / lower[columnIndex][columnIndex];
+        }
+      }
+    }
+    return true;
+  }
+
+  function tryInvertCoxInformation(information, options){
+    const scaled = scaleCoxInformation(information);
+    if(!scaled){
+      return null;
+    }
+    const scaledInverse = tryInvertMatrix(scaled.matrix, options);
+    if(!scaledInverse){
+      return null;
+    }
+    const inverse = scaledInverse.map((row, rowIndex) => row.map((value, columnIndex) => (
+      value / scaled.scales[rowIndex] / scaled.scales[columnIndex]
+    )));
+    return {
+      inverse,
+      scaledInverse,
+      scales: scaled.scales,
+      ridgeEpsilon: Number(scaledInverse.__ridgeEpsilon) > 0 ? Number(scaledInverse.__ridgeEpsilon) : null
+    };
+  }
+
   function multiplyMatrixVector(matrix, vector){
     return matrix.map(row => row.reduce((sum, value, index) => sum + value * vector[index], 0));
   }
@@ -3750,7 +3678,7 @@
 
   function collectSeries(){
     if(!state.hot){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns: [] };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false, message: 'Add at least two groups, then calculate statistics.' }, covariateColumns: [] };
     }
     const data = typeof state.hot.getIncludedDataMatrix === 'function'
       ? state.hot.getIncludedDataMatrix()
@@ -3766,7 +3694,7 @@
     const supportsTimeDependent = detectTimeDependentSupport(data);
     state.covariateColumns = covariateColumns;
     if(!Array.isArray(data) || !data.length){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns, headers: headerLookup, supportsTimeDependent };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false, message: 'Add at least two groups, then calculate statistics.' }, covariateColumns, headers: headerLookup, supportsTimeDependent };
     }
     const groups = new Map();
     let maxTime = 0;
@@ -3808,7 +3736,7 @@
     }
     const groupNames = Array.from(groups.keys());
     if(!groupNames.length || usedRows === 0){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns, headers: headerLookup, supportsTimeDependent };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false, message: 'Add at least two groups, then calculate statistics.' }, covariateColumns, headers: headerLookup, supportsTimeDependent };
     }
     state.groupOrder = state.groupOrder.filter(name => groups.has(name));
     groupNames.forEach(name => {
@@ -3833,15 +3761,94 @@
         km
       };
     }).filter(Boolean);
-    const logRank = computeLogRank(series);
     logDebug('series collected', {
       groupCount: series.length,
       maxTime,
-      logRankAvailable: !!logRank.available,
       usedRows,
       covariateColumnCount: covariateColumns.length
     });
-    return { series, groupNames: ordered, maxTime, logRank, covariateColumns, headers: headerLookup, supportsTimeDependent };
+    return {
+      series,
+      groupNames: ordered,
+      maxTime,
+      logRank: { available: false, message: 'Calculate statistics to run survival curve tests.' },
+      covariateColumns,
+      headers: headerLookup,
+      supportsTimeDependent
+    };
+  }
+
+  function createSurvivalStatsAnalysisSignature(controls, includeDecisionSettings){
+    const rawData = typeof state.hot?.getIncludedDataMatrix === 'function'
+      ? state.hot.getIncludedDataMatrix()
+      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
+    const signature = {
+      data: Array.isArray(rawData) ? rawData : [],
+      groupOrder: Array.isArray(state.groupOrder) ? state.groupOrder : [],
+      showHazardRatios: !!controls?.showHazardRatios,
+      fitCoxModel: !!controls?.fitCoxModel,
+      covariateSettings: state.covariateSettings || {}
+    };
+    if(includeDecisionSettings){
+      signature.pairwiseCorrection = state.pairwiseCorrection || 'holm-sidak';
+      signature.inferenceLevel = getSurvivalStatsAlpha();
+    }
+    const source = JSON.stringify(signature) || '';
+    let firstHash = 2166136261;
+    let secondHash = 2246822519;
+    for(let index = 0; index < source.length; index += 1){
+      const code = source.charCodeAt(index);
+      firstHash = Math.imul(firstHash ^ code, 16777619);
+      secondHash = Math.imul(secondHash ^ code, 3266489917);
+    }
+    const version = includeDecisionSettings ? 'v1' : 'v2';
+    return `survival-stats-${version}-${(firstHash >>> 0).toString(36)}-${(secondHash >>> 0).toString(36)}-${source.length}`;
+  }
+
+  function buildSurvivalStatsAnalysisSignature(controls = state.controls){
+    return createSurvivalStatsAnalysisSignature(controls, false);
+  }
+
+  function buildLegacySurvivalStatsAnalysisSignature(controls = state.controls){
+    return createSurvivalStatsAnalysisSignature(controls, true);
+  }
+
+  function applySavedSurvivalStats(summary, stats){
+    if(!summary || !stats || typeof stats !== 'object'){ return false; }
+    summary.logRank = cloneSimple(stats.logRank) || summary.logRank;
+    summary.logRankWilcoxon = cloneSimple(stats.logRankWilcoxon) || { available: false };
+    summary.logRankTrend = cloneSimple(stats.logRankTrend) || { available: false };
+    summary.pairwiseComparisons = cloneSimple(stats.pairwiseComparisons) || { available: false };
+    const pairwiseRows = summary.pairwiseComparisons?.rows;
+    if(summary.pairwiseComparisons?.available && Array.isArray(pairwiseRows)){
+      const method = state.pairwiseCorrection || 'holm-sidak';
+      const rawPValues = pairwiseRows.map(row => toNumericPValue(row?.p));
+      const adjusted = Shared.stats?.adjustPValues?.(rawPValues, { method });
+      const correction = Shared.stats?.getCorrectionMeta?.(method)
+        || summary.pairwiseComparisons.correction
+        || { key: method, label: method, shortLabel: method, footnote: null };
+      summary.pairwiseComparisons = {
+        ...summary.pairwiseComparisons,
+        correction,
+        rows: pairwiseRows.map((row, index) => ({
+          ...row,
+          adjustedP: Number.isFinite(toNumericPValue(adjusted?.[index]))
+            ? toNumericPValue(adjusted[index])
+            : rawPValues[index]
+        }))
+      };
+    }
+    summary.medianRatios = cloneSimple(stats.medianRatios) || { available: false };
+    summary.hazardRatios = cloneSimple(stats.hazardRatios) || { available: false, message: 'Hazard ratios were not calculated.' };
+    summary.coxModel = cloneSimple(stats.coxModel) || { available: false, message: 'Cox model was not calculated.' };
+    summary.flags = cloneSimple(stats.flags) || {
+      hazardRatiosEnabled: false,
+      coxEnabled: false,
+      statisticsCalculated: true
+    };
+    summary.inference = getSurvivalInferenceSnapshot();
+    summary.statisticsCalculated = true;
+    return true;
   }
 
   function safeExp(value){
@@ -4541,54 +4548,84 @@
     }
     const { predictors, baselineGroup } = prepared;
     let beta = new Array(predictors).fill(0);
+    let currentEvaluation = evaluateCoxAt(beta, prepared);
+    if(!hasFullRankCoxInformation(currentEvaluation.fisher)){
+      const message = 'Selected Cox predictors are redundant or cannot be estimated separately within the event risk sets. Remove or revise a covariate.';
+      logDebug('cox design is not separately identifiable', { predictors });
+      return { available: false, message };
+    }
     let covariance = null;
+    // In Cox monotone likelihood, coefficients can diverge while the partial
+    // likelihood reaches a finite supremum. Keep LR availability separate
+    // from coefficient convergence only for identifiable designs; R survival
+    // documents LR/score as valid there while Wald inference is invalid.
     let converged = false;
+    let likelihoodConverged = false;
     let iterations = 0;
     let ridgeEpsilon = null;
-    for(iterations = 0; iterations < 25; iterations += 1){
-      const evaluation = evaluateCoxAt(beta, prepared);
-      const fisherInv = tryInvertMatrix(evaluation.fisher, { context: 'cox fisher', iteration: iterations });
-      if(!fisherInv){
+    let previousLogLikelihood = null;
+    const maxIterations = Number.isInteger(options?.maxIterations)
+      ? Math.max(1, Math.min(100, options.maxIterations))
+      : 25;
+    for(iterations = 0; iterations < maxIterations; iterations += 1){
+      const evaluation = currentEvaluation;
+      if(Number.isFinite(previousLogLikelihood) && Number.isFinite(evaluation.logLik)){
+        const change = Math.abs(evaluation.logLik - previousLogLikelihood);
+        const relativeChange = change / Math.max(1, Math.abs(previousLogLikelihood));
+        // Cox LR/score tests can remain valid when a coefficient tends to infinity,
+        // but only after the partial likelihood itself has stabilized.
+        if(change <= Math.sqrt(1e-9) || relativeChange <= 1e-9){
+          likelihoodConverged = true;
+          break;
+        }
+      }
+      previousLogLikelihood = evaluation.logLik;
+      const fisherFit = tryInvertCoxInformation(evaluation.fisher, { context: 'cox fisher', iteration: iterations });
+      if(!fisherFit){
         logDebug('cox iteration inversion failed', { iteration: iterations });
         return { available: false, message: 'Failed to invert Fisher information matrix.' };
       }
-      if(fisherInv.__ridgeEpsilon){
-        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, Number(fisherInv.__ridgeEpsilon) || 0);
-        logDebug('cox fisher ridge applied', { iteration: iterations, epsilon: fisherInv.__ridgeEpsilon });
+      if(fisherFit.ridgeEpsilon){
+        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, fisherFit.ridgeEpsilon);
+        logDebug('cox fisher ridge applied', { iteration: iterations, epsilon: fisherFit.ridgeEpsilon });
       }
-      const step = multiplyMatrixVector(fisherInv, evaluation.gradient);
+      const scaledGradient = evaluation.gradient.map((value, index) => value / fisherFit.scales[index]);
+      const scaledStep = multiplyMatrixVector(fisherFit.scaledInverse, scaledGradient);
       let maxChange = 0;
       beta = beta.map((value, idx) => {
-        const limited = Math.max(Math.min(step[idx], 2), -2);
+        const limited = Math.max(Math.min(scaledStep[idx], 2), -2);
         maxChange = Math.max(maxChange, Math.abs(limited));
-        return value + limited;
+        return value + limited / fisherFit.scales[idx];
       });
       logDebug('cox iteration step', { iteration: iterations, maxChange });
       if(maxChange < 1e-6){
         converged = true;
-        covariance = fisherInv;
+        likelihoodConverged = true;
+        covariance = fisherFit.inverse;
         break;
       }
-      covariance = fisherInv;
+      covariance = fisherFit.inverse;
+      currentEvaluation = evaluateCoxAt(beta, prepared);
     }
     if(!covariance){
       const fallbackEval = evaluateCoxAt(beta, prepared);
-      covariance = tryInvertMatrix(fallbackEval.fisher, { context: 'cox fisher fallback' });
-      if(!covariance){
+      const fallbackFit = tryInvertCoxInformation(fallbackEval.fisher, { context: 'cox fisher fallback' });
+      if(!fallbackFit){
         logDebug('cox covariance fallback failed');
         return { available: false, message: 'Unable to compute covariance for Cox model.' };
       }
-      if(covariance.__ridgeEpsilon){
-        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, Number(covariance.__ridgeEpsilon) || 0);
-        logDebug('cox covariance ridge applied', { epsilon: covariance.__ridgeEpsilon });
+      covariance = fallbackFit.inverse;
+      if(fallbackFit.ridgeEpsilon){
+        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, fallbackFit.ridgeEpsilon);
+        logDebug('cox covariance ridge applied', { epsilon: fallbackFit.ridgeEpsilon });
       }
     }
     const finalEval = evaluateCoxAt(beta, prepared);
-    const finalCovariance = tryInvertMatrix(finalEval.fisher, { context: 'cox final fisher' });
-    if(finalCovariance){
-      covariance = finalCovariance;
-      if(finalCovariance.__ridgeEpsilon){
-        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, Number(finalCovariance.__ridgeEpsilon) || 0);
+    const finalFit = tryInvertCoxInformation(finalEval.fisher, { context: 'cox final fisher' });
+    if(finalFit){
+      covariance = finalFit.inverse;
+      if(finalFit.ridgeEpsilon){
+        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, finalFit.ridgeEpsilon);
       }
     }
     const inferenceAvailable = converged && !!covariance && !(Number(ridgeEpsilon) > 0);
@@ -4632,19 +4669,34 @@
         coefficientIndex[coef.group] = idx;
       }
     });
+    // Keep this contract explicit: coxph documents LR/score tests as usable
+    // for monotone likelihood with a diverging coefficient, where Wald tests
+    // are invalid. We expose LR only when the partial likelihood has stabilized;
+    // an iteration-limit exit without that evidence must not produce LR/AIC/BIC.
+    // Reference: https://stat.ethz.ch/R-manual/R-devel/library/survival/html/coxph.html
+    const likelihoodRatioAvailable = likelihoodConverged
+      && Number.isFinite(finalEval.logLik)
+      && Number.isFinite(nullEval.logLik);
     const likelihoodRatio = {
-      statistic: 2 * (finalEval.logLik - nullEval.logLik),
+      available: likelihoodRatioAvailable,
+      statistic: likelihoodRatioAvailable ? 2 * (finalEval.logLik - nullEval.logLik) : NaN,
       df: predictors,
-      p: pValueFromChiSquare(2 * (finalEval.logLik - nullEval.logLik), predictors)
+      p: likelihoodRatioAvailable
+        ? pValueFromChiSquare(2 * (finalEval.logLik - nullEval.logLik), predictors)
+        : NaN,
+      reason: likelihoodRatioAvailable
+        ? null
+        : 'The partial log-likelihood did not stabilize; likelihood-ratio inference is unavailable.'
     };
     const diagnostics = {
       logLikelihood: finalEval.logLik,
       logLikelihoodNull: nullEval.logLik,
-      aic: -2 * finalEval.logLik + 2 * predictors,
-      bic: -2 * finalEval.logLik + predictors * Math.log(prepared.data.length),
+      aic: likelihoodRatioAvailable ? -2 * finalEval.logLik + 2 * predictors : NaN,
+      bic: likelihoodRatioAvailable ? -2 * finalEval.logLik + predictors * Math.log(prepared.data.length) : NaN,
       likelihoodRatio,
       iterations: iterations + 1,
       converged,
+      likelihoodConverged,
       inferenceAvailable,
       ridgeEpsilon: Number(ridgeEpsilon) > 0 ? Number(ridgeEpsilon) : null
     };
@@ -4674,7 +4726,9 @@
       diagnostics,
       converged,
       message: !converged
-        ? 'Cox model reached the iteration limit; coefficient inference is unavailable.'
+        ? (likelihoodConverged
+          ? 'Cox partial likelihood stabilized before coefficients did; coefficient inference is unavailable.'
+          : 'Cox model reached the iteration limit; coefficient and likelihood-ratio inference are unavailable.')
         : (Number(ridgeEpsilon) > 0
           ? 'Cox model required ridge stabilization; ordinary Wald inference is unavailable.'
           : 'Cox model converged.'),
@@ -5531,45 +5585,120 @@
     refreshCovariateControls();
     const hazardRatiosEnabled = !!controls.showHazardRatios;
     const coxEnabled = !!controls.fitCoxModel;
-    let coxModelSummary = { available: false, message: coxEnabled ? 'Cox model unavailable.' : 'Cox model fitting disabled.' };
-    let hazardSummary = { available: false, message: hazardRatiosEnabled ? 'Hazard ratios unavailable.' : 'Hazard ratio table hidden.' };
-    if(summary.series.length){
-      const shouldFitCox = hazardRatiosEnabled || coxEnabled;
-      if(shouldFitCox){
-        coxModelSummary = fitCoxModel(summary, { enabled: shouldFitCox });
-        if(!(await checkpoint())){
-          return false;
+    const calculateStatistics = options.calculateStatistics === true;
+    const selectedCovariateCount = getSelectedCovariates(summary.covariateColumns).length;
+    const statsAnalysisSignature = buildSurvivalStatsAnalysisSignature(controls);
+    let savedStats = state.lastStats
+      || drawSession?.results?.stats
+      || drawSession?.state?.lastStats
+      || null;
+    if(savedStats && typeof savedStats === 'object' && !savedStats.analysisSignature
+      && (savedStats.logRank?.available || savedStats.logRankWilcoxon?.available
+        || savedStats.pairwiseComparisons?.available || savedStats.coxModel?.available
+        || savedStats.hazardRatios?.available)){
+      // Older archives did not save a settings signature. Their loaded results
+      // belong to the payload currently being restored, so bind them once here.
+      savedStats.analysisSignature = statsAnalysisSignature;
+      state.lastStats = savedStats;
+    }
+    if(savedStats?.analysisSignature === buildLegacySurvivalStatsAnalysisSignature(controls)){
+      savedStats.analysisSignature = statsAnalysisSignature;
+      state.lastStats = savedStats;
+      if(drawSession?.results){ drawSession.results.stats = savedStats; }
+    }
+    const reusedSavedStats = !calculateStatistics
+      && savedStats?.analysisSignature === statsAnalysisSignature
+      && applySavedSurvivalStats(summary, savedStats);
+    if(!reusedSavedStats && !calculateStatistics
+      && savedStats?.analysisSignature
+      && savedStats.analysisSignature !== statsAnalysisSignature){
+      const emptyPanels = createDefaultSurvivalStatsPanelModels();
+      state.statsPanelModels = emptyPanels;
+      if(drawSession?.state){ drawSession.state.statsPanelModels = createDefaultSurvivalStatsPanelModels(emptyPanels); }
+      if(drawSession?.results){ drawSession.results.statsPanelModels = createDefaultSurvivalStatsPanelModels(emptyPanels); }
+    }
+    summary.analysisSignature = statsAnalysisSignature;
+    if(!reusedSavedStats){
+      summary.logRank = {
+        available: false,
+        message: summary.series.length >= 2
+          ? 'Calculate statistics to run survival curve tests.'
+          : 'At least two groups are needed for survival curve comparisons.'
+      };
+      summary.logRankWilcoxon = { available: false };
+      summary.logRankTrend = { available: false };
+      summary.pairwiseComparisons = { available: false };
+      summary.medianRatios = { available: false };
+      summary.coxModel = {
+        available: false,
+        message: coxEnabled ? 'Calculate statistics to fit the Cox model.' : 'Cox model fitting is off.'
+      };
+      summary.hazardRatios = {
+        available: false,
+        message: hazardRatiosEnabled ? 'Calculate statistics to estimate hazard ratios.' : 'Hazard ratio calculation is off.'
+      };
+      summary.flags = { hazardRatiosEnabled, coxEnabled, statisticsCalculated: false };
+      summary.statisticsCalculated = false;
+      if(calculateStatistics && (summary.series.length >= 2 || (coxEnabled && selectedCovariateCount > 0))){
+        if(summary.series.length >= 2){
+          summary.logRank = computeLogRank(summary.series);
+          summary.logRankWilcoxon = computeGehanBreslowWilcoxon(summary.series);
+          if(!(await checkpoint())){
+            return false;
+          }
+          summary.logRankTrend = summary.series.length >= 3
+            ? computeLogRankTrend(summary.series)
+            : { available: false };
+          summary.pairwiseComparisons = computePairwiseSurvivalComparisons(
+            summary.series,
+            state.pairwiseCorrection || 'holm-sidak'
+          );
+          summary.medianRatios = computeMedianSurvivalRatios(summary.series);
         }
-      }
-      const selectedCovariateCount = Array.isArray(coxModelSummary?.design?.covariateSelections)
-        ? coxModelSummary.design.covariateSelections.length
-        : getSelectedCovariates(summary.covariateColumns).length;
-      const needsSimpleCoxHazardRatio = coxEnabled && summary.series.length === 2 && selectedCovariateCount === 0;
-      if(hazardRatiosEnabled || needsSimpleCoxHazardRatio){
-        hazardSummary = computeHazardRatios(summary.series, coxModelSummary, {
-          enabled: hazardRatiosEnabled || needsSimpleCoxHazardRatio
-        });
+        let coxModelSummary = {
+          available: false,
+          message: coxEnabled
+            ? (selectedCovariateCount ? 'Cox model unavailable.' : 'Select at least one covariate to fit a one-group Cox model.')
+            : 'Cox model fitting is off.'
+        };
+        let hazardSummary = {
+          available: false,
+          message: hazardRatiosEnabled ? 'Hazard ratios unavailable.' : 'Hazard ratio calculation is off.'
+        };
+        if(hazardRatiosEnabled || coxEnabled){
+          coxModelSummary = fitCoxModel(summary, { enabled: true });
+          if(!(await checkpoint())){
+            return false;
+          }
+          const selectedCovariateCount = Array.isArray(coxModelSummary?.design?.covariateSelections)
+            ? coxModelSummary.design.covariateSelections.length
+            : getSelectedCovariates(summary.covariateColumns).length;
+          const needsSimpleCoxHazardRatio = coxEnabled && summary.series.length === 2 && selectedCovariateCount === 0;
+          if(hazardRatiosEnabled || needsSimpleCoxHazardRatio){
+            hazardSummary = computeHazardRatios(summary.series, coxModelSummary, {
+              enabled: hazardRatiosEnabled || needsSimpleCoxHazardRatio
+            });
+          }
+        }
+        summary.coxModel = coxModelSummary;
+        summary.hazardRatios = hazardSummary;
+        summary.flags.statisticsCalculated = true;
+        summary.statisticsCalculated = true;
       }
     }
-    summary.logRankWilcoxon = summary.series.length ? computeGehanBreslowWilcoxon(summary.series) : { available: false };
-    if(!(await checkpoint())){
-      return false;
-    }
-    summary.logRankTrend = summary.series.length >= 3 ? computeLogRankTrend(summary.series) : { available: false };
-    summary.pairwiseComparisons = summary.series.length >= 2
-      ? computePairwiseSurvivalComparisons(summary.series, state.pairwiseCorrection || 'holm-sidak')
-      : { available: false };
-    summary.medianRatios = summary.series.length >= 2
-      ? computeMedianSurvivalRatios(summary.series)
-      : { available: false };
-    summary.coxModel = coxModelSummary;
-    summary.hazardRatios = hazardSummary;
-    summary.flags = { hazardRatiosEnabled, coxEnabled };
-    summary.inference = getSurvivalInferenceSnapshot();
+    summary.inference = summary.inference || getSurvivalInferenceSnapshot();
     state.lastSummary = summary;
-    renderSurvivalStatsAdvisor(summary, null, drawSession);
-    logDebug('stat toggles resolved', { hazardRatiosEnabled, coxEnabled, coxAvailable: coxModelSummary.available });
-    updateGroupColorPickers(summary.groupNames);
+    if(drawSession?.state){
+      drawSession.state.lastSummary = cloneSimple(summary) || null;
+    }
+    renderSurvivalStatsAdvisor(drawSession);
+    logDebug('stat toggles resolved', {
+      hazardRatiosEnabled,
+      coxEnabled,
+      coxAvailable: !!summary.coxModel?.available,
+      statisticsCalculated: !!summary.statisticsCalculated
+    });
+    syncGroupColorState(summary.groupNames);
     if(!summary.series.length){
       if(typeof Shared.renderPlotNotice === 'function'){
         Shared.renderPlotNotice(refs.plotDiv, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
@@ -5577,6 +5706,8 @@
         refs.plotDiv.innerHTML = '<i>Add data to the input table to generate a plot.</i>';
       }
       updateStats(summary);
+      setSurvivalStatsStatus(drawSession, 'Add at least two groups to calculate comparison statistics.');
+      syncSurvivalStatsActionState(drawSession);
       Shared.cartesianLayout?.clearPublishedLayout?.(refs.svgBox, {
         tabId: drawTabId,
         component: 'survival',
@@ -5585,12 +5716,14 @@
       return;
     }
     const drawableFrame = resolveSurvivalDrawableFrame(refs.plotDiv);
-    const baseWidth = Math.max(200, Math.floor(drawableFrame.width || 400));
-    const height = Math.max(200, Math.floor(drawableFrame.height || 320));
+    // Match the shared frame and sibling Cartesian renderers, including small locked resizes.
+    const baseWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
+    const height = Math.max(40, Math.floor(drawableFrame.height || 40));
     const fontInfo = chartStyle.resolveScaledFontSize ? chartStyle.resolveScaledFontSize({
       rawSize: controls.fontSize,
       width: drawableFrame.width,
       height: drawableFrame.height,
+      zoomScale: 1,
       svgBox: refs.svgBox,
       input: refs.fontSize
     }) : { scaledPx: Number(controls.fontSize) || 12, pt: Number(controls.fontSize) || 12, scaleInfo: { styleScale: 1 } };
@@ -5938,7 +6071,8 @@
       leftWidth: survivalCartesianPlan?.contentEnvelope?.extensionLeft || riskTableLeftExtension,
       topHeight: survivalCartesianPlan?.contentEnvelope?.extensionTop || 0,
       bottomHeight: survivalCartesianPlan?.contentEnvelope?.extensionBottom || riskTableExtraHeight,
-      legendWidth
+      legendWidth,
+      refineContentBounds: false
     });
     const width = legendViewport.width;
     const svgHeight = legendViewport.height;
@@ -6122,6 +6256,13 @@
     // Enable drag for x-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xTitle, svg, {
+        positionKey: 'xLabel',
+        positionMetrics: {
+          xOrigin: margin.left,
+          xScale: Math.max(plotW, 1),
+          yOrigin: xAxisY,
+          yScale: Math.max(plotH + margin.top, 1)
+        },
         onDragEnd: pos => {
           const nextPosition = {
             x: pos.x,
@@ -6170,6 +6311,13 @@
     // Enable drag for y-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yTitle, svg, {
+        positionKey: 'yLabel',
+        positionMetrics: {
+          xOrigin: margin.left - survivalTitleShiftX,
+          xScale: Math.max(yLabelOffsetSpan, 1),
+          yOrigin: margin.top,
+          yScale: Math.max(plotH, 1)
+        },
         onDragEnd: pos => {
           const nextPosition = {
             x: pos.x,
@@ -6216,6 +6364,12 @@
     // Enable drag for title
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
+        positionMetrics: {
+          xOrigin: margin.left,
+          xScale: plotW,
+          yOrigin: margin.top - survivalTitleShiftY,
+          yScale: plotH
+        },
         onDragEnd: pos => {
           const nextPosition = {
             x: pos.x,
@@ -6266,7 +6420,7 @@
           'data-survival-series-color-target': 'stroke',
           'data-group': group.name
         });
-        bindSurvivalCurveFormatInteraction(curveEl);
+        bindSurvivalCurveFormatInteraction(curveEl, drawTabId);
       }
       if(showCensor && group.km.censor.length){
         const markerSize = Math.max(4, fs * 0.6);
@@ -6429,6 +6583,16 @@
       legendViewport.commit();
     }
     updateStats({ ...summary, series: groupsForDraw });
+    setSurvivalStatsStatus(drawSession, calculateStatistics && summary.statisticsCalculated
+      ? 'Statistics calculated for the current data and settings.'
+      : (calculateStatistics
+        ? 'No selected analysis can be calculated for the current data and settings.'
+      : (reusedSavedStats
+        ? 'Calculated results are current for this data and these settings.'
+        : (savedStats
+          ? 'Data or settings changed. Calculate statistics to update these results.'
+          : 'Select any optional analyses, then calculate statistics.'))));
+    syncSurvivalStatsActionState(drawSession);
     state.layout?.syncPanels?.({ skipSchedule: true });
     logDebug('draw complete', { debugStamp });
     return true;
@@ -6625,6 +6789,8 @@
         session.results = createDefaultSurvivalResultsState({ stats: null, statsPanelModels: session.state.statsPanelModels });
         session.updatedAt = Date.now();
       }
+      [refs.statsSummary, refs.statsLogRank, refs.statsHazardRatios, refs.statsCox]
+        .forEach(panel => Shared.statsReporting?.markPanelCurrent?.(panel));
       return;
     }
 
@@ -6649,10 +6815,24 @@
       hazardRatios: summary.hazardRatios,
       coxModel: summary.coxModel,
       flags: summary.flags,
-      inference: summary.inference || getSurvivalInferenceSnapshot()
+      inference: summary.inference || getSurvivalInferenceSnapshot(),
+      analysisSignature: summary.analysisSignature || ''
     };
-    state.lastStats = statsPayload;
+    if(summary.statisticsCalculated){
+      state.lastStats = statsPayload;
+    }
     if(refs.statsCox && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+      const groupCount = summary.series.length;
+      const groupCountText = `${groupCount} ${groupCount === 1 ? 'group' : 'groups'}`;
+      const pairwiseInference = summary.inference?.comparisons || getSurvivalPairwiseInferenceSpec();
+      const pairwiseCriterion = pairwiseInference.criterion === 'fdr'
+        ? 'target FDR'
+        : pairwiseInference.errorControl === 'fwer'
+          ? 'family-wise α'
+          : 'α';
+      const pairwiseLevel = Shared.statsInference?.formatLevel?.(pairwiseInference.level)
+        || formatReportNumber(pairwiseInference.level, 3)
+        || '0.05';
       const logRankText = summary.logRank?.available
         ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatReportNumber(summary.logRank.chi2, 3)}; ${formatSurvivalPExpression(summary.logRank.p)}.`
         : (summary.logRank?.message || 'Log-rank test unavailable.');
@@ -6668,20 +6848,20 @@
       const hazardText = summary.hazardRatios?.available && Array.isArray(summary.hazardRatios.rows)
         ? (isTwoGroupUnadjustedCoxSummary(summary)
           ? 'One Cox-derived hazard ratio was reported for the two-group comparison.'
-          : `${summary.hazardRatios.rows.length} ${hasSelectedCoxCovariates(summary) ? 'adjusted ' : ''}pairwise hazard-ratio comparison(s) were available.`)
+          : `${summary.hazardRatios.rows.length} ${hasSelectedCoxCovariates(summary) ? 'adjusted ' : ''}pairwise hazard-ratio comparison${summary.hazardRatios.rows.length === 1 ? ' was' : 's were'} available.`)
         : null;
       const pairwiseText = summary.pairwiseComparisons?.available && Array.isArray(summary.pairwiseComparisons.rows)
-        ? `${summary.pairwiseComparisons.rows.length} pairwise log-rank comparison(s) were adjusted with ${summary.pairwiseComparisons.correction?.label || state.pairwiseCorrection || 'the selected correction'}.`
+        ? `${summary.pairwiseComparisons.rows.length} pairwise log-rank comparison${summary.pairwiseComparisons.rows.length === 1 ? ' was' : 's were'} adjusted with ${summary.pairwiseComparisons.correction?.label || state.pairwiseCorrection || 'the selected correction'}.`
         : null;
       const coxText = summary.coxModel?.available && Array.isArray(summary.coxModel.coefficients)
         ? (shouldOmitDuplicateCoxCoefficientTable(summary)
-          ? 'The duplicate Cox coefficient table was omitted because the single coefficient equals log(HR).'
-          : `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`)
+          ? 'The duplicate Cox coefficient table was omitted because it repeats the single log(HR) coefficient.'
+          : `${summary.coxModel.coefficients.length} Cox coefficient estimate${summary.coxModel.coefficients.length === 1 ? ' was' : 's were'} reported.`)
         : null;
       Shared.statsReporting.appendReportPanel(refs.statsCox, {
-        methodsText: `Kaplan–Meier survival curves were summarized for ${summary.series.length} group(s) using event-time and censoring indicators from the current table. Log-rank testing was used for overall group comparison when estimable at α = ${Shared.statsInference?.formatLevel?.(getSurvivalStatsAlpha()) || getSurvivalStatsAlpha()}, with Gehan-Breslow-Wilcoxon and trend tests reported when enabled and supported by the data. Pairwise log-rank comparisons used ${summary.pairwiseComparisons?.correction?.label || state.pairwiseCorrection || 'the selected correction'}${Shared.statsInference?.getMethodSemantics?.(state.pairwiseCorrection || 'holm-sidak')?.criterion === 'fdr' ? ` at target FDR = ${Shared.statsInference?.formatLevel?.(Shared.statsInference?.getTargetFdr?.({ tabId: getSurvivalStatsInferenceTabId() })) || '0.05'}` : ` at the same family-wise α`}. ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were estimated for requested group comparisons.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? `A Cox proportional-hazards model was fit by partial likelihood with Efron handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox modelling was disabled.'} Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.`,
+        methodsText: `Kaplan–Meier survival curves were summarized for ${groupCountText} using event-time and censoring indicators from the current table. ${summary.statisticsCalculated ? `Log-rank testing was used for overall group comparisons when estimable at α = ${Shared.statsInference?.formatLevel?.(getSurvivalStatsAlpha()) || getSurvivalStatsAlpha()}. Gehan-Breslow-Wilcoxon and trend tests were reported when supported by the data. Pairwise log-rank comparisons used ${summary.pairwiseComparisons?.correction?.label || state.pairwiseCorrection || 'the selected correction'} at ${pairwiseCriterion} = ${pairwiseLevel}.` : 'Optional survival tests were not calculated; use Calculate statistics to run them.'} ${summary.flags?.hazardRatiosEnabled ? (summary.statisticsCalculated ? 'Pairwise hazard ratios were estimated for the requested comparison.' : 'Hazard ratio estimation was requested but not calculated.') : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? (summary.statisticsCalculated ? `A Cox proportional-hazards model was fitted by partial likelihood with Efron handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox model fitting was requested but not calculated.') : 'Cox modeling was off.'} Rows with missing or invalid survival time, group, event, or covariate values were excluded from each affected analysis.`,
         resultsText: [
-          `${summary.series.length} group(s) contributed survival data.`,
+          `${groupCountText} contributed survival data.`,
           logRankText,
           wilcoxonText,
           pairwiseText,
@@ -6690,7 +6870,7 @@
         ].filter(Boolean).join(' '),
         figureSummary: buildSurvivalFigureSummary(summary),
         resultsParts: [
-          `${summary.series.length} group(s) contributed survival data. `,
+          `${groupCountText} contributed survival data. `,
           logRankParts,
           wilcoxonParts ? [' ', wilcoxonParts] : null,
           pairwiseText ? ` ${pairwiseText}` : null,
@@ -6725,6 +6905,8 @@
       session.results = createDefaultSurvivalResultsState({ stats: session.state.lastStats, statsPanelModels: session.state.statsPanelModels });
       session.updatedAt = Date.now();
     }
+    [refs.statsSummary, refs.statsLogRank, refs.statsHazardRatios, refs.statsCox]
+      .forEach(panel => Shared.statsReporting?.markPanelCurrent?.(panel));
     logDebug('statistics updated', {
       groupCount: summary.series.length,
       logRank: summary.logRank,
@@ -6778,6 +6960,13 @@
 
   function renderSurvivalLogRank(summary){
     if(!refs.statsLogRank){
+      return;
+    }
+    if(!summary.statisticsCalculated){
+      renderStatsLead(
+        refs.statsLogRank,
+        summary.logRank?.message || 'Calculate statistics to run survival curve tests.'
+      );
       return;
     }
     const rows = [];
@@ -6846,7 +7035,7 @@
           footnotes: [
             summary.pairwiseComparisons.correction?.footnote
               ? summary.pairwiseComparisons.correction.footnote(summary.pairwiseComparisons.rows.length)
-              : `${summary.pairwiseComparisons.correction?.label || 'Selected'} correction applied across pairwise survival comparisons.`
+              : `Pairwise survival comparisons used the ${summary.pairwiseComparisons.correction?.label || 'selected'} correction.`
           ],
           options: {
             fileName: 'survival-pairwise-log-rank',
@@ -6982,6 +7171,10 @@
     if(!refs.statsHazardRatios){
       return;
     }
+    if(!summary.statisticsCalculated){
+      refs.statsHazardRatios.replaceChildren();
+      return;
+    }
     if(!summary.flags?.hazardRatiosEnabled){
       renderStatsLead(refs.statsHazardRatios, 'Enable "Show hazard ratios" above to compute pairwise comparisons.');
       return;
@@ -7005,6 +7198,10 @@
 
   function renderSurvivalCoxModel(summary){
     if(!refs.statsCox){
+      return;
+    }
+    if(!summary.statisticsCalculated){
+      refs.statsCox.replaceChildren();
       return;
     }
     if(!summary.flags?.coxEnabled){
@@ -7055,7 +7252,9 @@
       adjustedModel && groupCoefficientCount > 0 ? 'Group hazard ratios are adjusted for the selected Cox covariates.' : null,
       !adjustedModel && groupCoefficientCount > 0 ? 'Group effects are baseline-referenced Cox coefficients; hazard ratio = exp(β).' : null,
       `Log-likelihood = ${formatReportNumber(diag.logLikelihood, 3)} | Null = ${formatReportNumber(diag.logLikelihoodNull, 3)}`,
-      [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatReportNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))],
+      lr.available === false
+        ? (lr.reason || 'Likelihood-ratio test unavailable because the partial log-likelihood did not stabilize.')
+        : [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatReportNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))],
       `AIC = ${formatReportNumber(diag.aic, 3)} | BIC = ${formatReportNumber(diag.bic, 3)}`,
       `Iterations = ${diag.iterations ?? 'n/a'} | Converged: ${diag.converged ? 'Yes' : 'No'}`
     ].filter(Boolean);
@@ -7239,13 +7438,13 @@
       : (cloneSimple(payloadSession?.results?.stats ?? payloadState.lastStats) || null);
     const payload = {
       type: 'survival',
-      data: Shared.hot.trimTrailingEmptyCols(payloadSourceData),
+      data: includeDataViews ? payloadSourceData : Shared.hot.trimTrailingEmptyCols(payloadSourceData),
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
       filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
       activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config: {
-        colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('survival') || 'scientific',
+        colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('survival') || 'normal',
         labelColors: cloneSimple(payloadState.labelColors) || {},
         labelStrokeWidth: cloneSimple(payloadState.labelStrokeWidth) || {},
         labelOpacity: cloneSimple(payloadState.labelOpacity) || {},
@@ -7299,7 +7498,6 @@
       });
       payloadSession.results = createDefaultSurvivalResultsState({ stats: statsPayload, statsPanelModels });
       payloadSession.notes = notesSnapshot;
-      payloadSession.advisor = advisorSnapshot;
       payloadSession.updatedAt = Date.now();
     }
     survivalDebug('Debug: survival.getPayload captured state', {
@@ -7359,11 +7557,7 @@
     }
     syncSurvivalStatsPValuePanelState();
     refreshCovariateControls();
-    renderSurvivalStatsAdvisor(state.lastSummary || {
-      series: [],
-      covariateColumns: state.covariateColumns || [],
-      logRank: { available: false }
-    }, null, ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState()));
+    renderSurvivalStatsAdvisor(ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState()));
   }
 
   survival.captureRuntimeState = function captureSurvivalRuntimeState(meta = {}){
@@ -7409,12 +7603,6 @@
       parseDebugCounter: Number(parseDebugCounter) || 0,
       reason: meta?.reason || 'survival-runtime-capture'
     };
-    setSurvivalSessionStateFromRuntimeRecord(snapshot, {
-      ...(meta || {}),
-      tab: meta?.tab || null,
-      tabId: meta?.tabId || session?.tabId || getSurvivalProjectionTabId() || null,
-      reason: snapshot.reason
-    });
     survivalDebug('Debug: survival runtime snapshot captured', {
       tabId: meta?.tabId || session?.tabId || getSurvivalProjectionTabId() || null,
       title: snapshot.state.titleText,
@@ -7439,70 +7627,16 @@
       survivalDebug('Debug: survival runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
       return false;
     }
-    const applySession = bindSurvivalSessionForTab(meta?.tab || meta?.tabId || snapshot.tabId || getSurvivalProjectionTabId() || null, {
-      ...(meta || {}),
-      reason: meta?.reason || 'survival-runtime-apply-bind'
-    }, { apply: false });
-    setSurvivalSessionStateFromRuntimeRecord(snapshot, {
-      ...(meta || {}),
-      tabId: applySession?.tabId || meta?.tabId || getSurvivalProjectionTabId() || null,
-      reason: meta?.reason || 'survival-runtime-apply-state'
-    });
-    if(snapshot.state && typeof snapshot.state === 'object'){
-      const nextState = snapshot.state;
-      state.labelColors = cloneSimple(nextState.labelColors) || state.labelColors || {};
-      state.labelStrokeWidth = cloneSimple(nextState.labelStrokeWidth) || state.labelStrokeWidth || {};
-      state.labelOpacity = cloneSimple(nextState.labelOpacity) || state.labelOpacity || {};
-      state.labelLinePattern = cloneSimple(nextState.labelLinePattern) || state.labelLinePattern || {};
-      state.groupOrder = cloneSimple(nextState.groupOrder) || state.groupOrder || [];
-      state.minSvgWidth = Number.isFinite(Number(nextState.minSvgWidth)) ? Number(nextState.minSvgWidth) : state.minSvgWidth;
-      state.titleText = typeof nextState.titleText === 'string' ? nextState.titleText : state.titleText;
-      if(Object.prototype.hasOwnProperty.call(nextState, 'lastSummary')){ state.lastSummary = cloneSimple(nextState.lastSummary); }
-      if(Object.prototype.hasOwnProperty.call(nextState, 'lastStats')){ state.lastStats = cloneSimple(nextState.lastStats); }
-      if(Object.prototype.hasOwnProperty.call(nextState, 'statsPanelModels')){
-        state.statsPanelModels = cloneSimple(nextState.statsPanelModels) || { summary: null, logRank: null, hazardRatios: null, cox: null };
-        restoreSurvivalStatsPanelModels(state.statsPanelModels, applySession);
-      }
-      state.pairwiseCorrection = typeof nextState.pairwiseCorrection === 'string' ? nextState.pairwiseCorrection : state.pairwiseCorrection;
-      if(Object.prototype.hasOwnProperty.call(nextState, 'statsReportPScientific')){
-        state.statsReportPScientific = sanitizeSurvivalStatsReportPScientific(nextState.statsReportPScientific);
-      }else{
-        state.statsReportPScientific = false;
-      }
-      syncSurvivalStatsPValuePanelState();
-      state.covariateSettings = cloneSimple(nextState.covariateSettings) || state.covariateSettings || {};
-      state.covariateColumns = cloneSimple(nextState.covariateColumns) || state.covariateColumns || [];
-      state.axisSettings = cloneSimple(nextState.axisSettings) || state.axisSettings;
-      if(Object.prototype.hasOwnProperty.call(nextState, 'gridStyle')){ state.gridStyle = cloneSimple(nextState.gridStyle); }
-      state.labelPositions = normalizeSurvivalLabelPositions(nextState.labelPositions);
-    }
-    if(snapshot.advisor && typeof snapshot.advisor === 'object'){
-      setSurvivalAdvisorState(snapshot.advisor, applySession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }));
-    }
-    syncSurvivalRuntimeControlsFromState(normalizeSurvivalRestoredRuntimeControls(snapshot.state?.controls || {}), applySession);
-    if(snapshot.notes && typeof snapshot.notes === 'object'){
-      notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
-      notesState.open = !!snapshot.notes.open;
-      if(canUseSurvivalNotesControl(notesState.control)){
-        notesState.control.setValue(notesState.text);
-        notesState.control.setOpen(notesState.open);
-      }
-    }
+    const targetTabId = normalizeSurvivalSessionTabId(meta?.tab || meta?.tabId || snapshot.tabId, meta);
+    const applyMeta = { ...meta, tabId: targetTabId, reason: meta.reason || 'survival-runtime-apply' };
+    const applySession = setSurvivalSessionStateFromRuntimeRecord(snapshot, applyMeta);
+    if(!applySession){ return false; }
+    rememberSurvivalOwnedRuntimeRecord(targetTabId, snapshot, applyMeta);
+    Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(survival, snapshot, applyMeta);
+    if(!isSurvivalSessionActive(applySession)){ return true; }
+    bindSurvivalSessionForTab(targetTabId, applyMeta, { apply: false });
+    applySurvivalSessionStateToActive(applySession, { syncUi: true });
     parseDebugCounter = Number(snapshot.parseDebugCounter) || parseDebugCounter || 0;
-    rememberSurvivalOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
-      ...(meta || {}),
-      reason: meta?.reason || 'survival-runtime-apply'
-    });
-    Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(survival, snapshot, {
-      ...(meta || {}),
-      reason: meta?.reason || 'survival-runtime-apply'
-    });
-    captureSurvivalSessionStateFromActive(applySession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
-      reason: meta?.reason || 'survival-runtime-apply-capture',
-      // The restored snapshot is canonical. Re-capturing the just-projected DOM
-      // here can only degrade exact reopen fidelity.
-      captureStatsPanels: false
-    });
     survivalDebug('Debug: survival runtime snapshot applied', {
       tabId: meta?.tabId || getSurvivalProjectionTabId() || null,
       title: state.titleText,
@@ -7536,6 +7670,23 @@
     }
     return baseSurvivalDeactivateTab(tab, meta);
   };
+
+  survival.disposeTab = function disposeSurvivalTab(tab, meta = {}){
+    const tabId = String((typeof tab === 'string' ? tab : tab?.id) || meta?.tabId || '').trim();
+    if(!tabId){ return false; }
+    const session = getSurvivalSession(tabId, { ...(meta || {}), tabId, reason: meta.reason || 'survival-dispose-session' }, { create: false });
+    if(session){
+      session.timers.scheduleDraw = null;
+      session.timers.pendingDrawOptions = null;
+    }
+    survivalSessionsByTabId.delete(tabId);
+    if(String(projectedSurvivalSession?.tabId || '') === tabId){
+      projectedSurvivalSession = null;
+      if(String(survival.__boundTabId || '') === tabId){ survival.__boundTabId = null; }
+    }
+    return true;
+  };
+
   survival.captureEmptyPayloadTemplate = function captureSurvivalEmptyPayloadTemplate(){
     const snapshot = survival.createEmptyPayload();
     emptyPayloadTemplate = cloneSimple(snapshot) || snapshot;
@@ -7578,10 +7729,12 @@
     payload.stats = null;
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
     if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
-      payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('survival') || 'scientific';
+      payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('survival') || 'normal';
     }
     payload.config.showRiskTable = false;
     payload.config.showPlotStats = false;
+    payload.config.showHazardRatios = false;
+    payload.config.fitCoxModel = false;
     payload.config.showLegend = true;
     return payload;
   };
@@ -7623,7 +7776,7 @@
           container: state.hot.__survivalHostContainer || refs.hotContainer || $('#survivalHot')
         })
       : null;
-    if(dataManager){
+    if(!styleOnly && dataManager){
       if(serializedViews){
         dataManager.deserialize(serializedViews, {
           fallbackData: rawDataMatrix,
@@ -7662,22 +7815,24 @@
         ? sharedStatsReporting.pValueScientific
         : payload.config?.statsReportPScientific
     });
-    state.lastStats = payload.stats || null;
-    state.statsPanelModels = cloneSimple(payload.config?.statsPanels || payload.stats?.statsPanels) || state.statsPanelModels || { summary: null, logRank: null, hazardRatios: null, cox: null };
-    if(!payload.stats){
-      renderStatsLead(refs.statsSummary, 'Enter at least one group with time and event values to compute statistics.');
-      renderStatsLead(refs.statsLogRank, 'Log-rank test results will appear after statistics are calculated.');
-      if(refs.statsHazardRatios){
-        renderStatsLead(refs.statsHazardRatios, 'Enable "Show hazard ratios" above to compute pairwise comparisons.');
+    if(!styleOnly){
+      state.lastStats = payload.stats || null;
+      state.statsPanelModels = cloneSimple(payload.config?.statsPanels || payload.stats?.statsPanels) || state.statsPanelModels || { summary: null, logRank: null, hazardRatios: null, cox: null };
+      if(!payload.stats){
+        renderStatsLead(refs.statsSummary, 'Enter at least one group with time and event values to compute statistics.');
+        renderStatsLead(refs.statsLogRank, 'Log-rank test results will appear after statistics are calculated.');
+        if(refs.statsHazardRatios){
+          renderStatsLead(refs.statsHazardRatios, 'Enable "Show hazard ratios" above to compute pairwise comparisons.');
+        }
+        if(refs.statsCox){
+          renderStatsLead(refs.statsCox, 'Enable "Fit Cox model" above to review coefficient estimates.');
+        }
+      }else{
+        restoreSurvivalStatsPanelModels(state.statsPanelModels, scheduleTargetSession || getActiveSurvivalSessionForState());
       }
-      if(refs.statsCox){
-        renderStatsLead(refs.statsCox, 'Enable "Fit Cox model" above to review coefficient estimates.');
-      }
-    }else{
-      restoreSurvivalStatsPanelModels(state.statsPanelModels, scheduleTargetSession || getActiveSurvivalSessionForState());
     }
     if(!skipDraw){
-      scheduleActiveSurvivalDraw({ renderImpact: 'structural', reason: 'survival-payload-applied', tabId: getSurvivalProjectionTabId() || null });
+      scheduleActiveSurvivalDraw({ renderImpact: styleOnly ? 'layout' : 'structural', reason: 'survival-payload-applied', tabId: getSurvivalProjectionTabId() || null });
     }
     if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
@@ -7726,6 +7881,12 @@
       state.covariateSettings = {};
     }
     const nextControls = { ...(state.controls || {}) };
+    if(!Object.prototype.hasOwnProperty.call(config, 'showHazardRatios')){
+      nextControls.showHazardRatios = true;
+    }
+    if(!Object.prototype.hasOwnProperty.call(config, 'fitCoxModel')){
+      nextControls.fitCoxModel = true;
+    }
     ['showCI', 'showCensor', 'showHazardRatios', 'fitCoxModel', 'showGrid', 'showFrame'].forEach(key => {
       if(Object.prototype.hasOwnProperty.call(config, key)){
         nextControls[key] = config[key];
@@ -7785,160 +7946,30 @@
         controls: state.controls
       });
       configSession.notes = createDefaultSurvivalNotesState(notesState);
-      configSession.advisor = createDefaultSurvivalAdvisorState(getSurvivalAdvisorState(configSession));
       configSession.updatedAt = Date.now();
     }
     refreshCovariateControls();
-    renderSurvivalStatsAdvisor(state.lastSummary || {
-      series: [],
-      covariateColumns: state.covariateColumns || [],
-      logRank: { available: false }
-    }, null, configOwnerSession);
+    renderSurvivalStatsAdvisor(configOwnerSession);
     logDebug('config applied', config);
   }
 
-  function loadFromFile(file, options = {}){
-    const ownerTabId = String(options?.tabId || options?.operation?.tabId || '').trim() || null;
-    const operation = fileIO?.createGraphOpenOperation?.({
-      context: 'survival',
-      owner: { component: 'survival', tabId: ownerTabId },
-      operation: options?.operation
-    }) || options?.operation || null;
-    const applyPayload = payload => {
-      if(typeof fileIO?.routeGraphOpenPayload === 'function'){
-        const routed = fileIO.routeGraphOpenPayload({
-          context: 'survival',
-          component: 'survival',
-          operation,
-          owner: { component: 'survival', tabId: ownerTabId },
-          payload,
-          apply: value => applySurvivalPayload(value, { source: 'file', tabId: ownerTabId }),
-          reason: 'survival-graph-file-open'
-        });
-        return routed?.value === true;
-      }
-      const fallbackOwnerIsCurrent = !ownerTabId || String(getSurvivalProjectionTabId() || '') === ownerTabId;
-      return fallbackOwnerIsCurrent && applySurvivalPayload(payload, { source: 'file', tabId: ownerTabId });
-    };
-    if(file instanceof Blob){
-      const reader = new FileReader();
-      reader.onload = event => {
-        try {
-          const parsed = JSON.parse(event.target.result);
-          if(!applyPayload(parsed)){
-            logDebug('payload rejected from file', { source: 'file', hasType: !!parsed?.type });
-          }
-        } catch (error){
-          console.error('Failed to load survival graph', error);
-        }
-      };
-      reader.readAsText(file);
-      return;
-    }
-    if(typeof file === 'string'){
-      try {
-        const parsed = JSON.parse(file);
-        if(!applyPayload(parsed)){
-          logDebug('payload rejected from string', { source: 'string' });
-        }
-      } catch (error){
-        console.error('Failed to load survival graph from string', error);
-      }
-      return;
-    }
-    if(file && typeof file === 'object'){
-      applyPayload(file);
-    }
-  }
-  survival.loadFromFile = loadFromFile;
   survival.loadFromPayload = function loadFromPayload(payload, options = {}){
     if(!applySurvivalPayload(payload, { source: 'payload', ...options })){
       logDebug('payload rejected from Main payload', { source: 'payload' });
     }
   };
 
-  async function saveFile(){
-    const operationSession = getActiveSurvivalSessionForState();
-    const payload = getGraphPayload();
-    if(!payload){
-      return;
-    }
-    if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
-      console.error('saveSurvivalFile missing fileIO.saveGraphFile');
-      return;
-    }
-    const result = await fileIO.saveGraphFile({
-      context: 'survival',
-      owner: { component: 'survival', tabId: operationSession?.tabId || getSurvivalProjectionTabId() || null },
-      fileHandle: state.fileHandle,
-      payload,
-      fileName: state.fileName,
-      downloadFileName: state.fileName,
-      setFileHandle: handle => {
-        setSurvivalFileHandleForSession(handle, operationSession);
-      },
-      setFileName: name => {
-        setSurvivalFileNameForSession(name, operationSession);
-      }
-    });
-    logDebug('save result', { success: !!result, hasHandle: !!state.fileHandle });
-  }
+  survival.save = () => global.Main?.fileActions?.save?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+  survival.saveAs = () => global.Main?.fileActions?.saveAs?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+  survival.open = () => global.Main?.fileActions?.open?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
 
-  async function saveFileAs(){
-    const operationSession = getActiveSurvivalSessionForState();
-    const payload = getGraphPayload();
-    if(!payload){
-      return;
-    }
-    if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
-      console.error('saveAsSurvivalFile missing fileIO.saveGraphFileAs');
-      return;
-    }
-    const result = await fileIO.saveGraphFileAs({
-      context: 'survival',
-      owner: { component: 'survival', tabId: operationSession?.tabId || getSurvivalProjectionTabId() || null },
-      payload,
-      fileName: state.fileName,
-      downloadFileName: state.fileName,
-      setFileHandle: handle => {
-        setSurvivalFileHandleForSession(handle, operationSession);
-      },
-      setFileName: name => {
-        setSurvivalFileNameForSession(name, operationSession);
-      }
-    });
-    logDebug('saveAs result', { success: !!result, fileName: state.fileName });
-  }
 
-  async function openFile(){
-    const operationSession = getActiveSurvivalSessionForState();
-    const operationTabId = String(operationSession?.tabId || getSurvivalProjectionTabId() || '').trim() || null;
-    if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
-      console.error('openSurvivalFile missing fileIO.openGraphFile');
-      return;
-    }
-    const result = await fileIO.openGraphFile({
-      context: 'survival',
-      owner: { component: 'survival', tabId: operationTabId },
-      setFileHandle: handle => {
-        setSurvivalFileHandleForSession(handle, operationSession);
-      },
-      setFileName: name => {
-        setSurvivalFileNameForSession(name, operationSession);
-      },
-      loadFromFile: (file, operation) => loadFromFile(file, { operation, tabId: operationTabId }),
-      triggerInput: () => {
-        if(refs.graphFileInput){
-          refs.graphFileInput.value = '';
-          refs.graphFileInput.click();
-        }
-      }
-    });
-    logDebug('open result', { success: !!result });
-  }
+
 
   function initControls(){
     ensureSurvivalStatsConfigControls();
+    bindSurvivalStatsActionButton(getActiveSurvivalSessionForState());
+    syncSurvivalStatsActionState(getActiveSurvivalSessionForState());
     const schedule = (event, reason = 'survival-control-change', options = {}) => {
       const session = getSurvivalSessionForEvent(event, { reason }, { create: true }) || getActiveSurvivalSessionForState();
       if(session?.tabId && !isSurvivalSessionActive(session)){
@@ -7968,14 +7999,7 @@
         }
         const advisorSession = getSurvivalSessionForEvent(event, { reason: 'survival-control-advisor' }, { create: true })
           || getActiveSurvivalSessionForState();
-        renderSurvivalStatsAdvisor(state.lastSummary || {
-          series: [],
-          covariateColumns: state.covariateColumns,
-          supportsTimeDependent: detectTimeDependentSupport(
-            state.hot?.getIncludedDataMatrix?.()
-              || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
-          )
-        }, null, advisorSession);
+        renderSurvivalStatsAdvisor(advisorSession);
         const renderImpact = control === refs.showHazardRatios || control === refs.fitCoxModel
           ? 'analysis'
           : (control === refs.showRiskTable || control === refs.showPlotStats ? 'layout' : 'paint');
@@ -7987,14 +8011,7 @@
       logDebug('control toggled', { id: refs.showFrame.id, checked: refs.showFrame.checked });
       const advisorSession = getSurvivalSessionForEvent(event, { reason: 'survival-frame-advisor' }, { create: true })
         || getActiveSurvivalSessionForState();
-      renderSurvivalStatsAdvisor(state.lastSummary || {
-        series: [],
-        covariateColumns: state.covariateColumns,
-        supportsTimeDependent: detectTimeDependentSupport(
-          state.hot?.getIncludedDataMatrix?.()
-            || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
-        )
-      }, null, advisorSession);
+      renderSurvivalStatsAdvisor(advisorSession);
       schedule(event, 'survival-frame-toggle', { renderImpact: 'paint' });
     });
     refs.showLegend?.addEventListener('change', event => {
@@ -8026,14 +8043,14 @@
   }
 
   function ensureSurvivalStatsConfigControls(){
-    const host = getSurvivalNodeById('survivalStatsToggleRow');
+    const host = getSurvivalNodeById('survivalStatsPairwiseCorrection');
     if(!host || getSurvivalNodeById('survivalPairwiseCorrection')){
       return;
     }
     const label = document.createElement('label');
-    label.className = 'idx-inline-023';
+    label.className = 'graph-control-label stats-analysis-field-label';
     label.dataset.survivalStatsExtra = '1';
-    label.textContent = 'Pairwise correction ';
+    label.textContent = 'Pairwise correction';
     const select = document.createElement('select');
     select.id = 'survivalPairwiseCorrection';
     [
@@ -8054,17 +8071,73 @@
         state.pairwiseCorrection = String(select.value || 'holm-sidak');
         syncSurvivalStateToSession(session, { pairwiseCorrection: state.pairwiseCorrection });
         ensureSurvivalStatsInferenceControls()?.refresh?.();
+        [refs.statsSummary, refs.statsLogRank, refs.statsHazardRatios, refs.statsCox]
+          .forEach(panel => Shared.statsReporting?.markPanelStale?.(panel));
         logDebug('pairwise correction changed', { value: state.pairwiseCorrection });
-          scheduleSurvivalDrawForSession(session, {
-            renderImpact: 'analysis',
-            reason: 'survival-pairwise-correction',
-          tabId: session?.tabId || undefined,
-          userInitiated: true
+        setSurvivalStatsStatus(session, 'Updating adjusted comparisons from saved statistics.');
+        syncSurvivalStatsActionState(session);
+        scheduleSurvivalDrawForSession(session, {
+          renderImpact: 'analysis',
+          reason: 'survival-pairwise-correction-change'
         });
       });
     });
     label.appendChild(select);
     host.appendChild(label);
+  }
+
+  function setSurvivalStatsStatus(session, message){
+    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(!owner || !isSurvivalSessionActive(owner)){ return false; }
+    const status = getSurvivalNodeById('survivalStatsStatus', owner.tabId);
+    if(!status){ return false; }
+    status.textContent = String(message || '');
+    return true;
+  }
+
+  function syncSurvivalStatsActionState(session = null){
+    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(!owner || !isSurvivalSessionActive(owner)){ return false; }
+    const button = getSurvivalNodeById('survivalComputeStats', owner.tabId);
+    if(!button){ return false; }
+    const summary = collectSeries();
+    const canRunGroupComparisons = summary.series.length >= 2;
+    const canRunSingleGroupCox = summary.series.length > 0
+      && !!state.controls?.fitCoxModel
+      && getSelectedCovariates(summary.covariateColumns).length > 0;
+    button.disabled = !canRunGroupComparisons && !canRunSingleGroupCox;
+    button.title = button.disabled
+      ? 'Add at least two survival groups or select a covariate for a one-group Cox model.'
+      : '';
+    return true;
+  }
+
+  function bindSurvivalStatsActionButton(session = null){
+    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    const button = getSurvivalNodeById('survivalComputeStats', owner?.tabId || null);
+    if(!button || survivalStatsActionButtonsBound.has(button)){ return false; }
+    button.addEventListener('click', event => {
+      runSurvivalControlOwner(event, 'survival-calculate-statistics', actionOwner => {
+        const current = ensureSurvivalSessionOwnershipShape(actionOwner || owner);
+        if(!current || !isSurvivalSessionActive(current) || button.disabled){ return; }
+        button.disabled = true;
+        setSurvivalStatsStatus(current, 'Calculating statistics…');
+        const scheduled = scheduleSurvivalDrawForSession(current, {
+          reason: 'survival-calculate-statistics',
+          tabId: current.tabId || undefined,
+          calculateStatistics: true,
+          renderImpact: 'analysis',
+          userInitiated: true,
+          force: true
+        });
+        if(!scheduled){
+          setSurvivalStatsStatus(current, 'Statistics could not be scheduled. Try again.');
+          syncSurvivalStatsActionState(current);
+        }
+      });
+    });
+    survivalStatsActionButtonsBound.add(button);
+    return true;
   }
 
   function initNotes(){
@@ -8116,6 +8189,40 @@
     isOwnerActive: session => !session?.tabId || isSurvivalSessionActive(session)
   });
 
+  function applySurvivalExampleDefaultScheme(session, reason){
+    const tabId = String(session?.tabId || '').trim();
+    const activeTab = global.Main?.session?.getActiveTab?.() || null;
+    if(!tabId || !isSurvivalSessionActive(session) || String(activeTab?.id || '') !== tabId){
+      return false;
+    }
+    const ownerTab = global.Main?.session?.getTabById?.(tabId)
+      || global.Main?.session?.workspaceState?.tabs?.find(tab => String(tab?.id || '') === tabId)
+      || null;
+    const sourcePayload = survival.getPayload?.({ tab: ownerTab, tabId });
+    const defaultPayload = sourcePayload
+      ? Shared.colorSchemes?.applyDefaultToPayload?.('survival', sourcePayload)
+      : null;
+    if(!ownerTab || ownerTab.type !== 'survival' || !defaultPayload){
+      return false;
+    }
+    if(!applySurvivalPayload(defaultPayload, {
+      source: 'example-default-scheme',
+      tab: ownerTab,
+      tabId,
+      colorSchemeOnly: true,
+      skipDataLoad: true,
+      skipDraw: true
+    })){
+      return false;
+    }
+    global.Main.session.commitTabPayload?.(ownerTab, defaultPayload, {
+      reason: `${reason}-default-scheme`,
+      origin: 'user'
+    });
+    Shared.colorSchemes?.refreshActiveTabVisuals?.(`${reason}-default-scheme`);
+    return true;
+  }
+
   function initExampleAndImport(){
     const loadExampleData = event => {
       runSurvivalControlOwner(event, 'survival-example-load', session => {
@@ -8128,6 +8235,7 @@
       }
       ownerHot.loadData(example, {
         source: 'example-load',
+        suppressSchedule: true,
         recordUndo: true,
         undoLabel: 'table:survival:example-load'
       });
@@ -8135,6 +8243,9 @@
       logDebug('biomedical example loaded', { rows: example?.length || 0, firstRow: example?.[0] || null });
       syncSurvivalStateToSession(session, { controls: state.controls, notes: notesState });
       captureSurvivalSessionStateFromActive(session, { reason: 'survival-example-load', captureStatsPanel: false });
+      if(!applySurvivalExampleDefaultScheme(session, 'survival-example-load')){
+        return;
+      }
       scheduleSurvivalDrawForSession(session, { renderImpact: 'structural', reason: 'survival-example-load', tabId: session?.tabId || undefined });
       });
     };
@@ -8243,18 +8354,6 @@
     } else {
       logDebug('export controls unavailable', { hasExporter: !!Shared.exporter });
     }
-    refs.saveBtn?.addEventListener('click', () => { void saveFile(); });
-    refs.saveAsBtn?.addEventListener('click', () => { void saveFileAs(); });
-    refs.openBtn?.addEventListener('click', () => { void openFile(); });
-    refs.graphFileInput?.addEventListener('change', event => {
-      const file = event.target.files?.[0];
-      if(file){
-        const session = getSurvivalSessionForEvent(event, { reason: 'survival-graph-file-input' }, { create: false }) || getActiveSurvivalSessionForState();
-        setSurvivalFileNameForSession(file.name, session);
-        setSurvivalFileHandleForSession(null, session);
-        loadFromFile(file, { tabId: session?.tabId || null });
-      }
-    });
   }
 
   function init(options = {}){
@@ -8392,11 +8491,7 @@
     ensureSurvivalFontEventListener();
     state.layout?.syncPanels?.();
     initExportsAndFiles();
-    renderSurvivalStatsAdvisor({
-      series: [],
-      covariateColumns: state.covariateColumns || [],
-      logRank: { available: false }
-    }, null, session || getActiveSurvivalSessionForState());
+    renderSurvivalStatsAdvisor(session || getActiveSurvivalSessionForState());
     ensureEmptyPayloadTemplate();
     survival.__domSentinel = getSurvivalNodeById('survivalHot');
     survival.ready = true;
@@ -8618,8 +8713,36 @@
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
 
-  function bindSurvivalCurveFormatInteraction(curveEl){
-    if(!curveEl || curveEl.__graphitixSurvivalStrokeFormatBound === true){ return false; }
+  function registerSurvivalCurveKeyboard(curveEl, ownerTabId = null){
+    const plotRoot = curveEl?.closest?.('#survivalPlot')
+      || getSurvivalNodeById('survivalPlot', ownerTabId)
+      || refs.plotDiv
+      || null;
+    if(!curveEl || !plotRoot){ return false; }
+    const resolvedOwnerTabId = ownerTabId
+      || plotRoot.dataset?.survivalRenderedTabId
+      || plotRoot.dataset?.workspaceTabId
+      || getSurvivalProjectionTabId();
+    Shared.chartPointKeyboard?.attach(plotRoot, {
+      componentKey: 'survival',
+      componentLabel: 'Survival',
+      instructions: 'Arrow keys move between survival curves. Enter opens curve formatting.',
+      pointSelector: 'path[data-survival-series-color-target="stroke"][data-group]:not([data-survival-censor-mark="1"])',
+      ownerTabId: resolvedOwnerTabId,
+      getCurrentOwnerTabId: getSurvivalProjectionTabId,
+      describePoint: data => data?.groupName
+        ? 'Survival curve, ' + data.groupName
+        : 'Survival curve'
+    });
+    return Shared.chartPointKeyboard?.registerPoint(plotRoot, curveEl, {
+      groupName: String(curveEl.getAttribute('data-group') || '').trim()
+    }) === true;
+  }
+
+  function bindSurvivalCurveFormatInteraction(curveEl, ownerTabId = null){
+    if(!curveEl){ return false; }
+    registerSurvivalCurveKeyboard(curveEl, ownerTabId);
+    if(curveEl.__graphitixSurvivalStrokeFormatBound === true){ return false; }
     curveEl.style.cursor = 'pointer';
     curveEl.addEventListener('click', event => {
       try{ event.stopPropagation(); }catch(_err){}
@@ -8638,13 +8761,37 @@
       effectiveTickInterval: metadata?.effectiveTickInterval ?? null
     })) !== false;
     const textReady = rehydrateSurvivalInlineTextInteractions(svg, owner);
-    svg.querySelectorAll?.('path[data-survival-series-color-target="stroke"][data-group]').forEach(bindSurvivalCurveFormatInteraction);
+    const title = svg.querySelector?.('[data-font-role="graphTitle"]') || null;
+    const titleDragReady = !title
+      || Shared.rehydrateLabelDrag?.(title, svg, {
+        owner,
+        tabId: owner.tabId,
+        onPositionChange: position => patchSurvivalLabelPosition(owner, 'title', {
+          x: position.x,
+          y: position.y,
+          relX: position.relX,
+          relY: position.relY
+        }, { reason: 'survival-title-position' })
+      }) === true;
+    const axisLabelDragsReady = Shared.rehydrateLabelDrags?.(svg, {
+      owner,
+      tabId: owner.tabId,
+      onPositionChange: (key, _label, position) => patchSurvivalLabelPosition(owner, key, {
+        x: position.x,
+        y: position.y,
+        relX: position.relX,
+        relY: position.relY
+      }, { reason: `survival-${key}-position` })
+    }) !== false;
+    svg.querySelectorAll?.('path[data-survival-series-color-target="stroke"][data-group]').forEach(node =>
+      bindSurvivalCurveFormatInteraction(node, owner.tabId)
+    );
     bindSurvivalLegendInteractions(
       svg.querySelector?.('[data-legend-viewport-content="true"]') || null,
       svg,
       owner
     );
-    return axesReady && textReady;
+    return axesReady && textReady && titleDragReady && axisLabelDragsReady;
   };
 
   survival.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
@@ -8738,9 +8885,11 @@
     return state;
   };
   survival.__testHooks = Object.assign({}, survival.__testHooks, {
+    getAdvisorRecommendation:computeSurvivalAdvisorRecommendation,
     resolveRenderImpact: (options, fallback) => resolveSurvivalRenderImpact(options, fallback),
     sanitizeDrawOptions: (options, owner) => sanitizeSurvivalDrawOptions(options, owner),
     buildFigureSummary: summary => buildSurvivalFigureSummary(summary || {}),
+    buildLegacyStatsAnalysisSignature: controls => buildLegacySurvivalStatsAnalysisSignature(controls || state.controls),
     getSession: tabLike => getSurvivalSession(tabLike || getSurvivalProjectionTabId() || null, { reason: 'survival-test-session' }, { create: false }),
     captureStatsPanelForOwner: tabLike => {
       const session = getSurvivalSession(tabLike || getSurvivalProjectionTabId() || null, { reason: 'survival-test-stats-capture' }, { create: false });

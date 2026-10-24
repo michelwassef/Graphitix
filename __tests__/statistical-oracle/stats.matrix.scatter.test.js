@@ -83,7 +83,14 @@ describe('Scatter statistics oracle matrix', () => {
       if (spec.expectedAssociation !== 'none') {
         const corrRef = oracle.get(`scatter-${spec.mode}-correlation`)?.result;
         expectClose(actual.r, corrRef.r, `scatter-${spec.mode}.r`, { abs: 1e-6, rel: 1e-5 });
-        expectClose(actual.p, corrRef.p, `scatter-${spec.mode}.p`, { abs: 1e-5, rel: 1e-4 });
+        const pointCount = actual.pointCount;
+        if (spec.expectedAssociation === 'spearman' && pointCount > 9 && pointCount <= 500) {
+          expect(actual.pMethod).toContain('random permutation');
+          expect(actual.p).toBeGreaterThanOrEqual(1 / 10000);
+          expect(actual.p).toBeLessThanOrEqual(1);
+        } else {
+          expectClose(actual.p, corrRef.p, `scatter-${spec.mode}.p`, { abs: 1e-5, rel: 1e-4 });
+        }
       }
       compareRegressionMetrics(actual.regression?.metrics, regressionRef?.metrics, `scatter-${spec.mode}.metrics`, {
         keys: (spec.mode === 'deming' || spec.mode === 'orthogonal') ? ['sse', 'rmse', 'mae'] : (spec.mode === 'logistic' ? ['sse', 'r2', 'rmse', 'mae', 'logLoss'] : ['sse', 'r2', 'rmse', 'mae']),

@@ -48,7 +48,9 @@ async function waitForLockRatioCheckbox(page, pageId, tabId = null) {
     const visibleRoot = document.querySelector(`#${pageId}:not([hidden])`);
     const root = visibleRoot
       || (tabId ? window.Shared?.workspaceTabs?.getMountedRoot?.(tabId, null) : null);
-    return !!root?.querySelector?.('.svgbox .resizer-aspect-checkbox');
+    const svgBox = root?.querySelector?.('.svgbox') || null;
+    const controlsHost = window.Shared?.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    return !!controlsHost?.querySelector?.('.resizer-aspect-checkbox');
   }, { pageId, tabId }, {
     timeout: 30_000,
   });
@@ -62,11 +64,15 @@ async function waitForComponentIdle(page, pageId) {
 async function getLockRatioState(page, pageId) {
   return page.evaluate(({ pageId }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
-    const checkbox = root?.querySelector?.('.svgbox .resizer-aspect-checkbox') || null;
+    const svgBox = root?.querySelector?.('.svgbox') || null;
+    const controlsHost = window.Shared?.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const checkbox = controlsHost?.querySelector?.('.resizer-aspect-checkbox') || null;
     return {
       present: !!checkbox,
       checked: !!checkbox?.checked,
-      disabled: !!checkbox?.disabled
+      disabled: !!checkbox?.disabled,
+      aspectLocked: svgBox?.dataset?.resizerAspectLocked || null,
+      apiAspectLocked: svgBox?.__sharedResizableBoxApi?.getState?.().aspectLocked ?? null
     };
   }, { pageId });
 }
@@ -163,7 +169,9 @@ async function selectMode(page, pageId, selector, value) {
 async function setLockRatio(page, pageId, checked) {
   await page.evaluate(({ pageId, checked }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
-    const checkbox = root?.querySelector?.('.svgbox .resizer-aspect-checkbox') || null;
+    const svgBox = root?.querySelector?.('.svgbox') || null;
+    const controlsHost = window.Shared?.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const checkbox = controlsHost?.querySelector?.('.resizer-aspect-checkbox') || null;
     if (!checkbox) {
       throw new Error('Lock ratio checkbox not found');
     }
@@ -181,8 +189,9 @@ async function setLockRatio(page, pageId, checked) {
 async function readActiveLockSnapshot(page, pageId, modeSelector) {
   return page.evaluate(({ pageId, modeSelector }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
-    const checkbox = root?.querySelector?.('.svgbox .resizer-aspect-checkbox') || null;
     const svgBox = root?.querySelector?.('.svgbox') || null;
+    const controlsHost = window.Shared?.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const checkbox = controlsHost?.querySelector?.('.resizer-aspect-checkbox') || null;
     const mode = root?.querySelector?.(modeSelector) || null;
     const activeTabId = window.Main?.session?.workspaceState?.activeTabId || null;
     const activeTab = window.Main?.session?.workspaceState?.tabs?.find(tab => tab?.id === activeTabId) || null;
@@ -202,6 +211,12 @@ async function readActiveLockSnapshot(page, pageId, modeSelector) {
       sessionLockRatioPrevious: vennSession?.state?.lockRatioPrevious ?? null
     };
   }, { pageId, modeSelector });
+}
+
+function persistedLockSnapshot(snapshot) {
+  const persistedState = { ...snapshot };
+  delete persistedState.sessionAspectLocked;
+  return persistedState;
 }
 
 async function captureArchive(page, name) {
@@ -238,6 +253,8 @@ test.describe('Lock ratio subtype enforcement', () => {
     expect(state.present).toBe(true);
     expect(state.checked).toBe(true);
     expect(state.disabled).toBe(true);
+    expect(state.aspectLocked).toBe('true');
+    expect(state.apiAspectLocked).toBe(true);
   });
 
   test('scatter 3D mode enforces lock ratio', async ({ page }) => {
@@ -252,6 +269,8 @@ test.describe('Lock ratio subtype enforcement', () => {
     expect(state.present).toBe(true);
     expect(state.checked).toBe(true);
     expect(state.disabled).toBe(true);
+    expect(state.aspectLocked).toBe('true');
+    expect(state.apiAspectLocked).toBe(true);
   });
 
   test('pca hides generic Lock ratio and exposes only the metric-safe equal-axis-length option', async ({ page }) => {
@@ -403,9 +422,9 @@ test.describe('Lock ratio subtype enforcement', () => {
       const reopenedFirst = await readActiveLockSnapshot(page, componentCase.pageId, componentCase.modeSelector);
       await activateTab(page, reopenedIds[1], componentCase.pageId);
       const reopenedSecond = await readActiveLockSnapshot(page, componentCase.pageId, componentCase.modeSelector);
-      expect([reopenedFirst, reopenedSecond]).toEqual(expect.arrayContaining([
-        expect.objectContaining(userBaseline),
-        expect.objectContaining(forcedBaseline)
+      expect([reopenedFirst, reopenedSecond].map(persistedLockSnapshot)).toEqual(expect.arrayContaining([
+        expect.objectContaining(persistedLockSnapshot(userBaseline)),
+        expect.objectContaining(persistedLockSnapshot(forcedBaseline))
       ]));
       expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
     });

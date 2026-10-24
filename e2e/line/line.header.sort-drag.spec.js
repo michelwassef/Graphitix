@@ -219,5 +219,27 @@ test('line headers keep selection stable when sorting value columns', async ({ p
   }).toBe('desc');
   await expect(headerAction).toHaveClass(/is-sorted-desc/);
 
+  const headerPseudoStyles = await page.evaluate(() => {
+    const headerCell = document.querySelector('#lineHot .ag-header-cell[col-id="c1"]');
+    const read = (element, pseudo) => {
+      const style = getComputedStyle(element, pseudo);
+      return { content: style.content, display: style.display };
+    };
+    return {
+      before: read(headerCell, '::before'),
+      after: read(headerCell, '::after'),
+      headerAfter: read(document.querySelector('#lineHot .ag-header'), '::after'),
+      viewportAfter: read(document.querySelector('#lineHot .ag-header-viewport'), '::after'),
+      rowAfter: read(document.querySelector('#lineHot .ag-header-row'), '::after')
+    };
+  });
+  expect(headerPseudoStyles).toEqual({
+    before: { content: 'none', display: 'none' },
+    after: { content: 'none', display: 'none' },
+    headerAfter: { content: 'none', display: 'none' },
+    viewportAfter: { content: 'none', display: 'none' },
+    rowAfter: { content: 'none', display: 'none' }
+  });
+
   expect(issues.critical).toEqual([]);
 });

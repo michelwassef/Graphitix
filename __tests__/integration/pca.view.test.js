@@ -146,6 +146,82 @@ describe('PCA view controls — ownership and table state', () => {
     expect(tab?.payload?.config?.equalAxisLengths).toBe(true);
   });
 
+  test('PCA component-selection controls reject a stale root owner during tab activation', async () => {
+    const component = window.Components?.pca;
+    const mainSession = window.Main?.session;
+    const tabA = mainSession?.getActiveTab?.();
+    const rootA = document.querySelector('#pcaPage:not([hidden])');
+    const ruleSelectA = rootA?.querySelector('#pcaComponentRule');
+    const thresholdInputA = rootA?.querySelector('#pcaEigenThreshold');
+    const parallelInputA = rootA?.querySelector('#pcaParallelIterations');
+    const includeNonRetainedA = rootA?.querySelector('#pcaIncludeNonRetainedAxes');
+    expect(component && mainSession && tabA && rootA && ruleSelectA && thresholdInputA
+      && parallelInputA && includeNonRetainedA).toBeTruthy();
+
+    ruleSelectA.value = 'threshold';
+    ruleSelectA.dispatchEvent(new Event('change', { bubbles: true }));
+    thresholdInputA.value = '55';
+    thresholdInputA.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(8);
+
+    window.Main?.tabs?.handleAddTabClick?.();
+    const activation = window.Main?.tabs?.handleGraphSelection?.('pca', {
+      skipDuplicatePrompt: true,
+      reason: 'pca-component-selection-owner-test'
+    });
+    if (activation && typeof activation.then === 'function') await activation;
+    await flushAll(12);
+    const tabB = mainSession.getActiveTab();
+    const rootB = document.querySelector('#pcaPage:not([hidden])');
+    const ruleSelectB = rootB?.querySelector('#pcaComponentRule');
+    const thresholdInputB = rootB?.querySelector('#pcaEigenThreshold');
+    const parallelInputB = rootB?.querySelector('#pcaParallelIterations');
+    const includeNonRetainedB = rootB?.querySelector('#pcaIncludeNonRetainedAxes');
+    const ownerSessionB = component.__testHooks.getSession(tabB.id);
+    expect(rootB && ruleSelectB && thresholdInputB && parallelInputB && includeNonRetainedB && ownerSessionB).toBeTruthy();
+    ownerSessionB.state.state.componentSelection = {
+      rule: 'threshold',
+      eigenThreshold: 82,
+      parallelIterations: 500,
+      includeNonRetainedAxes: false
+    };
+    component.__state.componentSelection = { ...ownerSessionB.state.state.componentSelection };
+    rootB.setAttribute('data-workspace-tab-id', tabB.id);
+    ruleSelectB.value = 'threshold';
+    thresholdInputB.value = '82';
+    parallelInputB.value = '500';
+    includeNonRetainedB.checked = false;
+
+    expect(mainSession.workspaceState.activeTabId).toBe(tabB.id);
+    expect(window.Shared.componentLifecycle.resolveTabIdFromTarget(thresholdInputB)).toBe(tabB.id);
+
+    try {
+      rootA.setAttribute('data-workspace-tab-id', tabA.id);
+      ruleSelectA.value = 'parallel';
+      ruleSelectA.dispatchEvent(new Event('change', { bubbles: true }));
+      thresholdInputA.value = '55';
+      thresholdInputA.dispatchEvent(new Event('change', { bubbles: true }));
+      parallelInputA.value = '100';
+      parallelInputA.dispatchEvent(new Event('change', { bubbles: true }));
+      includeNonRetainedA.checked = true;
+      includeNonRetainedA.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(component.__state.componentSelection.eigenThreshold).toBe(82);
+      expect(component.__state.componentSelection.rule).toBe('threshold');
+      expect(component.__state.componentSelection.parallelIterations).toBe(500);
+      expect(component.__state.componentSelection.includeNonRetainedAxes).toBe(false);
+      expect(ownerSessionB.state.state.componentSelection.eigenThreshold).toBe(82);
+      expect(ownerSessionB.state.state.componentSelection.rule).toBe('threshold');
+      expect(ownerSessionB.state.state.componentSelection.parallelIterations).toBe(500);
+      expect(ownerSessionB.state.state.componentSelection.includeNonRetainedAxes).toBe(false);
+      expect(ruleSelectB.value).toBe('threshold');
+      expect(thresholdInputB.value).toBe('82');
+      expect(parallelInputB.value).toBe('500');
+      expect(includeNonRetainedB.checked).toBe(false);
+    } finally {
+      rootB.setAttribute('data-workspace-tab-id', tabB.id);
+    }
+  });
+
   test('PCA payload hydration projects view mode without firing a user redraw', () => {
     const component = window.Components?.pca;
     const viewSelect = document.getElementById('pcaViewMode');

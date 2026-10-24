@@ -9,6 +9,11 @@
   'use strict';
 
   const Shared = global.Shared = global.Shared || {};
+  function debugLog(...args){
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug(...args);
+    }
+  }
   const componentLayout = Shared.componentLayout = Shared.componentLayout || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const graphSizing = Shared.graphSizing = Shared.graphSizing || {};
@@ -18,16 +23,17 @@
 
   const PANEL_LAYOUT_STYLE_PROPS = [
     'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight',
-    'flex', 'flexBasis'
+    'flex', 'flexBasis', 'overflow', 'visibility'
   ];
   const PANEL_LAYOUT_DATASET_KEYS = new Set([
-    'panelManualWidth', 'panelDefaultWidth', 'panelMinWidth', 'resizerTableWidth'
+    'panelManualWidth', 'panelDefaultWidth', 'panelMinWidth', 'panelSplitCollapsed', 'resizerTableWidth'
   ]);
+  const isPanelResizeSource = source => source === 'panel-drag' || source === 'panel-keyboard';
 
   function normalizeWorkspaceTableFraction(value){
     const numeric = Number(value);
-    return Number.isFinite(numeric) && numeric > 0 && numeric < 1
-      ? Math.min(0.95, Math.max(0.05, numeric))
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? numeric
       : null;
   }
 
@@ -37,8 +43,62 @@
     const numeric = pixelValues?.length
       ? Number.parseFloat(pixelValues[pixelValues.length - 1])
       : (/^\s*-?\d+(?:\.\d+)?\s*$/.test(text) ? Number.parseFloat(text) : NaN);
-    return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : NaN;
   }
+
+  function setPanelSplitCollapsed(panel, collapsed, resizer){
+    if(!panel?.dataset || !panel?.style){ return; }
+    const wasCollapsed = panel.dataset.panelSplitCollapsed === 'true';
+    if(collapsed){
+      if(!wasCollapsed && panel.contains?.(global.document?.activeElement)){
+        try{ resizer?.focus?.({ preventScroll: true }); }
+        catch(_err){ resizer?.focus?.(); }
+      }
+      panel.dataset.panelSplitCollapsed = 'true';
+      panel.setAttribute?.('aria-hidden', 'true');
+      panel.inert = true;
+      panel.setAttribute?.('inert', '');
+      panel.style.visibility = 'hidden';
+      return;
+    }
+    // The marker and DOM state can diverge during restore/reset. Always
+    // project the expanded state instead of trusting the marker as authority.
+    delete panel.dataset.panelSplitCollapsed;
+    panel.removeAttribute?.('aria-hidden');
+    panel.inert = false;
+    panel.removeAttribute?.('inert');
+    panel.style.visibility = '';
+  }
+
+  componentLayout.projectWorkspacePanelSplit = function projectWorkspacePanelSplit(tablePanel, graphPanel, tableFraction){
+    const fraction = normalizeWorkspaceTableFraction(tableFraction);
+    const wrap = graphPanel?.parentElement || tablePanel?.parentElement || null;
+    const resizer = Array.from(wrap?.children || []).find(child => child?.classList?.contains('panel-resizer')) || null;
+    if(resizer?.dataset){
+      if(fraction === null){
+        delete resizer.dataset.panelSplitEdge;
+        resizer.style.marginRight = '';
+      }else if(fraction === 0){
+        resizer.dataset.panelSplitEdge = 'start';
+        resizer.style.marginRight = '';
+      }else if(fraction === 1){
+        resizer.dataset.panelSplitEdge = 'end';
+        resizer.style.marginRight = '';
+      }else{
+        delete resizer.dataset.panelSplitEdge;
+      }
+      resizer.setAttribute?.('aria-valuemin', '0');
+      resizer.setAttribute?.('aria-valuemax', '100');
+      if(fraction !== null){
+        const value = Math.round(fraction * 100);
+        resizer.setAttribute?.('aria-valuenow', String(value));
+        resizer.setAttribute?.('aria-valuetext', `Table ${value} percent; graph ${100 - value} percent`);
+      }
+    }
+    setPanelSplitCollapsed(tablePanel, fraction === 0, resizer);
+    setPanelSplitCollapsed(graphPanel, fraction === 1, resizer);
+    return fraction !== null;
+  };
 
   function resolveWorkspaceTableFraction(state){
     const explicit = normalizeWorkspaceTableFraction(
@@ -53,12 +113,15 @@
     // only when both sides are available; otherwise use the current CSS split.
     const tableStyle = state?.tablePanel?.style || {};
     const graphStyle = state?.graphPanel?.style || {};
-    const tableWidth = parsePanelPixelValue(tableStyle.width)
-      || parsePanelPixelValue(tableStyle.flexBasis)
-      || parsePanelPixelValue(tableStyle.flex);
-    const graphWidth = parsePanelPixelValue(graphStyle.width)
-      || parsePanelPixelValue(graphStyle.flexBasis)
-      || parsePanelPixelValue(graphStyle.flex);
+    const firstPanelWidth = style => {
+      for(const value of [style.width, style.flexBasis, style.flex]){
+        const parsed = parsePanelPixelValue(value);
+        if(Number.isFinite(parsed)){ return parsed; }
+      }
+      return NaN;
+    };
+    const tableWidth = firstPanelWidth(tableStyle);
+    const graphWidth = firstPanelWidth(graphStyle);
     if(Number.isFinite(tableWidth) && Number.isFinite(graphWidth) && tableWidth + graphWidth > 0){
       return normalizeWorkspaceTableFraction(tableWidth / (tableWidth + graphWidth));
     }
@@ -78,6 +141,7 @@
   }
 
   function clearPanelLayoutProjection(tablePanel, graphPanel, svgBox){
+    componentLayout.projectWorkspacePanelSplit(tablePanel, graphPanel, null);
     [tablePanel, graphPanel].forEach(panel => {
       if(panel?.style){
         PANEL_LAYOUT_STYLE_PROPS.forEach(prop => {
@@ -110,11 +174,16 @@
     if(tablePanel?.style){
       tablePanel.style.flex = `${fraction} 1 0px`;
       tablePanel.style.flexBasis = '0px';
+      tablePanel.style.minWidth = '0px';
+      tablePanel.style.maxWidth = 'none';
     }
     if(graphPanel?.style){
       graphPanel.style.flex = `${graphFraction} 1 0px`;
       graphPanel.style.flexBasis = '0px';
+      graphPanel.style.minWidth = '0px';
+      graphPanel.style.maxWidth = 'none';
     }
+    componentLayout.projectWorkspacePanelSplit(tablePanel, graphPanel, fraction);
     return true;
   }
 
@@ -124,7 +193,7 @@
     }
     const tableWidth = Number(tablePanel?.getBoundingClientRect?.()?.width);
     const graphWidth = Number(graphPanel?.getBoundingClientRect?.()?.width);
-    if(!Number.isFinite(tableWidth) || !Number.isFinite(graphWidth) || tableWidth <= 0 || graphWidth <= 0){
+    if(!Number.isFinite(tableWidth) || !Number.isFinite(graphWidth) || tableWidth < 0 || graphWidth < 0 || tableWidth + graphWidth <= 0){
       return null;
     }
     return normalizeWorkspaceTableFraction(tableWidth / (tableWidth + graphWidth));
@@ -188,7 +257,9 @@
       elements?.tablePanel,
       elements?.hotWrapper,
       elements?.hotContainer,
-      elements?.configPanel
+      elements?.configPanel,
+      elements?.graphFrame,
+      elements?.controlsHost
     ];
     for(let i = 0; i < candidates.length; i += 1){
       const owner = resolveElementOwnerTabId(candidates[i]);
@@ -211,7 +282,9 @@
       elements?.tablePanel,
       elements?.hotWrapper,
       elements?.hotContainer,
-      elements?.configPanel
+      elements?.configPanel,
+      elements?.graphFrame,
+      elements?.controlsHost
     ].forEach(node => {
       if(!node?.dataset){
         return;
@@ -227,6 +300,52 @@
     });
   }
 
+  function ensureGraphFrame(svgBox, documentRef, componentName){
+    if(!svgBox || !documentRef){
+      return { frame: null, controlsHost: null };
+    }
+    let frame = svgBox.closest?.('.graph-frame') || null;
+    if(frame && frame.dataset?.graphFrameComponent && frame.dataset.graphFrameComponent !== componentName){
+      frame = null;
+    }
+    if(!frame){
+      frame = documentRef.createElement('div');
+      frame.className = 'graph-frame';
+      frame.dataset.graphFrameComponent = componentName;
+      const parent = svgBox.parentNode;
+      if(!parent){
+        return { frame: null, controlsHost: null };
+      }
+      parent.insertBefore(frame, svgBox);
+      frame.appendChild(svgBox);
+    }
+    frame.dataset.graphFrameComponent = componentName;
+    let controlsHost = frame.querySelector(':scope > .graph-controls-header');
+    if(!controlsHost){
+      controlsHost = documentRef.createElement('div');
+      controlsHost.className = 'graph-controls-header';
+      controlsHost.setAttribute('role', 'toolbar');
+      controlsHost.setAttribute('aria-label', 'Graph controls');
+      frame.insertBefore(controlsHost, svgBox);
+    }
+    if(svgBox.parentNode !== frame){
+      frame.appendChild(svgBox);
+    }
+    const legacyTrays = Array.from(svgBox.querySelectorAll(':scope > .resizer-control-tray'));
+    legacyTrays.forEach(legacyTray => {
+      const targetTray = controlsHost.querySelector(':scope > .resizer-control-tray');
+      if(!targetTray){
+        controlsHost.appendChild(legacyTray);
+      }else if(targetTray !== legacyTray){
+        while(legacyTray.firstChild){
+          targetTray.appendChild(legacyTray.firstChild);
+        }
+        legacyTray.remove();
+      }
+    });
+    return { frame, controlsHost };
+  }
+
   function elementsBelongToLayoutTab(elements, tabId){
     const target = normalizeTabId(tabId);
     if(!target){
@@ -239,7 +358,9 @@
       elements?.tablePanel,
       elements?.hotWrapper,
       elements?.hotContainer,
-      elements?.configPanel
+      elements?.configPanel,
+      elements?.graphFrame,
+      elements?.controlsHost
     ].filter(Boolean);
     if(!candidates.length){
       return false;
@@ -325,7 +446,7 @@
       componentName: String(componentName || '').trim()
     };
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: componentLayout pending schedule suppression stored', {
+      debugLog('Debug: componentLayout pending schedule suppression stored', {
         component: componentName,
         tabId: tabId || null,
         delayMs: values.delayMs,
@@ -408,6 +529,15 @@
       : null;
   }
 
+  function getRootScopedPanel(root, id, fallbackSelector){
+    const node = getRootScopedElement(root, id, fallbackSelector);
+    if(!node || node.classList?.contains('panel')){
+      return node;
+    }
+    const panel = node.closest?.('.panel') || null;
+    return panel && root.contains?.(panel) ? panel : node;
+  }
+
   function applySnapshotStyle(element, map){
     if(!element?.style || !map || typeof map !== 'object'){
       return;
@@ -469,7 +599,8 @@
       svgBox.dataset.graphAspectLocked = token;
       svgBox.dataset.aspectLocked = token;
     }
-    const checkbox = svgBox.querySelector?.('.resizer-aspect-checkbox') || null;
+    const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const checkbox = controlsHost.querySelector?.('.resizer-aspect-checkbox') || null;
     if(checkbox){
       checkbox.checked = !!aspectLocked;
     }
@@ -552,13 +683,33 @@
     // reserves back into the next layout transaction.
     const frame = measureContentBox(svgBox, { source: 'svgbox', subtractInsets: options.subtractInsets })
       || measureContentBox(viewport, { source: 'zoom-viewport', subtractInsets: options.subtractInsets });
-    const availableWidth = Number.isFinite(frame?.width) && frame.width > 0 ? frame.width / zoomScale : NaN;
-    const availableHeight = Number.isFinite(frame?.height) && frame.height > 0 ? frame.height / zoomScale : NaN;
+    let availableWidth = Number.isFinite(frame?.width) && frame.width > 0 ? frame.width / zoomScale : NaN;
+    let availableHeight = Number.isFinite(frame?.height) && frame.height > 0 ? frame.height / zoomScale : NaN;
+    const baseWidth = parsePositivePx(svgBox?.dataset?.graphWidthPx || svgBox?.dataset?.resizerBaseWidth);
+    const baseHeight = parsePositivePx(svgBox?.dataset?.graphHeightPx || svgBox?.dataset?.resizerBaseHeight);
+    if(frame?.source === 'svgbox' && Number.isFinite(baseWidth) && Number.isFinite(baseHeight)){
+      const style = global.getComputedStyle(svgBox);
+      // Read the graph body's actual box model. Header spacing belongs to the
+      // outer presentation frame and must never reduce the drawable plot.
+      const baseScale = Math.max(0.01, zoomScale);
+      const resolveBaseInset = (token, actualValue) => {
+        const declared = parsePositivePx(style.getPropertyValue?.(token));
+        return Number.isFinite(declared) ? declared : actualValue / baseScale;
+      };
+      const border = resolveBaseInset('--graph-frame-border-width',
+        (readCssPx(style, 'border-left-width') + readCssPx(style, 'border-right-width')) / 2);
+      const inlinePadding = resolveBaseInset('--graph-frame-padding-inline',
+        (readCssPx(style, 'padding-left') + readCssPx(style, 'padding-right')) / 2);
+      const topPadding = resolveBaseInset('--graph-frame-padding-top', readCssPx(style, 'padding-top'));
+      const bottomPadding = resolveBaseInset('--graph-frame-padding-bottom', readCssPx(style, 'padding-bottom'));
+      availableWidth = baseWidth - (options.subtractInsets === false ? 0 : inlinePadding * 2 + border * 2);
+      availableHeight = baseHeight - (options.subtractInsets === false ? 0 : topPadding + bottomPadding + border * 2);
+    }
     const width = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : rawWidth;
     const height = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : rawHeight;
     const source = frame?.source || (plot ? 'plot-fallback' : 'none');
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: componentLayout drawable frame resolved', {
+      debugLog('Debug: componentLayout drawable frame resolved', {
         component: options.componentName || null,
         source,
         width,
@@ -659,7 +810,7 @@
       }
     }
     if(changed){
-      console.debug('Debug: componentLayout graph dataset size authority reapplied', {
+      debugLog('Debug: componentLayout graph dataset size authority reapplied', {
         component: componentName,
         reason,
         graphWidth: Number.isFinite(graphWidth) ? Math.round(graphWidth) : null,
@@ -721,7 +872,7 @@
       }
     }
     if(changed){
-      console.debug('Debug: componentLayout graph dataset authority updated from live resizer', {
+      debugLog('Debug: componentLayout graph dataset authority updated from live resizer', {
         component: componentName,
         reason,
         graphWidthPx: widthPx,
@@ -928,7 +1079,7 @@
       }
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: componentLayout intrinsic content size applied', {
+      debugLog('Debug: componentLayout intrinsic content size applied', {
         component: componentName,
         tabId: options.tabId || null,
         minWidth: Number.isFinite(minWidth) ? minWidth : null,
@@ -951,7 +1102,7 @@
     const size = resolveLayoutApplySize(svgBox, snapshot);
     if(!size){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: componentLayout layout apply size sync skipped', {
+        debugLog('Debug: componentLayout layout apply size sync skipped', {
           component: componentName,
           tabId: options.tabId || null,
           reason: 'missing-size'
@@ -997,7 +1148,7 @@
       });
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: componentLayout layout apply size synchronized', {
+      debugLog('Debug: componentLayout layout apply size synchronized', {
         component: componentName,
         tabId: options.tabId || null,
         width: size.width,
@@ -1036,8 +1187,8 @@
     const lower = name.toLowerCase();
     const nodes = {
       svgBox: getRootScopedElement(root, `${lower}SvgBox`, '.svgbox'),
-      tablePanel: getRootScopedElement(root, `${lower}TablePanel`, '[id$="TablePanel"], .panel:first-child'),
-      graphPanel: getRootScopedElement(root, `${lower}GraphPanel`, '[id$="GraphPanel"], .panel:last-child'),
+      tablePanel: getRootScopedPanel(root, `${lower}TablePanel`, '[id$="TablePanel"], .panel:first-child'),
+      graphPanel: getRootScopedPanel(root, `${lower}GraphPanel`, '[id$="GraphPanel"], .panel:last-child'),
       configPanel: getRootScopedElement(root, `${lower}ConfigPanel`, '[id$="ConfigPanel"], .config-panel, .config-options')
     };
     clearPanelLayoutProjection(nodes.tablePanel, nodes.graphPanel, nodes.svgBox);
@@ -1064,7 +1215,7 @@
     if(options.tabId && global.Shared?.workspaceTabs?.stampWorkspaceScopeDeep){
       global.Shared.workspaceTabs.stampWorkspaceScopeDeep(root, options.tabId);
     }
-    console.debug('Debug: componentLayout root hydrated', {
+    debugLog('Debug: componentLayout root hydrated', {
       component: name || null,
       tabId: options.tabId || root?.dataset?.workspaceTabId || null,
       hasSvgBox: !!nodes.svgBox,
@@ -1104,7 +1255,7 @@
     if(!snapshotHasAspectRatio && resizer.aspectRatio !== undefined && resizer.aspectRatio !== null){
       nextState.svgBox.dataset.resizerAspectRatio = String(resizer.aspectRatio);
     }
-    console.debug('Debug: componentLayout tab layout override merged', {
+    debugLog('Debug: componentLayout tab layout override merged', {
       tabId: tab?.id || null,
       component: tab?.type || nextState.component || null,
       aspectLocked: snapshotHasAspectLock ? (snapshotAspectRaw === 'true') : resizer.aspectLocked,
@@ -1115,7 +1266,7 @@
 
   function resolveElement({ selector, label, documentRef, componentName, rootRef }){
     if(!selector){
-      console.debug('Debug: componentLayout resolveElement missing selector', { component: componentName, label });
+      debugLog('Debug: componentLayout resolveElement missing selector', { component: componentName, label });
       return null;
     }
     try{
@@ -1135,7 +1286,7 @@
         }else{
           node = documentRef.querySelector(selector);
         }
-        console.debug('Debug: componentLayout resolved selector', {
+        debugLog('Debug: componentLayout resolved selector', {
           component: componentName,
           label,
           selector,
@@ -1149,29 +1300,29 @@
         if(rootRef && node && typeof rootRef.contains === 'function' && !rootRef.contains(node)){
           return null;
         }
-        console.debug('Debug: componentLayout resolved function selector', { component: componentName, label, found: !!node });
+        debugLog('Debug: componentLayout resolved function selector', { component: componentName, label, found: !!node });
         return node || null;
       }
       if(selector && typeof selector === 'object'){
         if(rootRef && typeof rootRef.contains === 'function' && !rootRef.contains(selector)){
           return null;
         }
-        console.debug('Debug: componentLayout resolved direct node', { component: componentName, label });
+        debugLog('Debug: componentLayout resolved direct node', { component: componentName, label });
         return selector;
       }
     }catch(err){
       console.error('Shared.componentLayout resolveElement error', err);
     }
-    console.debug('Debug: componentLayout resolveElement fallback null', { component: componentName, label });
+    debugLog('Debug: componentLayout resolveElement fallback null', { component: componentName, label });
     return null;
   }
 
   componentLayout.createStandardPanels = function createStandardPanels(config){
     const componentName = config?.componentName || 'component';
     const documentRef = global.document;
-    console.debug('Debug: componentLayout createStandardPanels init', { component: componentName });
+    debugLog('Debug: componentLayout createStandardPanels init', { component: componentName });
     if(!documentRef){
-      console.debug('Debug: componentLayout createStandardPanels aborted - no document', { component: componentName });
+      debugLog('Debug: componentLayout createStandardPanels aborted - no document', { component: componentName });
       return {
         elements: {},
         syncPanels(){},
@@ -1216,6 +1367,9 @@
       componentName,
       rootRef: preferredRoot
     });
+    const graphFrame = ensureGraphFrame(elements.svgBox, documentRef, componentName);
+    elements.graphFrame = graphFrame.frame;
+    elements.controlsHost = graphFrame.controlsHost;
     const layoutTabId = resolveElementTabId(elements, config);
     stampElementsOwnerTabId(elements, layoutTabId);
     const runAspectLockPolicy = (reason = 'component-layout-aspect-policy', options = {}) => {
@@ -1261,7 +1415,7 @@
     if(previousLayoutApi && typeof previousLayoutApi.destroy === 'function'){
       try{
         previousLayoutApi.destroy({ reason: 'replace-layout-instance' });
-        console.debug('Debug: componentLayout previous instance destroyed', {
+        debugLog('Debug: componentLayout previous instance destroyed', {
           component: componentName,
           tabId: layoutTabId || null
         });
@@ -1275,7 +1429,7 @@
     }
 
     if(elements.hotWrapper && typeof Shared.ensureHotWrapperStyles === 'function'){
-      console.debug('Debug: componentLayout applying wrapper styles', { component: componentName, wrapperId: elements.hotWrapper.id || null });
+      debugLog('Debug: componentLayout applying wrapper styles', { component: componentName, wrapperId: elements.hotWrapper.id || null });
       Shared.ensureHotWrapperStyles(elements.hotWrapper);
     }
 
@@ -1298,7 +1452,7 @@
       panelState.forceSkipSchedules = Math.max(panelState.forceSkipSchedules, Number(pendingSuppression.forceSkipSchedules) || 0);
       panelState.forceDeferReason = pendingSuppression.forceDeferReason || 'pending';
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: componentLayout pending schedule suppression applied', {
+        debugLog('Debug: componentLayout pending schedule suppression applied', {
           component: componentName,
           tabId: layoutTabId || null,
           reason: panelState.forceDeferReason,
@@ -1412,7 +1566,7 @@
       const phase = typeof options?.phase === 'string' ? options.phase : '';
       const now = Date.now();
       const visibility = resolveVisibility();
-      const isUserResizePhase = source === 'resize' && (
+      const isUserResizePhase = (source === 'resize' || isPanelResizeSource(source)) && (
         phase === 'start'
         || phase === 'move'
         || phase === 'drag'
@@ -1431,7 +1585,7 @@
           panelState.forceDeferReason = null;
           panelState.deferScheduleUntil = 0;
           if(isDebugEnabled()){
-            console.debug('Debug: componentLayout schedule suppression released by user resize', {
+            debugLog('Debug: componentLayout schedule suppression released by user resize', {
               component: componentName,
               source,
               phase
@@ -1444,7 +1598,7 @@
       if(source === 'observer' && config?.skipScheduleOnObserver === true && !options.forceSchedule){
         skipSchedule = true;
         if(isDebugEnabled()){
-          console.debug('Debug: componentLayout schedule skipped on observer source', {
+          debugLog('Debug: componentLayout schedule skipped on observer source', {
             component: componentName
           });
         }
@@ -1454,7 +1608,7 @@
         skipSchedule = true;
         forceSkipActive = true;
         if(isDebugEnabled()){
-          console.debug('Debug: componentLayout schedule skipped (forced)', {
+          debugLog('Debug: componentLayout schedule skipped (forced)', {
             component: componentName,
             remaining: panelState.forceSkipSchedules
           });
@@ -1480,7 +1634,7 @@
         if(visibility.hasGraphContent && suppressScheduleOnRestore){
           panelState.deferScheduleUntil = now + restoreDelayMs;
           if(isDebugEnabled()){
-            console.debug('Debug: componentLayout schedule deferred after restore', {
+            debugLog('Debug: componentLayout schedule deferred after restore', {
               component: componentName,
               delayMs: restoreDelayMs
             });
@@ -1525,7 +1679,7 @@
     };
 
     const syncPanels = (options = {}) => {
-      if(options.source === 'panel-drag'){
+      if(isPanelResizeSource(options.source)){
         // A divider drag creates a new split; do not reapply the previous
         // responsive weights while the pointer is changing the panels.
         panelState.workspaceSplit = null;
@@ -1533,7 +1687,7 @@
       const flags = evaluateScheduleFlags(options);
       const skipSchedule = flags.skipSchedule;
       if(typeof Shared.syncPanelWidths !== 'function'){
-        console.debug('Debug: componentLayout syncPanels skipped - missing Shared.syncPanelWidths', { component: componentName });
+        debugLog('Debug: componentLayout syncPanels skipped - missing Shared.syncPanelWidths', { component: componentName });
         return;
       }
       const scheduleWrapper = (!skipSchedule && scheduleDrawFn) ? () => {
@@ -1552,14 +1706,14 @@
           tabId: layoutTabId || null,
           reason: options.reason || options.source || 'component-layout-sync',
           userInitiated: options.userInitiated === true
-            || (userResizePhase && (!options.source || options.source === 'resize' || options.source === 'panel-drag'))
+            || (userResizePhase && (!options.source || options.source === 'resize' || isPanelResizeSource(options.source)))
         };
         if(Shared.componentLifecycle?.shouldSuppressDraw?.(componentName, scheduleMeta)){
-          console.debug('Debug: componentLayout scheduleDraw suppressed by lifecycle', { component: componentName, source: scheduleMeta.source, tabId: scheduleMeta.tabId });
+          debugLog('Debug: componentLayout scheduleDraw suppressed by lifecycle', { component: componentName, source: scheduleMeta.source, tabId: scheduleMeta.tabId });
           Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: componentName, tabId: scheduleMeta.tabId, action: 'draw-suppressed', reason: scheduleMeta.reason, details: { source: scheduleMeta.source, phase: scheduleMeta.phase } });
           return;
         }
-        console.debug('Debug: componentLayout scheduleDraw invoked', { component: componentName, source: options.source || 'sync' });
+        debugLog('Debug: componentLayout scheduleDraw invoked', { component: componentName, source: options.source || 'sync' });
         Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: componentName, tabId: scheduleMeta.tabId, action: 'draw-request', reason: scheduleMeta.reason, details: { source: scheduleMeta.source, via: 'componentLayout' } });
         scheduleDrawFn(scheduleMeta);
       } : null;
@@ -1590,7 +1744,7 @@
           || phase === 'undo'
           || phase === 'redo';
         const userResizeAuthorityWrite = userResizeAuthorityPhase
-          && (source === 'resize' || source === 'panel-drag');
+          && (source === 'resize' || isPanelResizeSource(source));
         // Normalize all components through the same graph-frame authority rule:
         // when a layout snapshot/payload exposes graphWidthPx + graphHeightPx,
         // those dimensions describe the outer graph frame. Component renderers
@@ -1608,13 +1762,13 @@
       } finally {
         global.requestAnimationFrame(() => {
           panelState.programmaticSyncDepth = Math.max(0, panelState.programmaticSyncDepth - 1);
-          console.debug('Debug: componentLayout programmatic sync released', {
+          debugLog('Debug: componentLayout programmatic sync released', {
             component: componentName,
             depth: panelState.programmaticSyncDepth
           });
         });
       }
-      console.debug('Debug: componentLayout syncPanels complete', {
+      debugLog('Debug: componentLayout syncPanels complete', {
         component: componentName,
         minSvgWidth: panelState.minSvgWidth,
         layoutChanged: !!syncResult?.layoutChanged
@@ -1632,7 +1786,7 @@
       panelState.resizeObserver = new global.ResizeObserver(() => {
         const nextSize = readObservedSize(elements.tablePanel);
         if(panelState.programmaticSyncDepth > 0){
-          console.debug('Debug: componentLayout ResizeObserver ignored during programmatic sync', {
+          debugLog('Debug: componentLayout ResizeObserver ignored during programmatic sync', {
             component: componentName,
             nextSize,
             depth: panelState.programmaticSyncDepth
@@ -1640,7 +1794,7 @@
           return;
         }
         if(!sizeChangedEnough(panelState.lastObservedTableSize, nextSize)){
-          console.debug('Debug: componentLayout ResizeObserver ignored unchanged size', {
+          debugLog('Debug: componentLayout ResizeObserver ignored unchanged size', {
             component: componentName,
             lastSize: panelState.lastObservedTableSize,
             nextSize
@@ -1648,13 +1802,13 @@
           return;
         }
         panelState.lastObservedTableSize = nextSize;
-        console.debug('Debug: componentLayout ResizeObserver triggered', { component: componentName, nextSize });
+        debugLog('Debug: componentLayout ResizeObserver triggered', { component: componentName, nextSize });
         syncPanels({ source: 'observer' });
       });
       panelState.lastObservedTableSize = readObservedSize(elements.tablePanel);
       panelState.resizeObserver.observe(elements.tablePanel);
     }else{
-      console.debug('Debug: componentLayout ResizeObserver unavailable', {
+      debugLog('Debug: componentLayout ResizeObserver unavailable', {
         component: componentName,
         hasObserver: !!global.ResizeObserver,
         hasTable: !!elements.tablePanel
@@ -1666,14 +1820,14 @@
       : () => {
         const width = elements.svgBox?.getBoundingClientRect?.().width || 0;
         const computed = Math.max(0, width * 0.5);
-        console.debug('Debug: componentLayout default computeMinSvgWidth', { component: componentName, width, computed });
+        debugLog('Debug: componentLayout default computeMinSvgWidth', { component: componentName, width, computed });
         return computed;
       };
 
     const updateMinSvgWidth = value => {
       const coerced = Number.isFinite(value) ? value : 0;
       panelState.minSvgWidth = Math.max(0, coerced);
-      console.debug('Debug: componentLayout minSvgWidth updated', { component: componentName, value, coerced: panelState.minSvgWidth });
+      debugLog('Debug: componentLayout minSvgWidth updated', { component: componentName, value, coerced: panelState.minSvgWidth });
       if(typeof config?.onMinSvgWidth === 'function'){
         try{
           config.onMinSvgWidth(panelState.minSvgWidth, { elements, component: componentName });
@@ -1692,7 +1846,7 @@
           try{
             const customSizing = config.getSizing({ elements, component: componentName });
             if(customSizing){
-              console.debug('Debug: componentLayout using custom sizing', { component: componentName, customSizing });
+              debugLog('Debug: componentLayout using custom sizing', { component: componentName, customSizing });
               return customSizing;
             }
           }catch(err){
@@ -1706,7 +1860,7 @@
           try{
             const sizingHelper = graphSizing.getSizing({ context: componentName });
             if(sizingHelper){
-              console.debug('Debug: componentLayout using graphSizing helper', { component: componentName, sizingHelper });
+              debugLog('Debug: componentLayout using graphSizing helper', { component: componentName, sizingHelper });
               return sizingHelper;
             }
           }catch(err){
@@ -1723,7 +1877,7 @@
           aspectRatio: chartStyle?.DEFAULT_ASPECT_RATIO || 1,
           aspectLocked: chartStyle?.DEFAULT_ASPECT_LOCKED === true
         };
-        console.debug('Debug: componentLayout fallback sizing used', { component: componentName, fallbackSizing });
+        debugLog('Debug: componentLayout fallback sizing used', { component: componentName, fallbackSizing });
         return fallbackSizing;
       })();
 
@@ -1793,7 +1947,7 @@
           }) || cleared;
         }
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: componentLayout resize-start render cache invalidation', {
+          debugLog('Debug: componentLayout resize-start render cache invalidation', {
             component: componentName,
             tabId,
             phase: phase || null,
@@ -1807,7 +1961,7 @@
         const phaseSkipSchedule = shouldSkipResizePhaseSchedule(phase);
         // Zoom is a visual magnifier. It changes the displayed envelope, not
         // the component's graph geometry or draw state.
-        console.debug('Debug: componentLayout resizable onResize', {
+        debugLog('Debug: componentLayout resizable onResize', {
           component: componentName,
           phase,
           zoomDisplayOnly,
@@ -1861,7 +2015,7 @@
             && Shared.componentLifecycle.shouldSuppressDraw(componentName, resizeMeta) === true;
           if(lifecycleSuppressed){
             if(isDebugEnabled()){
-              console.debug('Debug: componentLayout component resize callback suppressed by lifecycle', resizeMeta);
+              debugLog('Debug: componentLayout component resize callback suppressed by lifecycle', resizeMeta);
             }
             return;
           }
@@ -1887,12 +2041,14 @@
         allowUnlimitedHeight: true,
         componentName,
         tabId: layoutTabId || undefined,
+        graphPanel: elements.graphPanel,
         ...userResizeOptions,
+        controlsHost: elements.controlsHost,
         onResize
       });
-      console.debug('Debug: componentLayout attachResizableBox applied', { component: componentName });
+      debugLog('Debug: componentLayout attachResizableBox applied', { component: componentName });
     }else{
-      console.debug('Debug: componentLayout attachResizableBox skipped', {
+      debugLog('Debug: componentLayout attachResizableBox skipped', {
         component: componentName,
         hasTarget: !!elements.resizeTarget,
         hasHelper: typeof Shared.attachResizableBox === 'function'
@@ -1910,15 +2066,15 @@
         syncPanels: opts => syncPanels(opts || {}),
         computeMinSvgWidth: () => {
           const computed = computeMinSvgWidth({ elements, component: componentName });
-          console.debug('Debug: componentLayout computeMinSvgWidth invoked', { component: componentName, computed });
+          debugLog('Debug: componentLayout computeMinSvgWidth invoked', { component: componentName, computed });
           return computed;
         },
         onMinSvgWidth: value => updateMinSvgWidth(value),
         ...config?.panelResizerOptions
       });
-      console.debug('Debug: componentLayout panel drag resizer attached', { component: componentName });
+      debugLog('Debug: componentLayout panel drag resizer attached', { component: componentName });
     }else{
-      console.debug('Debug: componentLayout panel drag resizer skipped', {
+      debugLog('Debug: componentLayout panel drag resizer skipped', {
         component: componentName,
         hasPanelResizer: !!elements.panelResizer,
         hasTable: !!elements.tablePanel,
@@ -1985,8 +2141,18 @@
       const baseHeightPx = parsePositivePx(dataset.graphHeightPx || dataset.svgHeight || dataset.graphDefaultHeight || dataset.resizerBaseHeight)
         || (Number.isFinite(styleHeight) && styleHeight > 0 ? Math.round(styleHeight / zoomScale) : NaN)
         || (Number.isFinite(liveHeight) && liveHeight > 0 ? Math.round(liveHeight / zoomScale) : NaN);
-      const widthPx = Number.isFinite(baseWidthPx) && baseWidthPx > 0 ? Math.max(1, Math.round(baseWidthPx * zoomScale)) : NaN;
-      const heightPx = Number.isFinite(baseHeightPx) && baseHeightPx > 0 ? Math.max(1, Math.round(baseHeightPx * zoomScale)) : NaN;
+      const graphView = Shared.resizer?.getGraphViewState?.(layoutTabId);
+      const savedScale = graphView?.mode === 'fit' ? 1 : (Number(graphView?.zoomLevel) || zoomScale);
+      const widthPx = Number.isFinite(baseWidthPx) && baseWidthPx > 0 ? Math.max(1, Math.round(baseWidthPx * savedScale)) : NaN;
+      const heightPx = Number.isFinite(baseHeightPx) && baseHeightPx > 0 ? Math.max(1, Math.round(baseHeightPx * savedScale)) : NaN;
+      if(graphView){
+        dataset.resizerZoom = String(savedScale);
+        dataset.resizerZoomLevel = String(savedScale);
+        ['minWidth', 'minHeight', 'maxWidth', 'maxHeight'].forEach(key => {
+          const numeric = parsePositivePx(style[key]);
+          if(Number.isFinite(numeric)) style[key] = `${Math.round(numeric / zoomScale * savedScale)}px`;
+        });
+      }
       if(Number.isFinite(widthPx) && widthPx > 0){
         style.width = `${widthPx}px`;
         dataset.resizerWidth = style.width;
@@ -2011,7 +2177,7 @@
         dataset.resizerAspectRatio = String(baseWidthPx / baseHeightPx);
         style.aspectRatio = `${Math.round(baseWidthPx)} / ${Math.round(baseHeightPx)}`;
       }
-      console.debug('Debug: componentLayout live resizable snapshot normalized', {
+      debugLog('Debug: componentLayout live resizable snapshot normalized', {
         component: componentName,
         context: contextLabel,
         widthPx: Number.isFinite(widthPx) ? widthPx : null,
@@ -2030,7 +2196,7 @@
 
     const captureState = () => {
       if(layoutTabId && !elementsBelongToLayoutTab(elements, layoutTabId)){
-        console.debug('Debug: componentLayout captureState skipped tab-owner mismatch', {
+        debugLog('Debug: componentLayout captureState skipped tab-owner mismatch', {
           component: componentName,
           tabId: layoutTabId,
           ownerTabId: resolveElementsOwnerTabId(elements) || null
@@ -2038,24 +2204,15 @@
         return null;
       }
       runAspectLockPolicy('capture-state', { phase: 'capture' });
-      const aspectCheckbox = elements.svgBox?.querySelector?.('.resizer-aspect-checkbox') || null;
-      if(aspectCheckbox && elements.svgBox?.dataset){
-        elements.svgBox.dataset.resizerAspectLocked = aspectCheckbox.checked ? 'true' : 'false';
-        const tab = layoutTabId ? Shared.workspaceTabs?.resolveTab?.(layoutTabId) : null;
-        if(tab && elementsBelongToLayoutTab(elements, layoutTabId)){
-          tab.sharedState = tab.sharedState || {};
-          tab.sharedState.layout = tab.sharedState.layout || {};
-          tab.sharedState.layout.resizer = tab.sharedState.layout.resizer || {};
-          tab.sharedState.layout.resizer.aspectLocked = !!aspectCheckbox.checked;
-        }
-      }
       const hasManualPanelSizing = elements.tablePanel?.dataset?.panelManualWidth === 'true'
         || elements.graphPanel?.dataset?.panelManualWidth === 'true';
       // Once a responsive split has been restored, its requested fraction is the
       // durable value. The browser may report a slightly different ratio after
       // flex sizing, min-content constraints, or a cache rebind. Only replace it
       // with measured geometry after an explicit divider drag.
-      if(!panelState.workspaceSplit || hasManualPanelSizing){
+      const canCaptureMeasuredSplit = !isVerticalPanelLayout(elements.tablePanel, elements.graphPanel)
+        && (!panelState.workspaceSplit || hasManualPanelSizing);
+      if(canCaptureMeasuredSplit){
         const currentTableFraction = captureWorkspaceTableFraction(elements.tablePanel, elements.graphPanel);
         if(currentTableFraction !== null){
           panelState.workspaceSplit = { version: 1, tableFraction: currentTableFraction };
@@ -2068,6 +2225,8 @@
       const state = {
         version: 1,
         component: componentName,
+        graphView: Shared.resizer?.getGraphViewState?.(layoutTabId)
+          ? { ...Shared.resizer.getGraphViewState(layoutTabId) } : null,
         minSvgWidth: Number.isFinite(panelState.minSvgWidth) ? panelState.minSvgWidth : null,
         workspace: panelState.workspaceSplit ? { ...panelState.workspaceSplit } : null,
         svgBox: normalizedSvgSnapshot,
@@ -2090,7 +2249,7 @@
           }
         });
       }
-      console.debug('Debug: componentLayout captureState', {
+      debugLog('Debug: componentLayout captureState', {
         component: componentName,
         tabId: layoutTabId || null,
         hasSvg: !!state.svgBox?.style || !!state.svgBox?.dataset,
@@ -2156,7 +2315,7 @@
     };
 
     const styleSnapshotMatches = (element, map, options = {}) => {
-      const current = cloneStyle(element) || {};
+      const current = options.currentSnapshot?.style || cloneStyle(element) || {};
       const target = map && typeof map === 'object' ? map : {};
       const keys = new Set([...Object.keys(current), ...Object.keys(target)]);
       if(options.reset !== true){
@@ -2177,7 +2336,7 @@
       if(!element?.dataset){
         return !map || !Object.keys(map).length;
       }
-      const current = cloneDataset(element) || {};
+      const current = options.currentSnapshot?.dataset || cloneDataset(element) || {};
       const target = map && typeof map === 'object'
         ? rehomeDatasetForTab(map, componentName, options.tabId || layoutTabId)
         : {};
@@ -2216,13 +2375,19 @@
           return false;
         }
       }
+      const currentSvgSnapshot = state.graphView?.mode === 'fit'
+        ? normalizeLiveResizableSnapshot(elements.svgBox, {
+            style: cloneStyle(elements.svgBox),
+            dataset: cloneDataset(elements.svgBox)
+          }, 'layout-state-check')
+        : null;
       return styleSnapshotMatches(elements.tablePanel, state.tablePanel?.style, { reset: options.resetStyles === true })
         && datasetSnapshotMatches(elements.tablePanel, state.tablePanel?.dataset, { reset: options.resetDataset === true, tabId })
         && styleSnapshotMatches(elements.graphPanel, state.graphPanel?.style, { reset: options.resetStyles === true })
         && datasetSnapshotMatches(elements.graphPanel, state.graphPanel?.dataset, { reset: options.resetDataset === true, tabId })
         && styleSnapshotMatches(elements.configPanel, state.configPanel?.style, { reset: options.resetStyles === true })
-        && styleSnapshotMatches(elements.svgBox, state.svgBox?.style, { reset: options.resetStyles === true })
-        && datasetSnapshotMatches(elements.svgBox, state.svgBox?.dataset, { reset: options.resetDataset === true, tabId })
+        && styleSnapshotMatches(elements.svgBox, state.svgBox?.style, { reset: options.resetStyles === true, currentSnapshot: currentSvgSnapshot })
+        && datasetSnapshotMatches(elements.svgBox, state.svgBox?.dataset, { reset: options.resetDataset === true, tabId, currentSnapshot: currentSvgSnapshot })
         && resizableApiMatchesLayout(elements.svgBox, state.svgBox);
     };
 
@@ -2239,7 +2404,7 @@
           applyDataset(elements.svgBox, null, 'svg', { reset: resetDataset });
           const skipSchedule = options.skipSchedule === true;
           syncPanels({ skipSchedule });
-          console.debug('Debug: componentLayout applyState reset', {
+          debugLog('Debug: componentLayout applyState reset', {
             component: componentName,
             resetStyles,
             resetDataset,
@@ -2250,7 +2415,7 @@
         return false;
       }
       if((options.tabId || layoutTabId) && !elementsBelongToLayoutTab(elements, options.tabId || layoutTabId)){
-        console.debug('Debug: componentLayout applyState skipped tab-owner mismatch', {
+        debugLog('Debug: componentLayout applyState skipped tab-owner mismatch', {
           component: componentName,
           tabId: options.tabId || layoutTabId || null,
           ownerTabId: resolveElementsOwnerTabId(elements) || null,
@@ -2259,8 +2424,13 @@
         return false;
       }
       const clonedState = state;
-      if(options.skipIfUnchanged === true && layoutStateAlreadyApplied(clonedState, options)){
-        console.debug('Debug: componentLayout applyState skipped unchanged', {
+      const ownerTabId = options.tabId || layoutTabId;
+      const previousGraphView = Shared.resizer?.getGraphViewState?.(ownerTabId);
+      const restoredGraphView = Shared.resizer?.restoreGraphViewState?.(ownerTabId, clonedState);
+      const graphViewChanged = previousGraphView?.mode !== restoredGraphView?.mode
+        || previousGraphView?.zoomLevel !== restoredGraphView?.zoomLevel;
+      if(options.skipIfUnchanged === true && !graphViewChanged && layoutStateAlreadyApplied(clonedState, options)){
+        debugLog('Debug: componentLayout applyState skipped unchanged', {
           component: componentName,
           tabId: options.tabId || layoutTabId || null,
           reason: options.reason || null
@@ -2300,7 +2470,7 @@
           elements.svgBox.dataset.resizerBaseHeight = String(baseHeight);
           elements.svgBox.dataset.resizerWidth = `${Math.round(appliedWidth)}px`;
           elements.svgBox.dataset.resizerHeight = `${Math.round(appliedHeight)}px`;
-          console.debug('Debug: componentLayout applyState normalized svg sizing authority', {
+          debugLog('Debug: componentLayout applyState normalized svg sizing authority', {
             component: componentName,
             widthPx: Math.round(appliedWidth),
             heightPx: Math.round(appliedHeight),
@@ -2317,7 +2487,7 @@
       if(typeof overrideAspectLocked === 'boolean' && !snapshotHasAspectLock){
         applyAspectLockToSvgBox(elements.svgBox, overrideAspectLocked);
       }else if(typeof overrideAspectLocked === 'boolean' && snapshotHasAspectLock && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: componentLayout shared aspect-lock override skipped; layout snapshot is authoritative', {
+        debugLog('Debug: componentLayout shared aspect-lock override skipped; layout snapshot is authoritative', {
           component: componentName,
           tabId: options.tabId || layoutTabId || null,
           snapshotAspectLock: String(snapshotAspectLockRaw),
@@ -2326,9 +2496,11 @@
       }
       const zoomApi = elements.svgBox?.__sharedResizableBoxApi;
       if(zoomApi && typeof zoomApi.setZoomLevel === 'function'){
-        const requestedZoom = Number(elements.svgBox?.dataset?.resizerZoomLevel || elements.svgBox?.dataset?.resizerZoom);
+        const requestedZoom = restoredGraphView?.mode === 'fit'
+          ? zoomApi.getFitZoomLevel()
+          : Number(elements.svgBox?.dataset?.resizerZoomLevel || elements.svgBox?.dataset?.resizerZoom);
         if(Number.isFinite(requestedZoom) && requestedZoom > 0){
-          zoomApi.setZoomLevel(requestedZoom, { reason: `${componentName}-layout-apply` });
+          zoomApi.setZoomLevel(requestedZoom, { mode: 'projection', reason: `${componentName}-layout-apply` });
         }
       }
       const skipSchedule = options.skipSchedule === true;
@@ -2342,7 +2514,8 @@
       });
       runAspectLockPolicy(options.reason || 'layout-apply-policy', { phase: 'apply', state: clonedState, options });
       harmonizeSvgBoxStyleWithGraphDataset(elements.svgBox, componentName, options.reason || 'layout-apply-final-sync');
-      console.debug('Debug: componentLayout applyState', {
+      elements.svgBox?.__sharedResizableBoxApi?.refreshFit?.();
+      debugLog('Debug: componentLayout applyState', {
         component: componentName,
         applied: true,
         skipSchedule
@@ -2363,7 +2536,7 @@
       },
       setScheduleDraw(fn){
         scheduleDrawFn = typeof fn === 'function' ? fn : null;
-        console.debug('Debug: componentLayout scheduleDraw updated', { component: componentName, hasSchedule: !!scheduleDrawFn });
+        debugLog('Debug: componentLayout scheduleDraw updated', { component: componentName, hasSchedule: !!scheduleDrawFn });
       },
       suppressNextSchedule(options = {}){
         const delayMs = Number.isFinite(options?.delayMs) ? Number(options.delayMs) : restoreDelayMs;
@@ -2372,7 +2545,7 @@
         panelState.forceDeferReason = options?.reason || 'manual';
         panelState.forceSkipSchedules = Math.max(panelState.forceSkipSchedules, count);
         if(isDebugEnabled()){
-          console.debug('Debug: componentLayout schedule suppressed', {
+          debugLog('Debug: componentLayout schedule suppressed', {
             component: componentName,
             delayMs,
             reason: panelState.forceDeferReason,
@@ -2386,7 +2559,7 @@
         panelState.forceDeferReason = null;
         panelState.forceSkipSchedules = 0;
         if(hadDefer && isDebugEnabled()){
-          console.debug('Debug: componentLayout schedule suppression released', {
+          debugLog('Debug: componentLayout schedule suppression released', {
             component: componentName,
             reason: options?.reason || 'manual-release'
           });
@@ -2398,7 +2571,7 @@
         if(!selectors.resizeTarget){
           elements.resizeTarget = node;
         }
-        console.debug('Debug: componentLayout svgBox updated', { component: componentName, hasSvgBox: !!node });
+        debugLog('Debug: componentLayout svgBox updated', { component: componentName, hasSvgBox: !!node });
       },
       updateMinSvgWidth,
       setIntrinsicContentSize(constraints = {}, options = {}){
@@ -2418,7 +2591,7 @@
           console.error('Shared.componentLayout destroy observer error', err);
           }
           panelState.resizeObserver = null;
-          console.debug('Debug: componentLayout ResizeObserver disconnected', { component: componentName });
+          debugLog('Debug: componentLayout ResizeObserver disconnected', { component: componentName });
         }
         const resizeApi = elements.resizeTarget?.__sharedResizableBoxApi;
       if(resizeApi && typeof resizeApi.destroy === 'function'){
@@ -2443,10 +2616,10 @@
           if(bucket.__default === layoutApi){
             bucket.__default = null;
           }
-          console.debug('Debug: componentLayout registry entry removed', { component: componentName });
+          debugLog('Debug: componentLayout registry entry removed', { component: componentName });
         }else if(layoutRegistry[componentName] === layoutApi){
           delete layoutRegistry[componentName];
-          console.debug('Debug: componentLayout registry entry removed', { component: componentName });
+          debugLog('Debug: componentLayout registry entry removed', { component: componentName });
         }
       }
     };
@@ -2461,7 +2634,7 @@
     }else{
       layoutRegistry[componentName] = layoutApi;
     }
-    console.debug('Debug: componentLayout registry updated', { component: componentName, tabId: layoutTabId || null, hasCapture: true, hasApply: true });
+    debugLog('Debug: componentLayout registry updated', { component: componentName, tabId: layoutTabId || null, hasCapture: true, hasApply: true });
 
     return layoutApi;
   };
@@ -2491,7 +2664,7 @@
     if(entry && typeof entry.captureState === 'function'){
       const targetTabId = normalizeTabId(options?.tabId || options?.workspaceTabId || options?.activeTabId);
       if(targetTabId && entry.elements && !elementsBelongToLayoutTab(entry.elements, targetTabId)){
-        console.debug('Debug: componentLayout.captureStateFor skipped tab-owner mismatch', {
+        debugLog('Debug: componentLayout.captureStateFor skipped tab-owner mismatch', {
           component: componentName,
           tabId: targetTabId,
           ownerTabId: resolveElementsOwnerTabId(entry.elements) || null
@@ -2504,7 +2677,7 @@
         console.error('Shared.componentLayout.captureStateFor error', { component: componentName, err });
       }
     }
-    console.debug('Debug: componentLayout.captureStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
+    debugLog('Debug: componentLayout.captureStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return null;
   };
 
@@ -2514,7 +2687,7 @@
     if(entry && typeof entry.applyState === 'function'){
       const targetTabId = normalizeTabId(options?.tabId || options?.workspaceTabId || options?.activeTabId);
       if(targetTabId && entry.elements && !elementsBelongToLayoutTab(entry.elements, targetTabId)){
-        console.debug('Debug: componentLayout.applyStateFor skipped tab-owner mismatch', {
+        debugLog('Debug: componentLayout.applyStateFor skipped tab-owner mismatch', {
           component: componentName,
           tabId: targetTabId,
           ownerTabId: resolveElementsOwnerTabId(entry.elements) || null
@@ -2527,7 +2700,7 @@
         console.error('Shared.componentLayout.applyStateFor error', { component: componentName, err });
       }
     }
-    console.debug('Debug: componentLayout.applyStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
+    debugLog('Debug: componentLayout.applyStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return false;
   };
 
@@ -2541,7 +2714,7 @@
         console.error('Shared.componentLayout.setIntrinsicContentSizeFor error', { component: componentName, err });
       }
     }
-    console.debug('Debug: componentLayout.setIntrinsicContentSizeFor skipped', {
+    debugLog('Debug: componentLayout.setIntrinsicContentSizeFor skipped', {
       component: componentName,
       tabId: options?.tabId || null,
       hasEntry: !!entry
@@ -2555,7 +2728,7 @@
     if(entry && entry.defaultState){
       return entry.defaultState;
     }
-    console.debug('Debug: componentLayout getDefaultStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
+    debugLog('Debug: componentLayout getDefaultStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return null;
   };
 
@@ -2574,7 +2747,7 @@
     if(storePendingScheduleSuppression(componentName, options)){
       return true;
     }
-    console.debug('Debug: componentLayout.suppressNextScheduleFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
+    debugLog('Debug: componentLayout.suppressNextScheduleFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return false;
   };
 
@@ -2622,7 +2795,7 @@
           requestedAspectLocked: typeof aspectLocked === 'boolean' ? aspectLocked : null
         })
       : false;
-    console.debug('Debug: componentLayout tab controls synced', {
+    debugLog('Debug: componentLayout tab controls synced', {
       component: componentName || null,
       tabId: tab?.id || tabId || null,
       aspectLocked: typeof aspectLocked === 'boolean' ? aspectLocked : null,

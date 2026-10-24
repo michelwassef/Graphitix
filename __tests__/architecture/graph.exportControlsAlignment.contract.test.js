@@ -3,7 +3,7 @@ const path = require('path');
 const { JSDOM } = require('jsdom');
 
 describe('graph export controls alignment', () => {
-  test('places every primary graph export row after its svgbox in the plot stack', () => {
+  test('keeps every primary graph export row after the shared graph frame', () => {
     const html = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
     const document = new JSDOM(html).window.document;
     const componentIds = [
@@ -20,7 +20,8 @@ describe('graph export controls alignment', () => {
       expect(stack?.classList.contains(`${component}-plot-stack`)).toBe(true);
       expect(controls.parentElement).toBe(stack);
       expect(svgBox.contains(controls)).toBe(false);
-      expect(svgBox.nextElementSibling).toBe(controls);
+      const frame = svgBox.parentElement?.classList.contains('graph-frame') ? svgBox.parentElement : null;
+      expect(svgBox.nextElementSibling === controls || frame?.nextElementSibling === controls).toBe(true);
       expect(controls.classList.contains('graph-export-controls')).toBe(true);
       if (component === 'box') {
         expect(controls.classList.contains('box-export-controls-row')).toBe(false);
@@ -28,6 +29,9 @@ describe('graph export controls alignment', () => {
     });
 
     const css = fs.readFileSync(path.resolve(__dirname, '../../css/style.css'), 'utf8');
+    const layout = fs.readFileSync(path.resolve(__dirname, '../../js/shared/componentLayout.js'), 'utf8');
+    expect(layout).toMatch(/className\s*=\s*['"]graph-frame['"]/);
+    expect(layout).toMatch(/className\s*=\s*['"]graph-controls-header['"]/);
     expect(css).toMatch(/\.graph-export-controls\s*\{[^}]*justify-content:\s*flex-start;/);
     expect(css).not.toMatch(/\.svgbox\[data-graph-content-envelope="true"\]\s*>\s*\[id\$="ExportControls"\]/);
   });

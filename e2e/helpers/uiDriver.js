@@ -15,6 +15,7 @@ function resolveComponent(componentOrType) {
 
 async function clickExampleButton(page, componentOrType, options = {}) {
   const component = resolveComponent(componentOrType);
+  await activateToolbarSection(page, component, 'General', options);
   const timeout = Number.isFinite(Number(options.timeout)) ? Number(options.timeout) : 20_000;
   const root = page.locator(`#${component.pageId}:not([hidden])`).first();
   await root.waitFor({ state: 'visible', timeout });
@@ -83,9 +84,23 @@ async function activateToolbarSection(page, componentOrType, sectionLabel, optio
   return toolbar;
 }
 
+async function selectReplicateMode(page, componentOrType, value) {
+  const component = resolveComponent(componentOrType);
+  const toolbar = await activateToolbarSection(page, component, 'Data');
+  const button = toolbar.locator(`button[data-replicate-value="${value}"]`);
+  await button.click();
+  await page.waitForFunction(({ pageId, expected }) => {
+    const root = document.querySelector(`#${pageId}:not([hidden])`);
+    return root?.querySelector('[data-replicate-select]')?.value === expected
+      && root?.querySelector('[data-replicate-value][aria-pressed="true"]')?.dataset.replicateValue === expected;
+  }, { pageId: component.pageId, expected: value });
+  return toolbar;
+}
+
 module.exports = {
   activateTab,
   activateToolbarSection,
   clickExampleButton,
+  selectReplicateMode,
   resolveComponent
 };

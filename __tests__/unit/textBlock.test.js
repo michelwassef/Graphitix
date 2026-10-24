@@ -68,6 +68,33 @@ describe('shared SVG text blocks', () => {
     ], { fontSize: 8, scale: 0.5 })).toBeCloseTo(12, 6);
   });
 
+  test('moves multiline anchors, alignment, line spacing, and rotation together without rebuilding styled lines', () => {
+    const textBlock = window.Shared.textBlock;
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.dataset.fontRole = 'yTitle';
+    title.setAttribute('x', '100');
+    title.setAttribute('y', '30');
+    title.setAttribute('text-anchor', 'middle');
+    textBlock.renderLines(title, 'Long line\nx', (row, line) => { row.textContent = line.text; });
+    const rows = Array.from(title.children);
+    rows[0].getComputedTextLength = () => 80;
+    rows[1].getComputedTextLength = () => 10;
+    rows[1].setAttribute('fill', 'red');
+    textBlock.applyAlignment(title, 'right');
+    const spacing = Number(rows[1].getAttribute('y')) - Number(rows[0].getAttribute('y'));
+    textBlock.setPosition(title, { x: 120, y: 45, angle: -90 });
+    expect(Array.from(title.children)).toEqual(rows);
+    expect(rows.map(row => [Number(row.getAttribute('x')), Number(row.getAttribute('y'))])).toEqual([[160, 45], [160, 45 + spacing]]);
+    expect(title.getAttribute('data-title-anchor-x')).toBe('120');
+    expect(title.getAttribute('data-title-anchor-y')).toBe('45');
+    expect(title.getAttribute('transform')).toBe('rotate(-90 120 45)');
+    expect(rows[1].getAttribute('fill')).toBe('red');
+    textBlock.applyAlignment(title, 'left');
+    expect(rows.map(row => Number(row.getAttribute('x')))).toEqual([80, 80]);
+    textBlock.setPosition(title, { x: 120, y: 45, angle: -90 });
+    expect(rows.map(row => Number(row.getAttribute('x')))).toEqual([80, 80]);
+  });
+
   test('marks drafts with the explicit owning tab and component', () => {
     const target = document.createElement('text');
     const mark = jest.fn(() => true);

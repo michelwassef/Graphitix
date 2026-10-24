@@ -11,6 +11,8 @@ function installDomControls() {
   }
   initializeWorkspaceHarness();
   require('../js/main/session.js');
+  require('../js/main/workspacePresentation.js');
+  require('../js/main/workspacePreparation.js');
   require('../js/shared/colorSchemes.js');
   require('../js/main/domControls.js');
 }

@@ -329,6 +329,8 @@ describe('Venn UpSet integration', () => {
 
     const svgBox = hooks.state.ui.svgBox || document.querySelector('#vennGraphPanel .svgbox');
     expect(svgBox).toBeTruthy();
+    const originalGraphWidth = svgBox.dataset.graphWidthPx;
+    const originalGraphHeight = svgBox.dataset.graphHeightPx;
     const originalGetRect = svgBox.getBoundingClientRect.bind(svgBox);
     let mockWidth = 420;
     let mockHeight = 300;
@@ -344,23 +346,35 @@ describe('Venn UpSet integration', () => {
       toJSON: () => ({ width: mockWidth, height: mockHeight })
     });
 
-    venn.refreshDiagram();
-    const stage = document.getElementById('stage');
-    const firstCircle = stage?.querySelector('circle');
-    expect(firstCircle).toBeTruthy();
-    const firstRadius = Number(firstCircle.getAttribute('r'));
-    expect(Number.isFinite(firstRadius)).toBe(true);
+    try {
+      svgBox.dataset.graphWidthPx = String(mockWidth);
+      svgBox.dataset.graphHeightPx = String(mockHeight);
+      venn.refreshDiagram();
+      const stage = document.getElementById('stage');
+      const firstCircle = stage?.querySelector('circle');
+      expect(firstCircle).toBeTruthy();
+      const firstRadius = Number(firstCircle.getAttribute('r'));
+      expect(Number.isFinite(firstRadius)).toBe(true);
 
-    mockWidth = 840;
-    mockHeight = 600;
-    venn.refreshDiagram();
-    const secondCircle = stage?.querySelector('circle');
-    expect(secondCircle).toBeTruthy();
-    const secondRadius = Number(secondCircle.getAttribute('r'));
-    expect(Number.isFinite(secondRadius)).toBe(true);
-    expect(secondRadius).toBeGreaterThan(firstRadius);
-
-    svgBox.getBoundingClientRect = originalGetRect;
+      // The renderer follows the published canonical graph frame, not a mocked
+      // CSS rectangle that may only describe display zoom or outer sizing.
+      mockWidth = 840;
+      mockHeight = 600;
+      svgBox.dataset.graphWidthPx = String(mockWidth);
+      svgBox.dataset.graphHeightPx = String(mockHeight);
+      venn.refreshDiagram();
+      const secondCircle = stage?.querySelector('circle');
+      expect(secondCircle).toBeTruthy();
+      const secondRadius = Number(secondCircle.getAttribute('r'));
+      expect(Number.isFinite(secondRadius)).toBe(true);
+      expect(secondRadius).toBeGreaterThan(firstRadius);
+    } finally {
+      svgBox.getBoundingClientRect = originalGetRect;
+      if (originalGraphWidth === undefined) delete svgBox.dataset.graphWidthPx;
+      else svgBox.dataset.graphWidthPx = originalGraphWidth;
+      if (originalGraphHeight === undefined) delete svgBox.dataset.graphHeightPx;
+      else svgBox.dataset.graphHeightPx = originalGraphHeight;
+    }
   });
 
   test('UpSet horizontal grid lines align to y-axis and skip x-axis baseline', async () => {

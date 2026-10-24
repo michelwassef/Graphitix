@@ -1,6 +1,6 @@
 'use strict';
 
-const { inspectOwnerReadiness } = require('../../test-support/readiness.js');
+const { inspectOwnerReadiness,waitForIntegrationOwnerReady } = require('../../test-support/readiness.js');
 
 describe('owner readiness predicate', () => {
   beforeEach(() => {
@@ -29,8 +29,45 @@ describe('owner readiness predicate', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     delete global.window;
     delete global.document;
+  });
+
+  test('integration wait observes owner completion rather than counting timer turns', async () => {
+    jest.useFakeTimers();
+    let idle=false;
+    global.window.Components.box.__asyncScope.snapshot=()=>({generation:0,idle});
+    let completed=false;
+    const result=waitForIntegrationOwnerReady({type:'box'}).then(value=>{completed=true;return value;});
+    await jest.advanceTimersByTimeAsync(5);
+    expect(completed).toBe(false);
+    idle=true;
+    await jest.advanceTimersByTimeAsync(1);
+    expect((await result).owner.activeTabId).toBe('tab-a');
+  });
+
+  test('integration wait includes the caller completion condition', async () => {
+    jest.useFakeTimers();
+    let calculated=false;
+    let completed=false;
+    const result=waitForIntegrationOwnerReady({type:'box',condition:()=>calculated}).then(value=>{completed=true;return value;});
+    await jest.advanceTimersByTimeAsync(5);
+    expect(completed).toBe(false);
+    calculated=true;
+    await jest.advanceTimersByTimeAsync(1);
+    expect((await result).ready).toBe(true);
+  });
+
+  test('integration wait cannot silently follow another active owner', async () => {
+    jest.useFakeTimers();
+    global.window.Components.box.__asyncScope.snapshot=()=>({generation:0,idle:false});
+    const result=waitForIntegrationOwnerReady({type:'box',timeout:10});
+    const assertion=expect(result).rejects.toThrow(/active-owner-mismatch/);
+    global.window.Main.session.workspaceState.activeTabId='tab-b';
+    global.window.Main.session.workspaceState.tabs.push({id:'tab-b',type:'box'});
+    await jest.advanceTimersByTimeAsync(11);
+    await assertion;
   });
 
   test('rejects a mismatched requested owner', () => {

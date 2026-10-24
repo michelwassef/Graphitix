@@ -4,6 +4,7 @@ const {
   openComponentFromWelcome
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
+const { expectTargetsAtLeast24 } = require('../helpers/targetSizeAssertions');
 
 const COMPONENTS_WITH_AXES = new Set([
   'box',
@@ -117,7 +118,17 @@ for (const component of COMPONENT_MATRIX) {
       hidden: true
     });
 
-    await svgBox.locator('.resizer-options-summary').click();
+    const optionsSummary = svgBox.locator('.resizer-options-summary');
+    await expectTargetsAtLeast24(optionsSummary, `${component.type} graph options trigger`);
+    await optionsSummary.click();
+    const optionTargets = svgBox.locator([
+      '.resizer-options-menu .resizer-aspect-control:visible',
+      '.resizer-options-menu .resizer-fontresize-control:visible',
+      '.resizer-options-menu .resizer-title-control:visible',
+      '.resizer-options-menu .resizer-legend-control:visible',
+      '.resizer-options-menu .resizer-axeslength-summary:visible'
+    ].join(', '));
+    await expectTargetsAtLeast24(optionTargets, `${component.type} visible graph-option controls`);
     await expect(graphToggle).toBeVisible();
     await expect(graphToggle).not.toBeChecked();
     await graphToggle.check();
@@ -214,7 +225,17 @@ test('Pie exposes axis-title visibility only for Stacked Bar and preserves its p
   const axesToggle = svgBox.locator('.resizer-axes-title-checkbox');
   const axesControl = svgBox.locator('.resizer-axes-title-control');
   await expect(axesToggle).toBeAttached();
-  await svgBox.locator('.resizer-options-summary').click();
+  const optionsSummary = svgBox.locator('.resizer-options-summary');
+  await expectTargetsAtLeast24(optionsSummary, 'Pie graph options trigger');
+  await optionsSummary.click();
+  const optionTargets = svgBox.locator([
+    '.resizer-options-menu .resizer-aspect-control:visible',
+    '.resizer-options-menu .resizer-fontresize-control:visible',
+    '.resizer-options-menu .resizer-title-control:visible',
+    '.resizer-options-menu .resizer-legend-control:visible',
+    '.resizer-options-menu .resizer-axeslength-summary:visible'
+  ].join(', '));
+  await expectTargetsAtLeast24(optionTargets, 'Pie visible graph-option controls');
   await expect.poll(() => axesControl.evaluate(control => control.hidden)).toBe(true);
   await expect(axesControl).toBeHidden();
 

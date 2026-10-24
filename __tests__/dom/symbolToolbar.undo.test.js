@@ -27,6 +27,7 @@ function selectScopedOption(selectEl, value, dataset){
 describe('Shared symbol and line control undo', () => {
   beforeEach(() => {
     jest.resetModules();
+    window.Main = { session: { getActiveTab: () => ({ id: 'tab-a' }) } };
     loadUndoDeps();
     window.Shared.undoManager.clear();
   });
@@ -419,6 +420,7 @@ describe('Shared symbol and line control undo', () => {
     const { Shared } = window;
     const anchor = document.createElement('button');
     anchor.id = 'lineUndoUnitFontHost';
+    anchor.dataset.workspaceTabId = 'tab-a';
     document.body.appendChild(anchor);
     const scopeA = Shared.encodeScopeValue('series', 'A');
     const scopeB = Shared.encodeScopeValue('series', 'B');
@@ -494,6 +496,7 @@ describe('Shared symbol and line control undo', () => {
     const { Shared } = window;
     const anchor = document.createElement('button');
     anchor.id = 'lineGlobalUndoFontHost';
+    anchor.dataset.workspaceTabId = 'tab-a';
     document.body.appendChild(anchor);
     const scopeA = Shared.encodeScopeValue('series', 'A');
     const scopeB = Shared.encodeScopeValue('series', 'B');
@@ -559,6 +562,7 @@ describe('Shared symbol and line control undo', () => {
     const { Shared } = window;
     const anchor = document.createElement('button');
     anchor.id = 'lineAtomicUndoFontHost';
+    anchor.dataset.workspaceTabId = 'tab-a';
     document.body.appendChild(anchor);
     const scopeOptions = [{ value: 'global', label: 'Global' }].concat(
       Array.from({ length: 600 }, (_, index) => ({
@@ -616,6 +620,7 @@ describe('Shared symbol and line control undo', () => {
   test('gridControls color preview plus commit records one undo entry', () => {
     const { Shared } = window;
     Shared.getWorkspaceToolbarApi = () => ({
+      ...Shared.workspaceToolbar,
       createSubPanel({ title, panelClass, rowClass }){
         const panel = document.createElement('div');
         panel.className = panelClass || '';
@@ -673,6 +678,7 @@ describe('Shared symbol and line control undo', () => {
     });
 
     const anchor = document.createElement('div');
+    anchor.dataset.workspaceTabId = 'tab-a';
     document.body.appendChild(anchor);
     const state = { color: '#111111', thickness: 1, pattern: 'solid', transparency: 0 };
 

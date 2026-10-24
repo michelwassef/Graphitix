@@ -81,7 +81,7 @@ describe('box frame/layout commit contract', () => {
     expect(source).toMatch(/function scheduleBoxDrawForSession[\s\S]*runtime\.scheduled = true/);
     expect(source).toMatch(/async function runBoxDrawCycle[\s\S]*runtime\.scheduled = false/);
     expect(source).toMatch(/box\.isIdleForSnapshot[\s\S]*!runtime\.scheduled/);
-    expect(source).toMatch(/box\.draw = function[\s\S]*return scheduleBoxDrawForSession\(drawSession, guardedOptions\)/);
+    expect(source).toMatch(/box\.draw = function[\s\S]*return scheduleBoxDrawForSession\(boundSession, guardedOptions\)/);
   });
 
 });

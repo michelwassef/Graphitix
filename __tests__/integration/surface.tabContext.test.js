@@ -148,7 +148,6 @@ describe('Surface tab context isolation', () => {
 
     expect(surface.applyRuntimeState({
       fileName: 'surface-owner-a-updated.graph',
-      fileHandle: null,
       autoDrawEnabled: true,
       autoDrawReason: { type: 'inactive-a-update' }
     }, { tabId: tabA.id, reason: 'test-apply-inactive-owner-a' })).toBe(true);
@@ -158,7 +157,7 @@ describe('Surface tab context isolation', () => {
     expect(surface.__getState().fileName).toBe('surface-owner-b.graph');
     expect(surface.__getState().autoDrawReason).toEqual({ type: 'manual-b' });
     expect(surface.__testHooks.getSession(tabA.id)?.state?.fileName).toBe('surface-owner-a-updated.graph');
-    expect(surface.__testHooks.getSession(tabA.id)?.managers?.fileHandle).toBeNull();
+    expect(surface.__testHooks.getSession(tabA.id)?.managers).not.toHaveProperty('fileHandle');
   });
 
 });

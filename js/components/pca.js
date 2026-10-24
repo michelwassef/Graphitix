@@ -1,6 +1,7 @@
 (function(global) {
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  const DRAW_OUTCOME = Shared.componentLifecycle.DRAW_OUTCOME;
   const pcaTableModel = Shared.pcaTableModel = Shared.pcaTableModel || {};
   if(typeof pcaTableModel.resolvePcaDataStartRow !== 'function' && typeof require === 'function'){
     try{
@@ -200,10 +201,6 @@
   }
   pca.__installed = true;
   pca.ready = false;
-  const fileIO = Shared.fileIO = Shared.fileIO || {};
-  if (!fileIO.saveGraphFile) {
-    debugLog('Debug: pca component awaiting Shared.fileIO helpers');
-  }
   if (!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function') {
     debugLog('Debug: pca component awaiting Shared.tableImport helpers');
   }
@@ -301,6 +298,8 @@
   const PCA_LOADINGS_ROW_LIMIT = 100;
   const PCA_DEFAULT_COMPONENT_SELECTION_RULE = 'all';
   const PCA_DEFAULT_EIGEN_THRESHOLD = 1;
+  // Responsive Monte Carlo default. The estimated 95th percentile can vary
+  // between budgets; the UI lets users increase runs for borderline retention.
   const PCA_DEFAULT_PARALLEL_ITERATIONS = 200;
   const PCA_MAX_PARALLEL_ITERATIONS = 500;
   const PCA_PARALLEL_MAX_CELLS = 40000;
@@ -347,15 +346,13 @@
     const tsneControls = getPcaNodeById('pcaTsneControls');
     if (tsneControls) {
       const showTsne = methodName === 'tsne';
-      tsneControls.hidden = !showTsne;
-      tsneControls.style.display = showTsne ? '' : 'none';
+      setPcaControlVisibility(tsneControls, showTsne);
     }
 
     const umapControls = getPcaNodeById('pcaUmapControls');
     if (umapControls) {
       const showUmap = methodName === 'umap';
-      umapControls.hidden = !showUmap;
-      umapControls.style.display = showUmap ? '' : 'none';
+      setPcaControlVisibility(umapControls, showUmap);
     }
 
     const viewModeSelect = getPcaNodeById('pcaViewMode');
@@ -363,7 +360,7 @@
       Array.from(viewModeSelect.options).forEach(opt => {
         if (opt && opt.value === '3d') {
           opt.disabled = !supports3d;
-          opt.hidden = !supports3d;
+          setPcaControlVisibility(opt, supports3d);
         }
       });
       viewModeSelect.value = viewMode;
@@ -372,14 +369,12 @@
     const axis3dControl = getPcaNodeById('pcaAxis3DControl');
     if (axis3dControl) {
       const show3dAxis = viewMode === '3d';
-      axis3dControl.hidden = !show3dAxis;
-      axis3dControl.style.display = show3dAxis ? '' : 'none';
+      setPcaControlVisibility(axis3dControl, show3dAxis);
     }
     const methodAdvanced = getPcaNodeById('pcaMethodAdvancedSection');
     if (methodAdvanced) {
       const showAdvanced = methodName === 'pca';
-      methodAdvanced.hidden = !showAdvanced;
-      methodAdvanced.style.display = showAdvanced ? '' : 'none';
+      setPcaControlVisibility(methodAdvanced, showAdvanced);
     }
   }
 
@@ -640,6 +635,7 @@
     const wrapper = doc.createElement('span');
     wrapper.className = 'ag-checkbox-input-wrapper';
     wrapper.style.position = 'relative';
+    wrapper.setAttribute('aria-hidden', 'true');
     const input = doc.createElement('input');
     input.type = 'checkbox';
     input.className = 'ag-checkbox-input';
@@ -1254,9 +1250,6 @@
     const hotRoot = pcaHot.rootElement ||
       pcaHot.__pcaHostContainer ||
       getPcaNodeById('pcaHot');
-    if (hotRoot?.classList) {
-      hotRoot.classList.remove('pca-grouped-nested-only');
-    }
     if (hotRoot?.style) {
       if (pcaState.tableFormat === 'grouped') {
         const replicates = getPcaGroupedReplicateCount();
@@ -1423,6 +1416,7 @@
       cols: DEFAULT_COLS
     }, scheduleDrawPcaProxy, {
       debugLabel: 'pca',
+      ariaLabel: 'PCA input data table',
       data: pcaData,
       pinFirstColumn: true,
       firstRowClassName: 'hot-header-row htCenter',
@@ -1467,13 +1461,6 @@
             baseStyle = Object.assign({}, existingCellStyle);
           }
           const physicalRow = params?.data?.__rowIndex;
-          if (
-            Number.isInteger(physicalRow) &&
-            physicalRow >= PCA_LABEL_ROW_INDEX &&
-            physicalRow <= getPcaHeaderRowIndexForMode()
-          ) {
-            baseStyle.backgroundColor = '#f5f5f5';
-          }
           if (physicalRow === PCA_LABEL_ROW_INDEX && colIndex >= 1) {
             baseStyle.cursor = 'pointer';
           }
@@ -2525,7 +2512,8 @@
     if (!doc) {
       return;
     }
-    let axesControl = pcaSvgBoxRef.querySelector('.resizer-axeslength-control');
+    const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox: pcaSvgBoxRef }) || pcaSvgBoxRef;
+    let axesControl = controlsHost.querySelector('.resizer-axeslength-control');
     if (!axesControl) {
       axesControl = doc.createElement('details');
       axesControl.className = 'resizer-axeslength-control';
@@ -2872,6 +2860,7 @@
     menu.className = 'tab-context-menu pca-point-context-menu';
     menu.hidden = true;
     menu.dataset.pcaContextMenu = '1';
+    menu.id = 'pcaPointContextMenu';
     menu.setAttribute('role', 'menu');
     menu.style.position = 'absolute';
     menu.style.left = '0px';
@@ -2880,6 +2869,7 @@
     const makeItem = (action, label) => {
       const btn = doc.createElement('button');
       btn.type = 'button';
+      btn.setAttribute('role', 'menuitem');
       btn.className = 'tab-context-menu__item';
       btn.dataset.action = action;
       btn.textContent = label;
@@ -2888,6 +2878,24 @@
 
     const labelItem = makeItem('toggle-label', 'Add label');
     menu.appendChild(labelItem);
+    menu.__menuKeyboard = Shared.menuKeyboard?.attach(menu, {
+      manageTriggerState: false,
+      getFocusTarget: trigger => {
+        const plotRoot = trigger?.closest?.('#pcaPlot') || getPcaNodeById('pcaPlot');
+        Shared.chartPointKeyboard?.activatePoint(plotRoot, trigger);
+        if(trigger?.namespaceURI === 'http://www.w3.org/2000/svg' && !trigger.hasAttribute('tabindex')){
+          trigger.setAttribute('tabindex', '-1');
+        }
+        return trigger;
+      },
+      onClose: ({ reason }) => {
+        menu.__pcaPointData = null;
+        menu.__pcaPointOwnerTabId = null;
+        if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
+          debugLog('Debug: pca point context menu hidden', { reason: reason || 'unknown' });
+        }
+      }
+    }) || null;
 
     menu.addEventListener('contextmenu', evt => {
       try {
@@ -2907,6 +2915,11 @@
         evt.stopPropagation();
       } catch (e) {}
       const data = menu.__pcaPointData;
+      const ownerTabId = menu.__pcaPointOwnerTabId;
+      if(!ownerTabId || String(getPcaProjectionTabId() || '') !== String(ownerTabId)){
+        hide('owner-changed');
+        return;
+      }
       const hot = pcaState.hot || pcaHotInstance || ensurePcaHotForActiveTab?.();
       let columnIndex = Number.isInteger(data?.columnIndex) ? data.columnIndex : null;
       if (columnIndex === null && hot && data?.label) {
@@ -2925,11 +2938,13 @@
           toggled
         });
       }
+      hide('action-complete');
       scheduleActivePcaDraw({
+        tabId: ownerTabId,
         reason: 'point-context-menu',
         renderImpact: 'layout'
       });
-      hide('action-complete');
+      restorePcaPointFocusAfterDraw(data, ownerTabId);
     });
 
     if (doc.body) {
@@ -2949,14 +2964,6 @@
         }
         hidePcaPointContextMenu('outside-click');
       }, true);
-      doc.addEventListener('keydown', evt => {
-        if (!pcaPointContextMenu || pcaPointContextMenu.hidden) {
-          return;
-        }
-        if (evt?.key === 'Escape') {
-          hidePcaPointContextMenu('escape');
-        }
-      }, true);
       global.addEventListener?.('resize', () => hidePcaPointContextMenu('resize'), true);
       global.addEventListener?.('scroll', () => hidePcaPointContextMenu('scroll'), true);
     }
@@ -2968,6 +2975,13 @@
     if (!pcaPointContextMenu || pcaPointContextMenu.hidden) {
       return;
     }
+    if (pcaPointContextMenu.__menuKeyboard) {
+      pcaPointContextMenu.__menuKeyboard.close({
+        reason: reason || 'close',
+        restoreFocus: reason === 'escape' || reason === 'tab'
+      });
+      return;
+    }
     pcaPointContextMenu.hidden = true;
     pcaPointContextMenu.__pcaPointData = null;
     if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
@@ -2977,30 +2991,52 @@
     }
   }
 
-  function positionPcaPointContextMenu(menu, pageX, pageY) {
-    if (!menu) {
+  function closePcaPointContextMenuForTab(tabId){
+    const targetTabId = String(tabId || '').trim();
+    const menuOwnerTabId = String(pcaPointContextMenu?.__pcaPointOwnerTabId || '').trim();
+    if(targetTabId && menuOwnerTabId === targetTabId){
+      hidePcaPointContextMenu('owner-changed');
+    }
+  }
+
+  function restorePcaPointFocusAfterDraw(data, ownerTabId){
+    if(!ownerTabId || typeof pca.awaitReadyForSnapshot !== 'function'){
       return;
     }
-    const x = Number(pageX) || 0;
-    const y = Number(pageY) || 0;
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
-    const rect = menu.getBoundingClientRect?.();
-    const docEl = global.document?.documentElement;
-    const viewportW = global.innerWidth || docEl?.clientWidth || 0;
-    const viewportH = global.innerHeight || docEl?.clientHeight || 0;
-    if (rect && viewportW && viewportH) {
-      let nextLeft = x;
-      let nextTop = y;
-      if (rect.right > viewportW - 6) {
-        nextLeft = Math.max(6, viewportW - rect.width - 6);
-      }
-      if (rect.bottom > viewportH - 6) {
-        nextTop = Math.max(6, viewportH - rect.height - 6);
-      }
-      menu.style.left = `${nextLeft}px`;
-      menu.style.top = `${nextTop}px`;
-    }
+    pca.awaitReadyForSnapshot({ tabId: ownerTabId, reason: 'point-menu-focus-return', timeoutMs: 30_000, settleFrames: 1 })
+      .then(readiness => {
+        if(!readiness?.ok || String(getPcaProjectionTabId() || '') !== String(ownerTabId)){
+          return;
+        }
+        const root = resolvePcaRoot(ownerTabId);
+        const points = Array.from(root?.querySelectorAll?.('#pcaPlot [data-pca-point-interaction]') || []);
+        let target = points.find(node => {
+          try{
+            const point = JSON.parse(node.getAttribute('data-pca-point-interaction') || '{}');
+            if(Number.isInteger(data?.index) && point.index === data.index){
+              return true;
+            }
+            return Number.isInteger(data?.columnIndex)
+              && point.columnIndex === data.columnIndex
+              && point.label === data.label;
+          }catch(_err){
+            return false;
+          }
+        }) || null;
+        target = target || root?.querySelector?.('#pcaPlot') || null;
+        if(!target){
+          return;
+        }
+        if(!target.hasAttribute('tabindex')){
+          target.setAttribute('tabindex', '-1');
+        }
+        target.focus();
+      })
+      .catch(err => {
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          debugLog('Debug: pca point focus restore failed', { message: err?.message || String(err), tabId: ownerTabId });
+        }
+      });
   }
 
   function isPcaColumnLabelSelected(hotInstance, columnIndex) {
@@ -3104,6 +3140,7 @@
       return;
     }
     menu.__pcaPointData = data || null;
+    menu.__pcaPointOwnerTabId = getPcaProjectionTabId() || null;
     const hot = pcaState.hot || pcaHotInstance || ensurePcaHotForActiveTab?.();
     let columnIndex = Number.isInteger(data?.columnIndex) ? data.columnIndex : null;
     if (columnIndex === null && hot && data?.label) {
@@ -3115,9 +3152,13 @@
       labelItem.textContent = alreadySelected ? 'Remove label' : 'Add label';
       labelItem.disabled = columnIndex === null || !hot;
     }
-    menu.hidden = false;
     const pos = getPcaEventPagePosition(evt);
-    positionPcaPointContextMenu(menu, pos.x, pos.y);
+    Shared.menuPosition.placeAtPagePoint(menu, pos.x, pos.y);
+    if (menu.__menuKeyboard) {
+      menu.__menuKeyboard.open(evt?.currentTarget || null);
+    } else {
+      menu.hidden = false;
+    }
     if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
       debugLog('Debug: pca point context menu shown', {
         columnIndex,
@@ -3139,6 +3180,21 @@
       evt.stopPropagation();
     } catch (e) {}
     hidePcaTooltip('context-menu');
+    showPcaPointContextMenu(evt, data);
+  }
+
+  function handlePcaPointContextMenuKeyDown(evt) {
+    if (evt?.key !== 'ContextMenu' && !(evt?.key === 'F10' && evt.shiftKey)) {
+      return;
+    }
+    const target = evt?.currentTarget;
+    const data = target?.__pcaPointData;
+    if (!data) {
+      return;
+    }
+    evt.preventDefault();
+    evt.stopPropagation();
+    hidePcaTooltip('context-menu-keyboard');
     showPcaPointContextMenu(evt, data);
   }
 
@@ -3170,12 +3226,46 @@
     }, true);
   }
 
+  function configurePcaChartPointKeyboard(plotRoot, ownerTabId = getPcaProjectionTabId()){
+    return Shared.chartPointKeyboard?.attach(plotRoot, {
+      componentKey: 'pca',
+      componentLabel: 'PCA',
+      instructions: 'Arrow keys move between points. Enter opens point formatting; Shift+F10 opens point actions. Use the data table for points rendered in aggregate.',
+      pointSelector: '[data-pca-point-interaction]',
+      ownerTabId,
+      getCurrentOwnerTabId: getPcaProjectionTabId,
+      getPointKey: point => Number.isInteger(point.index)
+        ? `index:${point.index}`
+        : `column:${point.columnIndex ?? ''}:${point.label || ''}`,
+      describePoint: point => {
+        const name = String(point.label || '').trim()
+          || (Number.isInteger(point.index) ? `Data point ${point.index + 1}` : 'Data point');
+        const details = [`Sample ${name}`];
+        if(point.groupName){
+          details.push(`Group ${point.groupName}`);
+        }
+        if(point.x != null){
+          details.push(`${point.xLabel || 'X'} ${point.x}`);
+        }
+        if(point.y != null){
+          details.push(`${point.yLabel || 'Y'} ${point.y}`);
+        }
+        if(point.z != null){
+          details.push(`${point.zLabel || 'Z'} ${point.z}`);
+        }
+        return details.join(', ');
+      }
+    });
+  }
+
   function attachPcaPointTooltip(el, data) {
     if (!el || !data) {
       return;
     }
     el.__pcaPointData = data;
     try { el.setAttribute('data-pca-point-interaction', JSON.stringify(data)); } catch (_err) {}
+    const plotRoot = el.closest?.('#pcaPlot') || getPcaNodeById('pcaPlot');
+    Shared.chartPointKeyboard?.registerPoint(plotRoot, el, data);
     if (el.__graphitixPcaPointTooltipBound === true) {
       bindPcaPointFormatInteraction(el);
       return;
@@ -3185,6 +3275,7 @@
     el.addEventListener('mouseleave', handlePcaPointLeave);
     bindPcaPointFormatInteraction(el);
     el.addEventListener('contextmenu', handlePcaPointContextMenu);
+    el.addEventListener('keydown', handlePcaPointContextMenuKeyDown);
     el.__graphitixPcaPointTooltipBound = true;
   }
 
@@ -5368,7 +5459,8 @@
     const showFrameInput = getPcaNodeById('pcaShowFrame');
     const showLegendInput = getPcaNodeById('pcaShowLegend') || pcaShowLegendInput;
     const standardizeInput = getPcaNodeById('pcaStandardizeVariables');
-    const equalAxisLengthsInput = pcaSvgBoxRef?.querySelector?.('.resizer-axeslength-checkbox--equal-scale') || pcaEqualAxisLengthsInput;
+    const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox: pcaSvgBoxRef }) || pcaSvgBoxRef;
+    const equalAxisLengthsInput = controlsHost?.querySelector?.('.resizer-axeslength-checkbox--equal-scale') || pcaEqualAxisLengthsInput;
     const preprocessingInput = getPcaNodeById('pcaPreprocessing');
     const dotSizeInput = getPcaNodeById('pcaDotSize');
     const fillInput = getPcaNodeById('pcaFill');
@@ -5428,6 +5520,7 @@
         y: 2,
         z: 3
       },
+      explicitAxisLayout: null,
       axisMeta: [],
       rotation: plot3d.createRotationState({
         x: PCA_3D_DEFAULTS.rotationX,
@@ -5481,7 +5574,7 @@
         legend: null
       },
       theme: {
-        colorScheme: 'scientific',
+        colorScheme: 'normal',
         textColor: chartStyle.TEXT_COLOR || '#000000',
         backgroundColor: '#ffffff'
       },
@@ -5606,7 +5699,6 @@
         analysisRuntime: createDefaultPcaAnalysisRuntime(),
         statsRuntime: null
       },
-      listeners: new Map(),
       timers: {
         drawRuntime: createDefaultPcaDrawRuntime()
       },
@@ -5674,7 +5766,6 @@
     if (!Object.prototype.hasOwnProperty.call(session.cache, 'statsRuntime')) {
       session.cache.statsRuntime = null;
     }
-    session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if (Object.prototype.hasOwnProperty.call(session.timers, 'dataDrawTimer') || Object.prototype.hasOwnProperty.call(session.timers, 'dataDrawFrame')) {
       session.timers.drawRuntime = createDefaultPcaDrawRuntime({
@@ -5698,9 +5789,6 @@
     }
     if (!Object.prototype.hasOwnProperty.call(session.managers, 'layout')) {
       session.managers.layout = null;
-    }
-    if (!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')) {
-      session.managers.fileHandle = null;
     }
     pcaSessionShapeGuard(session);
     if (!session.cache.analysisRuntime.cache && session.cache.renderRuntime.cachedRender) {
@@ -6604,6 +6692,7 @@
         y: 2,
         z: 3
       },
+      explicitAxisLayout: normalizePca2dExplicitLayout(activeSession?.state?.state?.explicitAxisLayout),
       axisMeta: cloneSimple(pcaState.axisMeta) || [],
       rotation: cloneSimple(pcaState.rotation) || plot3d.createRotationState({
         x: PCA_3D_DEFAULTS.rotationX,
@@ -6649,7 +6738,7 @@
         legend: null
       },
       theme: cloneSimple(pcaState.theme) || {
-        colorScheme: 'scientific',
+        colorScheme: 'normal',
         textColor: chartStyle.TEXT_COLOR || '#000000',
         backgroundColor: '#ffffff'
       },
@@ -6787,7 +6876,7 @@
     pcaState.viewDirty = !!state.viewDirty;
     pcaState.labelPositions = normalizePcaLabelPositionsState(cloneSimple(state.labelPositions) || pcaState.labelPositions || {});
     pcaState.theme = cloneSimple(state.theme) || pcaState.theme || {
-      colorScheme: 'scientific',
+      colorScheme: 'normal',
       textColor: chartStyle.TEXT_COLOR || '#000000',
       backgroundColor: '#ffffff'
     };
@@ -7137,7 +7226,7 @@
   }
 
   function preserveRenderedPcaPointLabelPositions(session, reason = 'pca-point-label-font-position') {
-    const owner = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
+    const owner = ensurePcaSessionOwnershipShape(session);
     const root = owner?.refs?.root || owner?.root || null;
     const svg = root?.querySelector?.('#pcaSvg') || null;
     const nodes = svg ? Array.from(svg.querySelectorAll("[data-layer='point-labels'] text[data-point-label-key]")) : [];
@@ -7435,15 +7524,14 @@
       tabId: record.tabId,
       reason: meta?.reason || 'pca-owned-runtime-apply-snapshot'
     });
-    setPcaSessionStateFromRuntimeRecord(record, {
+    const session = setPcaSessionStateFromRuntimeRecord(record, {
       ...(meta || {}),
       tabId: record.tabId,
       reason: meta?.reason || 'pca-owned-runtime-apply-snapshot'
     });
-    return bindPcaOwnedRuntimeRecord(record.tabId, {
-      ...(meta || {}),
-      tabId: record.tabId
-    });
+    return isPcaSessionActiveForModuleState(session)
+      ? bindPcaOwnedRuntimeRecord(record.tabId, { ...(meta || {}), tabId: record.tabId })
+      : true;
   }
 
   function normalizePcaThemeColor(value, fallback) {
@@ -7458,12 +7546,12 @@
     const schemeId = resolved?.schemeId ||
       (typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim() ?
         cfg.colorScheme.trim().toLowerCase() :
-        (pcaState.theme?.colorScheme || 'scientific'));
+        (pcaState.theme?.colorScheme || 'normal'));
     const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
     if (!pcaState.theme || typeof pcaState.theme !== 'object') {
       pcaState.theme = {};
     }
-    pcaState.theme.colorScheme = schemeId || 'scientific';
+    pcaState.theme.colorScheme = schemeId || 'normal';
     pcaState.theme.textColor = normalizePcaThemeColor(
       cfg.textColor,
       resolved?.textColor || (isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000'))
@@ -7489,7 +7577,7 @@
         colorScheme: pcaState.theme?.colorScheme
       }
     });
-    if (!(resolved ? resolved.isDark === true : (String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark'))) {
+    if (!(resolved ? resolved.isDark === true : ((Shared.colorSchemes?.isDarkScheme?.(pcaState.theme?.colorScheme) ?? (String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark'))))) {
       if (svg.style) {
         svg.style.removeProperty('background-color');
       }
@@ -7580,7 +7668,7 @@
       const height = Number(svg.getAttribute('height')) || 0;
       appendPca3dBackground(svg, width, height);
       svg.querySelectorAll('text,tspan').forEach(node => node.setAttribute('fill', textColor));
-      const dark = String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark';
+      const dark = (Shared.colorSchemes?.isDarkScheme?.(pcaState.theme?.colorScheme) ?? (String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark'));
       const panes = Array.from(svg.querySelectorAll('[data-plot3d-panes="1"] polygon'));
       panes.forEach((node, index) => {
         const ratio = panes.length > 1 ? index / (panes.length - 1) : 0;
@@ -8088,6 +8176,13 @@
         create: false
       }) :
       getActivePcaSessionForState();
+    if (ownerTabId && !ownerSession) {
+      debugLog('Debug: pca view refresh skipped for missing owner session', {
+        reason: nextReason,
+        tabId: ownerTabId
+      });
+      return;
+    }
     // Mirror line.js (scheduleLineViewRefresh) / scatter.js (scheduleScatterViewRefresh):
     // derive interaction intent from the reason and propagate userInitiated/forceDraw so
     // user-driven refreshes (resize, style edits) are never dropped by the
@@ -8216,16 +8311,23 @@
       if (!isPcaFontStyleEvent(detail)) {
         return;
       }
+      const eventTabId = String(detail.tabId || '').trim();
       if (isPcaPointLabelFontStyleEvent(detail)) {
-        const tabId = detail.tabId || getPcaProjectionTabId() || null;
+        const tabId = eventTabId || getPcaProjectionTabId() || null;
         const owner = getPcaSession(tabId, {
           tabId,
           reason: 'pca-point-label-font-owner'
         }, { create: false });
+        if (tabId && !owner) {
+          debugLog('Debug: pca point-label font event skipped for missing owner session', {
+            tabId
+          });
+          return;
+        }
         preserveRenderedPcaPointLabelPositions(owner, 'pca-point-label-font-position');
       }
       requestPcaViewRefresh('font-style-change', {
-        tabId: detail.tabId || null,
+        tabId: eventTabId || null,
         renderImpact: 'layout'
       });
     });
@@ -8803,37 +8905,32 @@
     const currentX = Number(input.currentX);
     const currentY = Number(input.currentY);
     const boxHeight = Number(input.boxHeight);
-    const svgHeight = Number(input.svgHeight);
-    const baseHeight = Number(input.baseHeight);
+    const drawableHeight = Number(input.drawableHeight);
     const plotHeight = Number(input.plotHeight);
     const marginTop = Number(input.marginTop);
     const marginBottom = Number(input.marginBottom);
-    const frameAspect = Number(input.frameAspect);
-    const values = [requestedLength, currentX, currentY, boxHeight, svgHeight, baseHeight, plotHeight, frameAspect];
+    const values = [requestedLength, currentX, currentY, boxHeight, drawableHeight, plotHeight];
     if (!values.every(value => Number.isFinite(value) && value > 0)
       || !Number.isFinite(marginTop) || marginTop < 0
       || !Number.isFinite(marginBottom) || marginBottom < 0) {
       return null;
     }
     const metricAspect = currentX / currentY;
-    const svgScaleY = svgHeight / baseHeight;
     const plotProjectionScale = currentY / plotHeight;
-    if (!(metricAspect > 0) || !(svgScaleY > 0) || !(plotProjectionScale > 0)) {
+    if (!(metricAspect > 0) || !(plotProjectionScale > 0)) {
       return null;
     }
 
-    // Explicit PCA axis-length editing is a physical-size transaction. Keep the
-    // displayed numerical scales and top/bottom plot margins fixed for this draw,
+    // Explicit PCA axis-length editing establishes a durable physical layout. Keep
+    // the displayed numerical scales and top/bottom plot margins fixed,
     // then solve the outer frame directly. With those renderer-owned quantities
     // frozen, Y length is affine in frame height and X is metricAspect * Y.
     const targetPhysicalY = axis === 'x' ? requestedLength / metricAspect : requestedLength;
     const targetInternalPlotHeight = targetPhysicalY / plotProjectionScale;
-    const targetBaseHeight = marginTop + targetInternalPlotHeight + marginBottom;
-    const outerInset = boxHeight - svgHeight;
-    const targetSvgHeight = targetBaseHeight * svgScaleY;
-    const targetHeight = targetSvgHeight + outerInset;
-    const targetWidth = targetHeight * frameAspect;
-    if (!(targetWidth > 0) || !(targetHeight > 0)) {
+    const targetDrawableHeight = marginTop + targetInternalPlotHeight + marginBottom;
+    const outerInset = boxHeight - drawableHeight;
+    const targetHeight = targetDrawableHeight + outerInset;
+    if (!(targetHeight > 0)) {
       return null;
     }
     return {
@@ -8842,44 +8939,84 @@
       metricAspect,
       targetPhysicalY,
       targetInternalPlotHeight,
-      targetBaseHeight,
-      width: targetWidth,
+      targetDrawableHeight,
       height: targetHeight
     };
   }
 
-  function capturePca2dAxisLengthTransaction(ownerSession, target, axis, requestedLength) {
+  // Explicit physical sizing owns the numerical domains and the vertical plot
+  // rails. The frame remains resizer-owned; labels/titles extend its envelope.
+  // Coordinate changes invalidate this contract, while zoom/style/redraw do not.
+  function normalizePca2dExplicitLayout(value) {
+    if (!value || value.version !== 1 || typeof value.context !== 'string') return null;
+    const xScale = clonePcaAxisScaleForResize(value.xScale);
+    const yScale = clonePcaAxisScaleForResize(value.yScale);
+    const marginTop = Number(value.marginTop);
+    const marginBottom = Number(value.marginBottom);
+    if (!xScale || !yScale || !Number.isFinite(marginTop) || marginTop < 0
+      || !Number.isFinite(marginBottom) || marginBottom < 0) return null;
+    return { version: 1, context: value.context, xScale, yScale, marginTop, marginBottom };
+  }
+
+  function pca2dLayoutContext(session, signatures = null) {
+    const state = getPcaSessionOwnedState(session).state;
+    const controls = normalizePcaRuntimeControls(state.controls || {});
+    const analysis = signatures || getPcaAnalysisCache(session)?.signatures || {};
+    return JSON.stringify([
+      analysis.data || null, analysis.settings || null,
+      controls.method, controls.standardizeVariables, controls.preprocessing,
+      controls.tsne, controls.umap, state.axisSelection?.x, state.axisSelection?.y,
+      !!controls.equalAxisLengths,
+      state.axisSettings?.x?.tickInterval ?? null, state.axisSettings?.y?.tickInterval ?? null
+    ]);
+  }
+
+  function resolvePca2dExplicitLayout(session, context) {
+    const state = getPcaSessionOwnedState(session).state;
+    const layout = normalizePca2dExplicitLayout(state.explicitAxisLayout);
+    if (layout && layout.context === context) return layout;
+    if (state.explicitAxisLayout) {
+      state.explicitAxisLayout = null;
+      persistPcaSessionOwnedState(session, 'pca-axis-layout-invalidated');
+    }
+    return null;
+  }
+
+  function pca2dLayoutCacheKey(session) {
+    return JSON.stringify(normalizePca2dExplicitLayout(getPcaSessionOwnedState(session).state.explicitAxisLayout));
+  }
+
+  function isPca2dLayoutCacheCurrent(session, cache) {
+    const layout = normalizePca2dExplicitLayout(getPcaSessionOwnedState(session).state.explicitAxisLayout);
+    return (cache?.explicitAxisLayoutKey || 'null') === pca2dLayoutCacheKey(session)
+      && (!layout || layout.context === pca2dLayoutContext(session, cache?.runtimeCache?.signatures));
+  }
+
+  function preparePca2dAxisLengthResize(ownerSession, target, axis, requestedLength) {
     const owner = ensurePcaSessionOwnershipShape(ownerSession || getActivePcaSessionForState());
     const svg = target?.querySelector?.('#pcaSvg') || null;
-    if (!owner || !target || !svg || svg.dataset?.viewMode !== '2d' || !axisControls?.measureRenderedAxes) {
+    if (!owner || !target || !svg || svg.dataset?.viewMode !== '2d' || !axisControls?.measureCanonicalAxes) {
       return null;
     }
-    const measurement = axisControls.measureRenderedAxes(target);
-    const boxRect = target.getBoundingClientRect?.();
-    const svgRect = svg.getBoundingClientRect?.();
+    const measurement = axisControls.measureCanonicalAxes(target);
+    const frameHeight = Number(target.dataset?.resizerBaseHeight);
     const yAxis = measurement?.yElement || svg.querySelector?.('[data-axis-line="1"][data-axis-key="y"]') || null;
-    const baseHeight = Number(svg.dataset?.legendBaseHeight) || Number(svg.viewBox?.baseVal?.height) || Number(svg.getAttribute('height'));
+    const baseHeight = Number(svg.dataset?.cartesianUserHeight);
     const plotHeight = Number(svg.dataset?.pcaMetricPlotHeight);
     const marginTop = Number(yAxis?.getAttribute?.('y1'));
     const marginBottom = baseHeight - marginTop - plotHeight;
-    const state = target.__sharedResizableBoxApi?.getState?.() || null;
-    const configuredAspect = Number(state?.aspectRatio);
-    const measuredAspect = Number(boxRect?.width) / Number(boxRect?.height);
-    const frameAspect = Number.isFinite(configuredAspect) && configuredAspect > 0
-      ? configuredAspect
-      : measuredAspect;
     const plan = computePca2dAxisLengthResizePlan({
       axis,
       requestedLength,
       currentX: measurement?.x,
       currentY: measurement?.y,
-      boxHeight: boxRect?.height,
-      svgHeight: svgRect?.height,
-      baseHeight,
+      boxHeight: frameHeight,
+      // The plot lives in the canonical SVG base, not its display viewport or
+      // outward legend envelope. Both lengths use that same coordinate space.
+      drawableHeight: baseHeight,
       plotHeight,
       marginTop,
-      marginBottom,
-      frameAspect
+      marginBottom
     });
     const xScale = readPcaRenderedAxisScale(svg, 'x');
     const yScale = readPcaRenderedAxisScale(svg, 'y');
@@ -8887,25 +9024,13 @@
       return null;
     }
     const currentLength = axis === 'y' ? Number(measurement.y) : Number(measurement.x);
-    if (Number.isFinite(currentLength) && Math.abs(currentLength - Number(requestedLength)) <= 0.5) {
-      return { plan, transaction: null, settled: true, currentLength };
-    }
-    const runtime = getPcaRenderRuntime(owner, { seedFromActive: true });
-    const generation = (Number(runtime?.axisLengthTransaction?.generation) || 0) + 1;
-    const transaction = {
-      generation,
-      expiresAt: Date.now() + 5000,
-      axis: axis === 'y' ? 'y' : 'x',
-      requestedLength: Number(requestedLength),
-      marginTop,
-      marginBottom,
-      xScale,
-      yScale
-    };
-    updatePcaRenderRuntime(owner, nextRuntime => {
-      nextRuntime.axisLengthTransaction = transaction;
+    const settled = Number.isFinite(currentLength) && Math.abs(currentLength - Number(requestedLength)) <= 0.5;
+    const layout = normalizePca2dExplicitLayout({
+      version: 1,
+      context: pca2dLayoutContext(owner),
+      marginTop, marginBottom, xScale, yScale
     });
-    return { plan, transaction };
+    return { plan, layout, settled };
   }
 
   function updatePca2dAxisLength(valuePx, axis, ownerSession = null, options = {}) {
@@ -8913,43 +9038,24 @@
     const owner = ensurePcaSessionOwnershipShape(ownerSession || getActivePcaSessionForState());
     const target = resolvePcaAxisResizeTarget(owner);
     if (!owner || !target || !Number.isFinite(requestedLength) || requestedLength <= 0
-      || typeof Shared.applyResizableBoxSize !== 'function') {
-      return null;
-    }
-    const transaction = capturePca2dAxisLengthTransaction(owner, target, axis, requestedLength);
-    if (!transaction) {
-      debugLog('Debug: pca single-pass axis resize unavailable', {
-        axis,
-        requestedLength,
-        tabId: owner.tabId || null,
-        reason: options.reason || null
-      });
-      return null;
-    }
-    const axisKey = axis === 'y' ? 'y' : 'x';
-    const desiredDatasetKey = axisKey === 'y' ? 'axisDesiredLengthY' : 'axisDesiredLengthX';
-    const desiredTimestampKey = axisKey === 'y' ? 'axisDesiredLengthYTs' : 'axisDesiredLengthXTs';
-    if (target.dataset) {
-      target.dataset[desiredDatasetKey] = String(requestedLength);
-      target.dataset[desiredTimestampKey] = String(Date.now());
-    }
-    if (transaction.settled === true) {
+      || typeof Shared.applyResizableBoxSize !== 'function') return null;
+    const resize = preparePca2dAxisLengthResize(owner, target, axis, requestedLength);
+    if (!resize) return null;
+    const state = getPcaSessionOwnedState(owner).state;
+    const previous = state.explicitAxisLayout;
+    state.explicitAxisLayout = resize.layout;
+    persistPcaSessionOwnedState(owner, 'pca-axis-length-layout');
+    if (resize.settled) {
+      markPcaPayloadDirtyForSession(owner, 'pca-axis-length-layout');
       return true;
     }
-    debugLog('Debug: pca single-pass axis resize', {
-      axis: axisKey,
-      requestedLength,
-      targetWidth: transaction.plan.width,
-      targetHeight: transaction.plan.height,
-      metricAspect: transaction.plan.metricAspect,
-      tabId: owner.tabId || null,
-      reason: options.reason || null
-    });
+    // PCA's X length is derived from height and coordinate spans. Let the
+    // shared plot-ratio solver derive width; an outer-frame ratio is a different
+    // constraint and a two-axis request can compromise the requested height.
     const applied = Shared.applyResizableBoxSize(target, {
-      axis: 'both',
-      width: transaction.plan.width,
-      height: transaction.plan.height,
-      reason: options.reason || `pca-axis-length-${axisKey}`,
+      axis: 'y',
+      height: resize.plan.height,
+      reason: options.reason || `pca-axis-length-${axis === 'y' ? 'y' : 'x'}`,
       updateDefaults: false,
       updateAspectRatio: false,
       preserveAspectLock: true,
@@ -8958,11 +9064,10 @@
       resizePhase: options.refine === false ? 'move' : 'programmatic'
     });
     if (applied == null || applied === false) {
-      updatePcaRenderRuntime(owner, runtime => {
-        if (Number(runtime.axisLengthTransaction?.generation) === Number(transaction.transaction?.generation)) {
-          runtime.axisLengthTransaction = null;
-        }
-      });
+      getPcaSessionOwnedState(owner).state.explicitAxisLayout = previous;
+      persistPcaSessionOwnedState(owner, 'pca-axis-length-rejected');
+    } else {
+      markPcaPayloadDirtyForSession(owner, 'pca-axis-length-layout');
     }
     return applied;
   }
@@ -9403,11 +9508,12 @@
   function updatePcaTableFormatUI() {
     if (pcaEls.tableFormat) {
       pcaEls.tableFormat.value = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
+      Shared.workspaceToolbar?.syncReplicateMode?.(pcaEls.tableFormat);
     }
     const groupedActive = pcaState.tableFormat === 'grouped';
     const showGroupedControls = groupedActive;
     if (pcaEls.groupedControls) {
-      pcaEls.groupedControls.style.display = showGroupedControls ? '' : 'none';
+      pcaEls.groupedControls.hidden = !showGroupedControls;
       pcaEls.groupedControls.setAttribute('aria-hidden', showGroupedControls ? 'false' : 'true');
     }
     if (groupedActive) {
@@ -9956,7 +10062,6 @@
       return;
     }
     control.hidden = !visible;
-    control.style.display = visible ? '' : 'none';
   }
 
   function syncPcaComponentSelectionUi() {
@@ -10006,9 +10111,9 @@
       const body = document.createElement('div');
       body.className = 'pca-method-advanced__body';
       const controlRow = document.createElement('div');
-      controlRow.className = 'control idx-inline-041';
+      controlRow.className = 'control graph-control-row--compact';
       const ruleLabel = document.createElement('label');
-      ruleLabel.className = 'idx-inline-023';
+      ruleLabel.className = 'graph-control-label';
       ruleLabel.textContent = 'Retention rule';
       const ruleSelect = document.createElement('select');
       ruleSelect.id = 'pcaComponentRule';
@@ -10020,7 +10125,7 @@
       });
       ruleLabel.appendChild(ruleSelect);
       const thresholdLabel = document.createElement('label');
-      thresholdLabel.className = 'idx-inline-023';
+      thresholdLabel.className = 'graph-control-label';
       thresholdLabel.textContent = 'Eigenvalue cutoff';
       const thresholdInput = document.createElement('input');
       thresholdInput.type = 'number';
@@ -10030,7 +10135,7 @@
       thresholdInput.step = '0.1';
       thresholdLabel.appendChild(thresholdInput);
       const iterationsLabel = document.createElement('label');
-      iterationsLabel.className = 'idx-inline-023';
+      iterationsLabel.className = 'graph-control-label';
       iterationsLabel.textContent = 'Parallel runs';
       const iterationsInput = document.createElement('input');
       iterationsInput.type = 'number';
@@ -10043,9 +10148,9 @@
       controlRow.appendChild(thresholdLabel);
       controlRow.appendChild(iterationsLabel);
       const toggleRow = document.createElement('div');
-      toggleRow.className = 'control idx-inline-032';
+      toggleRow.className = 'control graph-control-row--aligned';
       const includeNonRetainedLabel = document.createElement('label');
-      includeNonRetainedLabel.className = 'idx-inline-023';
+      includeNonRetainedLabel.className = 'graph-control-label';
       const includeNonRetainedInput = document.createElement('input');
       includeNonRetainedInput.type = 'checkbox';
       includeNonRetainedInput.id = 'pcaIncludeNonRetainedAxes';
@@ -10055,7 +10160,7 @@
       const help = document.createElement('div');
       help.className = 'stats-help-text';
       help.id = 'pcaComponentSelectionHelp';
-      help.textContent = 'These settings control component retention and update the summary.';
+      help.textContent = 'These settings control component retention and update the summary. Parallel analysis estimates the random 95th percentile; increase runs to check borderline retention.';
       body.appendChild(controlRow);
       body.appendChild(toggleRow);
       body.appendChild(help);
@@ -10069,7 +10174,7 @@
       pcaEigenThresholdLabel = thresholdLabel;
       pcaParallelIterationsLabel = iterationsLabel;
       attachPcaSelectAutoSize(ruleSelect, 'pca');
-      ruleSelect.addEventListener('change', () => {
+      bindPcaControlHandler(ruleSelect, 'change', 'component-selection-rule', () => {
         pcaState.componentSelection.rule = sanitizePcaComponentSelectionRule(ruleSelect.value);
         syncPcaComponentSelectionUi();
         requestPcaDataRefresh('component-selection-rule');
@@ -10084,8 +10189,8 @@
         syncPcaComponentSelectionUi();
         requestPcaDataRefresh('component-selection-threshold');
       };
-      thresholdInput.addEventListener('change', handleThresholdUpdate);
-      thresholdInput.addEventListener('input', handleThresholdUpdate);
+      bindPcaControlHandler(thresholdInput, 'change', 'component-selection-threshold', handleThresholdUpdate);
+      bindPcaControlHandler(thresholdInput, 'input', 'component-selection-threshold', handleThresholdUpdate);
       const handleParallelUpdate = () => {
         const nextValue = sanitizePcaParallelIterations(iterationsInput.value, PCA_DEFAULT_PARALLEL_ITERATIONS);
         if (nextValue === pcaState.componentSelection.parallelIterations) {
@@ -10096,9 +10201,9 @@
         syncPcaComponentSelectionUi();
         requestPcaDataRefresh('component-selection-parallel');
       };
-      iterationsInput.addEventListener('change', handleParallelUpdate);
-      iterationsInput.addEventListener('input', handleParallelUpdate);
-      includeNonRetainedInput.addEventListener('change', () => {
+      bindPcaControlHandler(iterationsInput, 'change', 'component-selection-parallel', handleParallelUpdate);
+      bindPcaControlHandler(iterationsInput, 'input', 'component-selection-parallel', handleParallelUpdate);
+      bindPcaControlHandler(includeNonRetainedInput, 'change', 'component-selection-include-non-retained', () => {
         const nextValue = !!includeNonRetainedInput.checked;
         if (nextValue === sanitizePcaIncludeNonRetainedAxes(pcaState.componentSelection?.includeNonRetainedAxes)) {
           syncPcaComponentSelectionUi();
@@ -10186,8 +10291,7 @@
   function applyAxisVisibility(viewMode) {
     if (pcaAxis3DControl) {
       const show3d = (viewMode || '').toLowerCase() === '3d' && pcaState.axisMeta.length >= 3;
-      pcaAxis3DControl.hidden = !show3d;
-      pcaAxis3DControl.style.display = show3d ? '' : 'none';
+      setPcaControlVisibility(pcaAxis3DControl, show3d);
     }
     if (pcaAxis2DControls) {
       pcaAxis2DControls.style.opacity = pcaState.axisMeta.length >= 2 ? '1' : '0.7';
@@ -10228,20 +10332,18 @@
     const supports3d = methodName === 'pca' || methodName === 'mds';
     if (pcaTsneControls) {
       const showTsne = methodName === 'tsne';
-      pcaTsneControls.hidden = !showTsne;
-      pcaTsneControls.style.display = showTsne ? '' : 'none';
+      setPcaControlVisibility(pcaTsneControls, showTsne);
     }
     if (pcaUmapControls) {
       const showUmap = methodName === 'umap';
-      pcaUmapControls.hidden = !showUmap;
-      pcaUmapControls.style.display = showUmap ? '' : 'none';
+      setPcaControlVisibility(pcaUmapControls, showUmap);
     }
     if (pcaViewMode) {
       const options = Array.from(pcaViewMode.options || []);
       options.forEach(opt => {
         if (opt.value === '3d') {
           opt.disabled = !supports3d;
-          opt.hidden = !supports3d;
+          setPcaControlVisibility(opt, supports3d);
         }
       });
       if (!supports3d && pcaViewMode.value !== '2d') {
@@ -10255,8 +10357,7 @@
     const preprocessingControl = getPcaNodeById('pcaPreprocessingControl');
     if (preprocessingControl) {
       const showPreprocessing = methodName === 'pca';
-      preprocessingControl.hidden = !showPreprocessing;
-      preprocessingControl.style.display = showPreprocessing ? '' : 'none';
+      setPcaControlVisibility(preprocessingControl, showPreprocessing);
     }
     applyAxisVisibility(pcaViewMode?.value || DEFAULT_VIEW_MODE);
     syncPcaComponentSelectionUi();
@@ -10485,7 +10586,7 @@
     return next;
   }
 
-  const PCA_3D_ROTATION_MODEL_VERSION = 1;
+  const PCA_3D_ROTATION_MODEL_VERSION = plot3d.FRAME_LAYOUT_VERSION;
 
   function normalizePca3dRotationModel(value) {
     if (!value || typeof value !== 'object' || Number(value.version) !== PCA_3D_ROTATION_MODEL_VERSION) {
@@ -10569,7 +10670,6 @@
         bottom: Number(margin.bottom) || 0,
         left: Number(margin.left) || 0
       },
-      legendShiftX: Number(value.legendShiftX) || 0,
       axisRanges: ranges,
       axisTicks: ticks,
       axisTickLabels: tickLabels,
@@ -10721,8 +10821,7 @@
         rotatedCorners,
         width: model.width,
         height: model.height,
-        margin: model.margin,
-        shiftX: model.legendShiftX
+        margin: model.margin
       });
       const project = point => projector.project(point);
       const add = (tag, attrs, text, parent) => {
@@ -11105,7 +11204,7 @@
       return;
     }
     const visible = !!shouldShow;
-    pcaExportEigenTableBtn.style.display = visible ? '' : 'none';
+    pcaExportEigenTableBtn.hidden = !visible;
     if (!visible) {
       pcaExportEigenTableBtn.disabled = true;
     }
@@ -11187,7 +11286,7 @@
     if (!pcaLoadingsActions || !wrapper) {
       return false;
     }
-    const referenceNode = wrapper.querySelector?.('.stats-table') || wrapper.firstChild || null;
+    const referenceNode = wrapper.querySelector?.('.stats-table-viewport') || wrapper.firstChild || null;
     return insertBeforeIfOwned(wrapper, pcaLoadingsActions, referenceNode);
   }
 
@@ -11227,7 +11326,8 @@
       if(first && second){ resultRows.push({ label:'Top two PCs', value:`${(Number(first.variancePercent) + Number(second.variancePercent)).toFixed(1)}% cumulative variance explained` }); }
       const selection = stats.selectionSummary || null;
       if(selection && Number.isFinite(Number(selection.retainedCount))){
-        resultRows.push({ label:'Component selection', value:`${selection.ruleLabel || selection.rule || 'Configured rule'} retained ${Number(selection.retainedCount)} of ${eigen.length || 'available'} components.` });
+        const ruleLabel = String(selection.ruleLabel || selection.rule || 'Configured rule').replace(/^show all components$/i, 'all available');
+        resultRows.push({ label:'Components retained', value:`${Number(selection.retainedCount)} (${ruleLabel})` });
       }
     }else if(method === 'mds'){
       resultRows.push({ label:'Dimensions', value:Number.isFinite(Number(stats.dimensions)) ? String(Number(stats.dimensions)) : 'Configured dimensions' });
@@ -11275,7 +11375,43 @@
           hasChildren: Array.isArray(savedSummaryModel.children) && savedSummaryModel.children.length > 0
         });
       } else if (summaryLines.length) {
-        pcaStatsSummary.innerHTML = summaryLines.map(line => `<div class="stats-table-lead">${line}</div>`).join('');
+        const pcaEntries = method === 'pca' ? summaryLines.map(line => {
+          const source = String(line || '').trim();
+          let match = /^Samples analyzed:\s*(.+)$/i.exec(source);
+          if(match){ return { label:'Samples', value:match[1] }; }
+          match = /^Variables analyzed:\s*(.+)$/i.exec(source);
+          if(match){ return { label:'Variables', value:match[1] }; }
+          match = /^Top two PCs capture\s*(.+?)\s+of variance$/i.exec(source);
+          if(match){ return { label:'Variance explained by PC1–PC2', value:match[1] }; }
+          match = /^Components retained:\s*(\d+)\s*\((.+)\)$/i.exec(source);
+          if(match){
+            const rule = match[2].replace(/^show all components$/i, 'all available');
+            return { label:'Components retained', value:`${match[1]} (${rule})` };
+          }
+          return null;
+        }) : null;
+        if(pcaEntries?.length && pcaEntries.every(Boolean)){
+          const list = document.createElement('dl');
+          list.className = 'pca-summary-grid';
+          pcaEntries.forEach(entry => {
+            const item = document.createElement('div');
+            item.className = 'pca-summary-grid__item';
+            const label = document.createElement('dt');
+            label.textContent = entry.label;
+            const value = document.createElement('dd');
+            value.textContent = entry.value;
+            item.append(label, value);
+            list.appendChild(item);
+          });
+          pcaStatsSummary.replaceChildren(list);
+        }else{
+          pcaStatsSummary.replaceChildren(...summaryLines.map(line => {
+            const item = document.createElement('div');
+            item.className = 'stats-table-lead';
+            item.textContent = String(line);
+            return item;
+          }));
+        }
       } else if (method === 'pca') {
         pcaStatsSummary.innerHTML = '<div class="stats-table-message">Component variance summary appears alongside the scree plot.</div>';
       } else {
@@ -11303,13 +11439,13 @@
         reportMethod === 'pca' ?
         sanitizePcaPreprocessingMode(pcaState.controls?.preprocessing) === PCA_PREPROCESSING_RNASEQ_LOG ?
         'PCA used DESeq2 median-ratio size factors, log2(normalized count + 1), up to the 500 most variable genes, gene centering, and no unit-variance scaling.' :
-        'PCA used centered numeric variables with optional unit-variance scaling and reports eigenvalue, variance, cumulative-variance, component-selection, and optional biplot-loading summaries.' :
+        'For PCA, numeric variables were centered and optional unit-variance scaling was applied. The report includes eigenvalues, variance explained, component selection, and optional biplot loadings.' :
         reportMethod === 'mds' ?
-        'MDS reports inertia/eigen summaries for the reusable cached coordinate solution and stress where available.' :
+        'MDS summaries include inertia, eigenvalues, and stress when available for the cached coordinate solution.' :
         reportMethod === 'tsne' ?
-        't-SNE reports embedding settings and stress/KL-type optimization summaries where available; axes are embedding coordinates rather than variance-explained components.' :
+        't-SNE summaries include embedding settings and final KL divergence when available. The axes are embedding coordinates, not variance-explained components.' :
         reportMethod === 'umap' ?
-        'UMAP reports neighborhood embedding settings where available; axes are embedding coordinates rather than variance-explained components.' :
+        'UMAP summaries include neighborhood-embedding settings when available. The axes are embedding coordinates, not variance-explained components.' :
         'Dimension-reduction summaries reflect the selected ordination method.',
         'Rows or columns that could not be parsed as finite numeric observations were excluded by the component preprocessing pipeline before ordination.'
       ].filter(Boolean).join(' ');
@@ -11494,6 +11630,13 @@
     const xScale = value => plotLeft + ((Number(value) || 0) + bound) * (plotWidth / (bound * 2 || 1));
     const yScale = value => plotTop + plotHeight - (((Number(value) || 0) + bound) * (plotHeight / (bound * 2 || 1)));
     const axisColor = chartStyle.TEXT_COLOR || '#333333';
+    const labelEntries = [];
+    const pointBounds = pointList.map((point, index) => ({
+      cx: xScale(point.x),
+      cy: yScale(point.y),
+      r: index < 12 ? 3 : 2.5,
+      pointId: `sample-${index}`
+    }));
     const zeroX = xScale(0);
     const zeroY = yScale(0);
     const xAxis = document.createElementNS(NS, 'line');
@@ -11519,18 +11662,15 @@
       circle.setAttribute('r', idx < 12 ? '3' : '2.5');
       circle.setAttribute('fill', config.pointColor || '#0000ff');
       circle.setAttribute('fill-opacity', config.pointOpacity != null ? String(config.pointOpacity) : '0.75');
-      svg.appendChild(circle);
-      if (idx < 10 && point?.label) {
-        const label = document.createElementNS(NS, 'text');
-        label.setAttribute('x', String(xScale(point.x) + 4));
-        label.setAttribute('y', String(yScale(point.y) - 4));
-        label.setAttribute('font-size', '12');
-        label.setAttribute('fill', axisColor);
-        label.textContent = String(point.label);
-        svg.appendChild(label);
+      if (point?.label) {
+        circle.setAttribute('aria-label', String(point.label));
+        const title = document.createElementNS(NS, 'title');
+        title.textContent = String(point.label);
+        circle.appendChild(title);
       }
+      svg.appendChild(circle);
     });
-    vectorList.forEach(vector => {
+    vectorList.forEach((vector, index) => {
       const line = document.createElementNS(NS, 'line');
       const endX = xScale(vector.x);
       const endY = yScale(vector.y);
@@ -11540,16 +11680,95 @@
       line.setAttribute('y2', String(endY));
       line.setAttribute('stroke', config.vectorColor || '#c7301f');
       line.setAttribute('stroke-width', '1.5');
-      svg.appendChild(line);
       if (vector?.label) {
-        const label = document.createElementNS(NS, 'text');
-        label.setAttribute('x', String(endX + 4));
-        label.setAttribute('y', String(endY - 4));
-        label.setAttribute('font-size', '12');
-        label.setAttribute('fill', config.vectorColor || '#c7301f');
-        label.textContent = String(vector.label);
-        svg.appendChild(label);
+        line.setAttribute('aria-label', String(vector.label));
+        const title = document.createElementNS(NS, 'title');
+        title.textContent = String(vector.label);
+        line.appendChild(title);
+        if (Math.hypot(Number(vector.x) || 0, Number(vector.y) || 0) >= bound * 0.055) {
+          labelEntries.push({
+            text: String(vector.label),
+            cx: endX,
+            cy: endY,
+            radius: 1.5,
+            pointId: `loading-${index}`,
+            labelKey: `loading-${index}`,
+            kind: 'loading'
+          });
+          pointBounds.push({ cx: endX, cy: endY, r: 1.5, pointId: `loading-${index}` });
+        }
       }
+      svg.appendChild(line);
+    });
+    pointList.forEach((point, index) => {
+      if (!point?.label) return;
+      labelEntries.push({
+        text: String(point.label),
+        cx: xScale(point.x),
+        cy: yScale(point.y),
+        radius: index < 12 ? 3 : 2.5,
+        pointId: `sample-${index}`,
+        labelKey: `sample-${index}`,
+        kind: 'sample'
+      });
+    });
+    const miniLabelFontSize = 8.5;
+    const miniLabelFont = typeof chartStyle.makeFont === 'function'
+      ? chartStyle.makeFont(miniLabelFontSize)
+      : `${miniLabelFontSize}px sans-serif`;
+    const placements = Shared.labelLayout?.computePointLabelLayout?.(labelEntries, {
+      plotLeft,
+      plotRight: plotLeft + plotWidth,
+      plotTop,
+      plotBottom: plotTop + plotHeight,
+      containerLeft: plotLeft,
+      containerRight: plotLeft + plotWidth,
+      containerTop: plotTop,
+      containerBottom: plotTop + plotHeight,
+      labelFontSize: miniLabelFontSize,
+      leaderGap: 3,
+      pointBounds,
+      obstacleSegments: vectorList.map(vector => ({
+        x1: zeroX,
+        y1: zeroY,
+        x2: xScale(vector.x),
+        y2: yScale(vector.y)
+      })),
+      measureText: chartStyle.measureText,
+      font: miniLabelFont,
+      angleSteps: 16,
+      maxLeaderScale: 3
+    }) || [];
+    placements.forEach(result => {
+      const placement = result.placement;
+      const entry = result.entry;
+      if (!placement || !entry?.text) return;
+      const leaderPoints = placement.leaderPoints || [];
+      if (leaderPoints.length > 1) {
+        const leader = document.createElementNS(NS, 'path');
+        leader.setAttribute('d', leaderPoints.map((point, index) => `${index ? 'L' : 'M'}${point.x},${point.y}`).join(' '));
+        leader.setAttribute('fill', 'none');
+        leader.setAttribute('stroke', entry.kind === 'loading' ? (config.vectorColor || '#c7301f') : axisColor);
+        leader.setAttribute('stroke-width', '0.65');
+        leader.setAttribute('stroke-opacity', '0.65');
+        leader.setAttribute('stroke-linecap', 'round');
+        leader.setAttribute('data-pca-label-leader', entry.kind || 'sample');
+        svg.appendChild(leader);
+      }
+      const label = document.createElementNS(NS, 'text');
+      label.setAttribute('x', String(placement.textX));
+      label.setAttribute('y', String(placement.textY));
+      label.setAttribute('text-anchor', placement.anchor || 'start');
+      label.setAttribute('dominant-baseline', 'middle');
+      label.setAttribute('font-size', String(placement.fontSize || miniLabelFontSize));
+      label.setAttribute('fill', entry.kind === 'loading' ? (config.vectorColor || '#c7301f') : axisColor);
+      label.setAttribute('stroke', '#ffffff');
+      label.setAttribute('stroke-width', '2');
+      label.setAttribute('stroke-linejoin', 'round');
+      label.setAttribute('paint-order', 'stroke');
+      label.setAttribute('data-pca-label-kind', entry.kind || 'sample');
+      label.textContent = entry.text;
+      svg.appendChild(label);
     });
     const xLabel = document.createElementNS(NS, 'text');
     xLabel.setAttribute('x', String(plotLeft + plotWidth / 2));
@@ -11612,7 +11831,7 @@
         scoresToggleInput.type = 'checkbox';
         scoresToggleInput.id = 'pcaBiplotShowScores';
         scoresToggleInput.checked = sanitizePcaBiplotShowSampleScores(pcaState.biplotShowSampleScores);
-        scoresToggleInput.addEventListener('change', () => {
+        bindPcaControlHandler(scoresToggleInput, 'change', 'biplot-show-scores', () => {
           const nextValue = sanitizePcaBiplotShowSampleScores(scoresToggleInput.checked);
           if (nextValue === sanitizePcaBiplotShowSampleScores(pcaState.biplotShowSampleScores)) {
             return;
@@ -11668,7 +11887,7 @@
       markPcaDynamicStatsNode(biplotScaleNote, 'biplot-scale-note');
       biplotBody.appendChild(biplotScaleNote);
       const biplotExportControls = document.createElement('div');
-      biplotExportControls.className = 'row idx-inline-043';
+      biplotExportControls.className = 'row pca-export-actions';
       biplotExportControls.id = 'pcaBiplotExportControls';
       markPcaDynamicStatsNode(biplotExportControls, 'biplot-export-controls');
       biplotBody.appendChild(biplotExportControls);
@@ -11813,7 +12032,7 @@
     const screeVisible = !!pcaScreeContainer && !pcaScreeContainer.hidden;
     const biplotCard = getPcaNodeById('pcaBiplotCard');
     const biplotVisible = !!biplotCard && !biplotCard.hidden;
-    pcaScreeVarianceRow.style.display = (screeVisible || biplotVisible) ? 'flex' : 'none';
+    pcaScreeVarianceRow.hidden = !(screeVisible || biplotVisible);
   }
 
   function resetStatsPanel(message) {
@@ -11828,7 +12047,7 @@
       pcaScreePlot.innerHTML = '';
     }
     if (pcaScreeExportControls) {
-      pcaScreeExportControls.style.display = 'none';
+      pcaScreeExportControls.hidden = true;
     }
     if (pcaScreeContainer) {
       pcaScreeContainer.hidden = true;
@@ -11874,7 +12093,7 @@
     }
     resetEigenExportButtonHost();
     if (pcaDefaultEigenExportHost?.style) {
-      pcaDefaultEigenExportHost.style.display = '';
+      pcaDefaultEigenExportHost.hidden = false;
     }
     updateEigenExportVisibility(false);
     updateScreeVarianceRowVisibility();
@@ -11921,13 +12140,10 @@
       pcaScreePlot.innerHTML = '';
     }
     if (pcaScreeExportControls) {
-      pcaScreeExportControls.style.display = show ? '' : 'none';
+      pcaScreeExportControls.hidden = !show;
     }
     if (!show || opts.method !== 'pca') {
       pcaScreeContainer.hidden = true;
-      if (pcaScreeContainer.style) {
-        pcaScreeContainer.style.removeProperty('max-width');
-      }
       debugLog('Debug: pca scree hidden', {
         show,
         count: data.length,
@@ -11939,13 +12155,10 @@
     if (!data.length) {
       pcaScreeContainer.hidden = false;
       if (pcaScreeExportControls) {
-        pcaScreeExportControls.style.display = 'none';
+        pcaScreeExportControls.hidden = true;
       }
       if (pcaScreePlot) {
         pcaScreePlot.innerHTML = '<div class="stats-table-message">Scree plot will appear after PCA runs.</div>';
-      }
-      if (pcaScreeContainer.style) {
-        pcaScreeContainer.style.removeProperty('max-width');
       }
       debugLog('Debug: pca scree placeholder shown');
       updateScreeVarianceRowVisibility();
@@ -11954,7 +12167,7 @@
     pcaScreeContainer.hidden = false;
     const host = pcaScreePlot || pcaScreeContainer;
     if (pcaScreeExportControls) {
-      pcaScreeExportControls.style.display = '';
+      pcaScreeExportControls.hidden = false;
     }
     const containerWidth = host.clientWidth || 0;
     let drawingBoxWidth = 0;
@@ -11968,9 +12181,6 @@
       width = Math.min(width, drawingBoxWidth);
     } else if (width < 360) {
       width = 360;
-    }
-    if (pcaScreeContainer.style) {
-      pcaScreeContainer.style.maxWidth = `${Math.max(width, 0)}px`;
     }
     const height = 300;
     const margin = {
@@ -12265,7 +12475,7 @@
       delete pcaEigenTableContainer.dataset.sharedStatsTable;
       resetEigenExportButtonHost();
       if (pcaDefaultEigenExportHost?.style) {
-        pcaDefaultEigenExportHost.style.display = '';
+        pcaDefaultEigenExportHost.hidden = false;
       }
       updateEigenExportVisibility(false);
       debugLog('Debug: pca eigen table hidden', {
@@ -12284,7 +12494,7 @@
       delete pcaEigenTableContainer.dataset.sharedStatsTable;
       resetEigenExportButtonHost();
       if (pcaDefaultEigenExportHost?.style) {
-        pcaDefaultEigenExportHost.style.display = '';
+        pcaDefaultEigenExportHost.hidden = false;
       }
       updateEigenExportVisibility(false);
       if (pcaExportEigenTableBtn) {
@@ -12342,13 +12552,13 @@
           dockEigenExportButton(actions);
         }
         if (pcaDefaultEigenExportHost?.style) {
-          pcaDefaultEigenExportHost.style.display = 'none';
+          pcaDefaultEigenExportHost.hidden = true;
         }
       } else {
         delete pcaEigenTableContainer.dataset.sharedStatsTable;
         resetEigenExportButtonHost();
         if (pcaDefaultEigenExportHost?.style) {
-          pcaDefaultEigenExportHost.style.display = '';
+          pcaDefaultEigenExportHost.hidden = false;
         }
         let html = '<table class="stats-table"><thead><tr>';
         ['Component', 'Eigenvalue', percentHeader, cumulativeHeader].forEach(header => {
@@ -12702,6 +12912,7 @@
     // Keep PCA aligned with line.js: draw-critical DOM refs are resolved from
     // the draw tab, never from the tab that originally ran setup().
     const pcaPlotDiv = getPcaNodeById('pcaPlot', drawTabId) || getPcaNodeById('pcaPlot') || null;
+    configurePcaChartPointKeyboard(pcaPlotDiv, drawTabId);
     const pcaSvgBox = pcaPlotDiv?.closest?.('.svgbox') ||
       queryPcaRoot('#pcaGraphPanel .svgbox', drawTabId) ||
       pcaSvgBoxRef ||
@@ -12788,6 +12999,7 @@
     let usingCache = false;
     let skipPerfRecord = false;
     let framePublication = null;
+    let drawOutcome = DRAW_OUTCOME.SKIPPED;
     try {
       if (presentationOnly && !renderRuntime.viewDirty && !renderRuntime.dataDirty) {
         const plotRoot = pcaPlotDiv || getPcaNodeById('pcaPlot');
@@ -12809,7 +13021,8 @@
             tabId: drawSession?.tabId || null
           });
           skipPerfRecord = true;
-          return;
+          drawOutcome = DRAW_OUTCOME.COMPLETE;
+          return drawOutcome;
         }
       }
       const debugStamp = Date.now();
@@ -12879,7 +13092,8 @@
           SVDLib = await Shared.lazySvd();
           if (!isPcaDrawAsyncCurrent(drawToken, drawAsyncState)) {
             logPcaStaleAsyncResult('lazy-svd', drawToken, drawAsyncState);
-            return;
+            drawOutcome = DRAW_OUTCOME.CANCELLED;
+            return drawOutcome;
           }
         } catch (err) {
           console.error('PCA lazy SVD load failed', err);
@@ -12907,7 +13121,7 @@
           viewMode: requestedViewMode,
           method
         });
-        return;
+        return drawOutcome;
       }
       // Statistics are analysis-owned state. View-only redraws (including
       // switching between 2D and 3D, rotating, resizing, and styling) reuse the
@@ -12935,6 +13149,7 @@
         rawSize: controls.fontSize,
         width: drawableFrame.width,
         height: drawableFrame.height,
+        zoomScale: 1,
         svgBox: pcaSvgBox,
         input: pcaFontSize
       });
@@ -12948,7 +13163,7 @@
         exact: true
       });
       const axisStroke = axisSettings.color || '#000';
-      const pcaThemeDark = String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark';
+      const pcaThemeDark = (Shared.colorSchemes?.isDarkScheme?.(pcaState.theme?.colorScheme) ?? (String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark'));
       const pcaThemeTextColor = normalizePcaThemeColor(
         pcaState.theme?.textColor,
         pcaThemeDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
@@ -13247,7 +13462,8 @@
             viewMode: requestedViewMode,
             method
           });
-          return;
+          drawOutcome = DRAW_OUTCOME.COMPLETE;
+          return drawOutcome;
         }
 
         const matrix = matrixByCondition;
@@ -13273,7 +13489,8 @@
             viewMode: requestedViewMode,
             method
           });
-          return;
+          drawOutcome = DRAW_OUTCOME.COMPLETE;
+          return drawOutcome;
         }
 
         if (featureLabels.length < 2 || !matrix[0] || matrix[0].length < 2) {
@@ -13291,7 +13508,8 @@
             viewMode: requestedViewMode,
             method
           });
-          return;
+          drawOutcome = DRAW_OUTCOME.COMPLETE;
+          return drawOutcome;
         }
 
         for (let i = 0; i < matrix.length; i++) {
@@ -13386,7 +13604,8 @@
             });
             if (!isPcaDrawAsyncCurrent(drawToken, drawAsyncState)) {
               logPcaStaleAsyncResult('embed-worker', drawToken, drawAsyncState);
-              return;
+            drawOutcome = DRAW_OUTCOME.CANCELLED;
+            return drawOutcome;
             }
           }
           if (mdsWorkerResult && Array.isArray(mdsWorkerResult.coords)) {
@@ -13402,7 +13621,8 @@
                 viewMode: requestedViewMode,
                 method
               });
-              return;
+              drawOutcome = DRAW_OUTCOME.COMPLETE;
+              return drawOutcome;
             }
             dimensionMeta = eigenSummaryData.map(entry => ({
               value: entry.component,
@@ -13558,7 +13778,8 @@
                 viewMode: requestedViewMode,
                 method
               });
-              return;
+              drawOutcome = DRAW_OUTCOME.COMPLETE;
+              return drawOutcome;
             }
 
             const coords = [];
@@ -13733,7 +13954,8 @@
             });
             if (!isPcaDrawAsyncCurrent(drawToken, drawAsyncState)) {
               logPcaStaleAsyncResult('embed-worker', drawToken, drawAsyncState);
-              return;
+              drawOutcome = DRAW_OUTCOME.CANCELLED;
+              return drawOutcome;
             }
           }
           if (!tsneResult) {
@@ -13779,7 +14001,7 @@
           eigenSummaryData = [];
           screeData = [];
           statsSummaryLines = [
-            `Samples analysed: ${nSamples}`,
+            `Samples analyzed: ${nSamples}`,
             `Perplexity: ${tsneResult.perplexity.toFixed(1)}`,
             `Iterations: ${tsneResult.iterations}`,
             `Final KL divergence: ${tsneResult.klDivergence.toFixed(3)}`
@@ -13829,7 +14051,8 @@
             });
             if (!isPcaDrawAsyncCurrent(drawToken, drawAsyncState)) {
               logPcaStaleAsyncResult('embed-worker', drawToken, drawAsyncState);
-              return;
+              drawOutcome = DRAW_OUTCOME.CANCELLED;
+              return drawOutcome;
             }
           }
           if (!umapResult) {
@@ -13876,7 +14099,7 @@
           eigenSummaryData = [];
           screeData = [];
           statsSummaryLines = [
-            `Samples analysed: ${nSamples}`,
+            `Samples analyzed: ${nSamples}`,
             `Neighbors: ${umapResult.neighbors}`,
             `Epochs: ${umapResult.epochs}`,
             `Min distance: ${umapResult.minDist.toFixed(2)}`
@@ -13929,7 +14152,8 @@
             });
             if (!isPcaDrawAsyncCurrent(drawToken, drawAsyncState)) {
               logPcaStaleAsyncResult('svd-worker', drawToken, drawAsyncState);
-              return;
+              drawOutcome = DRAW_OUTCOME.CANCELLED;
+              return drawOutcome;
             }
             if (workerResult && Array.isArray(workerResult.q) && Array.isArray(workerResult.u) && Array.isArray(workerResult.v)) {
               svd = {
@@ -14057,11 +14281,11 @@
             }) :
             [];
           statsSummaryLines = [
-            `Samples analysed: ${nSamples}`,
-            `Variables analysed: ${nFeatures}`,
+            `Samples analyzed: ${nSamples}`,
+            `Variables analyzed: ${nFeatures}`,
             `Top two PCs capture ${topTwoCumulative.toFixed(1)}% of variance`,
             componentSelectionSummary ?
-            `${componentSelectionSummary.ruleLabel} retains ${componentSelectionSummary.retainedCount} component${componentSelectionSummary.retainedCount === 1 ? '' : 's'}` :
+            `Components retained: ${componentSelectionSummary.retainedCount} (${componentSelectionSummary.ruleLabel})` :
             null
           ].filter(Boolean);
           const fullDimensionMeta = eigenSummaryData.map(entry => ({
@@ -14438,7 +14662,7 @@
           reason: drawOpts.reason || 'draw',
           tabId: drawSession?.tabId || null
         });
-        return;
+        return drawOutcome;
       }
       plotEl.style.display = 'block';
       const existingSvg = plotEl.querySelector('#pcaSvg');
@@ -14496,7 +14720,8 @@
           debugLog('Debug: pca 3d render skipped', {
             reason: 'no-points'
           });
-          return;
+          drawOutcome = DRAW_OUTCOME.COMPLETE;
+          return drawOutcome;
         }
         const targetAspect = Number.isFinite(PCA_3D_DEFAULTS.aspectRatio) && PCA_3D_DEFAULTS.aspectRatio > 0 ? PCA_3D_DEFAULTS.aspectRatio : (4 / 3);
         const fallbackWidth = 480;
@@ -14511,15 +14736,8 @@
               fallbackHeight
             })
           : { width: fallbackWidth, height: fallbackHeight };
-        let W3 = frameDimensions.width;
-        let H3 = frameDimensions.height;
-        const baseW3 = W3;
-        const legendViewport3d = chartStyle.computeLegendViewport({
-          baseWidth: baseW3,
-          baseHeight: H3,
-          legendWidth: legendVisible ? effectiveLegendWidth : 0
-        });
-        W3 = legendViewport3d.width;
+        const W3 = frameDimensions.width;
+        const H3 = frameDimensions.height;
         plotEl.style.position = 'relative';
         plotEl.style.minHeight = '';
         plotEl.style.aspectRatio = `${W3} / ${H3}`;
@@ -14568,22 +14786,13 @@
           '';
         appendPca3dBackground(svg3, W3, H3);
         bindPca3dRotationControls(svg3, 'pca-3d', drawSession);
-        const baseLegendMargin = Math.max(fs * 2.25, 28);
-        const legendMargin = legendVisible ? legendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
+        const baseRightMargin = Math.max(fs * 2.25, 28);
         const margin3 = {
           top: Math.max(fs * 3.2, 36),
-          right: legendMargin,
+          right: baseRightMargin,
           bottom: Math.max(fs * 3.2, 40),
           left: Math.max(fs * 3.2, 40)
         };
-        let legendShiftX = typeof plot3d.resolveLegendShiftX === 'function' ?
-          plot3d.resolveLegendShiftX({
-            legendVisible,
-            margin: margin3,
-            fontSize: fs,
-            legendWidth
-          }) :
-          0;
         let plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
         let plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
         const rotatePoint = (pt) => plot3d.rotatePoint(pt, pcaState.rotation);
@@ -14706,8 +14915,7 @@
           rotatedCorners,
           width: W3,
           height: H3,
-          margin: margin3,
-          shiftX: legendShiftX
+          margin: margin3
         });
         const pca3dAxisLabels = {
           x: pcaXLabelText,
@@ -14746,9 +14954,6 @@
         Object.assign(margin3, pca3dTitleFrame.margin);
         const pca3dFrameWidth = pca3dTitleFrame.width;
         const pca3dFrameHeight = pca3dTitleFrame.height;
-        legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
-          ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
-          : 0;
         plotW3 = Math.max(20, pca3dTitleFrame.plotWidth);
         plotH3 = Math.max(20, pca3dTitleFrame.plotHeight);
         projector = plot3d.createProjector({
@@ -14756,8 +14961,7 @@
           rotatedCorners,
           width: pca3dFrameWidth,
           height: pca3dFrameHeight,
-          margin: margin3,
-          shiftX: legendShiftX
+          margin: margin3
         });
         const project3 = (pt) => projector.project(pt);
         const labelBounds3d = computePcaLabelBounds3d(rotatedCorners, project3);
@@ -14838,7 +15042,6 @@
           createElement: (tag, attrs, text, target) => add3(tag, attrs, text, target)
         });
         const axisLabelBounds = [];
-        let contentRightBound = margin3.left + plotW3;
         if (typeof svg3.querySelectorAll === 'function') {
           const axisLabelNodes = svg3.querySelectorAll('[data-axis-label]');
           for (let idx = 0; idx < axisLabelNodes.length; idx += 1) {
@@ -14859,10 +15062,6 @@
                 width: bbox.width,
                 height: bbox.height
               });
-              const right = bbox.x + bbox.width;
-              if (Number.isFinite(right)) {
-                contentRightBound = Math.max(contentRightBound, right);
-              }
             } catch (err) {
               debugLog('Debug: pca axis label bbox error', {
                 message: err && err.message
@@ -14914,6 +15113,15 @@
         }
         if (typeof Shared.enableLabelDrag === 'function') {
           Shared.enableLabelDrag(title3d, svg3, {
+            owner: drawSession,
+            tabId: drawSession?.tabId || null,
+            positionKey: 'title',
+            positionMetrics: {
+              xOrigin: margin3.left,
+              xScale: Math.max(plotW3, 1),
+              yOrigin: titleBaselineTop3,
+              yScale: Math.max(plotH3, 1)
+            },
             onDragEnd: pos => {
               // Store both absolute and relative positions for 3D title
               const relX = (pos.x - margin3.left) / plotW3;
@@ -15013,7 +15221,6 @@
         const labelLayout = Shared.labelLayout;
         const manualLabelEntries3d = [];
         const pointBounds3d = [];
-        let maxPointRight = contentRightBound;
         projectedPoints.forEach(pt => {
           const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
           const original = pt.original || {};
@@ -15088,10 +15295,6 @@
               columnIndex: Number.isInteger(original.columnIndex) ? original.columnIndex : null
             });
           }
-          const approxRight = pt.x + markerHalfExtent + borderWidthPx;
-          if (Number.isFinite(approxRight)) {
-            maxPointRight = Math.max(maxPointRight, approxRight);
-          }
         });
         if (manualLabelEntries3d.length && labelLayout?.computePointLabelLayout && labelLayout?.computePointLabelFontSize) {
           const labelLayer = document.createElementNS(NS, 'g');
@@ -15127,9 +15330,9 @@
             plotTop,
             plotBottom,
             containerLeft: 0,
-            containerRight: W3,
+            containerRight: pca3dFrameWidth,
             containerTop: 0,
-            containerBottom: H3,
+            containerBottom: pca3dFrameHeight,
             plotHull: labelHull3d,
             enforceHull: true,
             hullPenalty: 18,
@@ -15184,9 +15387,9 @@
               session: drawSession,
               leaderGap: placement.leaderGap || Math.max(2, Math.round(labelFontSize * 0.2)),
               containerLeft: 0,
-              containerRight: W3,
+              containerRight: pca3dFrameWidth,
               containerTop: 0,
-              containerBottom: H3
+              containerBottom: pca3dFrameHeight
             });
           });
           svg3.appendChild(labelLayer);
@@ -15202,16 +15405,12 @@
           });
         }
         svg3.appendChild(frontFrameLayer);
-        contentRightBound = Math.max(contentRightBound, maxPointRight);
         let legendGroup3d = null;
         if (legendVisible) {
           const legendGapFor3d = legendLayout.legendGapPx;
           const legacyHorizontalBase = margin3.left + plotW3 + legendGapFor3d + appliedLegendAxisGap;
-          const reserveOriginX = baseW3 + appliedLegendAxisGap;
+          const reserveOriginX = pca3dFrameWidth + appliedLegendAxisGap;
           const horizontalBase = reserveOriginX + legendGapFor3d;
-          const legendHeight = legendRenderer.height || 0;
-          const legendContentWidth = legendRenderer.width || 0;
-          const horizontalPadding = Math.max(fs * 0.6, 12) + appliedLegendAxisGap;
           const storedLegendPos = pcaLabelPositionsState?.legend;
           const legendPosition = chartStyle.resolveLegendPosition(storedLegendPos, {
             defaultX: horizontalBase,
@@ -15225,99 +15424,13 @@
             legacyScaleX: legendGapFor3d,
             legacyScaleY: plotH3
           });
-          let legendX3 = legendPosition.x;
           const safeRightPad = Math.max(fs * 0.6, 12);
-          const baseLegendY = margin3.top;
-          const canonicalLegendX3 = legendPosition.canonicalX;
-          const canonicalLegendY3 = legendPosition.canonicalY;
-          const legendBottomLimit = Math.max(baseLegendY, H3 - margin3.bottom - legendHeight);
-          const verticalPadding = Math.max(fs * 0.45, 8);
-          let legendStartY = storedLegendPos ? legendPosition.y : baseLegendY;
-          if (!storedLegendPos || (storedLegendPos.relX === undefined && storedLegendPos.relY === undefined && (isNaN(storedLegendPos?.x) || isNaN(storedLegendPos?.y)))) {
-            const candidates = [baseLegendY];
-            if (axisLabelBounds.length) {
-              for (let idx = 0; idx < axisLabelBounds.length; idx += 1) {
-                const bounds = axisLabelBounds[idx];
-                const below = bounds.y + bounds.height + verticalPadding;
-                const above = bounds.y - legendHeight - verticalPadding;
-                if (below <= legendBottomLimit) {
-                  candidates.push(below);
-                }
-                if (above >= baseLegendY) {
-                  candidates.push(above);
-                }
-              }
-            }
-            if (legendBottomLimit !== baseLegendY) {
-              candidates.push(legendBottomLimit);
-            }
-            const candidatePositions = [];
-            for (let idx = 0; idx < candidates.length; idx += 1) {
-              const candidate = candidates[idx];
-              const clamped = Math.min(Math.max(candidate, baseLegendY), legendBottomLimit);
-              if (!candidatePositions.some(existing => Math.abs(existing - clamped) < 0.5)) {
-                candidatePositions.push(clamped);
-              }
-            }
-            candidatePositions.sort((a, b) => Math.abs(a - baseLegendY) - Math.abs(b - baseLegendY));
-            const intersectsAxis = (rect) => {
-              for (let idx = 0; idx < axisLabelBounds.length; idx += 1) {
-                const bounds = axisLabelBounds[idx];
-                const horizontalOverlap = rect.x < bounds.x + bounds.width + horizontalPadding &&
-                  rect.x + rect.width > bounds.x - horizontalPadding;
-                const verticalOverlap = rect.y < bounds.y + bounds.height + verticalPadding &&
-                  rect.y + rect.height > bounds.y - verticalPadding;
-                if (horizontalOverlap && verticalOverlap) {
-                  return true;
-                }
-              }
-              return false;
-            };
-            for (let idx = 0; idx < candidatePositions.length; idx += 1) {
-              const candidateY = candidatePositions[idx];
-              const legendRect = {
-                x: legendX3,
-                y: candidateY,
-                width: legendContentWidth,
-                height: legendHeight
-              };
-              if (!intersectsAxis(legendRect)) {
-                legendStartY = candidateY;
-                break;
-              }
-            }
-          }
-          debugLog('Debug: pca legend placement resolved', {
-            mode: '3d',
-            legendX: legendX3,
-            legendY: legendStartY,
-            legendHeight,
-            axisLabels: axisLabelBounds.length
-          });
           const legendGroup = legendRenderer.draw(svg3, {
-            x: legendX3,
-            y: legendStartY,
-            canonicalX: canonicalLegendX3,
-            canonicalY: canonicalLegendY3
+            x: legendPosition.x,
+            y: legendPosition.y,
+            canonicalX: legendPosition.canonicalX,
+            canonicalY: legendPosition.canonicalY
           });
-          if(legendGroup){
-            let renderedBounds = null;
-            try{ renderedBounds = legendGroup.getBBox?.() || null; }catch(_err){}
-            const renderedWidth = Number(renderedBounds?.width);
-            const renderedLeft = Number(renderedBounds?.x) || 0;
-            const maxLegendX = W3 - safeRightPad - (Number.isFinite(renderedWidth) ? renderedWidth : legendContentWidth) - renderedLeft;
-            if(legendX3 > maxLegendX){
-              const previousX = legendX3;
-              legendX3 = Math.max(horizontalBase, maxLegendX);
-              legendGroup.setAttribute('transform', `translate(${legendX3},${legendStartY})`);
-              debugLog('Debug: pca legend horizontal clamped to rendered bounds', {
-                previousX,
-                legendX3,
-                maxLegendX,
-                renderedWidth
-              });
-            }
-          }
           legendGroup?.setAttribute?.('data-role', 'pca-legend');
           legendGroup3d = legendGroup;
           if (legendGroup) {
@@ -15427,7 +15540,6 @@
           width: pca3dFrameWidth,
           height: pca3dFrameHeight,
           margin: margin3,
-          legendShiftX,
           axisRanges: renderAxisRanges3d,
           axisTicks,
           axisTickLabels: {
@@ -15482,7 +15594,7 @@
               svgBox: pcaSvgBox,
               plot: plotEl,
               svg: svg3,
-              baseWidth: baseW3,
+              baseWidth: W3,
               baseHeight: H3,
               canonicalWidth: pca3dFrameWidth,
               canonicalHeight: pca3dFrameHeight,
@@ -15514,11 +15626,13 @@
         }
         projectPcaRenderedParameterMetadata(svg3, drawSession);
         if (framePublication && !framePublication.commit()) {
-          return false;
+          drawOutcome = DRAW_OUTCOME.CANCELLED;
+          return drawOutcome;
         }
         plotEl.style.removeProperty('min-width');
         legendProjection?.commit?.();
-        return;
+        drawOutcome = DRAW_OUTCOME.COMPLETE;
+        return drawOutcome;
       }
 
       if (!points.length) {
@@ -15526,7 +15640,8 @@
         debugLog('Debug: pca 2d render skipped', {
           reason: 'no-points'
         });
-        return;
+        drawOutcome = DRAW_OUTCOME.COMPLETE;
+        return drawOutcome;
       }
 
       let xMinRaw = Infinity;
@@ -15647,24 +15762,9 @@
       const tickGap = axisMetrics.tickLabelGap;
       const manualIntervalX = getAxisTickInterval('x');
       const manualIntervalY = getAxisTickInterval('y');
-      // Do not redeclare `renderRuntime` inside drawPca's try block: a lexical
-      // declaration here would shadow the draw-scoped runtime for the entire try
-      // block and place earlier view-only reads in the temporal dead zone.
-      const axisLengthRuntime = getPcaRenderRuntime(drawSession);
-      const pendingAxisLengthTransaction = axisLengthRuntime?.axisLengthTransaction;
-      const axisLengthTransaction = pendingAxisLengthTransaction
-        && Number(pendingAxisLengthTransaction.expiresAt) >= Date.now()
-        && clonePcaAxisScaleForResize(pendingAxisLengthTransaction.xScale)
-        && clonePcaAxisScaleForResize(pendingAxisLengthTransaction.yScale)
-        ? pendingAxisLengthTransaction
-        : null;
-      if (pendingAxisLengthTransaction && !axisLengthTransaction) {
-        updatePcaRenderRuntime(drawSession, runtime => {
-          if (runtime.axisLengthTransaction === pendingAxisLengthTransaction) {
-            runtime.axisLengthTransaction = null;
-          }
-        });
-      }
+      const explicitAxisLayout = resolvePca2dExplicitLayout(
+        drawSession, pca2dLayoutContext(drawSession, analysisSignatures)
+      );
 
       const applyManualTickInterval = (scale, interval) => {
         if (!(Number.isFinite(interval) && interval > 0)) {
@@ -15684,14 +15784,14 @@
       };
 
       const evaluatePca2dTickLayout = (targetX, targetY) => {
-        const candidateXScale = axisLengthTransaction
-          ? clonePcaAxisScaleForResize(axisLengthTransaction.xScale)
+        const candidateXScale = explicitAxisLayout
+          ? clonePcaAxisScaleForResize(explicitAxisLayout.xScale)
           : applyManualTickInterval(
               niceScale(xMin, xMax, targetX),
               manualIntervalX
             );
-        const candidateYScale = axisLengthTransaction
-          ? clonePcaAxisScaleForResize(axisLengthTransaction.yScale)
+        const candidateYScale = explicitAxisLayout
+          ? clonePcaAxisScaleForResize(explicitAxisLayout.yScale)
           : applyManualTickInterval(
               niceScale(yMin, yMax, targetY),
               manualIntervalY
@@ -15724,9 +15824,9 @@
             candidateMaxYLabelWidth + yMajorTickLength + tickGap + fs * 0.5
           )
         };
-        if (axisLengthTransaction) {
-          candidateMargin.top = Number(axisLengthTransaction.marginTop);
-          candidateMargin.bottom = Number(axisLengthTransaction.marginBottom);
+        if (explicitAxisLayout) {
+          candidateMargin.top = Number(explicitAxisLayout.marginTop);
+          candidateMargin.bottom = Number(explicitAxisLayout.marginBottom);
           candidateRequiredMargins.top = Math.max(candidateRequiredMargins.top, candidateMargin.top);
           candidateRequiredMargins.bottom = Math.max(candidateRequiredMargins.bottom, candidateMargin.bottom);
         }
@@ -15808,18 +15908,9 @@
       };
 
       let tickLayout = null;
-      if (axisLengthTransaction) {
-        // Axis-length editing changes physical size only. Reuse the already
-        // displayed numerical scales for exactly one draw so the explicit size
-        // transaction cannot trigger a second, visibly corrective layout.
+      if (explicitAxisLayout) {
+        // Explicit sizing retains its domains/rails across every redraw and reopen.
         tickLayout = evaluatePca2dTickLayout(xTickTarget, yTickTarget);
-        debugLog('Debug: pca axis-length transaction layout locked', {
-          generation: axisLengthTransaction.generation,
-          axis: axisLengthTransaction.axis,
-          requestedLength: axisLengthTransaction.requestedLength,
-          plotW: tickLayout.plotW,
-          plotH: tickLayout.plotH
-        });
       } else {
         const maxTickLayoutPasses = 4;
         for (let pass = 0; pass < maxTickLayoutPasses; pass += 1) {
@@ -16302,6 +16393,13 @@
       // Enable drag for x-axis label
       if (typeof Shared.enableLabelDrag === 'function') {
         Shared.enableLabelDrag(xAxisText, svg, {
+          positionKey: 'xLabel',
+          positionMetrics: {
+            xOrigin: margin.left,
+            xScale: Math.max(plotW, 1),
+            yOrigin: margin.top + plotH,
+            yScale: Math.max(bottomLayout.titleOffset, 1)
+          },
           onDragEnd: pos => {
             // Store both absolute and relative positions for xLabel
             const relX = (pos.x - margin.left) / plotW;
@@ -16422,6 +16520,13 @@
       // Enable drag for y-axis label
       if (typeof Shared.enableLabelDrag === 'function') {
         Shared.enableLabelDrag(yAxisText, svg, {
+          positionKey: 'yLabel',
+          positionMetrics: {
+            xOrigin: margin.left - pcaTitleShiftX,
+            xScale: Math.max(yLabelOffsetSpan, 1),
+            yOrigin: margin.top,
+            yScale: Math.max(plotH, 1)
+          },
           onDragEnd: pos => {
             // Store both absolute and relative positions for yLabel
             const relX = (pos.x - margin.left + pcaTitleShiftX) / yLabelOffsetSpan;
@@ -16478,6 +16583,12 @@
       // Enable drag for title
       if (typeof Shared.enableLabelDrag === 'function') {
         Shared.enableLabelDrag(titleText, svg, {
+          positionMetrics: {
+            xOrigin: margin.left,
+            xScale: plotW,
+            yOrigin: margin.top - pcaTitleShiftY,
+            yScale: plotH
+          },
           onDragEnd: pos => {
             // Store both absolute and relative positions
             const relX = (pos.x - margin.left) / plotW;
@@ -16855,10 +16966,14 @@
           })
         : false;
       if(pcaCartesianPlan && !pcaLayoutPublished){
-        return false;
+        drawOutcome = DRAW_OUTCOME.CANCELLED;
+        return drawOutcome;
       }
       if(!pcaCartesianPlan){
-        if(!framePublication.commit()) return false;
+        if(!framePublication.commit()) {
+          drawOutcome = DRAW_OUTCOME.CANCELLED;
+          return drawOutcome;
+        }
         legendProjection.commit();
       }
       const finalizedEnvelopeWidth = Number(pcaCartesianPlan?.contentEnvelope?.width);
@@ -16873,14 +16988,8 @@
       pcaLayout?.syncPanels?.({
         skipSchedule: true
       });
-      if (axisLengthTransaction) {
-        updatePcaRenderRuntime(drawSession, runtime => {
-          if (Number(runtime.axisLengthTransaction?.generation) === Number(axisLengthTransaction.generation)) {
-            runtime.axisLengthTransaction = null;
-          }
-        });
-      }
       syncPcaAutoDrawNoticeWidth('draw');
+      drawOutcome = DRAW_OUTCOME.COMPLETE;
     } catch (err) {
       debugLog('Error: drawPca failure', {
         message: err?.message || err
@@ -16905,11 +17014,11 @@
             ? finalOwnerContext.canCaptureLive === true
             : isPcaSessionActiveForModuleState(drawSession))
         : true;
-      if (drawSession?.state) {
+      if (drawOutcome === DRAW_OUTCOME.COMPLETE && drawSession?.state) {
         drawSession.state.state.fastPointMode = !!fastPointModeActive;
         drawSession.updatedAt = Date.now();
       }
-      if (drawOwnerStillProjected) {
+      if (drawOutcome === DRAW_OUTCOME.COMPLETE && drawOwnerStillProjected) {
         const fastModeChanged = pcaState.fastPointMode !== fastPointModeActive;
         pcaState.fastPointMode = fastPointModeActive;
         if (fastModeChanged || fastPointModeActive) {
@@ -16927,43 +17036,45 @@
         0;
       const renderAnchor = computeEnd ?? effectiveParseEnd;
       const renderMs = totalEnd - renderAnchor;
-      if (cachePayload) {
+      if (drawOutcome === DRAW_OUTCOME.COMPLETE && cachePayload) {
         setPcaAnalysisCache(cachePayload, drawSession, {
           mirrorActive: drawOwnerStillProjected
         });
       }
-      updatePcaRenderRuntime(drawSession, runtime => {
-        if (cachePayload) {
-          runtime.cachedRender = getPcaAnalysisCache(drawSession, {
-            mirrorActive: drawOwnerStillProjected
-          });
+      if (drawOutcome === DRAW_OUTCOME.COMPLETE) {
+        updatePcaRenderRuntime(drawSession, runtime => {
+          if (cachePayload) {
+            runtime.cachedRender = getPcaAnalysisCache(drawSession, {
+              mirrorActive: drawOwnerStillProjected
+            });
+          }
           runtime.dataDirty = false;
+          runtime.viewDirty = false;
+        }, {
+          mirrorActive: drawOwnerStillProjected
+        });
+        updatePcaDrawRuntime(drawSession, runtime => {
+          runtime.resizeWarmupPending = false;
+        }, {
+          mirrorActive: drawOwnerStillProjected
+        });
+        try {
+          capturePcaSessionStateFromActive(drawSession || getPcaProjectionSession({
+            reason: 'pca-projection-mutation'
+          }), {
+            tabId: drawSession?.tabId || null,
+            reason: drawOpts.reason || 'pca-draw-complete'
+          });
+        } catch (captureErr) {
+          debugLog('Debug: pca session capture after draw failed', {
+            message: captureErr?.message || String(captureErr)
+          });
         }
-        runtime.viewDirty = false;
-      }, {
-        mirrorActive: drawOwnerStillProjected
-      });
-      updatePcaDrawRuntime(drawSession, runtime => {
-        runtime.resizeWarmupPending = false;
-      }, {
-        mirrorActive: drawOwnerStillProjected
-      });
-      try {
-        capturePcaSessionStateFromActive(drawSession || getPcaProjectionSession({
-          reason: 'pca-projection-mutation'
-        }), {
-          tabId: drawSession?.tabId || null,
-          reason: drawOpts.reason || 'pca-draw-complete'
-        });
-      } catch (captureErr) {
-        debugLog('Debug: pca session capture after draw failed', {
-          message: captureErr?.message || String(captureErr)
-        });
       }
-      if (drawOpts.restoreOwnerStatsAfterDraw === true && drawOwnerStillProjected && drawSession?.tabId) {
+      if (drawOutcome === DRAW_OUTCOME.COMPLETE && drawOpts.restoreOwnerStatsAfterDraw === true && drawOwnerStillProjected && drawSession?.tabId) {
         projectPcaStatsForOwner(drawSession.tabId, `${drawOpts.reason || 'pca-recovery-draw'}:post-draw`);
       }
-      if (!skipPerfRecord && drawOwnerStillProjected) {
+      if (drawOutcome === DRAW_OUTCOME.COMPLETE && !skipPerfRecord && drawOwnerStillProjected) {
         recordPcaPerformance('draw', {
           method: methodSnapshot,
           totalMs: totalEnd - totalStart,
@@ -16989,6 +17100,7 @@
         });
       }
     }
+    return drawOutcome;
   }
 
   function getPcaGraphPayload(context = {}) {
@@ -17051,7 +17163,7 @@
     });
     return {
       type: 'pca',
-      data: Shared.hot.trimTrailingEmptyCols(payloadSourceData),
+      data: includeDataViews ? payloadSourceData : Shared.hot.trimTrailingEmptyCols(payloadSourceData),
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
       filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
@@ -17123,10 +17235,11 @@
     });
     const gridStyle = sanitizeGridStyle(state.gridStyle, axisSettings?.strokeWidth);
     return {
+      explicitAxisLayout: normalizePca2dExplicitLayout(state.explicitAxisLayout),
       method: controls.method,
       dotSize: controls.dotSize,
       fill: controls.fill,
-      colorScheme: theme.colorScheme || 'scientific',
+      colorScheme: theme.colorScheme || 'normal',
       textColor: theme.textColor || (chartStyle.TEXT_COLOR || '#000000'),
       backgroundColor: theme.backgroundColor || '#ffffff',
       border: controls.border,
@@ -17223,111 +17336,6 @@
     };
   }
 
-  function getPcaFileHandleForSession(session = null) {
-    const owner = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
-    return owner?.managers?.fileHandle || null;
-  }
-
-  function getPcaFileNameForSession(session = null) {
-    const owner = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
-    const storedName = owner?.state?.fileName;
-    return (typeof storedName === 'string' && storedName.trim()) ? storedName.trim() : 'pca.graph';
-  }
-
-  function setPcaFileHandleForSession(handle, session = null) {
-    const owner = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
-    if (!owner) {
-      return null;
-    }
-    owner.managers.fileHandle = handle || null;
-    owner.updatedAt = Date.now();
-    return owner.managers.fileHandle;
-  }
-
-  function setPcaFileNameForSession(name, session = null) {
-    const normalized = (typeof name === 'string' && name.trim()) ? name.trim() : 'pca.graph';
-    const owner = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
-    if (!owner) {
-      return normalized;
-    }
-    owner.state.fileName = normalized;
-    owner.updatedAt = Date.now();
-    return normalized;
-  }
-
-  async function savePcaFile() {
-    const operationSession = getActivePcaSessionForState();
-    const fileHandle = getPcaFileHandleForSession(operationSession);
-    const fileName = getPcaFileNameForSession(operationSession);
-    console.debug('Debug: savePcaFile invoked', {
-      hasHandle: !!fileHandle,
-      tabId: operationSession?.tabId || null
-    });
-    if (!fileIO || typeof fileIO.saveGraphFile !== 'function') {
-      console.error('savePcaFile missing fileIO.saveGraphFile');
-      return;
-    }
-    const result = await fileIO.saveGraphFile({
-      context: 'pca',
-      owner: { component: 'pca', tabId: operationSession?.tabId || getPcaProjectionTabId() || null },
-      fileHandle,
-      getPayload: getPcaGraphPayload,
-      fileName,
-      downloadFileName: fileName,
-      setFileHandle: handle => setPcaFileHandleForSession(handle, operationSession),
-      setFileName: name => setPcaFileNameForSession(name, operationSession)
-    });
-    console.debug('Debug: savePcaFile result', result);
-  }
-
-  async function saveAsPcaFile() {
-    const operationSession = getActivePcaSessionForState();
-    const fileName = getPcaFileNameForSession(operationSession);
-    console.debug('Debug: saveAsPcaFile invoked', {
-      currentName: fileName,
-      tabId: operationSession?.tabId || null
-    });
-    if (!fileIO || typeof fileIO.saveGraphFileAs !== 'function') {
-      console.error('saveAsPcaFile missing fileIO.saveGraphFileAs');
-      return;
-    }
-    const result = await fileIO.saveGraphFileAs({
-      context: 'pca',
-      owner: { component: 'pca', tabId: operationSession?.tabId || getPcaProjectionTabId() || null },
-      getPayload: getPcaGraphPayload,
-      fileName,
-      downloadFileName: fileName,
-      setFileHandle: handle => setPcaFileHandleForSession(handle, operationSession),
-      setFileName: name => setPcaFileNameForSession(name, operationSession)
-    });
-    console.debug('Debug: saveAsPcaFile result', result);
-  }
-
-  async function openPcaFile() {
-    console.debug('Debug: openPcaFile invoked');
-    if (!fileIO || typeof fileIO.openGraphFile !== 'function') {
-      console.error('openPcaFile missing fileIO.openGraphFile');
-      return;
-    }
-    const operationSession = getActivePcaSessionForState();
-    const operationTabId = operationSession?.tabId || getPcaProjectionTabId() || null;
-    const result = await fileIO.openGraphFile({
-      context: 'pca',
-      owner: { component: 'pca', tabId: operationTabId },
-      setFileHandle: handle => setPcaFileHandleForSession(handle, operationSession),
-      setFileName: name => setPcaFileNameForSession(name, operationSession),
-      loadFromFile: (file, operation) => loadPcaGraphFile(file, { operation, tabId: operationTabId }),
-      triggerInput: () => {
-        const input = getPcaNodeById('pcaGraphFile');
-        if (input) {
-          input.value = '';
-          input.click();
-        }
-      }
-    });
-    console.debug('Debug: openPcaFile result', result);
-  }
-
   function applyPcaPayload(obj, meta = {}) {
     if (!obj || typeof obj !== 'object') {
       console.error('pca payload missing or invalid', {
@@ -17403,6 +17411,9 @@
           !!c.equalScaleAxes :
           createDefaultPcaRuntimeControls().equalAxisLengths);
       const payloadOwnedState = getPcaSessionOwnedState(payloadSession).state;
+      if (!styleOnly && (!skipDataLoad || Object.prototype.hasOwnProperty.call(c, 'explicitAxisLayout'))) {
+        payloadOwnedState.explicitAxisLayout = normalizePca2dExplicitLayout(c.explicitAxisLayout);
+      }
       const controlPatch = {};
       [
         'method', 'viewMode', 'showGrid', 'showFrame', 'showLegend',
@@ -17462,7 +17473,7 @@
           container: hot.__pcaHostContainer || getPcaNodeById('pcaHot')
         }) :
         null;
-      if (dataManager) {
+      if (!styleOnly && dataManager) {
         if (serializedViews) {
           dataManager.deserialize(serializedViews, {
             fallbackData: rawDataMatrix,
@@ -17727,45 +17738,47 @@
       debugLog('Debug: pca font size base restored', {
         value: restoredFontSize
       });
-      const savedStatsModels = normalizePcaSavedStatsModels(c.stats);
-      const restoredPanelState = normalizePcaStatsPanelState({
-        summaryModel: savedStatsModels.savedSummaryModel,
-        resultsModel: savedStatsModels.savedResultsModel,
-        reportModel: savedStatsModels.savedReportModel
-      });
-      setPcaStatsPanelResultsState(restoredPanelState, payloadSession, {
-        mirrorActive: payloadOwnerIsActive
-      });
-      const restoredStats = (obj.stats && typeof obj.stats === 'object') ?
-        obj.stats :
-        ((c.stats && typeof c.stats === 'object') ? c.stats : null);
-      if (restoredStats) {
-        setPcaStatsSnapshot(restoredStats, payloadSession, {
-          statsPanel: restoredPanelState,
+      if(!styleOnly){
+        const savedStatsModels = normalizePcaSavedStatsModels(c.stats);
+        const restoredPanelState = normalizePcaStatsPanelState({
+          summaryModel: savedStatsModels.savedSummaryModel,
+          resultsModel: savedStatsModels.savedResultsModel,
+          reportModel: savedStatsModels.savedReportModel
+        });
+        setPcaStatsPanelResultsState(restoredPanelState, payloadSession, {
           mirrorActive: payloadOwnerIsActive
         });
-        const restoredStatsSnapshot = getPcaStatsSnapshot(payloadSession);
-        debugLog('Debug: pca stats restored from payload', {
-          hasEigenSummary: Array.isArray(restoredStatsSnapshot?.eigenSummary) && restoredStatsSnapshot.eigenSummary.length > 0,
-          hasScree: Array.isArray(restoredStatsSnapshot?.scree) && restoredStatsSnapshot.scree.length > 0,
-          method: restoredStatsSnapshot?.method || null,
-          hasSavedReportModel: !!savedStatsModels.savedReportModel,
-          hasSavedSummaryModel: !!savedStatsModels.savedSummaryModel,
-          source: (obj.stats && typeof obj.stats === 'object') ? 'payload.stats' : 'config.stats'
-        });
-        restorePcaStatsFromPayload({
-          ...savedStatsModels,
-          session: payloadSession,
-          reason: 'pca-payload-stats-restore'
-        });
-        if (skipDraw && !skipDataLoad) {
-          finalizePcaStatsPayloadRestore(savedStatsModels, 'pca-stats-payload-restore-after-data-load', payloadSession);
+        const restoredStats = (obj.stats && typeof obj.stats === 'object') ?
+          obj.stats :
+          ((c.stats && typeof c.stats === 'object') ? c.stats : null);
+        if (restoredStats) {
+          setPcaStatsSnapshot(restoredStats, payloadSession, {
+            statsPanel: restoredPanelState,
+            mirrorActive: payloadOwnerIsActive
+          });
+          const restoredStatsSnapshot = getPcaStatsSnapshot(payloadSession);
+          debugLog('Debug: pca stats restored from payload', {
+            hasEigenSummary: Array.isArray(restoredStatsSnapshot?.eigenSummary) && restoredStatsSnapshot.eigenSummary.length > 0,
+            hasScree: Array.isArray(restoredStatsSnapshot?.scree) && restoredStatsSnapshot.scree.length > 0,
+            method: restoredStatsSnapshot?.method || null,
+            hasSavedReportModel: !!savedStatsModels.savedReportModel,
+            hasSavedSummaryModel: !!savedStatsModels.savedSummaryModel,
+            source: (obj.stats && typeof obj.stats === 'object') ? 'payload.stats' : 'config.stats'
+          });
+          restorePcaStatsFromPayload({
+            ...savedStatsModels,
+            session: payloadSession,
+            reason: 'pca-payload-stats-restore'
+          });
+          if (skipDraw && !skipDataLoad) {
+            finalizePcaStatsPayloadRestore(savedStatsModels, 'pca-stats-payload-restore-after-data-load', payloadSession);
+          }
+        } else {
+          resetStatsPanel('');
+          clearPcaResultsState(payloadSession, {
+            mirrorActive: payloadOwnerIsActive
+          });
         }
-      } else {
-        resetStatsPanel('');
-        clearPcaResultsState(payloadSession, {
-          mirrorActive: payloadOwnerIsActive
-        });
       }
       // Restore label positions through the owner session so same-component
       // activation/reopen paths do not depend on the active PCA mirror.
@@ -17916,52 +17929,8 @@
     }) || null;
   }
 
-  function loadPcaGraphFile(file, options = {}) {
-    const ownerTabId = String(options?.tabId || options?.operation?.tabId || getPcaProjectionTabId() || '').trim() || null;
-    const operation = fileIO?.createGraphOpenOperation?.({
-      context: 'pca',
-      operation: options?.operation,
-      owner: { component: 'pca', tabId: ownerTabId }
-    }) || options?.operation || null;
-    const reader = new FileReader();
-    reader.onload = e => {
-      try {
-        const obj = JSON.parse(e.target.result);
-        const routed = fileIO?.routeGraphOpenPayload?.({
-          context: 'pca',
-          component: 'pca',
-          operation,
-          payload: obj,
-          reason: 'pca-graph-file-open',
-          apply: (payload, owner) => applyPcaPayload(payload, {
-            source: 'file',
-            flagOverlay: true,
-            overlayReason: 'graph-file',
-            tabId: owner?.tabId || ownerTabId || undefined
-          })
-        });
-        const fallbackOwnerIsCurrent = !ownerTabId || String(getPcaProjectionTabId() || '') === ownerTabId;
-        const accepted = routed ? routed.value !== false : (fallbackOwnerIsCurrent && applyPcaPayload(obj, {
-          source: 'file',
-          flagOverlay: true,
-          overlayReason: 'graph-file',
-          tabId: ownerTabId || undefined
-        }));
-        if (!accepted) {
-          console.warn('pca payload rejected from file', {
-            hasType: !!obj?.type,
-            routeStatus: routed?.status || null
-          });
-        }
-      } catch (err) {
-        console.error('loadPcaGraph error', err);
-      }
-    };
-    reader.readAsText(file);
-  }
-
   const runPcaDrawCycle = async (drawOpts = {}) => {
-    let status = 'complete';
+    let status = DRAW_OUTCOME.SKIPPED;
     const drawSession = getPcaSessionForDrawOptions(drawOpts, {
       create: true
     });
@@ -17972,9 +17941,7 @@
     }
     try {
       const result = await drawPca(drawOpts);
-      if(result === false){
-        status = 'cancelled';
-      }
+      status = result || DRAW_OUTCOME.SKIPPED;
     } catch (err) {
       status = 'error';
       throw err;
@@ -18126,27 +18093,33 @@
     const tabId = (typeof tabLike === 'string' ? tabLike : tabLike?.id) ||
       getPcaProjectionTabId() ||
       null;
-    if (hasPcaPrimaryGraphContent(tabLike)) {
+    const session = getPcaSession(tabLike || tabId || null, {
+      tabId: tabId || null,
+      reason: `${reason || 'activate-tab'}:render-runtime`
+    }, { create: false }) || getActivePcaSessionForState();
+    const renderRuntime = getPcaRenderRuntime(session, { seedFromActive: true });
+    const hasGraph = hasPcaPrimaryGraphContent(tabLike);
+    const needsRender = renderRuntime.dataDirty || renderRuntime.viewDirty || !hasGraph;
+    if (!needsRender) {
       return false;
     }
     const activeHot = ensurePcaHotForActiveTab();
-    if (!hasPcaPlottableData(activeHot)) {
+    if (!hasGraph && !hasPcaPlottableData(activeHot) && !renderRuntime.dataDirty && !renderRuntime.viewDirty) {
       return false;
     }
-    markPcaViewDirty(`${reason || 'activate-tab'}-blank-graph`);
-    schedulePcaDrawForSession(getPcaSession(tabId || null, {
+    if (!renderRuntime.dataDirty && !renderRuntime.viewDirty) {
+      markPcaViewDirty(`${reason || 'activate-tab'}-blank-graph`, session);
+    }
+    const latestRuntime = getPcaRenderRuntime(session, { seedFromActive: true });
+    const viewOnly = !latestRuntime.dataDirty && !!getPcaAnalysisCache(session);
+    schedulePcaDrawForSession(session, {
       tabId: tabId || null,
-      reason: `${reason || 'activate-tab'}-blank-graph`
-    }, {
-      create: false
-    }) || getActivePcaSessionForState(), {
-      tabId: tabId || null,
-      reason: `${reason || 'activate-tab'}-blank-graph`,
-      viewOnly: true,
-      renderImpact: 'layout',
+      reason: `${reason || 'activate-tab'}-${hasGraph ? 'dirty-graph' : 'blank-graph'}`,
+      viewOnly,
+      renderImpact: viewOnly ? 'layout' : 'analysis',
       force: true,
       forceDraw: true,
-      userInitiated: true,
+      userInitiated: false,
       restoreOwnerStatsAfterDraw: true
     });
     return true;
@@ -18203,12 +18176,19 @@
     projectPcaStatsForOwner(resolvedTab, reason || 'activate-tab');
     rehydrateActivePca3dInteraction(getActivePcaSessionForState(), 'pca-3d-activate');
 
-    if (!hasPcaPrimaryGraphContent(resolvedTab)) {
+    const activationRenderSession = getPcaSession(resolvedTab || resolvedTab?.id || getPcaProjectionTabId() || null, {
+      tabId: resolvedTab?.id || getPcaProjectionTabId() || null,
+      reason: `${reason || 'activate-tab'}:render-state`
+    }, { create: false });
+    const activationRenderRuntime = getPcaRenderRuntime(activationRenderSession, { seedFromActive: true });
+    if (!hasPcaPrimaryGraphContent(resolvedTab) || activationRenderRuntime.dataDirty || activationRenderRuntime.viewDirty) {
       const requested = schedulePcaActivationRecoveryDraw(resolvedTab, reason || 'activate-tab');
       debugLog('Debug: pca activation graph probe', {
         tabId: resolvedTab?.id || getPcaProjectionTabId() || null,
         reason: reason || 'activate-tab',
-        hasGraph: false,
+        hasGraph: hasPcaPrimaryGraphContent(resolvedTab),
+        dataDirty: !!activationRenderRuntime.dataDirty,
+        viewDirty: !!activationRenderRuntime.viewDirty,
         scheduledRecoveryDraw: !!requested
       });
     }
@@ -18319,7 +18299,7 @@
         value: initialScopeValue
       },
       fillShape: {
-        label: 'Fill/Shape',
+        label: 'Fill / shape',
         shapeOptions: GROUP_SHAPE_OPTIONS,
         getColor(ctx) {
           return getScopedStyle(ctx).fill || pcaFill.value || '#0000ff';
@@ -18379,13 +18359,12 @@
     });
   };
 
-  pca.save = savePcaFile;
+  pca.save = () => global.Main?.fileActions?.save?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
 
-  pca.saveAs = saveAsPcaFile;
+  pca.saveAs = () => global.Main?.fileActions?.saveAs?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
 
-  pca.open = openPcaFile;
+  pca.open = () => global.Main?.fileActions?.open?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
 
-  pca.loadFromFile = loadPcaGraphFile;
 
   pca.loadFromPayload = function loadPcaFromPayload(payload, options = {}) {
     if (!applyPcaPayload(payload, {
@@ -18534,16 +18513,23 @@
         tabId: meta?.tabId || null,
         reason: 'missing-snapshot'
       });
-      bindExistingPcaOwnedRuntimeRecord(effectiveMeta.tab || effectiveMeta.tabId || null, {
-        ...effectiveMeta,
-        reason: effectiveMeta.reason || 'pca-runtime-apply-missing-snapshot-bind-owned-runtime'
-      });
+      if (isPcaSessionActiveForModuleState(getPcaSession(effectiveMeta.tab || effectiveMeta.tabId, effectiveMeta, { create: false }))) {
+        bindExistingPcaOwnedRuntimeRecord(effectiveMeta.tab || effectiveMeta.tabId || null, {
+          ...effectiveMeta,
+          reason: effectiveMeta.reason || 'pca-runtime-apply-missing-snapshot-bind-owned-runtime'
+        });
+      }
       return false;
     }
-    applyPcaOwnedRuntimeSlicesFromSnapshot(snapshot, effectiveMeta.tab || effectiveMeta.tabId || null, {
+    const stored = applyPcaOwnedRuntimeSlicesFromSnapshot(snapshot, effectiveMeta.tab || effectiveMeta.tabId || null, {
       ...effectiveMeta,
       reason: effectiveMeta.reason || 'pca-runtime-apply-owned-slices'
     });
+    if (!stored) { return false; }
+    if (!isPcaSessionActiveForModuleState(getPcaSession(effectiveMeta.tab || effectiveMeta.tabId, effectiveMeta, { create: false }))) {
+      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pca, snapshot, effectiveMeta);
+      return true;
+    }
     const applySession = getPcaSession(effectiveMeta.tab || effectiveMeta.tabId || null, {
       ...effectiveMeta,
       reason: effectiveMeta.reason || 'pca-runtime-apply-owner'
@@ -18694,6 +18680,8 @@
     component: pca,
     componentKey: 'pca',
     cancel: (tab, meta = {}) => {
+      const tabId = (typeof tab === 'string' ? tab : tab?.id) || meta?.tabId || null;
+      closePcaPointContextMenuForTab(tabId);
       const record = rememberPcaOwnedRuntimeRecord(tab || meta?.tabId || null, {
         ...(meta || {}),
         reason: meta?.reason || 'pca-deactivate-remember-owned-runtime'
@@ -18726,6 +18714,8 @@
       });
     }
   }) || function deactivatePcaTab(tab, meta = {}) {
+    const tabId = (typeof tab === 'string' ? tab : tab?.id) || meta?.tabId || null;
+    closePcaPointContextMenuForTab(tabId);
     const record = rememberPcaOwnedRuntimeRecord(tab || meta?.tabId || null, {
       ...(meta || {}),
       reason: meta?.reason || 'pca-deactivate-remember-owned-runtime'
@@ -18763,6 +18753,33 @@
       generation: pca.__runtimeGeneration,
       reason: meta?.reason || 'deactivate-tab'
     });
+    return true;
+  };
+
+  pca.disposeTab = function disposePcaTab(tab, meta = {}){
+    const tabId = String((typeof tab === 'string' ? tab : tab?.id) || meta?.tabId || '').trim();
+    if(!tabId){ return false; }
+    const session = getPcaSession(tabId, { ...(meta || {}), tabId, reason: meta.reason || 'pca-dispose-session' }, { create: false });
+    if(session){
+      closePcaPointContextMenuForTab(tabId);
+      const runtime = getPcaDrawRuntime(session, { seedFromActive: false });
+      if(runtime.dataDrawTimer){ Shared.componentLifecycle?.clearComponentTimeout?.(pca, runtime.dataDrawTimer); }
+      if(runtime.dataDrawFrame){ Shared.componentLifecycle?.cancelComponentFrame?.(pca, runtime.dataDrawFrame); }
+      updatePcaDrawRuntime(session, drawRuntime => {
+        drawRuntime.token = (Number(drawRuntime.token) || 0) + 1;
+        drawRuntime.pendingDrawOptions = {};
+        drawRuntime.dataDrawTimer = null;
+        drawRuntime.dataDrawFrame = null;
+        drawRuntime.rotationPending = false;
+      }, { mirrorActive: false });
+      session.workers?.clear?.();
+    }
+    pcaDataToolbarLastActivationByTabId.delete(tabId);
+    pcaSessionsByTabId.delete(tabId);
+    if(String(projectedPcaSession?.tabId || '') === tabId){
+      projectedPcaSession = null;
+      if(String(pca.__boundTabId || '') === tabId){ pca.__boundTabId = null; }
+    }
     return true;
   };
 
@@ -18818,7 +18835,7 @@
     payload.stats = null;
     if (payload.config) {
       if (typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()) {
-        payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('pca') || 'scientific';
+        payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('pca') || 'normal';
       }
       payload.config.stats = payload.config.stats && typeof payload.config.stats === 'object' ?
         payload.config.stats :
@@ -19021,6 +19038,7 @@
     const rotationModel = normalizePca3dRotationModel(session?.cache?.pca3dRotationModel || null);
     const cache = {
       plot: plotCache,
+      explicitAxisLayoutKey: pca2dLayoutCacheKey(session),
       runtimeCache: cloneSimple(getPcaAnalysisCache(session)) || null,
       rotationModel: rotationModel ? (cloneSimple(rotationModel) || rotationModel) : null,
       __graphitixRenderCache: cacheMeta
@@ -19030,6 +19048,9 @@
   };
 
   pca.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}) {
+    const layoutOwner = getPcaSession(meta?.tab || meta?.tabId || getPcaProjectionTabId(), meta, { create: false }) || getActivePcaSessionForState();
+    if (!isPca2dLayoutCacheCurrent(layoutOwner, cache)) return false;
+    if(cache?.rotationModel && Number(cache.rotationModel.version) !== PCA_3D_ROTATION_MODEL_VERSION){ return false; }
     if(!symbolGeometry.isRenderCacheCurrent(cache)){
       return false;
     }
@@ -19194,6 +19215,7 @@
     const session = getPcaSession(meta.session || meta.tab || meta.tabId || null, meta, { create: false }) || getActivePcaSessionForState();
     const root = meta.root || resolvePcaRoot(session?.tabId || meta.tab || meta.tabId || null);
     const plot = root?.querySelector?.('#pcaPlot') || getPcaNodeById('pcaPlot');
+    configurePcaChartPointKeyboard(plot, session?.tabId || meta.tabId || getPcaProjectionTabId());
     const svg = plot?.querySelector?.('#pcaSvg') || meta.svgs?.find?.(node => node?.id === 'pcaSvg') || null;
     if (!session || !svg) { return false; }
     const axesReady = axisControls?.rehydrateAxisElements?.(svg, (axis, element, metadata) =>
@@ -19203,6 +19225,27 @@
       })
     ) !== false;
     const textReady = rehydratePcaInlineTextInteractions(svg, session);
+    const title = svg.querySelector?.('[data-font-role="graphTitle"]') || null;
+    const titleDragReady = !title
+      || Shared.rehydrateLabelDrag?.(title, svg, {
+        owner: session,
+        tabId: session.tabId,
+        onPositionChange: position => patchPcaLabelPositionsState(session, {
+          title: {
+            x: position.x,
+            y: position.y,
+            relX: position.relX,
+            relY: position.relY
+          }
+        }, { reason: 'pca-2d-title-position' })
+      }) === true;
+    const axisLabelDragsReady = Shared.rehydrateLabelDrags?.(svg, {
+      owner: session,
+      tabId: session.tabId,
+      onPositionChange: (key, _label, position) => patchPcaLabelPositionsState(session, {
+        [key]: { x: position.x, y: position.y, relX: position.relX, relY: position.relY }
+      }, { reason: `pca-2d-${key}-position` })
+    }) !== false;
     svg.querySelectorAll?.('[data-pca-point-interaction]').forEach(node => {
       try { attachPcaPointTooltip(node, JSON.parse(node.getAttribute('data-pca-point-interaction'))); } catch (_err) {}
     });
@@ -19218,13 +19261,33 @@
       }
       if (!bindPca3dRotationControls(svg, 'pca-3d-cache-rehydrate', session)) { return false; }
     }
-    return axesReady && textReady;
+    const hasPointLabels = !!svg.querySelector?.("g[data-layer='point-labels'] text[data-point-label-key]");
+    const pointLabelDragsReady = typeof Shared.labelLayout?.rehydratePointLabelDrags === 'function'
+      ? Shared.labelLayout.rehydratePointLabelDrags(svg, {
+        owner: session,
+        tabId: session.tabId,
+        onPositionChange: (labelKey, position) => savePcaPointLabelPosition(
+          session,
+          labelKey,
+          position,
+          'pca-point-label-position'
+        )
+      }) !== false
+      : !hasPointLabels;
+    return axesReady && textReady && titleDragReady && axisLabelDragsReady && pointLabelDragsReady;
   };
 
   pca.restoreRenderCache = function restoreRenderCache(cache, _meta = {}) {
     if (!cache) {
       return false;
     }
+    const ownerTabId = _meta?.tab?.id || _meta?.tabId || getPcaProjectionTabId() || null;
+    const session = getPcaSession(_meta?.tab || ownerTabId || null, {
+      ...(_meta || {}),
+      reason: 'pca-render-cache-restore-owner'
+    }, { create: false }) || getActivePcaSessionForState();
+    if (!isPca2dLayoutCacheCurrent(session, cache)) return false;
+    if(cache.rotationModel && Number(cache.rotationModel.version) !== PCA_3D_ROTATION_MODEL_VERSION){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getPcaNodeById('pcaPlot');
     const restoredPlot = restoreChildren(plot, graphCachePayload);
@@ -19237,11 +19300,6 @@
     // scree/summary/biplot/eigen/loadings in sync on every restore path (file reopen,
     // recovery, tab switch). The active-session mirror is refreshed before this runs,
     // so older payloads remain compatible without making the mirror authoritative.
-    const ownerTabId = _meta?.tab?.id || _meta?.tabId || getPcaProjectionTabId() || null;
-    const session = getPcaSession(_meta?.tab || ownerTabId || null, {
-      ...(_meta || {}),
-      reason: 'pca-render-cache-restore-owner'
-    }, { create: false }) || getActivePcaSessionForState();
     restorePcaStatsFromPayload({ session, reason: 'pca-render-cache-restore-stats' });
     rebindPcaProjectionDomRefs(ownerTabId);
     const canonicalControls = hydratePcaControlsFromCanonicalTab(ownerTabId, session, 'pca-render-cache-canonical-controls');
@@ -19426,6 +19484,7 @@
       },
       onAfterSync: () => syncPcaAutoDrawNoticeWidth('panel-sync'),
       resizableBoxOptions: {
+        cartesianRatioSource: 'layout',
         forceAspectLocked: true,
         showAspectControl: false,
         cartesianLayoutTransactionEnabled: context => {
@@ -19514,7 +19573,7 @@
     }
     const pcaLoadExampleButton = getPcaNodeById('pcaLoadExample');
     if (pcaLoadExampleButton) {
-      const loadExampleData = () => {
+      const loadExampleData = (_event = null, owner = null) => {
         const requestedFormat = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
         let selectedFormat = requestedFormat;
         let exampleRecord = Shared.exampleDatasets?.get?.('pca', selectedFormat);
@@ -19569,6 +19628,7 @@
           affectsAnalysis: true,
           updatePayload: () => getPcaGraphPayload({ tabId: ownerTabId })
         });
+        Shared.colorSchemes?.applyToActiveTab?.('pca', Shared.colorSchemes?.getDefaultSchemeId?.('pca') || 'normal');
         evaluateAutoDrawThresholds();
         scheduleActivePcaDraw({
           force: true,
@@ -19576,8 +19636,17 @@
           renderImpact: 'structural'
         });
       };
-      pcaLoadExampleButton.addEventListener('click', loadExampleData);
-      pcaState.__desktopLoadExample = loadExampleData;
+      bindPcaControlHandler(pcaLoadExampleButton, 'click', 'load-example', loadExampleData);
+      pcaState.__desktopLoadExample = () => {
+        const owner = getPcaCallbackOwner({
+          tabId: getPcaActiveTabId(),
+          target: pcaLoadExampleButton,
+          reason: 'pca-desktop-load-example'
+        });
+        return runPcaOwnedCallback(owner, () => loadExampleData(null, owner), {
+          reason: 'pca-desktop-load-example'
+        });
+      };
     } else {
       debugLog('Debug: pca load example control unavailable during setup');
     }
@@ -19688,7 +19757,8 @@
     lastLoadingsRender = null;
     syncLoadingsLimitUi(PCA_LOADINGS_ROW_LIMIT);
     if (pcaLoadingsLimitInput) {
-      pcaLoadingsLimitInput.addEventListener('input', () => {
+      bindPcaControlHandler(pcaLoadingsLimitInput, 'input', 'loadings-limit', event => {
+        const input = event?.currentTarget || pcaLoadingsLimitInput;
         const maxRows = lastLoadingsRender ?
           Math.max(1, Math.min(
             PCA_LOADINGS_ROW_LIMIT,
@@ -19696,7 +19766,7 @@
             Array.isArray(lastLoadingsRender.rows) ? lastLoadingsRender.rows.length : 0
           )) :
           PCA_LOADINGS_ROW_LIMIT;
-        pcaState.loadingsLimit = clampLoadingsLimitValue(pcaLoadingsLimitInput.value, maxRows);
+        pcaState.loadingsLimit = clampLoadingsLimitValue(input.value, maxRows);
         syncLoadingsLimitUi(maxRows);
         if (lastLoadingsRender) {
           updateLoadingsTable(lastLoadingsRender);
@@ -19714,8 +19784,7 @@
     pcaAxis2DControls = getPcaNodeById('pcaAxis2DControls');
     pcaAxis3DControl = getPcaNodeById('pcaAxis3DControl');
     if (pcaAxis3DControl) {
-      pcaAxis3DControl.hidden = true;
-      pcaAxis3DControl.style.display = 'none';
+      setPcaControlVisibility(pcaAxis3DControl, false);
     }
     pcaMethod = $('#pcaMethod');
     pcaFill = $('#pcaFill');
@@ -20086,21 +20155,6 @@
         hasExporter: !!Shared.exporter
       }); // Debug: pca export fallback
     }
-    getPcaNodeById('openPcaGraph')?.addEventListener('click', openPcaFile);
-    getPcaNodeById('savePcaGraph')?.addEventListener('click', savePcaFile);
-    getPcaNodeById('saveAsPca')?.addEventListener('click', saveAsPcaFile);
-    getPcaNodeById('pcaGraphFile').addEventListener('change', e => {
-      const f = e.target.files[0];
-      if (f) {
-        const owner = getPcaCallbackOwner({ event: e, reason: 'pca-graph-file-input' });
-        const operationSession = owner.session || getActivePcaSessionForState();
-        const operationTabId = operationSession?.tabId || owner.tabId || getPcaProjectionTabId() || null;
-        setPcaFileNameForSession(f.name, operationSession);
-        setPcaFileHandleForSession(null, operationSession);
-        loadPcaGraphFile(f, { tabId: operationTabId });
-      }
-    });
-
     scheduleDrawPcaRaw = Shared.workspaceTabs?.createTabScopedScheduler ?
       Shared.workspaceTabs.createTabScopedScheduler({
         componentKey: 'pca',
@@ -20270,6 +20324,8 @@
     },
     snapshotConfig: session => cloneSimple(snapshotPcaConfig(null, session || getActivePcaSessionForState())),
     calculateMedianRatioSizeFactors: matrix => dataTransformsApi.calculateMedianRatioSizeFactors(matrix),
+    computeParallelAnalysis: (matrix, svdLib, options) => computePcaParallelAnalysis(matrix, svdLib, options),
+    computeComponentSelectionSummary: (eigenSummary, matrix, svdLib, options) => computePcaComponentSelectionSummary(eigenSummary, matrix, svdLib, options),
     preprocessRnaSeqCounts: (matrix, labels, options) => dataTransformsApi.preprocessRnaSeqCounts(matrix, labels, options),
     materializeRnaSeqDataView: options => materializePcaRnaSeqDataView(options),
     normalizePointStyleScopes: (source, options) => normalizePcaPointStyleScopes(source, options),

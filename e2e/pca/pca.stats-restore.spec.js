@@ -39,6 +39,10 @@ function pcaStatsPresenceInPage() {
     biplotVectorLines: biplotSvg ? biplotSvg.querySelectorAll('line').length : 0,
     eigenRows: eigenWrap ? eigenWrap.querySelectorAll('tr').length : 0,
     summaryHasText: !!summary && (summary.textContent || '').trim().length > 0,
+    varianceRowHidden: !!document.getElementById('pcaScreeVarianceRow')?.hidden,
+    varianceRowInlineDisplay: document.getElementById('pcaScreeVarianceRow')?.style.display || '',
+    screeExportHidden: !!document.getElementById('pcaScreeExportControls')?.hidden,
+    screeExportInlineDisplay: document.getElementById('pcaScreeExportControls')?.style.display || '',
     plotSvg: !!document.querySelector('#pcaPlot svg')
   };
 }
@@ -155,6 +159,10 @@ async function expectFullPcaStats(page, label) {
   expect(state.biplotVectorLines, `${label}: biplot should draw loading vectors`).toBeGreaterThan(0);
   expect(state.eigenRows, `${label}: eigen table should have rows`).toBeGreaterThan(0);
   expect(state.summaryHasText, `${label}: summary panel should have text`).toBe(true);
+  expect(state.varianceRowHidden, `${label}: scree/biplot row should be visible`).toBe(false);
+  expect(state.varianceRowInlineDisplay, `${label}: visibility is owned by hidden`).toBe('');
+  expect(state.screeExportHidden, `${label}: scree export controls should be visible`).toBe(false);
+  expect(state.screeExportInlineDisplay, `${label}: export visibility is owned by hidden`).toBe('');
   expect(state.plotSvg, `${label}: main plot SVG should be present`).toBe(true);
 }
 
@@ -163,6 +171,10 @@ async function buildPca(page) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage', exampleButtonId: 'pcaLoadExample' }, { first: true });
   await page.waitForFunction(() => !!window.Components?.pca?.ready, null, { timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => ({
+    rowHidden: document.querySelector('#pcaPage:not([hidden]) #pcaScreeVarianceRow')?.hidden,
+    exportHidden: document.querySelector('#pcaPage:not([hidden]) #pcaScreeExportControls')?.hidden
+  }))).toEqual({ rowHidden: true, exportHidden: true });
   await clickExpectedExampleButton(page, 'pcaLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#pcaPlot svg'), null, { timeout: 30_000 });
   await waitForComponentOwnerReady(page, 'pca', {

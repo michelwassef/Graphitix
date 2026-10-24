@@ -595,9 +595,9 @@
     }
     try{
       const activeTabId = normalizeTabId(Shared.workspaceTabs?.getActiveSessionInfo?.(type)?.tabId || '');
-      return !!activeTabId && activeTabId !== target.ownerTabId;
+      return !activeTabId || activeTabId !== target.ownerTabId;
     }catch(_err){
-      return false;
+      return true;
     }
   }
 

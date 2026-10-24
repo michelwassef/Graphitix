@@ -3,9 +3,11 @@
 
 const { installPcaViewProductionFixture } = require('./pcaViewFixture');
 const { installProductionTestEventTracker } = require('./productionTestLifecycle');
+const { installSvgTextGeometry } = require('../__tests__/setup/svgTextGeometry');
 
 function createPcaViewTestContext({ ensureReason = 'pca-view-test-ensure' } = {}) {
   const productionEvents = installProductionTestEventTracker();
+  let restoreSvgTextGeometry;
   const flush = () => new Promise(resolve => {
     requestAnimationFrame(() => resolve());
   });
@@ -36,6 +38,7 @@ function createPcaViewTestContext({ ensureReason = 'pca-view-test-ensure' } = {}
   beforeEach(async () => {
     productionEvents.reset();
     jest.resetModules();
+    restoreSvgTextGeometry = installSvgTextGeometry();
     installPcaViewProductionFixture();
     await activateWorkspace('pca');
     const activePcaTabId = window.Main?.session?.getActiveTab?.()?.id || null;
@@ -49,6 +52,7 @@ function createPcaViewTestContext({ ensureReason = 'pca-view-test-ensure' } = {}
 
   afterEach(() => {
     productionEvents.reset();
+    restoreSvgTextGeometry();
   });
 
   afterAll(() => {

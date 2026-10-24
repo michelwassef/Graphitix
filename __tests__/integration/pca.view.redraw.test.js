@@ -6,6 +6,7 @@ describe('PCA view controls — redraw and render cache', () => {
   const {
     flushAll,
     flushUntil,
+    activateWorkspace,
   } = createPcaViewTestContext();
 
   test('PCA render cache restore restores scree visibility state', async () => {
@@ -34,8 +35,8 @@ describe('PCA view controls — redraw and render cache', () => {
 
     screeContainer.hidden = true;
     screeContainer.style.maxWidth = '';
-    screeExportControls.style.display = 'none';
-    screeVarianceRow.style.display = 'none';
+    screeExportControls.hidden = true;
+    screeVarianceRow.hidden = true;
     state.cachedRender = null;
     state.dataDirty = true;
     state.viewDirty = true;
@@ -45,8 +46,8 @@ describe('PCA view controls — redraw and render cache', () => {
     expect(restored).toBe(true);
     expect(screeContainer.hidden).toBe(false);
     expect(screeContainer.querySelector('svg')).toBeTruthy();
-    expect(screeExportControls.style.display).not.toBe('none');
-    expect(screeVarianceRow.style.display).toBe('flex');
+    expect(screeExportControls.hidden).toBe(false);
+    expect(screeVarianceRow.hidden).toBe(false);
     expect(state.cachedRender).toBeTruthy();
     expect(state.cachedRender).not.toBe(cachedBefore);
     expect(Array.isArray(state.cachedRender.points)).toBe(true);
@@ -54,6 +55,51 @@ describe('PCA view controls — redraw and render cache', () => {
     expect(state.dataDirty).toBe(false);
     expect(state.viewDirty).toBe(false);
     expect(state.resizeWarmupPending).toBe(false);
+  }, 180000);
+
+  test('a stale PCA font event with no owner session cannot dirty the active sibling', async () => {
+    const pca = window.Components.pca;
+    const main = window.Main;
+    document.getElementById('pcaLoadExample').click();
+    await flushUntil(() => !!pca.__state?.cachedRender, { limit: 80, step: 2 });
+    const tabA = main.session.getActiveTab();
+
+    const addResult = main.tabs.handleAddTabClick();
+    if (addResult && typeof addResult.then === 'function') await addResult;
+    await flushAll(2);
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if (duplicatePrompt && !duplicatePrompt.hidden) {
+      document.getElementById('duplicateEmpty').click();
+    }
+    await flushAll(3);
+    await activateWorkspace('pca');
+    const tabB = main.session.getActiveTab();
+    expect(tabB).toMatchObject({ type: 'pca' });
+    expect(tabB?.id).not.toBe(tabA?.id);
+    const activation = main.tabs.activateTab(tabB.id, { reason: 'pca-stale-font-event-switch' });
+    if (activation && typeof activation.then === 'function') await activation;
+    await flushUntil(() => main.session.getActiveTab()?.id === tabB.id, { limit: 80, step: 2 });
+
+    const sessionB = pca.__testHooks.getSession(tabB.id);
+    expect(sessionB).toBeTruthy();
+    await flushUntil(() => Number(sessionB.timers.drawRuntime?.inFlight) === 0, { limit: 80, step: 2 });
+    expect(sessionB.cache.renderRuntime.viewDirty).toBe(false);
+
+    const payloadBBefore = JSON.stringify(tabB.payload);
+    const pendingOptionsBefore = JSON.stringify(sessionB.timers.drawRuntime.pendingDrawOptions);
+    const staleTabId = 'pca-stale-font-owner-that-has-no-session';
+    window.document.dispatchEvent(new CustomEvent('fontControls:styleChanged', {
+      detail: {
+        scopeId: 'pca',
+        key: '__labels__',
+        storeKey: `pca::tabbed::${staleTabId}::__labels__`,
+        tabId: staleTabId
+      }
+    }));
+
+    expect(sessionB.cache.renderRuntime.viewDirty).toBe(false);
+    expect(JSON.stringify(sessionB.timers.drawRuntime.pendingDrawOptions)).toBe(pendingOptionsBefore);
+    expect(JSON.stringify(tabB.payload)).toBe(payloadBBefore);
   }, 180000);
 
   test('PCA render cache restore rehydrates component selectors from owner analysis metadata', async () => {
@@ -93,6 +139,154 @@ describe('PCA view controls — redraw and render cache', () => {
     expect(xAxis.value).toBe('2');
     expect(yAxis.value).toBe('3');
     expect(ownerSession?.state?.state?.axisSelection).toEqual({ x: 2, y: 3, z: 1 });
+  }, 180000);
+
+  test('a stale PCA draw cannot mark changed owner data clean after a tab switch', async () => {
+    const exampleBtn = document.getElementById('pcaLoadExample');
+    exampleBtn.click();
+    const pca = window.Components?.pca;
+    await flushUntil(() => !!pca?.__state?.cachedRender, { limit: 80, step: 2 });
+
+    const main = window.Main;
+    const tabA = main.session.getActiveTab();
+    const sessionA = pca.__testHooks.getSession(tabA.id);
+    const hot = pca.getHotInstance();
+    expect(sessionA?.cache?.renderRuntime?.dataDirty).toBe(false);
+    expect(hot?.getDataAtCell).toBeTruthy();
+
+    const shared = window.Shared;
+    const previousLazySvd = shared.lazySvd;
+    const originalWindowSvd = Object.getOwnPropertyDescriptor(window, 'SVDJS');
+    const originalGlobalSvd = Object.getOwnPropertyDescriptor(globalThis, 'SVDJS');
+    let resolveLazySvd;
+    let lazySvdStarted = false;
+    shared.lazySvd = () => {
+      lazySvdStarted = true;
+      return new Promise(resolve => { resolveLazySvd = resolve; });
+    };
+    window.SVDJS = undefined;
+    globalThis.SVDJS = undefined;
+
+    try {
+      const currentValue = Number(hot.getDataAtCell(1, 1)) || 0;
+      hot.setDataAtCell(1, 1, String(currentValue + 100));
+      await flushUntil(() => lazySvdStarted, { limit: 80, step: 2 });
+      expect(sessionA.cache.renderRuntime.dataDirty).toBe(true);
+      expect(sessionA.timers.drawRuntime.inFlight).toBeGreaterThan(0);
+      const tokenBeforeSwitch = sessionA.timers.drawRuntime.token;
+
+      const addResult = main.tabs.handleAddTabClick();
+      if (addResult && typeof addResult.then === 'function') await addResult;
+      await flushAll(2);
+      const duplicatePrompt = document.getElementById('duplicatePrompt');
+      if (duplicatePrompt && !duplicatePrompt.hidden) {
+        document.getElementById('duplicateEmpty').click();
+      }
+      await flushAll(3);
+      const tabB = main.session.getActiveTab();
+      expect(tabB?.id).not.toBe(tabA.id);
+
+      const activateResult = main.tabs.activateTab(tabB.id, { reason: 'pca-stale-draw-switch' });
+      if (activateResult && typeof activateResult.then === 'function') await activateResult;
+      await flushAll(3);
+      expect(main.session.getActiveTab()?.id).toBe(tabB.id);
+      expect(sessionA.timers.drawRuntime.token).toBeGreaterThan(tokenBeforeSwitch);
+
+      window.SVDJS = originalWindowSvd?.value;
+      globalThis.SVDJS = originalGlobalSvd?.value;
+      resolveLazySvd(originalWindowSvd?.value || originalGlobalSvd?.value);
+      await flushUntil(() => Number(sessionA.timers.drawRuntime.inFlight) === 0, { limit: 80, step: 2 });
+
+      expect(sessionA.cache.renderRuntime.dataDirty).toBe(true);
+    } finally {
+      if (resolveLazySvd) resolveLazySvd(originalWindowSvd?.value || originalGlobalSvd?.value);
+      if (originalWindowSvd) Object.defineProperty(window, 'SVDJS', originalWindowSvd);
+      else delete window.SVDJS;
+      if (originalGlobalSvd) Object.defineProperty(globalThis, 'SVDJS', originalGlobalSvd);
+      else delete globalThis.SVDJS;
+      shared.lazySvd = previousLazySvd;
+    }
+  }, 180000);
+
+  test('a cancelled PCA view redraw keeps its owner view dirty after a tab switch', async () => {
+    document.getElementById('pcaLoadExample').click();
+    const pca = window.Components?.pca;
+    await flushUntil(() => !!pca?.__state?.cachedRender, { limit: 80, step: 2 });
+
+    const main = window.Main;
+    const tabA = main.session.getActiveTab();
+    const sessionA = pca.__testHooks.getSession(tabA.id);
+    const showGrid = document.getElementById('pcaShowGrid');
+    expect(showGrid).toBeTruthy();
+    expect(sessionA.cache.renderRuntime.viewDirty).toBe(false);
+
+    const shared = window.Shared;
+    const previousLazySvd = shared.lazySvd;
+    const originalWindowSvd = Object.getOwnPropertyDescriptor(window, 'SVDJS');
+    const originalGlobalSvd = Object.getOwnPropertyDescriptor(globalThis, 'SVDJS');
+    let resolveLazySvd;
+    let lazySvdStarted = false;
+    shared.lazySvd = () => {
+      lazySvdStarted = true;
+      return new Promise(resolve => { resolveLazySvd = resolve; });
+    };
+    window.SVDJS = undefined;
+    globalThis.SVDJS = undefined;
+
+    try {
+      showGrid.checked = !showGrid.checked;
+      showGrid.dispatchEvent(new Event('change', { bubbles: true }));
+      await flushUntil(() => lazySvdStarted, { limit: 80, step: 2 });
+      expect(sessionA.cache.renderRuntime.viewDirty).toBe(true);
+      expect(sessionA.timers.drawRuntime.inFlight).toBeGreaterThan(0);
+      const tokenBeforeSwitch = sessionA.timers.drawRuntime.token;
+
+      const addResult = main.tabs.handleAddTabClick();
+      if (addResult && typeof addResult.then === 'function') await addResult;
+      await flushAll(2);
+      const duplicatePrompt = document.getElementById('duplicatePrompt');
+      if (duplicatePrompt && !duplicatePrompt.hidden) {
+        document.getElementById('duplicateEmpty').click();
+      }
+      await flushAll(3);
+      const tabB = main.session.getActiveTab();
+      expect(tabB?.id).not.toBe(tabA.id);
+
+      const activateResult = main.tabs.activateTab(tabB.id, { reason: 'pca-stale-view-draw-switch' });
+      if (activateResult && typeof activateResult.then === 'function') await activateResult;
+      await flushAll(3);
+      expect(main.session.getActiveTab()?.id).toBe(tabB.id);
+      expect(sessionA.timers.drawRuntime.token).toBeGreaterThan(tokenBeforeSwitch);
+
+      window.SVDJS = originalWindowSvd?.value;
+      globalThis.SVDJS = originalGlobalSvd?.value;
+      resolveLazySvd(originalWindowSvd?.value || originalGlobalSvd?.value);
+      await flushUntil(() => Number(sessionA.timers.drawRuntime.inFlight) === 0, { limit: 80, step: 2 });
+
+      expect(sessionA.cache.renderRuntime.viewDirty).toBe(true);
+      shared.lazySvd = previousLazySvd;
+      const expectedGridVisibility = showGrid.checked;
+      const reactivateResult = main.tabs.activateTab(tabA.id, { reason: 'pca-cancelled-view-draw-recovery' });
+      let activationError = null;
+      if (reactivateResult && typeof reactivateResult.then === 'function') {
+        reactivateResult.catch(error => { activationError = error; });
+      }
+      await flushAll(3);
+      expect(activationError).toBeNull();
+      await flushUntil(() => main.session.getActiveTab()?.id === tabA.id
+        && sessionA.cache.renderRuntime.viewDirty === false
+        && Number(sessionA.timers.drawRuntime.inFlight) === 0, { limit: 80, step: 2 });
+
+      expect(showGrid.checked).toBe(expectedGridVisibility);
+      expect(!!document.querySelector('#pcaPlot #pcaSvg [data-grid-control="1"]')).toBe(expectedGridVisibility);
+    } finally {
+      if (resolveLazySvd) resolveLazySvd(originalWindowSvd?.value || originalGlobalSvd?.value);
+      if (originalWindowSvd) Object.defineProperty(window, 'SVDJS', originalWindowSvd);
+      else delete window.SVDJS;
+      if (originalGlobalSvd) Object.defineProperty(globalThis, 'SVDJS', originalGlobalSvd);
+      else delete globalThis.SVDJS;
+      shared.lazySvd = previousLazySvd;
+    }
   }, 180000);
 
   test('user control refresh routes through the view-refresh suppression contract as userInitiated', async () => {
@@ -422,13 +616,15 @@ describe('PCA view controls — redraw and render cache', () => {
     const cache = component.captureRenderCache();
     expect(cache).toBeTruthy();
     expect(cache.rotationModel).toEqual(expect.objectContaining({
-      version: 1,
+      version: window.Shared.plot3d.FRAME_LAYOUT_VERSION,
       method: expect.any(String),
       axisIndices: expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
       points: expect.any(Array)
     }));
     expect(cache.rotationModel.points.length).toBeGreaterThan(0);
     expect(() => JSON.stringify(cache.rotationModel)).not.toThrow();
+    expect(component.restoreRenderCache({ ...cache, rotationModel: { ...cache.rotationModel, version: 1 } })).toBe(false);
+    expect(document.querySelector('#pcaPlot #pcaSvg')).toBe(originalSvg);
 
     session.refs.rotationRenderer = null;
     delete session.cache.pca3dRotationModel;

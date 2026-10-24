@@ -1,4 +1,5 @@
 const fs = require('fs');
+const JSZip = require('jszip');
 const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
@@ -24,6 +25,31 @@ const STATS_CONTROLS = {
 function writeArchive(base64, outputPath) {
   fs.writeFileSync(outputPath, Buffer.from(base64, 'base64'));
   return outputPath;
+}
+
+async function createLegacyBoxCacheArchive(base64) {
+  const zip = await JSZip.loadAsync(Buffer.from(base64, 'base64'));
+  const cachePath = Object.keys(zip.files).find(path => path.endsWith('/render-cache.json'));
+  if (!cachePath) throw new Error('Expected Box archive render cache');
+  const renderCacheFile = JSON.parse(await zip.file(cachePath).async('string'));
+  const cache = renderCacheFile?.cache;
+  const titleNode = cache?.plot?.nodes?.find(node => (
+    node?.kind === 'element'
+    && typeof node.markup === 'string'
+    && /data-font-role="graphTitle"/.test(node.markup)
+  ));
+  if (!titleNode) throw new Error('Expected serialized Box graph title');
+  const legacyMarkup = titleNode.markup.replace(
+    /\sdata-label-drag-position-metrics=(?:"[^"]*"|'[^']*')/,
+    ''
+  );
+  if (legacyMarkup === titleNode.markup) {
+    throw new Error('Expected the current Box title cache to include drag-position metrics');
+  }
+  titleNode.markup = legacyMarkup;
+  cache.__graphitixRenderCache.version = 2;
+  zip.file(cachePath, JSON.stringify(renderCacheFile));
+  return zip.generateAsync({ type: 'base64' });
 }
 
 async function openFresh(page) {
@@ -184,9 +210,6 @@ async function buildArchive(page, label, options = {}) {
     const session = window.Main.session;
     const normalizeComparablePayload = payload => {
       const next = session.clonePayload ? session.clonePayload(payload) : structuredClone(payload);
-      if (next?.config?.stats?.advisor && Object.prototype.hasOwnProperty.call(next.config.stats.advisor, 'pendingPoints')) {
-        delete next.config.stats.advisor.pendingPoints;
-      }
       if (next?.meta?.statsReporting?.pValueScientific === false) {
         delete next.meta.statsReporting.pValueScientific;
         if (!Object.keys(next.meta.statsReporting).length) delete next.meta.statsReporting;
@@ -218,16 +241,33 @@ async function buildArchive(page, label, options = {}) {
     }
     return {
       base64: btoa(binary),
+      renderCacheSchemaVersion: window.Shared?.renderCacheSchema?.SCHEMA_VERSION || null,
       diagnosticCursor: cursor,
       tabs: parsed.session.tabs.map(tab => ({
         type: tab.type,
         title: tab.title,
+        dataViewCount: Array.isArray(tab.payload?.dataViews?.views) ? tab.payload.dataViews.views.length : 0,
+        rawDataViewMatchesPayload: (() => {
+          const views = tab.payload?.dataViews?.views;
+          const rawView = Array.isArray(views)
+            ? views.find(view => String(view?.id || view?.kind || '').toLowerCase() === 'raw') || views[0]
+            : null;
+          return Array.isArray(rawView?.data) && Array.isArray(tab.payload?.data)
+            ? JSON.stringify(rawView.data) === JSON.stringify(tab.payload.data)
+            : null;
+        })(),
         variant: / \[[AB]\]$/.test(String(tab.title || '')) ? String(tab.title).slice(-2, -1) : null,
         chartType: tab.payload?.config?.chartType || null,
         canonicalPayloadSignature: session.serializePayloadSignature(normalizeComparablePayload(tab.payload || null)),
         canonicalLayoutSignature: serializeOwnerNeutralLayout(tab.layout),
         runtimeLayoutSignature: session.serializePayloadSignature(tab.layout || null),
         hasCache: !!tab.archiveRenderCache,
+        cacheVersion: Number(tab.archiveRenderCache?.__graphitixRenderCache?.version) || null,
+        hasGraphTitleDragMetrics: (tab.archiveRenderCache?.plot?.nodes || []).some(node => (
+          node?.kind === 'element'
+          && /data-font-role="graphTitle"/.test(String(node.markup || ''))
+          && /data-label-drag-position-metrics=/.test(String(node.markup || ''))
+        )),
         payloadSignature: tab.archiveRenderCacheSignature || null,
         layoutSignature: tab.archiveRenderCacheLayoutSignature || null,
         ownerTabId: tab.archiveRenderCache?.__graphitixRenderCache?.tabId || null,
@@ -264,7 +304,7 @@ async function buildArchive(page, label, options = {}) {
   return archive;
 }
 
-async function auditRestoredTabs(page, cursor) {
+async function auditRestoredTabs(page, cursor, lifecycleCursor) {
   const baseline = await page.evaluate(() => {
     const tabs = window.Main.session.workspaceState.tabs.filter(tab => !tab.isWelcome);
     // Archive reopen/recovery may allocate fresh runtime tab ids. Match the
@@ -308,13 +348,21 @@ async function auditRestoredTabs(page, cursor) {
       });
     }
 
+    // Grid events and ResizeObserver notifications arrive after synchronous
+    // hydration. Let those projections run before checking the settled cache.
+    await page.evaluate(async id => {
+      const tab = window.Main.session.workspaceState.tabs.find(item => item.id === id);
+      const component = window.Main.components.registry[tab.type];
+      const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+      await nextFrame();
+      await nextFrame();
+      await component.awaitReadyForSnapshot?.({ tabId: id, reason: 'cache-restoration-settled' });
+    }, tabId);
+
     auditedTabs.push(await page.evaluate(({ id, statsControls, initial }) => {
       const session = window.Main.session;
       const normalizeComparablePayload = payload => {
         const next = session.clonePayload ? session.clonePayload(payload) : structuredClone(payload);
-        if (next?.config?.stats?.advisor && Object.prototype.hasOwnProperty.call(next.config.stats.advisor, 'pendingPoints')) {
-          delete next.config.stats.advisor.pendingPoints;
-        }
         if (next?.meta?.statsReporting?.pValueScientific === false) {
           delete next.meta.statsReporting.pValueScientific;
           if (!Object.keys(next.meta.statsReporting).length) delete next.meta.statsReporting;
@@ -365,24 +413,38 @@ async function auditRestoredTabs(page, cursor) {
     }, { id: tabId, statsControls: STATS_CONTROLS, initial: baseline }));
   }
 
-  return page.evaluate(({ afterCursor, tabs }) => ({
-    events: window.Shared.renderCacheDiagnostics.getEvents({ afterCursor }),
-    tabs,
-    sessionUserDirty: !!window.Main.session.workspaceState.sessionUserDirty
-  }), { afterCursor: cursor, tabs: auditedTabs });
+  return page.evaluate(({ afterCursor, lifecycleAfter, tabs }) => {
+    const lifecycle = (window.Shared.componentLifecycle.getLifecycleEvents() || []).slice(lifecycleAfter);
+    const restoredAt = new Map();
+    for (const event of lifecycle) {
+      if (event.action === 'saved-render-cache-restored' || event.action === 'runtime-render-cache-restored') {
+        if (!restoredAt.has(event.tabId)) restoredAt.set(event.tabId, event.index);
+      }
+    }
+    return {
+      events: window.Shared.renderCacheDiagnostics.getEvents({ afterCursor }),
+      interactionRejections: lifecycle.filter(event => event.action === 'render-cache-interactions-rejected'),
+      postRestoreDraws: lifecycle.filter(event => event.action === 'draw-settled'
+        && restoredAt.has(event.tabId) && event.index > restoredAt.get(event.tabId)),
+      tabs,
+      sessionUserDirty: !!window.Main.session.workspaceState.sessionUserDirty
+    };
+  }, { afterCursor: cursor, lifecycleAfter: lifecycleCursor, tabs: auditedTabs });
 }
 
 async function reopenAndAudit(page, archivePath) {
   await page.evaluate(() => window.Shared?.renderCacheDiagnostics?.clear?.());
   const cursor = await page.evaluate(() => window.Shared?.renderCacheDiagnostics?.getCursor?.() || 0);
+  const lifecycleCursor = await page.evaluate(() => window.Shared?.componentLifecycle?.getLifecycleEvents?.().length || 0);
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
   await waitForDocumentOpenComplete(page, 120_000);
-  return auditRestoredTabs(page, cursor);
+  return auditRestoredTabs(page, cursor, lifecycleCursor);
 }
 
 async function recoverAndAudit(page, archive) {
   await page.evaluate(() => window.Shared?.renderCacheDiagnostics?.clear?.());
   const cursor = await page.evaluate(() => window.Shared?.renderCacheDiagnostics?.getCursor?.() || 0);
+  const lifecycleCursor = await page.evaluate(() => window.Shared?.componentLifecycle?.getLifecycleEvents?.().length || 0);
   await page.evaluate(async ({ base64, fileName }) => {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
@@ -397,7 +459,7 @@ async function recoverAndAudit(page, archive) {
       fileScope: 'workspace'
     });
   }, { base64: archive.base64, fileName: 'recovery-parity.graph' });
-  return auditRestoredTabs(page, cursor);
+  return auditRestoredTabs(page, cursor, lifecycleCursor);
 }
 
 function assertCartesianPublication(provenance, expected, label) {
@@ -426,6 +488,7 @@ function assertCartesianCacheProvenance(provenance, expected, label) {
 
 function assertSavePhase(archive, expectedCount, componentType = null) {
   expect(archive.tabs).toHaveLength(expectedCount);
+  expect(archive.renderCacheSchemaVersion).toBeGreaterThan(0);
   for (const tab of archive.tabs) {
     if (componentType) expect(tab.type).toBe(componentType);
     expect(tab.hasCache, `${tab.type}/${tab.title}: save phase omitted archive cache`).toBe(true);
@@ -433,6 +496,7 @@ function assertSavePhase(archive, expectedCount, componentType = null) {
     expect(tab.layoutSignature, `${tab.type}/${tab.title}: missing layout provenance`).toBeTruthy();
     expect(tab.ownerTabId, `${tab.type}/${tab.title}: missing cache owner`).toBeTruthy();
     expect(tab.component).toBe(tab.type);
+    expect(tab.cacheVersion).toBe(archive.renderCacheSchemaVersion);
     if (tab.type === 'pie') expect(tab.chartType, `${tab.type}/${tab.title}: cache contract must exercise stacked Pie`).toBe('stacked');
     if (DEFAULT_CARTESIAN_CACHE_TYPES.has(tab.type)) {
       assertCartesianCacheProvenance(tab.cartesianLayout, {
@@ -447,6 +511,7 @@ function assertSavePhase(archive, expectedCount, componentType = null) {
 
 function assertReopenPhase(result, expectedCount) {
   expect(result.tabs).toHaveLength(expectedCount);
+  expect(result.postRestoreDraws, JSON.stringify(result.postRestoreDraws, null, 2)).toEqual([]);
   expect(result.tabs.every(tab => !tab.activationIntroducedDirty), JSON.stringify(result.tabs, null, 2)).toBe(true);
   for (const tab of result.tabs) {
     expect(tab.runtimeLayoutOwner?.tabId, JSON.stringify(tab, null, 2)).toBe(tab.id);
@@ -471,12 +536,85 @@ function assertReopenPhase(result, expectedCount) {
   const fallbacks = result.events.filter(event => event.outcome === 'fallback-redraw');
   const hits = result.events.filter(event => event.phase === 'hydrate' && event.outcome === 'hit');
   expect(fallbacks, JSON.stringify(result.events, null, 2)).toEqual([]);
+  expect(result.interactionRejections, JSON.stringify(result.interactionRejections, null, 2)).toEqual([]);
   expect(new Set(hits.map(event => event.tabId)).size, JSON.stringify(result.events, null, 2)).toBe(expectedCount);
   for (const hit of hits) {
     expect(hit.cacheOwnerTabId, JSON.stringify(hit, null, 2)).toBe(hit.tabId);
     expect(hit.runtimeOwnerTabId, JSON.stringify(hit, null, 2)).toBe(hit.tabId);
   }
 }
+
+test('legacy Box archive redraws and replaces its obsolete cache on save', async ({ page }, testInfo) => {
+  test.setTimeout(300_000);
+  await openFresh(page);
+  const boxCase = COMPONENT_MATRIX.find(item => item.type === 'box');
+  await openExample(page, boxCase, true);
+
+  const currentArchive = await buildArchive(page, 'cache-legacy-box-seed');
+  const legacyArchive = await createLegacyBoxCacheArchive(currentArchive.base64);
+  const legacyPath = writeArchive(
+    legacyArchive,
+    testInfo.outputPath('cache-legacy-box-v2.graph')
+  );
+  await page.evaluate(() => window.Shared?.renderCacheDiagnostics?.clear?.());
+  const diagnosticCursor = await page.evaluate(() => window.Shared?.renderCacheDiagnostics?.getCursor?.() || 0);
+  const lifecycleCursor = await page.evaluate(() => window.Shared?.componentLifecycle?.getLifecycleEvents?.().length || 0);
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#workspaceSessionInput').setInputFiles(legacyPath);
+  await page.waitForFunction(() => {
+    const session = window.Main?.session;
+    const tab = session?.workspaceState?.tabs?.find(item => item?.id === session?.workspaceState?.activeTabId);
+    return tab?.type === 'box' && tab.loadedFromArchive === true && tab.archiveRenderCache == null;
+  }, null, { timeout: 120_000 });
+  await waitForDocumentOpenComplete(page, 120_000);
+  await page.waitForFunction(() => {
+    const session = window.Main?.session;
+    const tab = session?.workspaceState?.tabs?.find(item => item?.id === session?.workspaceState?.activeTabId);
+    if (tab?.type !== 'box') return false;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(tab.id, 'box')
+      || document.querySelector('#boxPage:not([hidden])');
+    const title = root?.querySelector?.('#boxSvg [data-font-role="graphTitle"]');
+    return window.Main?.components?.registry?.box?.hasRenderedGraph?.({
+      tab,
+      tabId: tab.id,
+      type: 'box',
+      reason: 'legacy-cache-redraw-contract'
+    }) === true
+      && !!title?.getAttribute('data-label-drag-position-metrics');
+  }, null, { timeout: 120_000 });
+
+  const legacyRestore = await page.evaluate(({ afterCursor, afterLifecycle }) => ({
+    events: window.Shared.renderCacheDiagnostics.getEvents({ afterCursor }),
+    interactionRejections: (window.Shared?.componentLifecycle?.getLifecycleEvents?.() || [])
+      .slice(afterLifecycle)
+      .filter(event => event.action === 'render-cache-interactions-rejected')
+  }), { afterCursor: diagnosticCursor, afterLifecycle: lifecycleCursor });
+  expect(legacyRestore.events).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      phase: 'runtime-rehome',
+      outcome: 'rejected',
+      reason: 'schema-version-mismatch'
+    })
+  ]));
+  expect(legacyRestore.interactionRejections).toEqual([]);
+
+  const resavedArchive = await buildArchive(page, 'cache-legacy-box-resaved');
+  assertSavePhase(resavedArchive, 1, 'box');
+  expect(resavedArchive.tabs[0].hasGraphTitleDragMetrics).toBe(true);
+
+  const reopened = await reopenAndAudit(page, writeArchive(
+    resavedArchive.base64,
+    testInfo.outputPath('cache-legacy-box-resaved.graph')
+  ));
+  assertReopenPhase(reopened, 1);
+  await expect.poll(() => page.evaluate(() => {
+    const session = window.Main?.session;
+    const tab = session?.workspaceState?.tabs?.find(item => item?.id === session?.workspaceState?.activeTabId);
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(tab?.id, 'box')
+      || document.querySelector('#boxPage:not([hidden])');
+    return !!root?.querySelector?.('#boxSvg [data-font-role="graphTitle"][data-label-drag-position-metrics]');
+  })).toBe(true);
+});
 
 for (const componentCase of COMPONENT_MATRIX) {
   test(`${componentCase.type}: one-tab save and reopen use the archive render cache`, async ({ page }, testInfo) => {
@@ -495,6 +633,44 @@ for (const componentCase of COMPONENT_MATRIX) {
     expect(result.tabs[0].canonicalPayloadSignature).toBe(archive.tabs[0].canonicalPayloadSignature);
     expect(result.tabs[0].canonicalLayoutSignature).toBe(archive.tabs[0].canonicalLayoutSignature);
     if (statsA.available) expect(result.tabs[0].statsMethod).toBe(statsA.methodValue);
+    if (componentCase.type === 'scatter') {
+      await page.waitForFunction(() => {
+        const id = window.Main.session.workspaceState.activeTabId;
+        const runtime = window.Components.scatter.__testHooks.getSession(id)?.cache?.selectionRuntime;
+        return !runtime?.syncInProgress && !runtime?.pendingProgrammaticEvents
+          && performance.now() > (Number(runtime?.eventSuppressUntil) || 0);
+      });
+      const unchanged = await page.evaluate(async () => {
+        const component = window.Components.scatter;
+        const id = window.Main.session.workspaceState.activeTabId;
+        const hot = component.__ensureHotForActiveTab({ tabId: id });
+        const svg = window.Shared.workspaceTabs.getMountedRoot(id, 'scatter').querySelector('#scatterSvg');
+        const cursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
+        hot.gridApi.dispatchEvent({ type: 'selectionChanged', source: 'apiSelectAll' });
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await component.awaitReadyForSnapshot({ tabId: id, reason: 'unchanged-selection-cache-contract' });
+        return {
+          sameSvg: svg === window.Shared.workspaceTabs.getMountedRoot(id, 'scatter').querySelector('#scatterSvg'),
+          draws: window.Shared.componentLifecycle.getLifecycleEvents().slice(cursor)
+            .filter(event => event.tabId === id && event.action === 'draw-settled')
+        };
+      });
+      expect(unchanged.sameSvg).toBe(true);
+      expect(unchanged.draws).toEqual([]);
+      const selectedRows = await page.evaluate(async () => {
+        const id = window.Main.session.workspaceState.activeTabId;
+        const component = window.Components.scatter;
+        const hot = component.__ensureHotForActiveTab({ tabId: id });
+        const cursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
+        hot.gridApi.getDisplayedRowAtIndex(0).setSelected(true);
+        await window.Shared.componentLifecycle.waitForLifecycleEvent({
+          componentKey: 'scatter', tabId: id, afterCursor: cursor,
+          actions: ['draw-settled'], predicate: event => event.reason === 'row-selection'
+        });
+        return component.getPayload({ tabId: id }).config.selectedRows;
+      });
+      expect(selectedRows).toHaveLength(1);
+    }
     await testInfo.attach(`${componentCase.type}-single-reopen.json`, { body: JSON.stringify(result, null, 2), contentType: 'application/json' });
   });
 
@@ -602,4 +778,150 @@ test('mixed document: two tabs per component save and reopen exclusively from ow
     expect(tab.canonicalLayoutSignature).toBe(saved.canonicalLayoutSignature);
   }
   await testInfo.attach('mixed-reopen.json', { body: JSON.stringify(result, null, 2), contentType: 'application/json' });
+});
+
+test('DataView-backed components keep payload and Raw matrices aligned through cache reopen', async ({ page }, testInfo) => {
+  test.setTimeout(600_000);
+  await openFresh(page);
+  const managerFields = {
+    box: '__boxDataViewsManager',
+    scatter: '__scatterDataViewsManager',
+    pca: '__pcaDataViewsManager',
+    line: '__lineDataViewsManager',
+    hist: '__histDataViewsManager',
+    heatmap: '__heatmapDataViewsManager',
+    roc: '__rocDataViewsManager',
+    survival: '__survivalDataViewsManager',
+    pie: '__pieDataViewsManager',
+    surface: '__surfaceDataViewsManager'
+  };
+  let first = true;
+  for (const componentCase of COMPONENT_MATRIX.filter(item => managerFields[item.type])) {
+    const tabId = await openExample(page, componentCase, first);
+    first = false;
+    await ensureMigratedCartesianMode(page, componentCase.type);
+    const matrixShape = await page.evaluate(({ id, type, managerField }) => {
+      const component = window.Components?.[type];
+      component?.getPayload?.({ tabId: id });
+      const ownerSession = component?.__testHooks?.getSession?.(id, { create: false }) || null;
+      const hot = ownerSession?.managers?.hot
+        || component?.getHot?.()
+        || component?.getHotInstance?.()
+        || component?.__getState?.()?.hot
+        || component?.__testGetState?.()?.hot
+        || null;
+      const manager = ownerSession?.managers?.dataViews || hot?.[managerField];
+      const raw = manager?.getView?.('raw')?.data;
+      if (!Array.isArray(raw) || !raw.length) throw new Error(`${type} Raw DataView matrix unavailable`);
+      const widenedRaw = raw.map(row => Array.isArray(row) ? [...row, ...Array(8).fill('')] : row);
+      if (!manager.updateViewData('raw', widenedRaw, { reason: 'cache-raw-width-regression' })) {
+        throw new Error(`${type} could not widen its Raw DataView matrix`);
+      }
+      const derived = manager.createDerivedView({
+        title: 'Cache signature probe',
+        data: hot.getData().map(row => Array.isArray(row) ? row.slice() : row),
+        sourceViewId: 'raw',
+        transformSpec: { type: 'cache-raw-width-probe' },
+        activate: true,
+        reason: 'cache-raw-width-regression'
+      });
+      if (!derived) throw new Error(`${type} could not preserve its displayed view`);
+      const payload = component.getPayload({ tabId: id });
+      const views = payload?.dataViews?.views || [];
+      const rawView = views.find(view => view?.id === 'raw' || view?.kind === 'raw') || views[0];
+      return {
+        hotWidth: hot.getData()?.[0]?.length || 0,
+        payloadWidth: payload?.data?.[0]?.length || 0,
+        rawWidth: rawView?.data?.[0]?.length || 0,
+        matches: JSON.stringify(payload?.data) === JSON.stringify(rawView?.data)
+      };
+    }, { id: tabId, type: componentCase.type, managerField: managerFields[componentCase.type] });
+    if (componentCase.type !== 'scatter') {
+      expect(matrixShape.rawWidth, componentCase.type).toBeGreaterThan(matrixShape.hotWidth);
+    }
+    expect(matrixShape.payloadWidth, componentCase.type).toBe(matrixShape.rawWidth);
+    expect(matrixShape.matches, componentCase.type).toBe(true);
+  }
+
+  const expectedCount = Object.keys(managerFields).length;
+  const archive = await buildArchive(page, 'cache-dataview-raw-signature-width');
+  assertSavePhase(archive, expectedCount);
+  const archiveMatrixMismatches = archive.tabs
+    .filter(tab => tab.dataViewCount > 1 && tab.rawDataViewMatchesPayload !== true)
+    .map(tab => ({ type: tab.type, title: tab.title, dataViewCount: tab.dataViewCount }));
+  expect(archiveMatrixMismatches).toEqual([]);
+  expect(archive.tabs.some(tab => tab.type === 'line' && tab.dataViewCount > 1)).toBe(true);
+  const savedPath = writeArchive(archive.base64, testInfo.outputPath('cache-dataview-raw-signature-width.graph'));
+  const result = await reopenAndAudit(page, savedPath);
+  assertReopenPhase(result, expectedCount);
+  expect(new Set(result.tabs.map(tab => tab.type))).toEqual(new Set(Object.keys(managerFields)));
+});
+
+test('Heatmap caches restore when first opened from another component, then switched in reverse tab order', async ({ page }, testInfo) => {
+  test.setTimeout(240_000);
+  const boxCase = COMPONENT_MATRIX.find(item => item.type === 'box');
+  const heatmapCase = COMPONENT_MATRIX.find(item => item.type === 'heatmap');
+  await openFresh(page);
+  await openExample(page, boxCase, true);
+  await openExample(page, heatmapCase, false);
+  await openExample(page, heatmapCase, false);
+
+  const tabIds = await page.evaluate(async () => {
+    const session = window.Main.session;
+    const tabs = session.workspaceState.tabs.filter(tab => !tab.isWelcome);
+    const boxId = tabs.find(tab => tab.type === 'box')?.id || null;
+    const heatmapIds = tabs.filter(tab => tab.type === 'heatmap').map(tab => tab.id);
+    const activation = session.activateTab?.bind(session) || window.Main.tabs.activateTab;
+    const result = activation(boxId, { reason: 'e2e-heatmap-cache-start-on-other-component' });
+    if (result?.then) await result;
+    return { boxId, heatmapIds };
+  });
+  expect(tabIds.boxId).toBeTruthy();
+  expect(tabIds.heatmapIds).toHaveLength(2);
+  await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabIds.boxId);
+
+  const archive = await buildArchive(page, 'cache-heatmap-reverse-owner-activation');
+  assertSavePhase(archive, 3);
+  await testInfo.attach('heatmap-reverse-activation-save.json', {
+    body: JSON.stringify(archive, null, 2),
+    contentType: 'application/json'
+  });
+
+  const archivePath = writeArchive(archive.base64, testInfo.outputPath('heatmap-reverse-activation.graph'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page, 120_000);
+  const cursor = await page.evaluate(() => window.Shared?.renderCacheDiagnostics?.getCursor?.() || 0);
+  const reopenedIds = await page.evaluate(() => window.Main.session.workspaceState.tabs
+    .filter(tab => tab.type === 'heatmap')
+    .map(tab => tab.id));
+  expect(reopenedIds).toHaveLength(2);
+
+  for (const tabId of reopenedIds.slice().reverse()) {
+    const lifecycleCursor = await page.evaluate(() => window.Shared.componentLifecycle.getLifecycleEventCursor());
+    await page.locator(`.workspace-tab[data-tab-id="${tabId}"]`).click({ force: true });
+    await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 60_000 });
+    await page.waitForFunction(id => {
+      const tab = window.Main.session.workspaceState.tabs.find(item => item.id === id);
+      return window.Main.components.registry.heatmap.hasRenderedGraph({ tab, tabId: id, type: 'heatmap' }) === true;
+    }, tabId, { timeout: 120_000 });
+    await waitForRenderCacheOutcome(page, 'heatmap', {
+      expectedTabId: tabId,
+      afterCursor: cursor,
+      phase: 'hydrate',
+      outcome: 'hit',
+      timeout: 30_000
+    });
+    await page.evaluate(async id => {
+      const component = window.Main.components.registry.heatmap;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await component.awaitReadyForSnapshot?.({ tabId: id, reason: 'heatmap-cache-reverse-activation-settled' });
+    }, tabId);
+    const draws = await page.evaluate(({ id, after }) => window.Shared.componentLifecycle.getLifecycleEvents()
+      .filter(event => event.index > after && event.tabId === id && event.action === 'draw-settled'), {
+      id: tabId,
+      after: lifecycleCursor
+    });
+    expect(draws, `Heatmap tab ${tabId} should restore its own cache without fallback redraw`).toEqual([]);
+  }
 });

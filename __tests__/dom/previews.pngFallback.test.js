@@ -133,6 +133,66 @@ describe('tab preview PNG fallback', () => {
     expect(previewSvg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
   });
 
+  test.each([
+    { orientation: 'portrait', width: 306, height: 320 },
+    { orientation: 'wide', width: 800, height: 240 }
+  ])('preserves the $orientation graph aspect ratio in SVG and PNG thumbnails', async ({ orientation, width, height }) => {
+    const tab = {
+      id: `aspect-${orientation}-tab`,
+      type: 'heatmap',
+      payloadSignature: `aspect-${orientation}`,
+      layoutSignature: `layout-${orientation}`
+    };
+    const { config, svg } = mountSvg(tab, '<path d="M 0 0 L 1 1" />');
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+    window.Main.previews.updateTabPreviewFromWorkspace(tab, config, { forceCapture: true });
+    expect(tab.previewMeta.format).toBe('svg');
+    expect(tab.previewMeta.width / tab.previewMeta.height).toBeCloseTo(width / height, 2);
+    expect(tab.previewMeta.width).toBeLessThanOrEqual(220);
+    expect(tab.previewMeta.height).toBeLessThanOrEqual(220);
+
+    // The same geometry must be used for raster (canvas-backed) previews,
+    // including the pixel dimensions persisted for archive reopening.
+    const canvas = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    canvas.setAttribute('data-point-renderer', 'canvas');
+    canvas.appendChild(document.createElement('canvas'));
+    svg.appendChild(canvas);
+    window.Main.previews.updateTabPreviewFromWorkspace(tab, config, { forceCapture: true });
+    await window.Main.previews.awaitPendingCaptures([tab.id]);
+    expect(tab.previewMeta.format).toBe('png');
+    expect(tab.previewMeta.width / tab.previewMeta.height).toBeCloseTo(width / height, 2);
+    expect(tab.previewMeta.pixelWidth / tab.previewMeta.pixelHeight).toBeCloseTo(width / height, 2);
+    expect(tab.previewMeta.width).toBeLessThanOrEqual(220);
+    expect(tab.previewMeta.height).toBeLessThanOrEqual(220);
+    const options = window.Shared.exporter.svgElementToPngBlob.mock.lastCall[1];
+    expect(options.width).toBe(tab.previewMeta.width);
+    expect(options.height).toBe(tab.previewMeta.height);
+  });
+
+  test('upgrades a legacy aspect-distorted preview only from its live tab owner', () => {
+    const tab = {
+      id: 'legacy-aspect-tab',
+      type: 'heatmap',
+      payloadSignature: 'legacy-aspect',
+      layoutSignature: 'legacy-aspect-layout',
+      previewSignature: 'legacy-aspect',
+      previewMarkup: '<svg viewBox="0 0 220 220"></svg>',
+      previewMeta: { format: 'svg', width: 220, height: 220, layoutSignature: 'legacy-aspect-layout' }
+    };
+    const { config, svg } = mountSvg(tab, '<path d="M 0 0 L 1 1" />');
+    svg.setAttribute('width', '306');
+    svg.setAttribute('height', '320');
+    svg.setAttribute('viewBox', '0 0 306 320');
+
+    expect(window.Main.previews.updateTabPreviewFromWorkspace(tab, config, { reason: 'legacy-refresh' })).toBe(true);
+    expect(tab.previewMeta.sizingVersion).toBe(2);
+    expect(tab.previewMeta.width / tab.previewMeta.height).toBeCloseTo(306 / 320, 2);
+    expect(window.Main.previews.updateTabPreviewFromWorkspace(tab, config, { reason: 'reuse' })).toBe(false);
+  });
+
   test('stores one PNG image when SVG markup exceeds the shared threshold', async () => {
     const tab = {
       id: 'large-line-tab',
@@ -370,4 +430,57 @@ describe('tab preview PNG fallback', () => {
     expect(image?.style.objectFit).toBe('contain');
     expect(window.Shared.exporter.svgElementToPngBlob).not.toHaveBeenCalled();
   });
+
+  test('SVG preview uses the owning tab’s dark appearance even when the cached SVG says Light', () => {
+    const tab = {
+      id: 'preview-appearance-tab',
+      type: 'scatter',
+      payload: { config: { colorScheme: 'grayscale-dark' } },
+      payloadSignature: 'dark-payload'
+    };
+    window.Shared.colorSchemes = {
+      resolveThemeState: (_type, payload) => ({
+        schemeId: payload.config.colorScheme,
+        isDark: true,
+        background: '#000000',
+        textColor: '#f2f2f2'
+      }),
+      applyToSvg: jest.fn((type, svg, options) => {
+        svg.setAttribute('data-color-scheme', options.schemeId);
+      })
+    };
+    const { config } = mountSvg(tab, '<circle fill="#000000" cx="50" cy="50" r="5"/>', 'data-color-scheme="normal"');
+    window.Main.previews.updateTabPreviewFromWorkspace(tab, config, { forceCapture: true });
+    const template = document.createElement('template');
+    template.innerHTML = tab.previewMarkup;
+    const preview = template.content.querySelector('svg');
+    expect(preview.getAttribute('data-color-scheme')).toBe('grayscale-dark');
+    expect(preview.querySelector('[data-preview-bg="true"]').getAttribute('fill')).toBe('#000000');
+    expect(window.Shared.colorSchemes.applyToSvg).toHaveBeenCalledWith('scatter', expect.anything(), {
+      schemeId: 'grayscale-dark'
+    });
+  });
+
+  test('PNG preview uses the tab-owned Dark background rather than forcing white', async () => {
+    const tab = {
+      id: 'preview-dark-canvas-tab',
+      type: 'scatter',
+      payload: { config: { colorScheme: 'normal-dark' } },
+      payloadSignature: 'dark-canvas',
+      payloadVersion: 1,
+      layoutVersion: 1
+    };
+    window.Shared.colorSchemes = {
+      resolveThemeState: () => ({ schemeId: 'normal-dark', isDark: true, background: '#000000', textColor: '#f2f2f2' })
+    };
+    const { config } = mountSvg(tab, '<foreignObject data-point-renderer="1"><canvas></canvas></foreignObject>');
+    window.Main.previews.updateTabPreviewFromWorkspace(tab, config, { forceCapture: true });
+    await window.Main.previews.awaitPendingCaptures([tab.id]);
+    expect(window.Shared.exporter.svgElementToPngBlob).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      backgroundColor: '#000000'
+    }));
+    expect(tab.previewMeta.format).toBe('png');
+    expect(tab.previewMarkup).toContain('data-tab-preview-format="png"');
+  });
+
 });

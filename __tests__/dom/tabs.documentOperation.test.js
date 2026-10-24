@@ -108,7 +108,7 @@ describe('workspace tab document-operation lock', () => {
     expect(workspaceState.tabs.map(tab => tab.id)).toEqual(['a', 'b']);
   });
 
-  test('active boundaries are projected explicitly after the document lock clears', () => {
+  test('active selection is projected explicitly after the document lock clears', () => {
     const tabs = [
       { id: 'workspace-1', title: 'First', type: 'box', allowClose: true },
       { id: 'workspace-2', title: 'Restored active', type: 'box', allowClose: true },
@@ -140,9 +140,7 @@ describe('workspace tab document-operation lock', () => {
     helpers.renderTabs();
 
     const buttons = Array.from(dom.tabsList.querySelectorAll('.workspace-tab'));
-    expect(buttons[0].classList.contains('is-before-active')).toBe(true);
-    expect(buttons[1].classList.contains('is-active')).toBe(true);
-    expect(buttons[1].getAttribute('aria-selected')).toBe('true');
-    expect(buttons[2].classList.contains('is-before-active')).toBe(false);
+    expect(buttons.map(button => button.classList.contains('is-active'))).toEqual([false, true, false]);
+    expect(buttons.map(button => button.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false']);
   });
 });

@@ -14,6 +14,39 @@ describe('Line view — legend, 3D, and cache rendering', () => {
     loadCurrentLineExample,
   } = createLineViewTestContext();
 
+  test('new line graphs use lower-left axes and include zero on Y', async () => {
+    await loadCurrentLineExample();
+
+    const originMode = document.getElementById('lineOriginMode');
+    const includeZeroX = document.getElementById('lineIncludeZeroX');
+    const includeZeroY = document.getElementById('lineIncludeZeroY');
+    expect(originMode?.value).toBe('lower');
+    expect(includeZeroX?.checked).toBe(false);
+    expect(includeZeroY?.checked).toBe(true);
+    expect(window.Components?.line?.createEmptyPayload?.()?.config).toMatchObject({
+      originMode: 'lower',
+      includeZeroX: false,
+      includeZeroY: true,
+      xMin: '',
+      xMax: '',
+      yMin: '',
+      yMax: ''
+    });
+
+    originMode.value = 'zero';
+    originMode.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(8);
+    expect(includeZeroX.checked).toBe(true);
+    expect(includeZeroY.checked).toBe(true);
+    expect(includeZeroX.disabled).toBe(true);
+    expect(includeZeroY.disabled).toBe(true);
+    expect(window.Components?.line?.getPayload?.()?.config).toMatchObject({
+      originMode: 'zero',
+      includeZeroX: true,
+      includeZeroY: true
+    });
+  });
+
   test('legend labels follow editable header row titles', async () => {
     const hot = await loadCurrentLineExample();
     const originalHeader = Array.isArray(hot?.getData?.()) ? hot.getData()[0].slice() : null;
@@ -35,6 +68,93 @@ describe('Line view — legend, 3D, and cache rendering', () => {
     expect(lineState?.legendItems?.map(item => item.label)).toEqual(
       expectedHeader.slice(1).filter(value => String(value || '').trim())
     );
+  });
+
+  test('payload data matches the persisted Raw DataView matrix shape', async () => {
+    const hot = await loadCurrentLineExample();
+    const manager = hot?.__lineDataViewsManager || null;
+    const rawView = manager?.getView?.('raw') || null;
+    expect(manager && rawView && Array.isArray(rawView.data)).toBeTruthy();
+
+    const paddedRawData = (hot.getData() || []).map(row => (
+      Array.isArray(row) ? [...row, ...Array(8).fill('')] : row
+    ));
+    expect(manager.updateViewData('raw', paddedRawData, {
+      reason: 'line-payload-signature-shape-regression'
+    })).toBe(true);
+    expect(manager.activateView('raw', { reason: 'line-payload-signature-shape-regression' })).toBeTruthy();
+    const derived = manager.createDerivedView({
+      title: 'Payload shape probe',
+      data: paddedRawData.map(row => Array.isArray(row) ? row.slice() : row),
+      sourceViewId: 'raw',
+      transformSpec: { type: 'line-payload-shape-probe' },
+      activate: true,
+      reason: 'line-payload-signature-shape-regression'
+    });
+    expect(derived).toBeTruthy();
+    await flushAll(8);
+
+    const payload = window.Components?.line?.getPayload?.();
+    const persistedRaw = payload?.dataViews?.views?.find(view => view?.id === 'raw') || null;
+    expect(manager.getView('raw')?.data?.[0]?.length).toBeGreaterThan(hot.getData()?.[0]?.length || 0);
+    expect(persistedRaw).toBeTruthy();
+    expect(payload.data).toEqual(persistedRaw.data);
+  });
+
+  test('inactive axes-length controls cannot change the active Line tab', async () => {
+    await loadCurrentLineExample();
+    const line = window.Components?.line;
+    const mainSession = window.Main?.session;
+    const tabA = mainSession?.getActiveTab?.();
+    const rootA = document.querySelector('#linePage:not([hidden])');
+    const equalAxesA = rootA?.querySelector('.resizer-axeslength-checkbox--equal-length');
+    const equalScaleA = rootA?.querySelector('.resizer-axeslength-checkbox--equal-scale');
+    const varianceA = rootA?.querySelector('.resizer-axeslength-checkbox--variance');
+    const sessionA = line?.__testHooks?.getSessionForTab?.(tabA?.id);
+    expect(line && mainSession && tabA && rootA && equalAxesA && equalScaleA && varianceA && sessionA).toBeTruthy();
+    sessionA.state.viewState.equalAxes = false;
+
+    window.Main?.tabs?.handleAddTabClick?.();
+    const activation = window.Main?.tabs?.handleGraphSelection?.('line', {
+      skipDuplicatePrompt: true,
+      reason: 'line-axes-length-owner-test-second-tab'
+    });
+    if (activation && typeof activation.then === 'function') await activation;
+    await loadCurrentLineExample();
+
+    const tabB = mainSession.getActiveTab();
+    const rootB = document.querySelector('#linePage:not([hidden])');
+    const equalAxesB = rootB?.querySelector('.resizer-axeslength-checkbox--equal-length');
+    const equalScaleB = rootB?.querySelector('.resizer-axeslength-checkbox--equal-scale');
+    const varianceB = rootB?.querySelector('.resizer-axeslength-checkbox--variance');
+    const sessionB = line.__testHooks.getSessionForTab(tabB?.id);
+    expect(tabB?.id).not.toBe(tabA.id);
+    expect(rootB && equalAxesB && equalScaleB && varianceB && sessionB).toBeTruthy();
+    equalAxesB.checked = false;
+    equalAxesB.dispatchEvent(new Event('change', { bubbles: true }));
+    equalScaleB.checked = false;
+    equalScaleB.dispatchEvent(new Event('change', { bubbles: true }));
+    varianceB.checked = false;
+    varianceB.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(4);
+    expect(sessionB.state.viewState.equalAxes).toBe(false);
+    expect(sessionB.state.viewState.equalScaleAxes).toBe(false);
+    expect(sessionB.state.viewState.axesVarianceScaled).toBe(false);
+
+    rootA.setAttribute('data-workspace-tab-id', tabA.id);
+    expect(window.Shared.componentLifecycle.resolveTabIdFromTarget(equalAxesA)).toBe(tabA.id);
+    equalAxesA.checked = true;
+    equalAxesA.dispatchEvent(new Event('change', { bubbles: true }));
+    equalScaleA.checked = true;
+    equalScaleA.dispatchEvent(new Event('change', { bubbles: true }));
+    varianceA.checked = true;
+    varianceA.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(4);
+
+    expect(sessionA.state.viewState.equalAxes).toBe(false);
+    expect(sessionB.state.viewState.equalAxes).toBe(false);
+    expect(sessionB.state.viewState.equalScaleAxes).toBe(false);
+    expect(sessionB.state.viewState.axesVarianceScaled).toBe(false);
   });
 
   test('legend represents each line with a centered marker and exports it', async () => {

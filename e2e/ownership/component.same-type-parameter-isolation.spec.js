@@ -65,8 +65,10 @@ for (const component of COMPONENT_MATRIX) {
       body: Buffer.from(JSON.stringify(parameterIsolation, null, 2), 'utf8'),
       contentType: 'application/json'
     });
+    const requestedPaths = String(process.env.PARAMETER_PATHS || '').split(',').map(value => value.trim()).filter(Boolean);
+    const expectedParameterCount = requestedPaths.length || component.mutationPlan.mutations.length;
     expect(parameterIsolation.mutationPlanId, `${component.type}: explicit mutation plan was not used`).toBe(`${component.type}:explicit-v1`);
-    expect(parameterIsolation.parameterCount, `${component.type}: no declared mutations were discovered`).toBe(component.mutationPlan.mutations.length);
+    expect(parameterIsolation.parameterCount, `${component.type}: selected declared mutations were not discovered`).toBe(expectedParameterCount);
     expect(parameterIsolation.uncovered, `${component.type}: declared mutation lacks a valid value`).toEqual([]);
     expect(parameterIsolation.exercisedCount, `${component.type}: not every declared mutation was exercised independently`).toBe(parameterIsolation.parameterCount);
     expect(parameterIsolation.archiveCount, `${component.type}: parameter batches must share one archive/reopen`).toBe(1);

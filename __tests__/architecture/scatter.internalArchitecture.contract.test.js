@@ -269,12 +269,12 @@ describe('Scatter internal architecture contract', () => {
 
   test('session normalization preserves the canonical state object identity', () => {
     const applyState = functionSource(scatter, 'applyScatterSessionStateInPlace');
-    const ensureSession = functionSource(scatter, 'ensureScatterSessionOwnershipShape');
+    const getSession = functionSource(scatter, 'getScatterSession');
     const syncFromRuntime = functionSource(scatter, 'setScatterSessionStateFromRuntimeRecord');
     expect(applyState).toContain('Object.assign(session.state, normalizedState)');
-    expect(ensureSession).toContain('applyScatterSessionStateInPlace(session, normalizedState)');
+    expect(getSession).not.toContain('createScatterRefsSnapshot');
+    expect(getSession).not.toContain('normalizeScatterSessionState');
     expect(syncFromRuntime).toContain('applyScatterSessionStateInPlace(session, normalizedState)');
-    expect(ensureSession).not.toContain('session.state = normalizeScatterSessionState(session.state');
     expect(syncFromRuntime).not.toContain('session.state = normalizeScatterSessionState(record, tabId)');
   });
 

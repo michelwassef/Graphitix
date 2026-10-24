@@ -3534,6 +3534,7 @@
     }
     event.preventDefault();
     event.stopPropagation();
+    const clipboardOutlineToken = Shared.hot?.captureClipboardOutlineToken?.() || null;
     let clearedHighlight = false;
     const clearCopyHighlight = (stage)=>{
       if(clearedHighlight){
@@ -3542,9 +3543,9 @@
       const reason = stage || 'tableImport.handlePaste';
       let cleared = false;
       if(Shared.hot && typeof Shared.hot.clearClipboardOutline === 'function'){
-        cleared = Shared.hot.clearClipboardOutline(hot, reason);
+        cleared = Shared.hot.clearClipboardOutline(hot, reason, clipboardOutlineToken);
       }else if(Shared.hot && typeof Shared.hot.clearCopyHighlight === 'function'){
-        cleared = Shared.hot.clearCopyHighlight(hot, reason);
+        cleared = Shared.hot.clearCopyHighlight(hot, reason, clipboardOutlineToken);
       }else if(hot && typeof hot.__hotClearClipboardOutline === 'function'){
         hot.__hotClearClipboardOutline(reason);
         cleared = true;

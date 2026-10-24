@@ -33,7 +33,7 @@ test('Match Styles copies a selected style group to a same-type target tab', asy
   const scope = page.locator('.scatter-point-controls select').first();
   await scope.selectOption('global');
   await expect(scope).toHaveValue('global');
-  await page.getByRole('button', { name: 'Fill/Shape' }).click();
+  await page.getByRole('button', { name: 'Fill / shape' }).click();
   const picker = page.locator('.shared-color-picker');
   await expect(picker).toBeVisible();
   const hex = picker.locator('.shared-color-picker__hex-input');
@@ -46,14 +46,27 @@ test('Match Styles copies a selected style group to a same-type target tab', asy
   }, { id: sourceTabId, expected: '#e74c3c' });
 
   await activateToolbarSection(page, 'scatter', 'General');
-  await page.getByRole('button', { name: 'Match styles across open graphs' }).click();
+  const openStyleSync = page.getByRole('button', { name: 'Match styles across open graphs' });
+  await openStyleSync.click();
   const prompt = page.locator('#styleSyncPrompt');
   await expect(prompt).toBeVisible();
+  await expect(prompt).toHaveAttribute('aria-describedby', 'styleSyncDescription');
+  await expect(page.locator('#workspaceMain')).toHaveAttribute('inert', '');
   await expect(page.locator('#styleSyncSource')).toHaveValue(sourceTabId);
+  await expect(page.locator('#styleSyncSource')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(prompt).toBeHidden();
+  await expect(page.locator('#workspaceMain')).not.toHaveAttribute('inert', '');
+  await expect(openStyleSync).toBeFocused();
+
+  await openStyleSync.click();
+  await expect(prompt).toBeVisible();
   const target = page.locator(`#styleSyncTargets input[value="${targetTabId}"]`);
   await expect(target).toBeVisible();
   await target.check();
-  await page.locator('#styleSyncPrompt [data-style-sync-apply]').click();
+  const apply = page.locator('#styleSyncPrompt [data-style-sync-apply]');
+  await expect(apply).toBeInViewport();
+  await apply.click();
 
   await expect(prompt).toBeHidden();
   await expect(page.locator('#styleSyncStatus')).toContainText('Updated 1 tab');

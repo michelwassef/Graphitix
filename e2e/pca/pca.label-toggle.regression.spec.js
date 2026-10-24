@@ -2,6 +2,7 @@ const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
+const { assertPointLabelCacheArchiveRebind } = require('../helpers/pointLabelArchive');
 
 const PCA_FIXTURE = [
   ['Label point', false, false, false, false],
@@ -249,6 +250,7 @@ test.describe('PCA label toggle regression', () => {
     const restoredA = await readPcaLabelGeometry(page, 'A');
     expect(restoredA.x).toBeCloseTo(movedA.x, 4);
     expect(restoredA.y).toBeCloseTo(movedA.y, 4);
+    await assertPointLabelCacheArchiveRebind(page, 'pca', 'A', readPcaLabelGeometry);
 
     await clickPcaLabelToggle(page, 'c3');
     await expect.poll(() => readPcaManualLabels(page)).toEqual(['A', 'C', 'D']);
@@ -262,7 +264,7 @@ test.describe('PCA label toggle regression', () => {
   });
 
   test('3D rotation keeps resized point-label leaders attached', async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage' }, { first: true });
@@ -300,5 +302,6 @@ test.describe('PCA label toggle regression', () => {
     )).toBeGreaterThan(0.1);
     expect(Math.hypot(after.leader.x1 - before.leader.x1, after.leader.y1 - before.leader.y1)).toBeGreaterThan(2);
     expect(after.attachmentGap).toBeLessThan(2);
+    await assertPointLabelCacheArchiveRebind(page, 'pca', 'A', readPcaLabelGeometry);
   });
 });

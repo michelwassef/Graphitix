@@ -7,6 +7,7 @@ describe('requested data-aware defaults contract', () => {
     jest.resetModules();
     const { session, setActiveTab } = initializeWorkspaceHarness({ resetNamespaces: true });
     require('../../js/shared/colorSchemes.js');
+    require('../../js/shared/componentLifecycle.js');
     require('../../js/components/scatter.js');
 
     const scatter = window.Components.scatter;
@@ -25,8 +26,13 @@ describe('requested data-aware defaults contract', () => {
       ['Sample', 'X', 'Y'],
       ...Array.from({ length: 42 }, (_, index) => [`Group ${index % 21}`, index + 1, index + 2])
     ];
+    const groupedMultipleSeries = [
+      ['Dose', 'log10 concentration', '', '', 'Alpelisib', '', '', 'Dasatinib', '', '', 'Etoposide', '', '', 'Vorinostat', '', ''],
+      ['Dose 1', -2, -2, -2, 0.9, 0.91, 0.92, 0.8, 0.81, 0.82, 0.7, 0.71, 0.72, 0.6, 0.61, 0.62]
+    ];
 
     expect(scatter.createEmptyPayload().config.colorSchemeUserOverride).toBe(false);
+    expect(scatter.createEmptyPayload().config.colorScheme).toBe('normal');
     expect(hooks.resolveDataAwareDefaultPolicy(unique)).toEqual(expect.objectContaining({
       schemeId: 'grayscale',
       singlePointFormat: true
@@ -35,6 +41,28 @@ describe('requested data-aware defaults contract', () => {
       schemeId: 'scientific',
       pointFormatCount: 2,
       singlePointFormat: false
+    }));
+    expect(hooks.resolveDataAwareDefaultPolicy(groupedMultipleSeries, {
+      tableFormat: 'grouped',
+      replicates: 3,
+      xReplicatesEnabled: true
+    })).toEqual(expect.objectContaining({
+      schemeId: 'normal',
+      pointFormatCount: 4,
+      singlePointFormat: false
+    }));
+    const groupedPayload = scatter.applyTablePayloadData({
+      ...scatter.createEmptyPayload(),
+      config: {
+        ...scatter.createEmptyPayload().config,
+        tableFormat: 'grouped',
+        replicates: 3,
+        xReplicates: true
+      }
+    }, groupedMultipleSeries);
+    expect(groupedPayload.config).toEqual(expect.objectContaining({
+      colorScheme: 'normal',
+      colorSchemeUserOverride: false
     }));
     expect(hooks.resolveDataAwareDefaultPolicy(rareLabels)).toEqual(expect.objectContaining({
       schemeId: 'grayscale',

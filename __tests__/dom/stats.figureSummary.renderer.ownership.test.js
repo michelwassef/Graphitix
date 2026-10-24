@@ -48,6 +48,63 @@ describe('statsFigureSummary renderer ownership and scheduling contracts', () =>
     expect(harness.svg.querySelector('g[data-stats-figure-summary="1"]')).toBeNull();
   });
 
+  test('a queued owner render waits for that tab to become active again', () => {
+    const tabA = harness.installWorkspace('tab-a', 'box');
+    const rootA = harness.root;
+    const svgA = harness.svg;
+    const rootB = document.createElement('section');
+    rootB.dataset.workspaceTabId = 'tab-b';
+    rootB.dataset.workspaceComponent = 'box';
+    rootB.innerHTML = '<div id="boxPlot"><svg width="400" height="300" viewBox="0 0 400 300"></svg></div>';
+    document.body.appendChild(rootB);
+    const svgB = rootB.querySelector('svg');
+    svgB.getBoundingClientRect = () => ({ x:0, y:0, left:0, top:0, right:400, bottom:300, width:400, height:300 });
+    const tabs = [
+      { id:'tab-a', type:'box', isWelcome:false },
+      { id:'tab-b', type:'box', isWelcome:false }
+    ];
+    window.Main.session.workspaceState = { activeTabId:tabA, tabs };
+    window.Main.session.getActiveTab = () => tabs.find(tab => tab.id === window.Main.session.workspaceState.activeTabId) || null;
+    const getMountedRoot = window.Shared.workspaceTabs.getMountedRoot;
+    window.Shared.workspaceTabs.getMountedRoot = (tabId, type) => {
+      if(type !== 'box') return null;
+      return tabId === 'tab-a' ? rootA : tabId === 'tab-b' ? rootB : getMountedRoot(tabId, type);
+    };
+
+    require('../../js/shared/statsFigureSummary.js');
+    const summary = window.Shared.statsFigureSummary;
+    summary.setEnabledInSharedState(tabA, true);
+    const callbacks = [];
+    const previousRaf = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      callbacks.push(callback);
+      return callbacks.length;
+    };
+    try{
+      expect(summary.registerReportModel({
+        tabId:tabA,
+        componentType:'box',
+        reportModel:harness.reportWithValue('Owned by tab A')
+      })).toBe(true);
+      expect(callbacks).toHaveLength(1);
+
+      window.Main.session.workspaceState.activeTabId = 'tab-b';
+      callbacks[0]();
+      expect(svgA.querySelector('g[data-stats-figure-summary="1"]')).toBeNull();
+      expect(svgB.querySelector('g[data-stats-figure-summary="1"]')).toBeNull();
+      expect(summary.__getReportForTab('tab-a')?.reportModel?.figureSummary?.sections[0]?.rows[0]?.value).toBe('Owned by tab A');
+
+      window.Main.session.workspaceState.activeTabId = 'tab-a';
+      window.dispatchEvent(new window.CustomEvent('graphitix:lifecycle-event', {
+        detail:{ action:'activate-complete', componentKey:'box', tabId:'tab-a' }
+      }));
+      expect(svgA.querySelector('g[data-stats-figure-summary="1"]')?.textContent).toContain('Owned by tab A');
+      expect(svgB.querySelector('g[data-stats-figure-summary="1"]')).toBeNull();
+    }finally{
+      window.requestAnimationFrame = previousRaf;
+    }
+  });
+
   test('coalesces repeated resize renders into one frame per tab', () => {
     const tabId = harness.installWorkspace();
     require('../../js/shared/statsFigureSummary.js');

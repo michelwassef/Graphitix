@@ -20,7 +20,7 @@ const CASES = [
   { type:'survival', pageId:'survivalPage', plot:'#survivalPlot', example:'survivalLoadExample', draw:true, onPlot:'survivalShowPlotStats' },
   { type:'heatmap', pageId:'heatmapPage', plot:'#heatmapSvg', example:'heatmapLoadExample', draw:true, directSvg:true },
   { type:'surface', pageId:'surfacePage', plot:'#surfaceSvg', example:'surfaceLoadExample', draw:true, directSvg:true },
-  { type:'venn', pageId:'vennPage', plot:'#vennGraphPanel', example:'sample', vennSignificance:true }
+  { type:'venn', pageId:'vennPage', plot:'#vennGraphPanel #stage', directSvg:true, example:'sample', vennSignificance:true, onPlot:'vennShowPlotStats' }
 ];
 
 async function getActiveRoot(page, type) {
@@ -50,6 +50,7 @@ async function prepareStats(page, componentCase) {
   }
   if(componentCase.vennSignificance){
     await page.locator('#significanceSection').evaluate(node => { node.open = true; });
+    expect(await page.locator('#totalGenes').evaluate(node => getComputedStyle(node).borderRadius)).toBe('2px');
     await page.locator('#totalGenes').fill('25000');
     await page.locator('#calcSignificance').click();
     await expect(page.locator('#significanceResults')).toContainText(/hypergeometric|overlap enrichment/i, { timeout:45_000 });
@@ -78,6 +79,8 @@ async function collectLayout(page, componentCase) {
     const sr = svg.getBoundingClientRect();
     const gr = group.getBoundingClientRect();
     const text = group.textContent || '';
+    const registered = window.Shared.statsFigureSummary.__getReportForTab(active.id);
+    const model = window.Shared.statsFigureSummary.normalizeModel(registered?.reportModel, active.id, type);
     const rowGeometry = [...group.querySelectorAll('text[data-stats-summary-role="label"]')].map(label => {
       const row = label.getAttribute('data-stats-summary-row');
       const value = group.querySelector(`text[data-stats-summary-role="value"][data-stats-summary-row="${row}"]`);
@@ -85,11 +88,15 @@ async function collectLayout(page, componentCase) {
         labelX:Number(label.getAttribute('x') || 0),
         valueX:Number(value?.getAttribute('x') || 0),
         labelY:Number(label.getAttribute('y') || 0),
-        valueY:Number(value?.getAttribute('y') || 0)
+        valueY:Number(value?.getAttribute('y') || 0),
+        labelText:label.textContent,
+        valueText:[...value.querySelectorAll('tspan')].map(line => line.textContent).join(' ')
       };
     });
     return {
       text,
+      reportOwnerType:registered?.componentType,
+      modelRows:model?.sections.flatMap(section => section.rows).map(row => ({ label:row.label, value:row.value })),
       svgHeight:sr.height,
       svgHeightAttr:Number(svg.getAttribute('height') || 0),
       groupTop:gr.top,
@@ -114,6 +121,8 @@ async function collectSvgViewport(page, componentCase) {
     const rect = svg.getBoundingClientRect();
     return {
       heightAttr:Number(svg.getAttribute('height') || 0),
+      scale: svg.getScreenCTM()?.a,
+      scaleY: svg.getScreenCTM()?.d,
       svgHeight:rect.height,
       viewBox:String(svg.getAttribute('viewBox') || ''),
       summaryCount:svg.querySelectorAll('g[data-stats-figure-summary="1"]').length,
@@ -147,27 +156,37 @@ for(const componentCase of CASES){
         + Number.parseFloat(groupStyle?.paddingLeft || 0);
       const headingRect = heading?.getBoundingClientRect();
       const optionsRect = options?.getBoundingClientRect();
-      const rowStyle = getComputedStyle(row);
-      const optionsStyle = options ? getComputedStyle(options) : null;
       return {
         rowLeft: rowRect.left,
+        rowRight: rowRect.right,
         groupContentLeft,
         headingLeft: headingRect?.left,
-        headingCenter: (headingRect?.top || 0) + (headingRect?.height || 0) / 2,
+        headingRight: headingRect?.right,
+        headingBottom: headingRect?.bottom,
         optionsLeft: optionsRect?.left,
-        optionsCenter: (optionsRect?.top || 0) + (optionsRect?.height || 0) / 2,
-        rowWrap: rowStyle.flexWrap,
-        optionsWrap: optionsStyle?.flexWrap
+        optionsRight: optionsRect?.right,
+        optionsTop: optionsRect?.top,
+        optionsBottom: optionsRect?.bottom,
+        rowWidth: rowRect.width,
+        rowScrollWidth: row.scrollWidth,
+        optionsWidth: optionsRect?.width,
+        optionsScrollWidth: options?.scrollWidth
       };
     });
-    expect(resultGeometry.rowWrap).toBe('nowrap');
-    expect(resultGeometry.optionsWrap).toBe('nowrap');
+    expect(resultGeometry.rowScrollWidth).toBeLessThanOrEqual(resultGeometry.rowWidth + 1);
+    expect(resultGeometry.optionsScrollWidth).toBeLessThanOrEqual(resultGeometry.optionsWidth + 1);
+    expect(resultGeometry.headingLeft).toBeGreaterThanOrEqual(resultGeometry.rowLeft - 1);
+    expect(resultGeometry.headingRight).toBeLessThanOrEqual(resultGeometry.rowRight + 1);
+    expect(resultGeometry.optionsLeft).toBeGreaterThanOrEqual(resultGeometry.rowLeft - 1);
+    expect(resultGeometry.optionsRight).toBeLessThanOrEqual(resultGeometry.rowRight + 1);
+    expect(
+      resultGeometry.headingRight <= resultGeometry.optionsLeft + 1
+        || resultGeometry.headingBottom <= resultGeometry.optionsTop + 1
+    ).toBe(true);
     if(['line', 'scatter', 'venn', 'surface'].includes(componentCase.type)){
       expect(Math.abs(resultGeometry.rowLeft - resultGeometry.groupContentLeft)).toBeLessThan(1.5);
     }
-    expect(Math.abs(resultGeometry.headingCenter - resultGeometry.optionsCenter)).toBeLessThan(1.5);
     expect(Math.abs(resultGeometry.rowLeft - resultGeometry.headingLeft)).toBeLessThan(1.5);
-    expect(resultGeometry.optionsLeft).toBeGreaterThan(resultGeometry.headingLeft);
     await expect(statsControls.locator('.stats-figure-summary-checkbox')).toHaveCount(1);
     if(componentCase.onPlot){
       await expect(statsControls.locator(`#${componentCase.onPlot}`)).toHaveCount(1);
@@ -181,6 +200,7 @@ for(const componentCase of CASES){
     }
     await loadExample(page, componentCase);
     await prepareStats(page, componentCase);
+    const baseline = await collectSvgViewport(page, componentCase);
     await enableSummary(page);
     await page.waitForFunction(({ type, plot, directSvg }) => {
       const ws=window.Main?.session?.workspaceState;
@@ -190,6 +210,9 @@ for(const componentCase of CASES){
       const svg=directSvg?target:target?.querySelector?.('svg');
       return !!svg?.querySelector?.('g[data-stats-figure-summary="1"]');
     }, componentCase, { timeout:45_000 });
+    const firstShown = await collectSvgViewport(page, componentCase);
+    expect(firstShown.scale).toBeCloseTo(baseline.scale, 3);
+    expect(firstShown.scaleY).toBeCloseTo(baseline.scaleY, 3);
 
     const layout = await collectLayout(page, componentCase);
     await testInfo.attach(`${componentCase.type}.stats-figure-summary.json`, {
@@ -197,6 +220,20 @@ for(const componentCase of CASES){
     });
     expect(layout).toBeTruthy();
     expect(layout.text.length).toBeGreaterThan(20);
+    expect(layout.reportOwnerType).toBe(componentCase.type);
+    expect(layout.modelRows.length).toBeGreaterThan(0);
+    expect(layout.rowGeometry).toHaveLength(layout.modelRows.length);
+    layout.modelRows.forEach((row, index) => {
+      const normalize = value => String(value).replace(/\s+/g, '');
+      expect(normalize(layout.rowGeometry[index].labelText)).toBe(normalize(row.label));
+      expect(normalize(layout.rowGeometry[index].valueText)).toBe(normalize(row.value));
+    });
+    expect(layout.text).not.toContain('unavailable (invalid probability)');
+    if(componentCase.type === 'box'){
+      // ToothGrowth: the calculated Tukey q for VC 0.5 vs VC 2.0 is 15.8140.
+      const pair = layout.rowGeometry.find(row => row.labelText === 'VC 0.5 mg vs VC 2.0 mg');
+      expect(pair?.valueText).toContain('statistic = q = 15.81; df = 54; difference = -18.16');
+    }
     expect(layout.reserve).toBeGreaterThan(0);
     expect(layout.overflowBottom).toBeLessThanOrEqual(2);
     expect(layout.hasEllipsis).toBe(false);
@@ -223,6 +260,18 @@ for(const componentCase of CASES){
     expect(hidden).toBeTruthy();
     expect(hidden.summaryCount).toBe(0);
     expect(hidden.heightAttr).toBeLessThan(layout.svgHeightAttr);
+    for(let cycle = 0; cycle < 3; cycle++){
+      await summaryControl.check();
+      await expect.poll(async () => (await collectSvgViewport(page, componentCase))?.summaryCount).toBe(1);
+      const shown = await collectSvgViewport(page, componentCase);
+      expect(shown.scale, `summary must preserve ${componentCase.type} graph scale`).toBeCloseTo(baseline.scale, 3);
+      expect(shown.scaleY).toBeCloseTo(baseline.scaleY, 3);
+      await summaryControl.uncheck();
+      await expect.poll(async () => (await collectSvgViewport(page, componentCase))?.summaryCount).toBe(0);
+      const restored = await collectSvgViewport(page, componentCase);
+      expect(restored.scale, `summary cycle must preserve ${componentCase.type} graph scale`).toBeCloseTo(baseline.scale, 3);
+      expect(restored.scaleY).toBeCloseTo(baseline.scaleY, 3);
+    }
 
     if(componentCase.type === 'box'){
       await summaryControl.check();

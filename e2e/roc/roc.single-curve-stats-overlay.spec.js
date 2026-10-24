@@ -51,6 +51,24 @@ test('single ROC curve uses stats overlay and multiple curves keep comparison ov
   await expect(root.locator('[data-graph-selection-fieldset="1"] #rocShowComparisonOnPlot')).toBeVisible();
   await expect(root.locator('fieldset:not([data-graph-selection-fieldset="1"]) #rocShowComparisonOnPlot')).toHaveCount(0);
   await root.locator('#rocShowComparisonOnPlot').check();
+  await expect(root.locator('#rocSvg .roc-plot-stats')).not.toContainText(/p\s*[<=>≤≥]/);
+  await root.locator('#rocSinglePMethod').selectOption('auto');
+  await expect(root.locator('#rocComputeStats')).toBeEnabled();
+  await root.locator('#rocComputeStats').click();
+  await expect(root.locator('#rocSvg .roc-plot-stats')).toContainText('AUC = 0.978; p < 0.0001', { timeout: 30_000 });
+
+  const savedPayload = await page.evaluate(() => window.Components?.roc?.getPayload?.() || null);
+  expect(savedPayload?.stats?.singleCurveInference?.curves?.[0]?.aucUncertainty?.pValue).toBeGreaterThan(0);
+  await page.evaluate(async payload => {
+    const workspace = window.Main?.session?.workspaceState || {};
+    const tabId = workspace.activeTabId || null;
+    const component = window.Components?.roc;
+    const owner = component?.__testHooks?.getSession?.(tabId) || null;
+    if (!component || !owner || !tabId) throw new Error('Active ROC owner is unavailable');
+    owner.cache.analysisModel = null;
+    component.loadFromPayload(payload, { tabId, skipDraw: true, source: 'single-curve-inference-round-trip' });
+    await component.draw({ tabId, reason: 'single-curve-inference-round-trip-redraw', force: true });
+  }, savedPayload);
   await expect(root.locator('#rocSvg .roc-plot-stats')).toContainText('AUC = 0.978; p < 0.0001', { timeout: 30_000 });
 
   const twoCurveData = [
@@ -60,6 +78,12 @@ test('single ROC curve uses stats overlay and multiple curves keep comparison ov
   await loadRocDataAndDraw(page, twoCurveData, 'e2e-roc-comparison-overlay');
 
   await expect(root.locator('#rocShowComparisonOnPlotLabel')).toHaveText('Stats on plot');
+  await root.locator('#rocSinglePMethod').selectOption('off');
+  await expect(root.locator('#rocCompareSelection')).toHaveValue('');
+  await expect(root.locator('#rocComputeStats')).toBeDisabled();
+  await root.locator('#rocCompareSelection').selectOption({ index: 1 });
+  await expect(root.locator('#rocComputeStats')).toBeEnabled();
+  await root.locator('#rocComputeStats').click();
   await expect(root.locator('#rocSvg .roc-plot-stats')).toContainText(/ΔAUC|95% CI|p\s*[<=>≤≥]/, { timeout: 30_000 });
   await expect(root.locator('#rocStatsResults .roc-curve-comparison-card')).toContainText(/ΔAUC/);
   await expect(root.locator('#rocStatsResults .roc-curve-comparison-card')).toContainText(/p-value/i);

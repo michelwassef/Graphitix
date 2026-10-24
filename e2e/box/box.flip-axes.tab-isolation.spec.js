@@ -107,23 +107,47 @@ test('box flip axes remains isolated across repeated same-component live-DOM reu
 
   const tabA = await openBoxTab(page, { first: true });
   await expectBoxFlipState(page, tabA, false);
+  await page.locator('#boxPage:not([hidden]) #boxFlipAxes').check();
+  await expectBoxFlipState(page, tabA, true);
 
   const tabB = await openBoxTab(page, { first: false });
   expect(tabB).not.toBe(tabA);
   await expectBoxFlipState(page, tabB, false);
 
-  const flipControl = page.locator('#boxPage:not([hidden]) #boxFlipAxes');
-  await expect(flipControl).toBeVisible();
-  await flipControl.check();
-  await expectBoxFlipState(page, tabB, true);
+  const inactiveDraw = await page.evaluate(tabId => {
+    const box = window.Components.box;
+    box.draw({ tabId, reason: 'e2e-inactive-owner-draw', force: true });
+    const state = box.__getState();
+    const root = window.Shared.workspaceTabs.getMountedRoot(window.Main.session.workspaceState.activeTabId, 'box');
+    return {
+      activeTabId: window.Main.session.workspaceState.activeTabId,
+      boundTabId: box.__boundTabId,
+      moduleMirror: state.flipAxes === true,
+      activeControl: root?.querySelector('#boxFlipAxes')?.checked === true,
+      payload: box.getPayload()?.config?.flipAxes === true,
+      tabA: box.__testHooks.getSession(tabId)?.state?.controls?.flipAxes === true,
+      tabB: box.__testHooks.getSession(window.Main.session.workspaceState.activeTabId)?.state?.controls?.flipAxes === true
+    };
+  }, tabA);
+  expect(inactiveDraw).toEqual({
+    activeTabId: tabB,
+    boundTabId: tabB,
+    moduleMirror: false,
+    activeControl: false,
+    payload: false,
+    tabA: true,
+    tabB: false
+  });
+
+  await expect(page.locator('#boxPage:not([hidden]) #boxFlipAxes')).toBeVisible();
 
   const snapshots = [];
   const sequence = [
-    [tabA, false],
-    [tabB, true],
-    [tabA, false],
-    [tabB, true],
-    [tabA, false]
+    [tabA, true],
+    [tabB, false],
+    [tabA, true],
+    [tabB, false],
+    [tabA, true]
   ];
   for (const [tabId, expectedFlip] of sequence) {
     await activateTabById(page, tabId);

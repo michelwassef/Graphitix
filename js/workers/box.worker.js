@@ -51,6 +51,7 @@
     if(typeof ctx.importScripts === 'function'){
       ctx.importScripts('../shared/pValueFormatter.js');
       ctx.importScripts('../shared/debug.js');
+      ctx.importScripts('../shared/stats.js');
       ctx.importScripts('../shared/boxStatsModel.js');
     }
     if(hasUsableBoxStatsModel(Shared.boxStatsModel)){

@@ -123,4 +123,62 @@ describe('Box render-cache capture contract', () => {
       'canvas[data-graphitix-render-cache-canvas-restored="true"], img[data-graphitix-render-cache-canvas-bitmap="true"]'
     )).toBeTruthy();
   });
+
+  test('rehydrates editable labels after restoring a captured graph', () => {
+    const box = window.Components?.box;
+    const tabId = window.Main?.session?.workspaceState?.activeTabId || null;
+    const root = document.querySelector('#boxPage:not([hidden])');
+    const plot = root?.querySelector('#boxPlot');
+    expect(box).toBeTruthy();
+    expect(tabId).toBeTruthy();
+    expect(plot).toBeTruthy();
+
+    plot.innerHTML = '';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'boxSvg';
+    svg.setAttribute('width', '320');
+    svg.setAttribute('height', '240');
+    const graphBody = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    graphBody.setAttribute('data-box-shape', 'body');
+    graphBody.setAttribute('d', 'M0 0 L10 0 L10 10 Z');
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.setAttribute('data-font-role', 'graphTitle');
+    title.setAttribute('data-font-key', 'graphTitle');
+    title.setAttribute('data-font-scope', 'box');
+    title.setAttribute('data-font-tab-id', tabId);
+    title.setAttribute('data-font-editable', '1');
+    title.setAttribute('data-inline-editable', '1');
+    title.textContent = 'Box title';
+    window.Shared.enableLabelDrag(title, svg, {
+      tabId,
+      positionMetrics: { xOrigin: 0, xScale: 320, yOrigin: 0, yScale: 240 },
+      onDragEnd: () => {}
+    });
+    const yTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    yTitle.setAttribute('data-box-axis-title', 'y');
+    yTitle.setAttribute('data-font-role', 'yTitle');
+    yTitle.setAttribute('data-font-key', 'yTitle');
+    yTitle.setAttribute('data-font-scope', 'box');
+    yTitle.setAttribute('data-font-tab-id', tabId);
+    yTitle.setAttribute('data-font-editable', '1');
+    yTitle.setAttribute('data-inline-editable', '1');
+    yTitle.textContent = 'Y axis';
+    svg.append(graphBody, title, yTitle);
+    plot.appendChild(svg);
+
+    const cache = box.captureRenderCache({ tabId, reason: 'box-inline-label-restore-contract' });
+    expect(cache).toBeTruthy();
+    expect(box.restoreRenderCache(cache, {
+      tabId,
+      reason: 'box-inline-label-restore-contract',
+      skipStateMutation: true
+    })).toBe(true);
+
+    const restoredSvg = plot.querySelector('#boxSvg');
+    expect(box.rehydrateGraphInteractions({ tabId, root })).toBe(true);
+    expect(restoredSvg.querySelector('[data-font-role="graphTitle"]')
+      .__graphitixLabelDragBinding?.svg).toBe(restoredSvg);
+    expect(restoredSvg.querySelector('[data-box-axis-title="y"]')
+      .__graphitixInlineEditBinding?.dblclick).toEqual(expect.any(Function));
+  });
 });

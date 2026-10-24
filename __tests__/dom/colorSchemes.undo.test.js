@@ -71,14 +71,14 @@ describe('color scheme undo', () => {
     const select = document.querySelector('#lineColorSchemeSelect');
     expect(select.getAttribute('data-undo-ignore')).toBe('1');
 
-    select.value = 'dark';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    const choice = document.querySelector('[data-color-scheme-choice="1"]');
-    expect(choice.hidden).toBe(false);
-    expect(tab.payload.config.colorScheme).toBe('scientific');
-    choice.querySelector('[data-color-scheme-choice-action="match"]').click();
-    expect(tab.payload.config.colorScheme).toBe('dark');
-    expect(session.persistActiveTabState).not.toHaveBeenCalled();
+    const appearance = document.querySelector('#lineColorAppearanceSelect');
+    appearance.value = 'dark';
+    appearance.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(tab.payload.config.colorScheme).toBe('scientific-dark');
+    expect(tab.payload.config.labelColors['Series 1']).toBe('#654321');
+    expect(session.persistActiveTabState).toHaveBeenCalledWith(tab, expect.objectContaining({
+      snapshotIntent: expect.objectContaining({ captureLivePayload: true, allowSkipLivePayloadCapture: false })
+    }));
 
     expect(window.Shared.undoManager.undo({ tabId: tab.id })).toBe(true);
     expect(tab.payload.config).toEqual(customPayload.config);
@@ -86,7 +86,7 @@ describe('color scheme undo', () => {
     expect(workspace.getPayload).not.toHaveBeenCalled();
 
     expect(window.Shared.undoManager.redo({ tabId: tab.id })).toBe(true);
-    expect(tab.payload.config.colorScheme).toBe('dark');
+    expect(tab.payload.config.colorScheme).toBe('scientific-dark');
     expect(workspace.applyLayoutState).not.toHaveBeenCalled();
     workspace.loadFromPayload.mock.calls.forEach(([, options]) => {
       expect(options).toEqual(expect.objectContaining({
@@ -97,5 +97,16 @@ describe('color scheme undo', () => {
       }));
     });
     expect(window.Main.domControls.applyWorkspacePayload).not.toHaveBeenCalled();
+
+    // A retained control from a deactivated owner cannot change its sibling.
+    document.getElementById('linePage').dataset.workspaceTabId = tab.id;
+    const sibling = { ...tab, id: 'line-sibling', payload: clone(customPayload) };
+    session.workspaceState.tabs.push(sibling);
+    session.getActiveTab.mockReturnValue(sibling);
+    const siblingBefore = JSON.stringify(sibling.payload);
+    appearance.value = 'light';
+    appearance.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(JSON.stringify(sibling.payload)).toBe(siblingBefore);
+    expect(tab.payload.config.colorScheme).toBe('scientific-dark');
   });
 });

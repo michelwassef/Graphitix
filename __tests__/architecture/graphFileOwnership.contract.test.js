@@ -15,63 +15,47 @@ const components = [
   'venn'
 ];
 
-const readComponent = component => fs.readFileSync(
-  path.join(__dirname, '..', '..', 'js', 'components', `${component}.js`),
-  'utf8'
-).replace(/\r\n/g, '\n');
+const readSource = relativePath => fs.readFileSync(path.join(__dirname, '..', '..', relativePath), 'utf8');
 
-describe('graph-file owner isolation contract', () => {
-  test.each(components)('%s captures an explicit owner before Shared.fileIO.openGraphFile', component => {
-    const source = readComponent(component);
-    expect(source).toContain(`owner: { component: '${component}', tabId:`);
+describe('workspace graph-file ownership contract', () => {
+  test.each(components)('%s routes Save, Save As and Open through Main', component => {
+    const source = readSource(`js/components/${component}.js`);
+    expect(source).toContain(`${component}.save = () => global.Main?.fileActions?.save?.()`);
+    expect(source).toContain(`${component}.saveAs = () => global.Main?.fileActions?.saveAs?.()`);
+    expect(source).toContain(`${component}.open = () => global.Main?.fileActions?.open?.()`);
+    expect(source).not.toMatch(/fileIO|fileHandle|loadFromFile|GraphFileInput|routeGraphOpenPayload/);
   });
 
-  test.each(components)('%s routes parsed graph payloads through the shared owner router', component => {
-    const source = readComponent(component);
-    expect(source).toContain('routeGraphOpenPayload');
-    expect(source).toContain(`component: '${component}'`);
+  test('Main delegates component actions to the workspace session controller', () => {
+    const main = readSource('js/main.js');
+    expect(main).toContain('Main.fileActions = Object.freeze({');
+    expect(main).toContain("save: () => handleSessionSaveClick({ reason: 'component-file-action-save' })");
+    expect(main).toContain("saveAs: () => handleSessionSaveClick({ reason: 'component-file-action-save-as', forcePicker: true })");
+    expect(main).toContain("open: () => handleSessionLoadClick({ reason: 'component-file-action-open' })");
   });
 
-  test.each(components)('%s passes an explicit owner to graph Save and Save As', component => {
-    const source = readComponent(component);
-    const ownerPattern = String.raw`owner:\s*\{\s*component:\s*['"]${component}['"],\s*tabId:`;
-    expect(source).toMatch(new RegExp(String.raw`saveGraphFile\(\{[\s\S]{0,500}${ownerPattern}`));
-    expect(source).toMatch(new RegExp(String.raw`saveGraphFileAs\(\{[\s\S]{0,500}${ownerPattern}`));
+  test('the workspace session controller owns document targets and Save routing', () => {
+    const source = readSource('js/main/sessionActions.js');
+    expect(source).toContain('workspaceState.sessionFileHandle');
+    expect(source).toContain('resolveSessionFileTargetKind(workspaceState)');
+    expect(source).toContain('options.forcePicker');
+    expect(source).toContain('saveWorkspaceArchiveWithScope(context');
   });
 
-  test.each(components)('%s does not rely on an ownerless graph-file completion callback', component => {
-    const source = readComponent(component);
-    expect(source).not.toMatch(new RegExp(String.raw`context:\s*['"]${component}['"][\s\S]{0,600}loadFromFile:\s*(?:file|blob)\s*=>`));
-  });
-
-  test('shared fileIO owns inactive routing, closed-owner rejection, type validation and stale-open suppression', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'shared', 'fileIO.js'), 'utf8');
-    for(const marker of [
+  test('shared fileIO rejects stale graph opens and resolves save payloads from their owner', () => {
+    const source = readSource('js/shared/fileIO.js');
+    for (const marker of [
       'createGraphOpenOperation',
       'latestGraphOpenOperationByOwner',
       'payload-type-mismatch',
       'stale-operation',
       'stale-owner',
       'commitTabPayload',
-      'mergeInactiveGraphOpenLayout',
-      'preferPayload: true',
-      'applied-active-owner',
-      'deferred-owner-payload',
       'createGraphSaveOperation',
       'resolveSavePayload',
-      'inactiveOwnerCanonicalPayload',
-      'resolveGraphOpenSvgBox'
-    ]){
+      'inactiveOwnerCanonicalPayload'
+    ]) {
       expect(source).toContain(marker);
     }
   });
-
-  test('shared graph-file ownership pins post-open sizing and save payload resolution to the initiating owner', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'shared', 'fileIO.js'), 'utf8');
-    expect(source).toContain("Shared.workspaceTabs?.getMountedRoot");
-    expect(source).toContain("element: element || undefined");
-    expect(source).toContain("inspection.tab.payload");
-    expect(source).toContain("layoutState: inactiveLayout");
-  });
-
 });

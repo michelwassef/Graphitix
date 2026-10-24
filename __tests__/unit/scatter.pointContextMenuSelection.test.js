@@ -1,6 +1,8 @@
+const { loadComponentTestBootstrap } = require('../../test-support/componentTestBootstrap');
+
 describe('scatter point context menu selection helpers', () => {
   beforeAll(() => {
-    require('../../js/components/scatter.js');
+    loadComponentTestBootstrap('scatter');
   });
 
   test('toggleRowSelected selects matching row without clearing selection', () => {

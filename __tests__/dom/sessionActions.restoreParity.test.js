@@ -8,6 +8,7 @@ describe('sessionActions shared archive restore transaction', () => {
         parseFile: jest.fn()
       }
     };
+    require('../../js/shared/modalLifecycle.js');
     require('../../js/main/snapshotPolicy.js');
     require('../../js/main/sessionActions.js');
   });

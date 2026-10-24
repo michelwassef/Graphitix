@@ -67,6 +67,28 @@
 
   async function invokeActiveComponentCommand(commandName, payload = {}) {
     const tab = getActiveGraphTab();
+    const requestedTabId = String(payload?.tabId || '').trim();
+    const requestedType = String(payload?.type || '').trim();
+    if (requestedTabId && (String(tab?.id || '') !== requestedTabId
+      || (requestedType && String(tab?.type || '') !== requestedType))) {
+      debug('componentCommandSkipped', {
+        command: commandName,
+        reason: 'tab-owner-changed',
+        requestedTabId,
+        requestedType: requestedType || null,
+        activeTabId: tab?.id || null,
+        activeType: tab?.type || null
+      });
+      return {
+        status: 'skipped',
+        command: commandName,
+        reason: 'tab-owner-changed',
+        tabId: requestedTabId,
+        type: requestedType || null,
+        activeTabId: tab?.id || null,
+        activeType: tab?.type || null
+      };
+    }
     if (!tab) {
       debug('componentCommandSkipped', { command: commandName, reason: 'no-active-graph-tab' });
       return { status: 'skipped', command: commandName, reason: 'no-active-graph-tab' };
@@ -163,11 +185,11 @@
       const forcePicker = command === 'saveWorkspaceAs';
       const reason = forcePicker ? 'desktop-menu-save-as' : 'desktop-menu-save';
       if (typeof state?.handleSessionSaveClick === 'function') {
-        return state.handleSessionSaveClick({ reason, scope: 'workspace', forcePicker });
+        return state.handleSessionSaveClick({ reason, forcePicker });
       }
       const sessionActions = state?.sessionActions || Main.sessionActions || {};
       if (typeof sessionActions.handleSessionSaveClick === 'function') {
-        return sessionActions.handleSessionSaveClick(getSessionActionsContext(), { reason, scope: 'workspace', forcePicker });
+        return sessionActions.handleSessionSaveClick(getSessionActionsContext(), { reason, forcePicker });
       }
       return { status: 'skipped', command, reason: 'save-handler-unavailable' };
     }

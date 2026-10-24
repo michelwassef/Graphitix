@@ -16,6 +16,73 @@ const JEST_SHARD_RUNNER = path.join(ROOT_DIR, 'scripts', 'run-jest-shards.cjs');
 const FULL_JEST_RUNNER = path.join(ROOT_DIR, 'scripts', 'run-full-jest.cjs');
 const PLAYWRIGHT_CLI = path.join(ROOT_DIR, 'node_modules', '@playwright', 'test', 'cli.js');
 const ARTIFACT_RETENTION_DAYS = 14;
+const GENERATED_ARTIFACT_DIRECTORIES = Object.freeze([
+  'artifacts/test-reports',
+  'artifacts/perf-summaries',
+  'coverage',
+  'playwright-report',
+  'test-results'
+]);
+
+function pruneExpiredDirectory(directory, cutoff) {
+  if (!fs.existsSync(directory)) return { files: 0, bytes: 0 };
+  const directoryStat = fs.lstatSync(directory);
+  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) return { files: 0, bytes: 0 };
+
+  let files = 0;
+  let bytes = 0;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    const entryStat = fs.lstatSync(entryPath);
+    if (entryStat.isSymbolicLink()) continue;
+    if (entryStat.isDirectory()) {
+      const nested = pruneExpiredDirectory(entryPath, cutoff);
+      files += nested.files;
+      bytes += nested.bytes;
+      try {
+        fs.rmdirSync(entryPath);
+      } catch (error) {
+        if (!['ENOTEMPTY', 'ENOENT'].includes(error.code)) throw error;
+      }
+    } else if (entryStat.isFile() && entryStat.mtimeMs < cutoff) {
+      fs.unlinkSync(entryPath);
+      files += 1;
+      bytes += entryStat.size;
+    }
+  }
+  return { files, bytes };
+}
+
+function pruneExpiredGeneratedArtifacts(rootDir = ROOT_DIR, now = Date.now()) {
+  const cutoff = now - ARTIFACT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const artifactDirectories = GENERATED_ARTIFACT_DIRECTORIES.map(relativePath => path.join(rootDir, relativePath));
+  const artifactsRoot = path.join(rootDir, 'artifacts');
+  if (fs.existsSync(artifactsRoot) && fs.lstatSync(artifactsRoot).isDirectory()) {
+    for (const entry of fs.readdirSync(artifactsRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && /^full-test-run-\d{8}-\d{6}$/.test(entry.name)) {
+        artifactDirectories.push(path.join(artifactsRoot, entry.name));
+      }
+    }
+  }
+
+  const total = { files: 0, bytes: 0 };
+  for (const directory of artifactDirectories) {
+    const result = pruneExpiredDirectory(directory, cutoff);
+    total.files += result.files;
+    total.bytes += result.bytes;
+    if (fs.existsSync(directory)) {
+      const directoryStat = fs.lstatSync(directory);
+      if (directoryStat.isDirectory() && !directoryStat.isSymbolicLink()) {
+        try {
+          fs.rmdirSync(directory);
+        } catch (error) {
+          if (!['ENOTEMPTY', 'ENOENT'].includes(error.code)) throw error;
+        }
+      }
+    }
+  }
+  return total;
+}
 
 function nodeCommand(args, label) {
   return { label, executable: process.execPath, args };
@@ -67,6 +134,7 @@ function getCaseEvidenceFileArgument(args = []) {
 
 const LANE_SPECS = Object.freeze({
   static: Object.freeze([
+    npmCommand(['run', 'lint:ui'], 'ui-source-validation'),
     npmCommand(['run', 'lint'], 'lint'),
     npmCommand(['run', 'docs:component-contracts:check'], 'component-contracts'),
     npmCommand(['run', 'docs:testing-inventory:check'], 'testing-inventory-doc'),
@@ -217,14 +285,13 @@ function execute(command, options = {}) {
     : null;
   const result = spawnSync(command.executable, commandArgs, {
     cwd: ROOT_DIR,
-    stdio: quietOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit',
+    // Keep machine-readable lane JSON on stdout while streaming child test
+    // output to stderr. Piping the complete output through spawnSync's
+    // default buffers makes full Jest runs fail with ENOBUFS on large errors.
+    stdio: quietOutput ? ['inherit', process.stderr.fd, process.stderr.fd] : 'inherit',
     windowsHide: true,
     env: childEnvironment
   });
-  if (quietOutput) {
-    if (result.stdout) process.stderr.write(result.stdout);
-    if (result.stderr) process.stderr.write(result.stderr);
-  }
   if (result.error) {
     console.error(`[${command.label}] ${result.error.message}`);
     if (jestJsonDirectory) fs.rmSync(jestJsonDirectory, { recursive: true, force: true });
@@ -456,6 +523,7 @@ function shouldContinueAfterCommandFailure(lane) {
 }
 
 function runLane(lane, options = {}) {
+  pruneExpiredGeneratedArtifacts();
   const initial = [];
   const caseEvidenceRecords = [];
   const serverProvenance = [];
@@ -683,6 +751,7 @@ module.exports = {
   expectedCaseEvidenceFrameworks,
   collectManifestEvidence,
   writeManifestEvidenceArtifacts,
+  pruneExpiredGeneratedArtifacts,
   shouldContinueAfterCommandFailure,
   parseArgs,
   runLane

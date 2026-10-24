@@ -355,7 +355,7 @@ describe('Shared.hot AG Grid binding', () => {
     expect(headerContainer.style.transform).toBe('');
   });
 
-  test('horizontal scroll auto-growth uses the real horizontal viewport', () => {
+  test('grid scrolling grows columns only near the horizontal edge', () => {
     jest.useFakeTimers();
     try {
       const Shared = global.window.Shared;
@@ -371,6 +371,8 @@ describe('Shared.hot AG Grid binding', () => {
           debugLabel: 'test-ag-grid-horizontal-autogrow',
           autoGrowth: {
             colCap: 20,
+            colBatchSize: 5,
+            colBufferSize: 0,
             colThresholdPx: 200,
             scrollIdleDelayMs: 80
           },
@@ -414,11 +416,89 @@ describe('Shared.hot AG Grid binding', () => {
       const initialColCount = hot.countCols();
       expect(initialColCount).toBeGreaterThanOrEqual(4);
 
-      horizontalViewport.dispatchEvent(new global.window.Event('scroll', { bubbles: true }));
+      fixture.capturedGridOptions.onBodyScroll({ direction: 'horizontal', left: 300, top: 0 });
       jest.advanceTimersByTime(120);
 
       expect(hot.countCols()).toBe(initialColCount);
+
+      horizontalViewport.scrollLeft = 1200;
+      fixture.capturedGridOptions.onBodyScroll({ direction: 'horizontal', left: 1200, top: 0 });
+      jest.advanceTimersByTime(120);
+
+      expect(hot.countCols()).toBe(initialColCount + 5);
+
+      fixture.capturedGridOptions.onBodyScroll({ direction: 'horizontal', left: 1200, top: 0 });
+      jest.advanceTimersByTime(120);
+      expect(hot.countCols()).toBe(20);
+
+      fixture.capturedGridOptions.onBodyScroll({ direction: 'horizontal', left: 1200, top: 0 });
+      jest.advanceTimersByTime(120);
+      expect(hot.countCols()).toBe(20);
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('column capacity stays ahead of continuous scrolling without restoring an older position', () => {
+    jest.useFakeTimers();
+    let hot;
+    try {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      hot = global.window.Shared.hot.createStandardTable(
+        container,
+        { rows: 3, cols: 12 },
+        () => {},
+        {
+          fixedColumnWidth: 100,
+          autoGrowth: { rowCap: 3, scrollIdleDelayMs: 1000 },
+          data: [['Dataset'], [1], [2]]
+        }
+      );
+      const body = document.createElement('div');
+      body.className = 'ag-body-viewport';
+      const horizontal = document.createElement('div');
+      horizontal.className = 'ag-body-horizontal-scroll-viewport';
+      Object.defineProperties(horizontal, {
+        clientWidth: { get: () => 400 },
+        scrollWidth: { get: () => hot.countCols() * 100 }
+      });
+      container.append(body, horizontal);
+      fixture.capturedGridOptions.onFirstDataRendered();
+      jest.advanceTimersByTime(16);
+
+      expect(hot.countCols()).toBe(42);
+      const scroll = left => {
+        horizontal.scrollLeft = left;
+        fixture.capturedGridOptions.onBodyScroll({ direction: 'horizontal', left, top: 0 });
+      };
+      scroll(800);
+      scroll(1000);
+      jest.advanceTimersByTime(16);
+      expect(hot.countCols()).toBe(72);
+      expect(horizontal.scrollLeft).toBe(1000);
+
+      scroll(2000);
+      jest.advanceTimersByTime(16);
+      expect(hot.countCols()).toBe(72);
+
+      scroll(3800);
+      jest.advanceTimersByTime(16);
+      expect(hot.countCols()).toBe(102);
+      expect(horizontal.scrollLeft).toBe(3800);
+
+      for(let step = 0; step < 5; step++){
+        const previousColumns = hot.countCols();
+        scroll((previousColumns - 24) * 100);
+        jest.advanceTimersByTime(16);
+        expect(hot.countCols()).toBe(previousColumns + 30);
+      }
+      expect(hot.countCols()).toBeGreaterThan(200);
+      expect(hot.countRows()).toBe(3);
+      expect(hot.getDataAtCell(0, 0)).toBe('Dataset');
+      expect(hot.getDataAtCell(1, 0)).toBe(1);
+    } finally {
+      hot?.destroy();
       jest.useRealTimers();
     }
   });

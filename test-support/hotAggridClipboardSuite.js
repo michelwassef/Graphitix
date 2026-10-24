@@ -40,6 +40,7 @@ function setupHotAggridClipboardFixture() {
 
     require('../js/vendor.js');
     require('../js/shared/undo.js');
+    require('../js/shared/menuKeyboard.js');
     require('../js/shared/agGridAdapter.js');
     require('../js/shared/hot.js');
     global.window?.Shared?.undoManager?.clear?.();
@@ -125,6 +126,44 @@ function setupHotAggridClipboardFixture() {
     return { reached: !!predicate(), steps };
   };
 
+  // Old mock grids provided viewport rectangles but omitted AG Grid's native
+  // content containers. Mount those explicitly for native selection geometry.
+  const mountNativeSelectionPanes = root => {
+    const parents = new Set(Array.from(root.querySelectorAll('.ag-row'), row => row.parentElement));
+    for (const viewport of parents) {
+      if (viewport.matches('.ag-center-cols-container, .ag-floating-top-container, .ag-pinned-left-cols-container, .ag-pinned-right-cols-container, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top')) continue;
+      const pane = document.createElement('div');
+      const pinnedTop = !!viewport.closest('.ag-floating-top, .ag-pinned-top');
+      pane.className = pinnedTop ? 'ag-floating-top-container' : 'ag-center-cols-container';
+      const base = viewport.getBoundingClientRect();
+      const cells = Array.from(viewport.querySelectorAll('.ag-cell'));
+      const width = Math.max(base.width, ...cells.map(cell => cell.getBoundingClientRect().right - base.left));
+      const height = Math.max(base.height, ...cells.map(cell => cell.getBoundingClientRect().bottom - base.top));
+      Object.defineProperties(pane, {
+        clientWidth: { get: () => width },
+        clientHeight: { get: () => height }
+      });
+      pane.getBoundingClientRect = () => {
+        const rect = viewport.getBoundingClientRect();
+        const left = rect.left - viewport.scrollLeft;
+        const body = viewport.closest('.ag-body-viewport');
+        const top = rect.top - (pinnedTop ? 0 : (body?.scrollTop || 0));
+        return { left, top, right: left + width, bottom: top + height, width, height };
+      };
+      for (const row of Array.from(viewport.children).filter(child => child.matches('.ag-row'))) pane.appendChild(row);
+      viewport.appendChild(pane);
+    }
+  };
+
+  const outlinePosition = outline => {
+    const pane = outline.parentElement.parentElement;
+    const rect = pane.getBoundingClientRect();
+    return {
+      left: (rect.left + parseFloat(outline.style.left)) + 'px',
+      top: (rect.top + parseFloat(outline.style.top)) + 'px'
+    };
+  };
+
   return {
     get originalAgGrid() { return originalAgGrid; },
     get capturedGridOptions() { return capturedGridOptions; },
@@ -136,6 +175,8 @@ function setupHotAggridClipboardFixture() {
     get createdTables() { return createdTables; },
     waitForNextFrame,
     createTable,
+    mountNativeSelectionPanes,
+    outlinePosition,
     undoUntil,
     redoUntil
   };

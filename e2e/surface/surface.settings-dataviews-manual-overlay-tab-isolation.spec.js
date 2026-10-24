@@ -87,6 +87,29 @@ async function persistConfiguredSurfaceOwner(page, reason, expectedTitle) {
   }, { persistReason: reason, expectedTitle });
 }
 
+async function persistActiveSurfaceOwner(page, tabId, reason) {
+  await page.evaluate(async ({ ownerTabId, persistReason }) => {
+    const workspace = window.Main?.session?.workspaceState || {};
+    const tab = (workspace.tabs || []).find(item => item?.id === ownerTabId) || null;
+    if (!tab || workspace.activeTabId !== ownerTabId || tab.type !== 'surface') {
+      throw new Error('expected surface owner is not active');
+    }
+    const result = window.Main?.session?.persistActiveTabState?.(tab, {
+      reason: persistReason,
+      origin: 'user',
+      forcePreviewCapture: false,
+      snapshotIntent: {
+        lifecycleSnapshot: true,
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false,
+        reasonSkippable: false,
+        snapshotCapture: true
+      }
+    });
+    if (result && typeof result.then === 'function') await result;
+  }, { ownerTabId: tabId, persistReason: reason });
+}
+
 async function waitForSurfaceRender(page, pattern = /Surface Plot|Vertices|Faces|Points|Grid/i) {
   await page.waitForFunction(source => {
     const root = document.querySelector('#surfacePage:not([hidden])');
@@ -147,6 +170,8 @@ async function configureDerivedSettingsTab(page) {
     window.Components.surface.draw({ reason: 'e2e-surface-derived-settings' });
   }, buildGridSurfaceData(13, 1));
   await waitForSurfaceRender(page, /Surface A|Vertices|Faces|Grid/i);
+  await expect(page.locator('#surfacePage:not([hidden]) #surfaceStats legend')).toHaveText('Statistics');
+  await expect(page.locator('#surfacePage:not([hidden]) #surfaceStatsSummary .stats-table-card')).toHaveCount(1);
 }
 
 async function configureManualRenderTab(page) {
@@ -307,6 +332,40 @@ function expectManualThresholdSnapshot(snapshot) {
   expect(snapshot.renderButtonDisabled).toBe(false);
   expect(snapshot.visibleOverlay).toBe(false);
 }
+
+test('Surface control edits write through to their own tab session and payload', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+
+  const firstId = await openSurfaceTab(page, { first: true });
+  const showGrid = page.locator('#surfaceShowGrid');
+  await expect(showGrid).not.toBeChecked();
+  await showGrid.check();
+  await expect.poll(() => page.evaluate(tabId =>
+    window.Components.surface.__testHooks.getSession(tabId)?.state?.settings?.showGrid
+  , firstId)).toBe(true);
+  await persistActiveSurfaceOwner(page, firstId, 'surface-control-owner-a');
+
+  const secondId = await openSurfaceTab(page);
+  expect(secondId).not.toBe(firstId);
+  await expect(page.locator('#surfaceShowGrid')).not.toBeChecked();
+  await persistActiveSurfaceOwner(page, secondId, 'surface-control-owner-b');
+
+  await activateTab(page, firstId);
+  await expect(page.locator('#surfaceShowGrid')).toBeChecked();
+  await activateTab(page, secondId);
+  await expect(page.locator('#surfaceShowGrid')).not.toBeChecked();
+
+  const payloadSettings = await page.evaluate(ids => Object.fromEntries(ids.map(id => {
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === id);
+    return [id, tab?.payload?.config?.settings?.showGrid];
+  })), [firstId, secondId]);
+  expect(payloadSettings).toEqual({ [firstId]: true, [secondId]: false });
+  expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
+});
 
 test('Surface settings, DataViews, manual-render, overlay, and scheduled work stay isolated across same-type tabs and reopen', async ({ page }, testInfo) => {
   test.setTimeout(300_000);

@@ -63,8 +63,10 @@
     appHeaderVisible: true,
     workspaceDefaults: {},
     workspaceLayoutDefaults: {},
-    workspaceInitialized: {}
+    workspaceInitialized: {},
+    activationSequence: 0
   };
+  namespace.isActivationCurrent = token => token === moduleState.activationSequence;
 
   namespace.createDomHandles = function createDomHandles() {
     const handles = {
@@ -84,6 +86,7 @@
       tabsScrollRight: document.getElementById('workspaceTabsScrollRight'),
       welcomePicker: document.querySelector('.welcome-picker'),
       welcomeGraphSearch: document.getElementById('welcomeGraphSearch'),
+      welcomeGraphSearchPopup: document.getElementById('welcomeGraphResultsPopup'),
       welcomeGraphSearchResults: document.getElementById('welcomeGraphResults'),
       welcomePopularExamplesList: document.getElementById('welcomePopularExamplesList'),
       welcomePopularExamplesPrev: document.getElementById('welcomePopularExamplesPrev'),
@@ -418,18 +421,18 @@
     return cloneValue(value, cloneFn);
   }
 
-  function mergeWorkspaceApplyPayloadWithDefaults(payload, defaults, cloneFn, key = null) {
+  function mergeWorkspaceApplyPayloadWithDefaults(payload, defaults, cloneFn, key = null, prepared = false) {
     if (payload === undefined) {
       return cloneWorkspaceApplyValue(defaults, cloneFn, key);
     }
     if (defaults === undefined || payload === null || defaults === null) {
-      return cloneWorkspaceApplyValue(payload, cloneFn, key);
+      return prepared ? payload : cloneWorkspaceApplyValue(payload, cloneFn, key);
     }
     if (Array.isArray(payload)) {
-      return cloneWorkspaceApplyValue(payload, cloneFn, key);
+      return prepared ? payload : cloneWorkspaceApplyValue(payload, cloneFn, key);
     }
     if (Array.isArray(defaults)) {
-      return cloneWorkspaceApplyValue(payload, cloneFn, key);
+      return prepared ? payload : cloneWorkspaceApplyValue(payload, cloneFn, key);
     }
     if (isPlainObject(defaults) && isPlainObject(payload)) {
       const merged = {};
@@ -437,12 +440,12 @@
       keys.forEach(childKey => {
         const hasPayloadKey = Object.prototype.hasOwnProperty.call(payload, childKey);
         merged[childKey] = hasPayloadKey
-          ? mergeWorkspaceApplyPayloadWithDefaults(payload[childKey], defaults[childKey], cloneFn, childKey)
+          ? mergeWorkspaceApplyPayloadWithDefaults(payload[childKey], defaults[childKey], cloneFn, childKey, prepared)
           : cloneWorkspaceApplyValue(defaults[childKey], cloneFn, childKey);
       });
       return merged;
     }
-    return cloneWorkspaceApplyValue(payload, cloneFn, key);
+    return prepared ? payload : cloneWorkspaceApplyValue(payload, cloneFn, key);
   }
 
   function resolveWorkspaceConfigForType(type) {
@@ -845,7 +848,19 @@
       namespace.showGraphSelection({ dom, workspaces, reason: 'no-type' });
       return;
     }
+    const activeTabId = String(workspaceState?.activeTabId || '').trim();
+    if (activeTabId && activeTabId !== String(tab.id || '').trim()) {
+      console.debug('Debug: stale workspace activation skipped', {
+        tabId: tab.id,
+        activeTabId,
+        type: tab.type,
+        reason: options.reason || 'workspace-view'
+      });
+      return false;
+    }
     const config = workspaces ? workspaces[tab.type] : null;
+    const activationToken = ++moduleState.activationSequence;
+    Main.workspacePresentation?.stage(tab);
     if (!config) {
       console.warn('Unknown workspace type', { type: tab?.type });
       namespace.showGraphSelection({ dom, workspaces, reason: 'unknown-type' });
@@ -859,20 +874,25 @@
     }
     const loadedWorkspaces = workspaceState?.loadedWorkspaces || {};
     let fallbackDrawReason = null;
+    let renderCacheRestored = false;
     const cachedWorkspace = loadedWorkspaces[tab.id] || null;
     const renderedWorkspaceByType = workspaceState?.renderedWorkspaceByType || {};
     const renderedTabForType = renderedWorkspaceByType[tab.type] || null;
     const targetPayloadSignature = tab.payloadSignature !== undefined ? tab.payloadSignature : null;
     const targetLayoutSignature = tab.layoutSignature !== undefined ? tab.layoutSignature : null;
+    const activationSourceKeys = ['payload', 'layoutState', 'payloadSignature', 'layoutSignature',
+      'payloadVersion', 'layoutVersion', 'renderCommitVersion', 'archiveRenderCache', 'renderCache'];
+    const activationSource = activationSourceKeys.map(key => tab[key]);
+    const prepared = Main.workspacePreparation?.take(tab) || null;
     const hadArchiveRenderCache = !!tab.archiveRenderCache;
-    const archiveRenderCache = (typeof session?.peekArchiveRenderCache === 'function')
+    const archiveRenderCache = prepared?.renderCache || ((typeof session?.peekArchiveRenderCache === 'function')
       ? session.peekArchiveRenderCache(tab, {
           reason: options.reason || 'workspace-view',
           type: tab.type,
           payloadSignature: targetPayloadSignature,
           layoutSignature: targetLayoutSignature
         })
-      : null;
+      : null);
     const renderCache = tab.renderCache || archiveRenderCache || null;
     const renderCacheIsArchiveBacked = !!(archiveRenderCache || renderCache?.archiveBacked);
     const renderPayloadSignature = renderCache?.payloadSignature ?? tab.renderCacheSignature ?? tab.archiveRenderCacheSignature ?? null;
@@ -1072,6 +1092,7 @@
     const buildWorkspaceEnsureOptions = reason => ({
       root: activeWorkspaceElement,
       tabId: tab.id,
+      workspaceActivationToken: activationToken,
       tab,
       type: tab.type,
       restoreRenderCache: canRestoreRender,
@@ -1089,15 +1110,6 @@
     const preparedLayoutState = Shared.componentLayout?.withTabLayoutOverrides
       ? Shared.componentLayout.withTabLayoutOverrides(tab.layoutState, tab)
       : tab.layoutState;
-    if (config.perTabDomInstances === true && activeWorkspaceElement && preparedLayoutState && Shared.componentLayout?.hydrateRootFromState) {
-      Shared.componentLayout.hydrateRootFromState(tab.type, activeWorkspaceElement, preparedLayoutState, {
-        tabId: tab.id,
-        reason: options.reason || 'workspace-view-prepare'
-      });
-      if (Shared.workspaceTabs?.stampWorkspaceScopeDeep) {
-        Shared.workspaceTabs.stampWorkspaceScopeDeep(activeWorkspaceElement, tab.id);
-      }
-    }
     namespace.hideAllWorkspaces(workspaces);
     if (dom?.welcomeScreen) {
       dom.welcomeScreen.style.display = 'none';
@@ -1105,6 +1117,17 @@
     namespace.setAppHeaderVisibility(dom, false, { reason: 'workspace-view', tabId: tab.id, type: tab.type });
     namespace.hideWorkspaceElement(config);
     const visibleWorkspaceElement = config.activeElement || config.element;
+    // A reopened cold root stays measurable, but its unfinished controls/table
+    // cannot be seen or edited before the owning graph is published.
+    const coldRestore = tab.loadedFromArchive === true && !cachedWorkspace;
+    const finishPresentation = coldRestore && visibleWorkspaceElement
+      ? Main.workspacePresentation?.beginActivation(tab, visibleWorkspaceElement, {
+          restoreRenderCache: canRestoreRender,
+          prepared: !!prepared,
+          preparedBytes: prepared?.bytes || 0,
+          bundleRequired: !window.Components?.[tab.type]
+        })
+      : null;
     if (visibleWorkspaceElement) {
       visibleWorkspaceElement.removeAttribute('hidden');
       visibleWorkspaceElement.style.display = '';
@@ -1678,7 +1701,7 @@
       return !!Shared.workspaceTabs.isSessionCurrent(tab.type, tab.id, workspaceSessionGeneration);
     };
     const guardWorkspaceMutation = label => {
-      if (isCurrentWorkspaceSession()) {
+      if (activationToken === moduleState.activationSequence && isCurrentWorkspaceSession()) {
         return true;
       }
       console.debug('Debug: workspace mutation skipped (stale session)', {
@@ -1698,6 +1721,40 @@
 
     let earlyRenderRestoreTransactionEnd = null;
     let deferredRestoreTransactionEnd = null;
+    const isWorkspaceActivationCurrent = label => {
+      const activeTabId = String(workspaceState?.activeTabId || '').trim();
+      if (activeTabId && activeTabId !== String(tab.id || '').trim()) {
+        console.debug('Debug: workspace activation skipped after tab switch', {
+          tabId: tab.id,
+          activeTabId,
+          type: tab.type,
+          label
+        });
+        return false;
+      }
+      return guardWorkspaceMutation(label);
+    };
+    const cancelStaleWorkspaceActivation = reason => {
+      finishPresentation?.(null, { retainPresentation: reason === 'workspace-source-changed-during-ensure' });
+      const endTransactions = [earlyRenderRestoreTransactionEnd, deferredRestoreTransactionEnd]
+        .filter(endTransaction => typeof endTransaction === 'function');
+      earlyRenderRestoreTransactionEnd = null;
+      deferredRestoreTransactionEnd = null;
+      endTransactions.forEach(endTransaction => {
+        endTransaction({ reason: reason || 'stale-workspace-activation', cancelPostSuppress: true });
+      });
+      if (endTransactions.length) {
+        Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, {
+          tabId: tab.id,
+          reason: reason || 'stale-workspace-activation'
+        });
+        Shared.componentLayout?.releaseSuppressedSchedulesFor?.(tab.type, {
+          tabId: tab.id,
+          reason: reason || 'stale-workspace-activation'
+        });
+      }
+      return false;
+    };
     const beginEarlyRenderRestoreTransaction = () => {
       const beginRestore = canRestoreRender
         ? Shared.componentLifecycle?.beginRenderCacheRestoreTransaction
@@ -1855,6 +1912,18 @@
         return;
       }
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
+      // Capture component defaults from the pristine root before projecting the
+      // archive owner's layout. Otherwise the first reopened tab defines the
+      // defaults used by every subsequent blank tab of this component.
+      if (config.perTabDomInstances === true && activeWorkspaceElement && preparedLayoutState && Shared.componentLayout?.hydrateRootFromState) {
+        Shared.componentLayout.hydrateRootFromState(tab.type, activeWorkspaceElement, preparedLayoutState, {
+          tabId: tab.id,
+          reason: options.reason || 'workspace-view-prepare'
+        });
+        if (Shared.workspaceTabs?.stampWorkspaceScopeDeep) {
+          Shared.workspaceTabs.stampWorkspaceScopeDeep(activeWorkspaceElement, tab.id);
+        }
+      }
       const shouldResetSharedComponentState = isSameComponentTabSwitch
         && !options.skipApply
         && options.skipBaselineReset !== true
@@ -1894,7 +1963,7 @@
       }
       if (!options.skipApply) {
         let payload = tab.payload
-          ? mergeWorkspaceApplyPayloadWithDefaults(tab.payload, defaultPayload, cloneFn)
+          ? mergeWorkspaceApplyPayloadWithDefaults(prepared?.payload || tab.payload, defaultPayload, cloneFn, null, !!prepared)
           : cloneWorkspaceApplyValue(defaultPayload, cloneFn);
         if (!payload && typeof config.createEmptyPayload === 'function') {
           try {
@@ -2128,6 +2197,7 @@
         // Hydration must settle before the single payload redraw starts.
         fallbackDrawReason = drawMeta.reason || options.reason || 'workspace-view';
       } else {
+        renderCacheRestored = true;
         Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: tab.type, tabId: tab.id, action: renderCacheIsArchiveBacked ? 'saved-render-cache-restored' : 'runtime-render-cache-restored', reason: 'workspace-render-cache-restored' });
         emitRenderCacheEvent({
           tabId: tab.id,
@@ -2152,12 +2222,6 @@
         workspaceState.lastActiveGraphId = tab.id;
         workspaceState.renderedWorkspaceByType[tab.type] = tab.id;
       }
-      loadedWorkspaces[tab.id] = {
-        tabId: tab.id,
-        type: tab.type,
-        payloadSignature: targetPayloadSignature,
-        layoutSignature: targetLayoutSignature
-      };
       // Apply persisted workspace UI state (toolbar sub-page + per-component table
       // scroll/selection). The session helper isolates each leg behind try/catch so a
       // flaky component cannot block the rest of the activation path.
@@ -2167,17 +2231,10 @@
       if (!(tab.activationError && Number(tab.activationError.at) >= activationStartedAt)) {
         clearWorkspaceActivationError(tab, { reason: options.reason || 'workspace-displayed' });
       }
-      console.debug('Debug: workspace displayed', {
+      console.debug('Debug: workspace state projected', {
         tabId: tab.id,
         type: tab.type,
         activationError: tab.activationError?.reason || null
-      });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({
-        componentKey: tab.type,
-        tabId: tab.id,
-        action: 'activate-complete',
-        reason: options.reason || 'workspace-displayed',
-        details: { workspaceDisplayed: true, renderCacheRestored: restored === true }
       });
       } finally {
         if (fallbackDrawReason) {
@@ -2264,7 +2321,7 @@
     const waitForWorkspaceGraphPublication = async (timeoutMs = 90000) => {
       const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 90000);
       while (Date.now() < deadline) {
-        if (!guardWorkspaceMutation('post-restore-publication-wait')) {
+        if (!isWorkspaceActivationCurrent('post-restore-publication-wait')) {
           return false;
         }
         if (isWorkspaceGraphPublished()) {
@@ -2276,10 +2333,14 @@
           await new Promise(resolve => { setTimeout(resolve, 16); });
         }
       }
-      return isWorkspaceGraphPublished();
+      return isWorkspaceActivationCurrent('post-restore-publication-complete')
+        && isWorkspaceGraphPublished();
     };
 
     const ensureWorkspaceGraphPublishedAfterRestore = async reason => {
+      if (!isWorkspaceActivationCurrent('post-restore-publication-start')) {
+        return false;
+      }
       if (!tabRequiresPublishedGraph() || isWorkspaceGraphPublished()) {
         return true;
       }
@@ -2288,12 +2349,21 @@
         try {
           await drawResult;
         } catch (err) {
+          if (!isWorkspaceActivationCurrent('post-restore-draw-error')) {
+            return false;
+          }
           console.error('workspace recovery fallback draw async error', { tabId: tab.id, type: tab.type, err });
           setWorkspaceActivationError(tab, { reason: 'workspace-draw-error', err });
           return false;
         }
       }
+      if (!isWorkspaceActivationCurrent('post-restore-draw-complete')) {
+        return false;
+      }
       const published = await waitForWorkspaceGraphPublication(90000);
+      if (!isWorkspaceActivationCurrent('post-restore-publication-settled')) {
+        return false;
+      }
       if (published) {
         clearWorkspaceActivationError(tab, { reason: 'workspace-post-restore-fallback-succeeded' });
         emitRenderCacheEvent({
@@ -2324,6 +2394,31 @@
 
 
     const finishWorkspaceActivation = () => {
+      if (!isWorkspaceActivationCurrent('workspace-activation-finish-start')) {
+        return cancelStaleWorkspaceActivation('stale-workspace-activation');
+      }
+      const publishPresentation = result => {
+        if (!isWorkspaceActivationCurrent('workspace-presentation-commit')) {
+          return cancelStaleWorkspaceActivation('stale-workspace-activation');
+        }
+        if (result === false || tab.activationError) {
+          finishPresentation?.('This workspace could not be restored. Switch tabs to try again.');
+          return false;
+        }
+        // This record certifies a completed activation, never an intermediate
+        // payload projection awaiting an asynchronous graph publication.
+        loadedWorkspaces[tab.id] = {
+          tabId: tab.id, type: tab.type,
+          payloadSignature: tab.payloadSignature ?? null, layoutSignature: tab.layoutSignature ?? null
+        };
+        finishPresentation?.(null, { completed: true });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({
+          componentKey: tab.type, tabId: tab.id, action: 'activate-complete',
+          reason: options.reason || 'workspace-displayed',
+          details: { workspaceDisplayed: true, renderCacheRestored }
+        });
+        return config;
+      };
       if (fallbackDrawReason) {
         const originReason = fallbackDrawReason;
         const settle = typeof Shared.componentLifecycle?.waitForAnimationFrames === 'function'
@@ -2331,6 +2426,9 @@
           : Promise.resolve();
         return Promise.resolve(settle)
           .then(() => {
+            if (!isWorkspaceActivationCurrent('workspace-activation-restore-settled')) {
+              return cancelStaleWorkspaceActivation('stale-workspace-activation');
+            }
             deferredRestoreTransactionEnd({
               reason: options.reason || 'workspace-view-fallback-ready',
               cancelPostSuppress: true
@@ -2338,106 +2436,140 @@
             deferredRestoreTransactionEnd = null;
             return ensureWorkspaceGraphPublishedAfterRestore(originReason);
           })
-          .then(() => config);
+          .then(publishPresentation);
       }
-      if (options.awaitReadyForRestore !== true) {
-        return config;
+      if (options.awaitReadyForRestore !== true && !coldRestore) {
+        return publishPresentation(true);
       }
       // Restore completion is defined by publication of the owning workspace graph,
       // not by snapshot-idle state. Snapshot readiness may legitimately remain false
       // while owner-scoped layout or statistics work is queued, and waiting for it
       // here can deadlock the document-open transaction behind its own restore gate.
       return ensureWorkspaceGraphPublishedAfterRestore('workspace-activation-finish')
-        .then(() => config);
+        .then(publishPresentation);
     };
 
-    if (applyLiveDomFastPath('pre-ensure-live-dom-fast-path')) {
-      return finishWorkspaceActivation();
-    }
+    const activateWorkspace = () => {
+      if (!isWorkspaceActivationCurrent('workspace-before-ensure')) {
+        return cancelStaleWorkspaceActivation('stale-workspace-activation');
+      }
+      if (activationSourceKeys.some((key, index) => tab[key] !== activationSource[index])) {
+        cancelStaleWorkspaceActivation('workspace-source-changed-during-ensure');
+        return namespace.showWorkspaceForTab(params);
+      }
+      if (applyLiveDomFastPath('pre-ensure-live-dom-fast-path')) {
+        return finishWorkspaceActivation();
+      }
 
-    beginEarlyRenderRestoreTransaction();
+      beginEarlyRenderRestoreTransaction();
 
-    let ensurePromise = null;
-    if (!alreadyInitialized) {
-      if (typeof config.ensure === 'function') {
-        try {
-          const ensureResult = config.ensure(buildWorkspaceEnsureOptions(options.reason || 'workspace-ensure'));
-          if (ensureResult && typeof ensureResult.then === 'function') {
-            ensurePromise = workspacePromiseWithTimeout(ensureResult, WORKSPACE_ENSURE_TIMEOUT_MS, {
-              label: 'workspace-ensure',
-              tabId: tab.id,
-              type: tab.type
-            }).then(outcome => {
-              if (outcome?.timedOut) {
-                setWorkspaceActivationError(tab, {
-                  reason: 'workspace-ensure-timeout',
-                  message: `Workspace ensure timed out after ${WORKSPACE_ENSURE_TIMEOUT_MS} ms.`
-                });
-                return;
-              }
+      let ensurePromise = null;
+      if (!alreadyInitialized) {
+        if (typeof config.ensure === 'function') {
+          try {
+            const ensureResult = config.ensure(buildWorkspaceEnsureOptions(options.reason || 'workspace-ensure'));
+            if (ensureResult && typeof ensureResult.then === 'function') {
+              ensurePromise = workspacePromiseWithTimeout(ensureResult, WORKSPACE_ENSURE_TIMEOUT_MS, {
+                label: 'workspace-ensure',
+                tabId: tab.id,
+                type: tab.type
+              }).then(outcome => {
+                if (!isWorkspaceActivationCurrent('workspace-ensure-async-complete')) {
+                  cancelStaleWorkspaceActivation('stale-workspace-activation');
+                  return;
+                }
+                if (outcome?.timedOut) {
+                  setWorkspaceActivationError(tab, {
+                    reason: 'workspace-ensure-timeout',
+                    message: `Workspace ensure timed out after ${WORKSPACE_ENSURE_TIMEOUT_MS} ms.`
+                  });
+                  return;
+                }
+                markInitialized('tab-activation');
+                bindPerTabRootIfNeeded('tab-activation-async');
+                console.debug('Debug: workspace ensure resolved (async)', { tabId: tab.id, type: tab.type });
+              }).catch(err => {
+                console.error('workspace ensure async error', { type: tab.type, err });
+                if (isWorkspaceActivationCurrent('workspace-ensure-async-error')) {
+                  setWorkspaceActivationError(tab, { reason: 'workspace-ensure-async-error', err });
+                } else {
+                  cancelStaleWorkspaceActivation('stale-workspace-activation');
+                }
+              });
+            } else {
               markInitialized('tab-activation');
-              bindPerTabRootIfNeeded('tab-activation-async');
-              console.debug('Debug: workspace ensure resolved (async)', { tabId: tab.id, type: tab.type });
-            }).catch(err => {
-              console.error('workspace ensure async error', { type: tab.type, err });
-              setWorkspaceActivationError(tab, { reason: 'workspace-ensure-async-error', err });
-            });
-          } else {
-            markInitialized('tab-activation');
-            bindPerTabRootIfNeeded('tab-activation');
-            console.debug('Debug: workspace ensure invoked', { tabId: tab.id, type: tab.type });
+              bindPerTabRootIfNeeded('tab-activation');
+              console.debug('Debug: workspace ensure invoked', { tabId: tab.id, type: tab.type });
+            }
+          } catch (err) {
+            console.error('workspace ensure error', { type: tab.type, err });
+            setWorkspaceActivationError(tab, { reason: 'workspace-ensure-error', err });
           }
-        } catch (err) {
-          console.error('workspace ensure error', { type: tab.type, err });
-          setWorkspaceActivationError(tab, { reason: 'workspace-ensure-error', err });
+        } else {
+          markInitialized('no-ensure-handler');
+          console.debug('Debug: workspace ensure unavailable', { tabId: tab.id, type: tab.type });
         }
       } else {
-        markInitialized('no-ensure-handler');
-        console.debug('Debug: workspace ensure unavailable', { tabId: tab.id, type: tab.type });
-      }
-    } else {
-      console.debug('Debug: workspace ensure skipped (cached)', { tabId: tab.id, type: tab.type });
-      if (bindPerTabRootIfNeeded('cached-workspace-bind')) {
-        // The tab-specific root has just been initialized.
-      } else if (typeof config.ensure === 'function') {
-        try {
-          const maybePromise = config.ensure(buildWorkspaceEnsureOptions(options.reason || 'workspace-ensure-cached'));
-          if (maybePromise && typeof maybePromise.then === 'function') {
-            ensurePromise = workspacePromiseWithTimeout(maybePromise, WORKSPACE_ENSURE_TIMEOUT_MS, {
-              label: 'workspace-ensure-cached',
-              tabId: tab.id,
-              type: tab.type
-            }).then(outcome => {
-              if (outcome?.timedOut) {
-                setWorkspaceActivationError(tab, {
-                  reason: 'workspace-ensure-cached-timeout',
-                  message: `Cached workspace ensure timed out after ${WORKSPACE_ENSURE_TIMEOUT_MS} ms.`
-                });
-              }
-            }).catch(err => {
-              console.error('workspace ensure async error', { type: tab.type, err });
-            });
+        console.debug('Debug: workspace ensure skipped (cached)', { tabId: tab.id, type: tab.type });
+        if (bindPerTabRootIfNeeded('cached-workspace-bind')) {
+          // The tab-specific root has just been initialized.
+        } else if (typeof config.ensure === 'function') {
+          try {
+            const maybePromise = config.ensure(buildWorkspaceEnsureOptions(options.reason || 'workspace-ensure-cached'));
+            if (maybePromise && typeof maybePromise.then === 'function') {
+              ensurePromise = workspacePromiseWithTimeout(maybePromise, WORKSPACE_ENSURE_TIMEOUT_MS, {
+                label: 'workspace-ensure-cached',
+                tabId: tab.id,
+                type: tab.type
+              }).then(outcome => {
+                if (!isWorkspaceActivationCurrent('workspace-ensure-cached-async-complete')) {
+                  cancelStaleWorkspaceActivation('stale-workspace-activation');
+                  return;
+                }
+                if (outcome?.timedOut) {
+                  setWorkspaceActivationError(tab, {
+                    reason: 'workspace-ensure-cached-timeout',
+                    message: `Cached workspace ensure timed out after ${WORKSPACE_ENSURE_TIMEOUT_MS} ms.`
+                  });
+                }
+              }).catch(err => {
+                console.error('workspace ensure async error', { type: tab.type, err });
+              });
+            }
+          } catch (err) {
+            console.error('workspace ensure error', { type: tab.type, err });
+            setWorkspaceActivationError(tab, { reason: 'workspace-ensure-error', err });
           }
-        } catch (err) {
-          console.error('workspace ensure error', { type: tab.type, err });
-          setWorkspaceActivationError(tab, { reason: 'workspace-ensure-error', err });
         }
       }
-    }
 
-    if (ensurePromise && typeof ensurePromise.then === 'function') {
-      const applyAfterEnsure = () => {
-        applyWorkspaceState();
-        return finishWorkspaceActivation();
-      };
-      return ensurePromise.then(applyAfterEnsure, applyAfterEnsure);
-    }
+      if (ensurePromise && typeof ensurePromise.then === 'function') {
+        const applyAfterEnsure = () => {
+          if (!isWorkspaceActivationCurrent('workspace-apply-after-ensure')) {
+            return cancelStaleWorkspaceActivation('stale-workspace-activation');
+          }
+          if (activationSourceKeys.some((key, index) => tab[key] !== activationSource[index])) {
+            // Owner work can finish while its bundle loads. Restart from the latest
+            // canonical checkpoint instead of projecting an earlier prepared copy.
+            cancelStaleWorkspaceActivation('workspace-source-changed-during-ensure');
+            return namespace.showWorkspaceForTab(params);
+          }
+          applyWorkspaceState();
+          return finishWorkspaceActivation();
+        };
+        return ensurePromise.then(applyAfterEnsure, applyAfterEnsure);
+      }
 
-    applyWorkspaceState();
-    return finishWorkspaceActivation();
+      applyWorkspaceState();
+      return finishWorkspaceActivation();
+    };
+    return Main.workspacePresentation
+      ? Main.workspacePresentation.run(tab, activateWorkspace)
+      : activateWorkspace();
   };
 
   namespace.showGraphSelection = function showGraphSelection(params = {}) {
+    Main.workspacePresentation?.cancel();
     const { dom, workspaces, reason } = params;
     namespace.hideAllWorkspaces(workspaces);
     if (dom?.welcomeScreen) {

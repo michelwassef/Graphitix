@@ -84,6 +84,16 @@ async function captureExclusionState(page) {
         row: document.querySelectorAll('#heatmapPage:not([hidden]) .ag-cell.hot-cell-excluded-row').length,
         column: document.querySelectorAll('#heatmapPage:not([hidden]) .ag-cell.hot-cell-excluded-column').length
       },
+      excludedStyles: Object.fromEntries(['cell', 'row', 'column'].map(kind => {
+        const cell = document.querySelector(`#heatmapPage:not([hidden]) .ag-cell.hot-cell-excluded-${kind}`);
+        if (!cell) return [kind, null];
+        const style = getComputedStyle(cell);
+        return [kind, {
+          backgroundColor: style.backgroundColor,
+          backgroundImage: style.backgroundImage,
+          color: style.color
+        }];
+      })),
       dirty: !!window.Main.session.workspaceState.sessionUserDirty
     };
   });
@@ -177,6 +187,13 @@ test('Heatmap exclusions have exact file-reopen and crash-recovery parity', asyn
 
   await createSourceWorkspace(page);
   const source = await captureExclusionState(page);
+  for (const kind of ['cell', 'row', 'column']) {
+    expect(source.excludedStyles[kind]).toMatchObject({
+      backgroundColor: 'rgba(220, 53, 69, 0.08)',
+      color: 'rgb(108, 117, 125)'
+    });
+    expect(source.excludedStyles[kind].backgroundImage).toContain('repeating-linear-gradient');
+  }
   const archives = await captureManualAndRecoveryArchives(page);
 
   await testInfo.attach('heatmap-exclusion-archive-metadata.json', {
@@ -201,11 +218,13 @@ test('Heatmap exclusions have exact file-reopen and crash-recovery parity', asyn
   expect(reopened.live).toStrictEqual(source.live);
   expect(reopened.analysisData).toStrictEqual(source.analysisData);
   expect(reopened.excludedClassCounts).toStrictEqual(source.excludedClassCounts);
+  expect(reopened.excludedStyles).toStrictEqual(source.excludedStyles);
 
   expect(recovered.payload).toStrictEqual(reopened.payload);
   expect(recovered.live).toStrictEqual(reopened.live);
   expect(recovered.analysisData).toStrictEqual(reopened.analysisData);
   expect(recovered.excludedClassCounts).toStrictEqual(reopened.excludedClassCounts);
+  expect(recovered.excludedStyles).toStrictEqual(reopened.excludedStyles);
 
   expect(reopened.dirty).toBe(false);
   expect(recovered.dirty).toBe(true);

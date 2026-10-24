@@ -5,6 +5,7 @@ const {
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { assertPointLabelCacheArchiveRebind } = require('../helpers/pointLabelArchive');
 
 const FIXTURE = [
   ['Sample', 'X', 'Y'],
@@ -93,7 +94,7 @@ async function readScatterLabelFontSizes(page) {
 }
 
 test('Scatter point-label drag is local, pinned, persisted, and tab isolated', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
@@ -207,10 +208,11 @@ test('Scatter point-label drag is local, pinned, persisted, and tab isolated', a
   const restoredA = await readGeometry(page, 'A');
   expect(restoredA.x).toBeCloseTo(movedA.x, 4);
   expect(restoredA.y).toBeCloseTo(movedA.y, 4);
+  await assertPointLabelCacheArchiveRebind(page, 'scatter', 'A', readGeometry);
 });
 
 test('Scatter 3D rotation keeps resized point-label leaders attached', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
@@ -281,5 +283,6 @@ test('Scatter 3D rotation keeps resized point-label leaders attached', async ({ 
     legendCount: 0,
     svgRestored: true
   });
+  await assertPointLabelCacheArchiveRebind(page, 'scatter', 'A', readGeometry);
   expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
 });

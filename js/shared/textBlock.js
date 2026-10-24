@@ -152,7 +152,7 @@
       ? anchorX
       : (defaultAlignment === 'right' ? anchorX - blockWidth : anchorX - blockWidth / 2);
     const rowAnchor = token === 'left' ? 'start' : (token === 'right' ? 'end' : 'middle');
-    rows.forEach((row, index) => {
+    rows.forEach(row => {
       const offset = token === 'left'
         ? 0
         : (token === 'right' ? blockWidth : blockWidth / 2);
@@ -167,6 +167,32 @@
     if(!target?.dataset) return;
     delete target.dataset.titleLineHeight;
     delete target.dataset.titleBlockText;
+  }
+
+  // Move the existing formatted block, preserving line alignment, spacing,
+  // inline styles, and bindings. Parent coordinates alone do not move tspans
+  // with explicit coordinates.
+  function setPosition(target, { x, y, angle }){
+    const previousX = Number.parseFloat(target.getAttribute('x')) || 0;
+    const previousY = Number.parseFloat(target.getAttribute('y')) || 0;
+    const dx = x - previousX;
+    const dy = y - previousY;
+    for(const span of target.querySelectorAll('tspan')){
+      for(const [coordinate, delta] of [['x', dx], ['y', dy]]){
+        if(!span.hasAttribute(coordinate)){ continue; }
+        const value = Number(span.getAttribute(coordinate));
+        if(Number.isFinite(value)){ span.setAttribute(coordinate, String(value + delta)); }
+      }
+    }
+    target.setAttribute('x', String(x));
+    target.setAttribute('y', String(y));
+    if(isTitleRole(target.dataset?.fontRole) || target.hasAttribute('data-title-anchor-x')){
+      target.setAttribute('data-title-anchor-x', String(x));
+      target.setAttribute('data-title-anchor-y', String(y));
+    }
+    if(Number.isFinite(angle)){
+      target.setAttribute('transform', `rotate(${angle} ${x} ${y})`);
+    }
   }
 
   function markDraftModified(target, owner, componentKey, reason){
@@ -193,6 +219,7 @@
     renderLines,
     applyAlignment,
     clearRenderedLines,
+    setPosition,
     markDraftModified
   });
 })(typeof window !== 'undefined' ? window : globalThis);

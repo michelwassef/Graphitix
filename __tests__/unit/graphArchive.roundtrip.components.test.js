@@ -253,6 +253,41 @@ describe('graphArchive component round-trip', () => {
     });
   });
 
+  test('full and lite archives restore non-enumerable matrix signatures', async () => {
+    const signature = 'hot-matrix:archive-test:r4:rows2:cols2';
+    const data = [['', 'X'], ['p1', 1]];
+    Object.defineProperty(data, '__graphitixMatrixSignature', {
+      value: signature,
+      configurable: true,
+      enumerable: false,
+      writable: true
+    });
+    const graphArchive = window.Shared.graphArchive;
+    for (const payloadMode of ['full', 'lite']) {
+      await graphArchive.buildArchiveBlob({
+        tabs: [{
+          title: 'Scatter matrix signature',
+          type: 'scatter',
+          matrixSignatures: [{ path: ['data'], signature }],
+          payload: { type: 'scatter', data, config: {} },
+          layout: { version: 1, component: 'scatter' }
+        }],
+        activeIndex: 0,
+        scope: 'tab',
+        fileName: `matrix-signature-${payloadMode}.graph`,
+        payloadMode,
+        compression: 'STORE'
+      });
+      const parsed = await graphArchive.parseArchiveBuffer(new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer, {
+        fileName: `matrix-signature-${payloadMode}.graph`
+      });
+      const parsedTab = parsed.session.tabs[0];
+      expect(parsedTab.matrixSignatures).toEqual([{ path: ['data'], signature }]);
+      expect(parsedTab.payload.data.__graphitixMatrixSignature).toBe(signature);
+      expect(Object.keys(parsedTab.payload.data)).not.toContain('__graphitixMatrixSignature');
+    }
+  });
+
   test('rejects removed multi-tab JSON workspace files', async () => {
     const json = JSON.stringify({
       tabs: [{ title: 'Box', type: 'box', payload: { type: 'box', data: [] } }]

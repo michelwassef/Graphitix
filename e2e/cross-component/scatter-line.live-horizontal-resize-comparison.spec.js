@@ -691,10 +691,12 @@ async function runResizeScenario(browser, key, component) {
 }
 
 test('line and scatter y-axis stay equally stable during live horizontal resize', async ({ browser }, testInfo) => {
-  test.setTimeout(120_000);
-  const entries = await Promise.all(
-    Object.entries(COMPONENTS).map(([key, component]) => runResizeScenario(browser, key, component))
-  );
+  test.setTimeout(300_000);
+  const entries = [];
+  // Pointer-driven scenarios must not compete across two foreground pages in Firefox.
+  for (const [key, component] of Object.entries(COMPONENTS)) {
+    entries.push(await runResizeScenario(browser, key, component));
+  }
   const results = Object.fromEntries(entries);
 
   await testInfo.attach('line-scatter-live-horizontal-resize-comparison.json', {

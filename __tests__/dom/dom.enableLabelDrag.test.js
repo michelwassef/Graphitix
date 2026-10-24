@@ -481,4 +481,193 @@ describe('Shared.enableLabelDrag', () => {
     expect(Array.from(text.children).map(row => row.getAttribute('y'))).toEqual(['15', '25']);
   });
 
+  test('keyboard arrows move a label, retain focus semantics, and record reversible owner state', () => {
+    const { svg, text } = createSvgText();
+    const onDragEnd = jest.fn();
+    const onPositionChange = jest.fn();
+    window.Shared.enableLabelDrag(text, svg, { onDragEnd, onPositionChange });
+    const keyEvent = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+
+    text.dispatchEvent(keyEvent);
+
+    expect(keyEvent.defaultPrevented).toBe(true);
+    expect(text.getAttribute('x')).toBe('18');
+    expect(text.getAttribute('y')).toBe('20');
+    expect(text.getAttribute('tabindex')).toBe('0');
+    expect(text.getAttribute('role')).toBe('group');
+    expect(text.getAttribute('aria-label')).toBe('Move Label');
+    expect(text.dataset.keyboardMovable).toBe('label');
+    expect(onPositionChange).toHaveBeenCalledWith(expect.objectContaining({ x: 18, y: 20, reason: 'keyboard-move' }));
+    expect(onDragEnd).toHaveBeenCalledWith(expect.objectContaining({ x: 18, y: 20, reason: 'keyboard-move' }));
+
+    const entry = window.Shared.undoManager.recordStateChange.mock.calls[0][0];
+    expect(entry.from).toEqual({ x: 10, y: 20, transform: null });
+    expect(entry.to).toEqual({ x: 18, y: 20, transform: null });
+    expect(entry.apply(entry.from, 'undo')).toBe(true);
+    expect(text.getAttribute('x')).toBe('10');
+    expect(entry.apply(entry.to, 'redo')).toBe(true);
+    expect(text.getAttribute('x')).toBe('18');
+  });
+
+  test('rehydrates a cloned label from saved position metrics and keeps the owning tab', () => {
+    const { svg, text } = createSvgText();
+    const owner = document.createElement('section');
+    owner.dataset.workspaceTabId = 'tab-label-owner';
+    document.body.appendChild(owner);
+    owner.appendChild(svg);
+    window.Main = { session: { workspaceState: { activeTabId: 'tab-label-owner' } } };
+    window.Shared.enableLabelDrag(text, svg, {
+      positionMetrics: { xOrigin: 2, xScale: 10, yOrigin: 4, yScale: 8 }
+    });
+    const restored = text.cloneNode(true);
+    svg.replaceChild(restored, text);
+    const onPositionChange = jest.fn();
+
+    expect(window.Shared.rehydrateLabelDrag(restored, svg, {
+      tabId: 'tab-label-owner',
+      onPositionChange
+    })).toBe(true);
+    restored.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true
+    }));
+
+    expect(restored.getAttribute('x')).toBe('18');
+    expect(onPositionChange).toHaveBeenCalledWith(expect.objectContaining({
+      x: 18,
+      y: 20,
+      relX: 1.6,
+      relY: 2,
+      reason: 'keyboard-move'
+    }));
+    expect(restored.__graphitixLabelDragBinding.svg).toBe(svg);
+  });
+
+  test('rehydrates keyed axis labels through the shared owner callback', () => {
+    const { svg, text } = createSvgText();
+    const yText = document.createElementNS(NS, 'text');
+    yText.setAttribute('x', '30');
+    yText.setAttribute('y', '40');
+    yText.textContent = 'Y label';
+    svg.appendChild(yText);
+    const owner = document.createElement('section');
+    owner.dataset.workspaceTabId = 'tab-axis-label-owner';
+    document.body.appendChild(owner);
+    owner.appendChild(svg);
+    window.Main = { session: { workspaceState: { activeTabId: 'tab-axis-label-owner' } } };
+    window.Shared.enableLabelDrag(text, svg, {
+      positionKey: 'xLabel',
+      positionMetrics: { xOrigin: 2, xScale: 10, yOrigin: 4, yScale: 8 }
+    });
+    window.Shared.enableLabelDrag(yText, svg, {
+      positionKey: 'yLabel',
+      positionMetrics: { xOrigin: 5, xScale: 20, yOrigin: 6, yScale: 10 }
+    });
+    const restoredSvg = svg.cloneNode(true);
+    svg.replaceWith(restoredSvg);
+    const updates = [];
+
+    expect(window.Shared.rehydrateLabelDrags(restoredSvg, {
+      tabId: 'tab-axis-label-owner',
+      onPositionChange: (key, label, position) => updates.push({ key, label, position })
+    })).toBe(true);
+    const [restoredX, restoredY] = restoredSvg.querySelectorAll('text');
+    restoredX.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    restoredY.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+
+    expect(restoredX.getAttribute('x')).toBe('18');
+    expect(restoredY.getAttribute('x')).toBe('38');
+    expect(updates.map(update => update.key)).toEqual(['xLabel', 'yLabel']);
+    expect(updates[0].position.relX).toBe(1.6);
+    expect(updates[1].position.relX).toBe(1.65);
+  });
+
+  test('rebinds a reused SVG to the new owner session before keyboard movement', () => {
+    const { svg, text } = createSvgText();
+    const ownerRoot = document.createElement('section');
+    ownerRoot.dataset.workspaceTabId = 'tab-old-owner';
+    document.body.appendChild(ownerRoot);
+    ownerRoot.appendChild(svg);
+    window.Main = { session: { workspaceState: { activeTabId: 'tab-old-owner' } } };
+    const oldOwnerUpdates = jest.fn();
+    window.Shared.enableLabelDrag(text, svg, {
+      positionKey: 'xLabel',
+      positionMetrics: { xOrigin: 0, xScale: 10, yOrigin: 0, yScale: 10 },
+      tabId: 'tab-old-owner',
+      onPositionChange: oldOwnerUpdates
+    });
+
+    ownerRoot.dataset.workspaceTabId = 'tab-new-owner';
+    window.Main.session.workspaceState.activeTabId = 'tab-new-owner';
+    const newOwnerUpdates = jest.fn();
+    expect(window.Shared.rehydrateLabelDrags(svg, {
+      tabId: 'tab-new-owner',
+      owner: { tabId: 'tab-new-owner' },
+      onPositionChange: newOwnerUpdates
+    })).toBe(true);
+    text.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+
+    expect(text.__graphitixLabelDragBinding.tabId).toBe('tab-new-owner');
+    expect(oldOwnerUpdates).not.toHaveBeenCalled();
+    expect(newOwnerUpdates).toHaveBeenCalledWith('xLabel', text, expect.objectContaining({ x: 18, reason: 'keyboard-move' }));
+  });
+
+  test('keyboard label movement ignores a graph owned by an inactive tab', () => {
+    const owner = document.createElement('section');
+    owner.className = 'workspace-page';
+    owner.dataset.workspaceTabId = 'tab-inactive';
+    document.body.appendChild(owner);
+    const { svg, text } = createSvgText();
+    owner.appendChild(svg);
+    window.Shared.workspaceTabs = { resolveTab: () => ({ id: 'tab-active' }) };
+    window.Main = { session: { workspaceState: { activeTabId: 'tab-active' } } };
+    window.Shared.enableLabelDrag(text, svg);
+    const keyEvent = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+
+    text.dispatchEvent(keyEvent);
+
+    expect(keyEvent.defaultPrevented).toBe(false);
+    expect(text.getAttribute('x')).toBe('10');
+    expect(window.Shared.undoManager.recordStateChange).not.toHaveBeenCalled();
+  });
+
+  test('pointer label drag cancels when its tab deactivates before pointer up', () => {
+    const ownerRoot = document.createElement('section');
+    ownerRoot.className = 'workspace-page';
+    ownerRoot.dataset.workspaceTabId = 'tab-a';
+    document.body.appendChild(ownerRoot);
+    const { svg, text } = createSvgText();
+    ownerRoot.appendChild(svg);
+    let activeTabId = 'tab-a';
+    window.Shared.workspaceTabs = { resolveTab: () => ({ id: activeTabId }) };
+    window.Main = { session: { workspaceState: { activeTabId } } };
+    const onPositionChange = jest.fn();
+    const onDragEnd = jest.fn();
+    window.Shared.enableLabelDrag(text, svg, {
+      owner: { tabId: 'tab-a' },
+      onPositionChange,
+      onDragEnd
+    });
+
+    text.dispatchEvent(new window.MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0, clientX: 100, clientY: 120
+    }));
+    window.dispatchEvent(new window.MouseEvent('mousemove', {
+      bubbles: true, cancelable: true, buttons: 1, clientX: 112, clientY: 132
+    }));
+    activeTabId = 'tab-b';
+    window.Main.session.workspaceState.activeTabId = activeTabId;
+    ownerRoot.hidden = true;
+    window.dispatchEvent(new window.MouseEvent('mousemove', {
+      bubbles: true, cancelable: true, buttons: 1, clientX: 120, clientY: 140
+    }));
+    window.dispatchEvent(new window.MouseEvent('mouseup', {
+      bubbles: true, cancelable: true, button: 0, clientX: 120, clientY: 140
+    }));
+
+    expect(onPositionChange).not.toHaveBeenCalled();
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
 });

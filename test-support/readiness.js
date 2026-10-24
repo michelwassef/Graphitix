@@ -162,7 +162,21 @@ async function waitForOwnerReady(page, options = {}) {
   }
 }
 
+async function waitForIntegrationOwnerReady(options = {}){
+  const request={...options,requireIdle:true,diagnostic:true};
+  request.expectedTabId=options.expectedTabId ?? window.Main?.session?.workspaceState?.activeTabId;
+  const deadline=Date.now()+(options.timeout ?? 10000);
+  let evidence;
+  do {
+    await new Promise(resolve=>{setTimeout(resolve,0);});
+    evidence=inspectOwnerReadiness(request);
+    if(evidence?.ready && (!options.condition || options.condition())) return evidence;
+  } while(Date.now()<deadline);
+  throw new Error(`Integration owner readiness timed out: ${JSON.stringify(evidence)}`);
+}
+
 module.exports = {
   inspectOwnerReadiness,
-  waitForOwnerReady
+  waitForOwnerReady,
+  waitForIntegrationOwnerReady
 };

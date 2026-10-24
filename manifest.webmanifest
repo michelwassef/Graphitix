@@ -6,7 +6,7 @@
   "scope": "/Graphitix/",
   "display": "standalone",
   "background_color": "#f8fafc",
-  "theme_color": "#1e88e5",
+  "theme_color": "#0b6e69",
   "icons": [
     {
       "src": "assets/graphitix-icon.svg",

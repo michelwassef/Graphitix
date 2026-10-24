@@ -63,6 +63,23 @@ async function captureHeatmapVisualSignature(page) {
   });
 }
 
+test('Heatmap explains correlation inference and its multiplicity family', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  const component = { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' };
+  await openComponentFromWelcome(page, component, { first: true });
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
+  await waitForHeatmapCells(page);
+
+  const help = page.locator('#heatmapInferenceHelp');
+  await expect(help).toBeVisible();
+  await expect(help).toContainText('population correlation = 0');
+  await expect(help).toContainText('Spearman uses exact or seeded Monte Carlo permutation calibration');
+  await expect(help).toContainText('Unique off-diagonal pairs form the multiplicity family');
+  await page.locator('#heatmapView').selectOption('values');
+  await expect(help).toBeHidden();
+});
+
 function expectNear(actual, expected, tolerance, label) {
   expect(Number.isFinite(actual), `${label}: actual is not finite (${actual})`).toBe(true);
   expect(Number.isFinite(expected), `${label}: expected is not finite (${expected})`).toBe(true);
@@ -142,4 +159,82 @@ test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
     'cell value/cell height ratio'
   );
   expect(lifecycleOwnershipWarnings).toEqual([]);
+});
+
+test('Heatmap palette controls close when their tab deactivates', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+  const component = { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' };
+  const cellSelector = '#heatmapPage:not([hidden]) #heatmapSvg [data-export-layer="heatmap-cells"] rect';
+  const host = page.locator('.font-toolbar-host[data-font-toolbar-scope="heatmap"]');
+  await openComponentFromWelcome(page, component, { first: true });
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
+  await waitForHeatmapCells(page);
+  const firstTabId = (await activeHeatmapStatus(page)).activeTabId;
+
+  await page.locator(cellSelector).first().click({ force: true });
+  await expect(host.locator('.heatmap-palette-controls-panel')).toBeVisible();
+  const firstPositiveColor = host.locator('input[data-heatmap-palette-key="positive"]');
+  await firstPositiveColor.fill('#12ab34', { force: true });
+  await page.waitForFunction(tabId => (
+    window.Components?.heatmap?.__testHooks?.getSession?.(tabId)?.state?.palette?.positive === '#12ab34'
+  ), firstTabId);
+
+  await openComponentFromWelcome(page, component, { first: false });
+  const secondTabId = (await activeHeatmapStatus(page)).activeTabId;
+  const newTabState = await page.evaluate(tabId => {
+    const tab = window.Main?.session?.workspaceState?.tabs?.find?.(entry => entry.id === tabId) || null;
+    const session = window.Components?.heatmap?.__testHooks?.getSession?.(tabId) || null;
+    return {
+      payloadColors: tab?.payload?.config?.colors || null,
+      sessionPalette: session?.state?.palette || null,
+      runtimePalette: tab?.sharedState?.runtime?.heatmap?.palette || null,
+      runtimeRecords: tab?.sharedState?.sessions || null
+    };
+  }, secondTabId);
+  expect(newTabState.sessionPalette.positive, JSON.stringify(newTabState)).not.toBe('#12ab34');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
+  await waitForHeatmapCells(page);
+  expect(secondTabId).not.toBe(firstTabId);
+  const paletteStillVisible = await page.evaluate(() => !!document.querySelector(
+    '.font-toolbar-host[data-font-toolbar-scope="heatmap"].font-toolbar-host--visible'
+  ));
+  expect(paletteStillVisible).toBe(false);
+
+  const colors = await page.evaluate(ids => ids.map(tabId => ({
+    tabId,
+    positive: window.Components?.heatmap?.__testHooks?.getSession?.(tabId)?.state?.palette?.positive || null
+  })), [firstTabId, secondTabId]);
+  expect(colors[0].positive).toBe('#12ab34');
+  expect(colors[1].positive).not.toBe('#12ab34');
+});
+
+test('palette picker keeps the named scheme when its saved payload is stale', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+  const component = { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' };
+  await openComponentFromWelcome(page, component, { first: true });
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
+  await waitForHeatmapCells(page);
+
+  await page.evaluate(() => {
+    const tab = window.Main.session.getActiveTab();
+    tab.payload.config.colors = { negative: '#123456', zero: '#abcdef', positive: '#fedcba' };
+    window.Shared.colorSchemes.refreshActiveTabVisuals('e2e-stale-heatmap-palette', {
+      preferWorkspace: true
+    });
+  });
+
+  const trigger = page.locator('#heatmapPage:not([hidden]) .color-scheme-picker__button').first();
+  await trigger.click();
+  const menu = trigger.locator('xpath=..').locator('.color-scheme-picker__menu');
+  await menu.getByRole('option', { name: 'Color (soft)' }).click();
+
+  await expect(trigger).toHaveAccessibleName('Palette: Color (soft)');
+  await trigger.click();
+  const reopenedMenu = trigger.locator('xpath=..').locator('.color-scheme-picker__menu');
+  await expect(reopenedMenu.getByRole('option', { name: 'Color (soft)' })).toHaveAttribute('aria-selected', 'true');
+  await expect(reopenedMenu.getByRole('option', { name: 'Custom' })).toHaveAttribute('aria-selected', 'false');
 });

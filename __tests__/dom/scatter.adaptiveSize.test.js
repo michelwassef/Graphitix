@@ -4,12 +4,15 @@
  */
 const { bindElementToTab, ensureWorkspaceTabs, initializeWorkspaceHarness } = require('../setup/workspaceHarness');
 const { loadComponentTestBootstrap } = require('../../test-support/componentTestBootstrap');
+const { installSvgTextGeometry } = require('../setup/svgTextGeometry');
 
 describe('Scatter adaptive point sizing', () => {
   let scatter;
+  let restoreSvgTextGeometry;
 
   beforeEach(() => {
     jest.resetModules();
+    restoreSvgTextGeometry = installSvgTextGeometry();
     initializeWorkspaceHarness();
     loadComponentTestBootstrap('scatter');
     scatter = window.Components?.scatter;
@@ -19,6 +22,7 @@ describe('Scatter adaptive point sizing', () => {
   });
 
   afterEach(() => {
+    restoreSvgTextGeometry();
     if (typeof global.__suppressTestDebugLogs === 'function') {
       global.__suppressTestDebugLogs();
     }
@@ -234,11 +238,10 @@ describe('Scatter adaptive point sizing', () => {
     ownerSession.state.view.rotation = window.Shared.plot3d.createRotationState({ x: 0.2, y: 0.8 });
 
     const model = {
-      version: 1,
+      version: window.Shared.plot3d.FRAME_LAYOUT_VERSION,
       width: 427,
       height: 427,
       margin: { top: 40, right: 40, bottom: 40, left: 40 },
-      legendShiftX: 0,
       axisRanges: {
         x: { min: 0, max: 2 },
         y: { min: 0, max: 2 },
@@ -265,6 +268,7 @@ describe('Scatter adaptive point sizing', () => {
       ]
     };
 
+    expect(scatter.__testHooks.normalize3dRotationModel({ ...model, version: 1 })).toBeNull();
     expect(scatter.__testHooks.bind3dRotationRenderer(ownerSession, svg, model)).toBe(true);
     const dynamicLayer = svg.querySelector('[data-layer="scatter-3d-rotation-dynamic"]');
     const titleLayer = svg.querySelector('[data-layer="scatter-3d-title"]');
@@ -313,7 +317,15 @@ describe('Scatter adaptive point sizing', () => {
       id: 'workspace-inactive',
       renderCache: {
         cache: {
-          plot: { fragment, count: 1 }
+          plot: { fragment, count: 1 },
+          __graphitixRenderCache: {
+            version: 2,
+            component: 'scatter',
+            type: 'scatter',
+            tabId: 'workspace-inactive',
+            complete: true,
+            symbolGeometryVersion: window.Shared.symbolGeometry.RENDER_GEOMETRY_VERSION
+          }
         }
       }
     });

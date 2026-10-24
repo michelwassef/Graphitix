@@ -22,7 +22,7 @@
   let styleChipPreviewEl = null;
   let styleChipValueEl = null;
   let stylePickerCleanup = null;
-  let styleDragState = null;
+  let finishThicknessDrag = null;
   let suppressStyleChipClick = false;
   let patternField = null;
   let patternLabelEl = null;
@@ -135,7 +135,7 @@
   function isOwnerActive(config){
     const ownerTabId = normalizeTabId(config?.ownerTabId);
     const activeTabId = getActiveTabId();
-    return !ownerTabId || !activeTabId || ownerTabId === activeTabId;
+    return !!ownerTabId && !!activeTabId && ownerTabId === activeTabId;
   }
 
   function syncPanelFromConfigIfOpen(config){
@@ -697,8 +697,8 @@
       showPattern: controls.showPattern !== false,
       showTransparency: controls.showTransparency !== false,
       visibilityLabel: '',
-      thicknessLabel: controls.thicknessLabel || 'Line width',
-      colorLabel: controls.colorLabel || 'Line',
+      thicknessLabel: controls.thicknessLabel || 'Thickness',
+      colorLabel: controls.colorLabel || 'Style',
       patternLabel: controls.patternLabel || 'Pattern',
       transparencyLabel: controls.transparencyLabel || 'Transparency',
       thicknessMin: Number.isFinite(Number(controls.thicknessMin)) ? Number(controls.thicknessMin) : 0,
@@ -780,7 +780,6 @@
       rowClass: 'grid-controls-panel__row'
     });
     panelEl = panelParts.panel;
-    panelEl.style.display = 'none';
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
     panelTitleEl = panelParts.title;
@@ -791,7 +790,7 @@
     thicknessField.className = 'grid-controls-panel__field grid-controls-panel__field--numeric';
     thicknessLabelEl = doc.createElement('div');
     thicknessLabelEl.className = 'grid-controls-panel__field-label';
-    thicknessLabelEl.textContent = 'Line width';
+    thicknessLabelEl.textContent = 'Thickness';
     thicknessField.appendChild(thicknessLabelEl);
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
@@ -807,9 +806,9 @@
     styleField.className = 'grid-controls-panel__field grid-controls-panel__field--style';
     styleLabelEl = doc.createElement('div');
     styleLabelEl.className = 'grid-controls-panel__field-label';
-    styleLabelEl.textContent = 'Line';
+    styleLabelEl.textContent = 'Style';
     const styleControlParts = toolbarApi.createBorderStyleControl({
-      chipTitle: 'Click to edit grid line color. Wheel or Alt+drag to adjust line width.',
+      chipTitle: 'Click to edit grid line color. Wheel or Alt+drag to adjust line thickness.',
       colorInputClass: 'shared-border-style-input grid-controls-panel__color-input',
       colorInputAttrs: { 'data-undo-ignore': '1' },
       colorValue: DEFAULTS.color
@@ -833,7 +832,6 @@
       labelClass: 'grid-controls-panel__field-label',
       selectClass: 'grid-controls-panel__input grid-controls-panel__input--select',
       selectAttrs: { 'data-undo-ignore': '1' },
-      solidLabel: 'Solid'
     });
     patternField = patternFieldParts.field;
     patternLabelEl = patternFieldParts.label;
@@ -920,35 +918,18 @@
       if(typeof toolbarApi.bindNumericWheelProxy === 'function'){
         toolbarApi.bindNumericWheelProxy(styleChipEl, thicknessInput);
       }
-      const onStyleDragMove = evt => {
-        if(!styleDragState || !thicknessInput){ return; }
-        const deltaX = evt.clientX - styleDragState.startX;
-        const steps = Math.round(deltaX / 8);
-        const dragStep = typeof toolbarApi.getNumericWheelStep === 'function'
-          ? toolbarApi.getNumericWheelStep(thicknessInput)
-          : (Number(thicknessInput.step) || 0.25);
-        const next = Math.max(0, styleDragState.startValue + (steps * dragStep));
-        thicknessInput.value = String(next);
-        thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-      };
-      const onStyleDragUp = () => {
-        if(!styleDragState){ return; }
-        styleDragState = null;
-        if(thicknessInput){
-          thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        global.removeEventListener('mousemove', onStyleDragMove);
-        global.removeEventListener('mouseup', onStyleDragUp);
-      };
-      styleChipEl.addEventListener('mousedown', evt => {
-        if(!evt.altKey || evt.button !== 0){ return; }
-        evt.preventDefault();
-        suppressStyleChipClick = true;
-        const current = sanitizeThickness(thicknessInput?.value, DEFAULTS.thickness);
-        styleDragState = { startX: evt.clientX, startValue: current };
-        global.addEventListener('mousemove', onStyleDragMove);
-        global.addEventListener('mouseup', onStyleDragUp);
-      });
+      finishThicknessDrag = typeof toolbarApi.bindTabOwnedNumericDrag === 'function'
+        ? toolbarApi.bindTabOwnedNumericDrag(styleChipEl, thicknessInput, {
+          resolveOwner: () => {
+            const config = activeConfig;
+            const tabId = normalizeTabId(config?.ownerTabId || resolveOwnerTabId(config?.target || config?.host || activeHost));
+            return tabId && config ? { tabId, token: config } : null;
+          },
+          onStart: () => { suppressStyleChipClick = true; },
+          calculateValue: ({ startValue, deltaX, step }) =>
+            Math.max(0, startValue + (Math.round(deltaX / 8) * step))
+        })
+        : null;
       styleChipEl.addEventListener('click', evt => {
         if(!suppressStyleChipClick){ return; }
         suppressStyleChipClick = false;
@@ -1091,8 +1072,8 @@
           const controls = resolveControls(activeConfig || {});
           stylePickerCleanup = toolbarApi.attachColorPickerNumericSection(overlayEl, {
             canonicalInput: thicknessInput,
-            title: controls.thicknessLabel || 'Line width',
-            ariaLabel: controls.thicknessLabel || 'Line width',
+            title: controls.thicknessLabel || 'Thickness',
+            ariaLabel: controls.thicknessLabel || 'Thickness',
             sectionClass: 'shared-color-picker__section--grid-style',
             clearSelector: '.shared-color-picker__section--grid-style',
             min: '0',
@@ -1118,11 +1099,11 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
+    finishThicknessDrag?.({ commit: true, reason: reason || 'panel-close' });
     if(typeof stylePickerCleanup === 'function'){
       try{ stylePickerCleanup(); }catch(err){}
       stylePickerCleanup = null;
     }
-    panelEl.style.display = 'none';
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
     if(activeHost){
@@ -1162,8 +1143,13 @@
   }
 
   function openPanel(config){
+    const ownerTabId = normalizeTabId(config?.ownerTabId || resolveOwnerTabId(config?.target || config?.host));
+    if(!config || !ownerTabId || !isOwnerActive({ ...config, ownerTabId })){
+      return false;
+    }
+    config = { ...config, ownerTabId };
     ensurePanel();
-    if(!panelEl || !config){ return; }
+    if(!panelEl){ return false; }
     closeSymbolToolbars();
     closeAxisToolbars();
     closeFontToolbars();
@@ -1180,14 +1166,10 @@
     clearPendingColorEdit();
     const host = config.host || resolveToolbarHost(config.scopeId);
     if(host){
-      if(config.clearHost === true || (config.appendToHost !== true && config.clearHost !== false)){
-        try{
-          host.querySelectorAll('.workspace-toolbar__form, .box-point-controls, [data-point-controls="1"]').forEach(node => node.remove());
-        }catch(err){}
-      }
-      if(panelEl.parentElement !== host){
-        host.appendChild(panelEl);
-      }
+      Shared.getWorkspaceToolbarApi().mountPanels(host, [panelEl], {
+        appendToHost: config.appendToHost === true || config.clearHost === false,
+        clearHost: config.clearHost === true
+      });
       clearHostSizing(host);
       host.classList.add('font-toolbar-host--grid');
       host.classList.add('font-toolbar-host--grid-dual');
@@ -1218,10 +1200,10 @@
       logDebug('host unavailable for open', { scopeId: config.scopeId });
     }
     syncPanelFromConfig(config);
-    panelEl.style.display = 'flex';
     panelEl.hidden = false;
     panelEl.dataset.open = '1';
     logDebug('panel opened', { scopeId: config.scopeId });
+    return true;
   }
 
   function registerGraphElement(element, config){
@@ -1303,6 +1285,15 @@
       }
     });
   }
+
+  gridControls.deactivateTab = function deactivateTab(tabLike, meta = {}){
+    const tabId = normalizeTabId(tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike);
+    if(!tabId || !activeConfig || normalizeTabId(activeConfig.ownerTabId) !== tabId){
+      return false;
+    }
+    closePanel(meta.reason || 'owner-deactivated');
+    return true;
+  };
 
   gridControls.disposeTab = function disposeTab(){
     pruneToolbarHostCache();

@@ -234,4 +234,38 @@ describe('color scheme custom-color choice', () => {
     expect(allowed).toContain(readColor(tab.payload));
     expect(readColor(tab.payload)).not.toBe('#123456');
   });
+
+  test('captures the active owner payload before applying a palette', () => {
+    const livePayload = {
+      type: 'line',
+      data: [['X', 'Latest series'], [0, 4]],
+      config: {
+        colorScheme: 'scientific',
+        labelColors: { 'Latest series': '#123456' },
+        seriesStyles: { 'Latest series': { opacity: 0.6 } },
+        customSetting: 'keep'
+      }
+    };
+    workspace.getPayload.mockReturnValue(clone(livePayload));
+    window.Main.session.persistActiveTabState = jest.fn(owner => {
+      owner.payload = clone(livePayload);
+      return true;
+    });
+
+    expect(window.Shared.colorSchemes.applyToActiveTab('line', 'soft')).toBe(true);
+
+    expect(window.Main.session.persistActiveTabState).toHaveBeenCalledWith(tab, expect.objectContaining({
+      reason: 'color-scheme-line-source',
+      origin: 'user',
+      snapshotIntent: expect.objectContaining({
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false,
+        reasonSkippable: false
+      })
+    }));
+    expect(tab.payload.data).toEqual(livePayload.data);
+    expect(tab.payload.config.seriesStyles['Latest series'].opacity).toBe(0.6);
+    expect(tab.payload.config.customSetting).toBe('keep');
+    expect(tab.payload.config.labelColors['Latest series']).toBeTruthy();
+  });
 });

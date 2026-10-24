@@ -26,6 +26,10 @@ describe('welcome startup rendering', () => {
     require('../../js/main/bootstrap.js');
 
     expect(document.querySelectorAll('#graphSelectionGrid .graph-card')).toHaveLength(11);
+    expect(document.querySelectorAll('#graphSelectionGrid .welcome-graph-category')).toHaveLength(3);
+    expect(Array.from(document.querySelectorAll('#graphSelectionGrid .welcome-graph-category__title'), node => node.textContent)).toEqual([
+      'Compare & summarize', 'Relate & explore', 'Over time & outcomes'
+    ]);
     expect(document.querySelectorAll('#welcomePopularExamplesList .welcome-example-card')).toHaveLength(11);
     expect(document.getElementById('welcomeScreen').dataset.welcomePresented).toBe('true');
     expect(document.getElementById('welcomeScreen').dataset.welcomeReady).toBeUndefined();

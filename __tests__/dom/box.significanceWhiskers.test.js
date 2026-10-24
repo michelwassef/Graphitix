@@ -149,6 +149,24 @@ describe('Box significance whisker modes', () => {
     expect(hooks.resolveSignificanceLevelStepPx(25, 20, 'horizontal', 1, { bracketSize: 10 })).toBeCloseTo(32.52, 6);
   });
 
+  test('vertical p-value labels reserve horizontal space when assigning annotation levels', () => {
+    const pairs = [
+      { ai: 0, bi: 1, rangeMax: 10, p: 0.000052 },
+      { ai: 2, bi: 3, rangeMax: 10, p: 0.000071 }
+    ];
+    const layout = hooks.buildPairAnnotationLayout(pairs, {
+      orientation: 'vertical',
+      categoryCenter: index => index * 18,
+      valueToCoord: value => 100 - value,
+      fontSize: 12,
+      labelMode: 'p',
+      pScientific: true,
+      pDecimals: 4
+    });
+
+    expect(layout.sorted.map(pair => pair.level)).toEqual([0, 1]);
+  });
+
   test('the significance stack uses the compact default data offset', () => {
     const pair = { ai: 0, bi: 1, rangeMax: 10 };
     const layout = hooks.buildPairAnnotationLayout([pair], {

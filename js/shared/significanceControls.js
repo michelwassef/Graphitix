@@ -30,6 +30,8 @@
   let activeHost = null;
   let hasDocListener = false;
   let applyingFromUndo = false;
+  let finishThicknessDrag = null;
+  let suppressStyleChipClick = false;
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
   function logDebug(message, payload){
@@ -175,20 +177,16 @@
     whiskerToggleInput.checked = sanitizeWhiskerValue(whiskerValueRaw);
 
     const hasWhiskerMode = !!(whiskerModeField && whiskerModeSelect && (config.getWhiskerMode || config.onWhiskerModeChange));
+    if(whiskerModeField){ whiskerModeField.hidden = !hasWhiskerMode; }
     if(hasWhiskerMode){
-      whiskerModeField.style.display = '';
       const whiskerModeRaw = config.getWhiskerMode ? config.getWhiskerMode() : 'fixed';
       whiskerModeSelect.value = sanitizeWhiskerMode(whiskerModeRaw);
-    }else if(whiskerModeField){
-      whiskerModeField.style.display = 'none';
     }
 
     const hasLabelMode = !!(labelModeField && labelModeSelect && config.getLabelMode);
+    if(labelModeField){ labelModeField.hidden = !hasLabelMode; }
     if(hasLabelMode){
-      labelModeField.style.display = '';
       labelModeSelect.value = config.getLabelMode() === 'decision' ? 'decision' : 'p';
-    }else if(labelModeField){
-      labelModeField.style.display = 'none';
     }
 
     const hasPScientificMode = !!(pScientificToggleInput && (config.getPScientific || config.onPScientificChange));
@@ -208,12 +206,10 @@
     }
 
     const hasPDecimals = !!(pDecimalsField && pDecimalsInput && (config.getPDecimals || config.onPDecimalsChange));
+    if(pDecimalsField){ pDecimalsField.hidden = !hasPDecimals; }
     if(hasPDecimals){
-      pDecimalsField.style.display = '';
       const pDecimalsRaw = config.getPDecimals ? config.getPDecimals() : 2;
       pDecimalsInput.value = String(sanitizeDecimalsValue(pDecimalsRaw));
-    }else if(pDecimalsField){
-      pDecimalsField.style.display = 'none';
     }
   }
 
@@ -439,11 +435,10 @@
       panelClass: 'significance-controls-panel additional-line-controls-panel',
       role: 'toolbar',
       ariaLabel: 'Significance bar controls',
-      title: 'Significance bars, p-value format',
+      title: 'Significance',
       rowClass: 'additional-line-controls-panel__row significance-controls-panel__row'
     });
     panelEl = panelParts.panel;
-    panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
     panelParts.title.classList.add('additional-line-controls-panel__title', 'significance-controls-panel__title');
@@ -456,7 +451,7 @@
     styleField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--style significance-controls-panel__field significance-controls-panel__field--style';
     const styleLabel = doc.createElement('span');
     styleLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
-    styleLabel.textContent = 'Border';
+    styleLabel.textContent = 'Style';
     const styleControlParts = toolbarApi.createBorderStyleControl({
       chipTitle: 'Click to edit significance bar color. Wheel or Alt+drag to adjust thickness.',
       includeThicknessInput: true,
@@ -488,15 +483,20 @@
       styleChipEl.addEventListener('click', evt => {
         evt.preventDefault();
         evt.stopPropagation();
+        const config = activeConfig;
+        if(!config){ return; }
         const overlayEl = Shared.openColorPicker({
           anchor: styleChipEl,
+          ownerTabId: resolveConfigOwnerTabId(config),
           color: colorInput.value,
           element: colorInput,
           onInput(value){
+            if(!configsMatch(activeConfig, config)){ return; }
             colorInput.value = value;
             colorInput.dispatchEvent(new Event('input', { bubbles: true }));
           },
           onChange(value){
+            if(!configsMatch(activeConfig, config)){ return; }
             colorInput.value = value;
             colorInput.dispatchEvent(new Event('change', { bubbles: true }));
           },
@@ -510,8 +510,8 @@
         const toolbarApi = Shared.getWorkspaceToolbarApi();
         stylePickerCleanup = toolbarApi.attachColorPickerNumericSection(overlayEl, {
           canonicalInput: thicknessInput,
-          title: 'Line thickness',
-          ariaLabel: 'Line thickness',
+          title: 'Thickness',
+          ariaLabel: 'Thickness',
           sectionClass: 'shared-color-picker__section--significance-style',
           clearSelector: '.shared-color-picker__section--significance-style',
           min: '0.25',
@@ -530,35 +530,24 @@
     if(typeof toolbarApi.bindNumericWheelProxy === 'function'){
       toolbarApi.bindNumericWheelProxy(styleChipEl, thicknessInput);
     }
-    let styleDragState = null;
-    const onStyleMove = evt => {
-      if(!styleDragState){ return; }
-      const deltaX = evt.clientX - styleDragState.startX;
-      const steps = Math.round(deltaX / 8);
-      const dragStep = typeof toolbarApi.getNumericWheelStep === 'function'
-        ? toolbarApi.getNumericWheelStep(thicknessInput)
-        : (Number(thicknessInput.step) || 0.25);
-      const next = Math.max(0.25, styleDragState.startValue + (steps * dragStep));
-      thicknessInput.value = String(next);
-      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-    };
-    const onStyleUp = () => {
-      if(!styleDragState){ return; }
-      styleDragState = null;
-      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-      global.removeEventListener('mousemove', onStyleMove);
-      global.removeEventListener('mouseup', onStyleUp);
-    };
-    styleChipEl.addEventListener('mousedown', evt => {
-      if(!evt.altKey || evt.button !== 0){ return; }
+    finishThicknessDrag = typeof toolbarApi.bindTabOwnedNumericDrag === 'function'
+      ? toolbarApi.bindTabOwnedNumericDrag(styleChipEl, thicknessInput, {
+        resolveOwner: () => {
+          const config = activeConfig;
+          const tabId = resolveConfigOwnerTabId(config);
+          return tabId && config ? { tabId, token: config } : null;
+        },
+        onStart: () => { suppressStyleChipClick = true; },
+        calculateValue: ({ startValue, deltaX, step }) =>
+          Math.max(0.25, startValue + (Math.round(deltaX / 8) * step))
+      })
+      : null;
+    styleChipEl.addEventListener('click', evt => {
+      if(!suppressStyleChipClick){ return; }
+      suppressStyleChipClick = false;
       evt.preventDefault();
-      styleDragState = {
-        startX: evt.clientX,
-        startValue: sanitizeThicknessValue(thicknessInput.value) ?? 1
-      };
-      global.addEventListener('mousemove', onStyleMove);
-      global.addEventListener('mouseup', onStyleUp);
-    });
+      evt.stopPropagation();
+    }, true);
 
     const whiskerField = doc.createElement('label');
     whiskerField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--toggle';
@@ -585,7 +574,7 @@
     whiskerModeField.className = 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric significance-controls-panel__field significance-controls-panel__field--numeric';
     const whiskerModeLabel = doc.createElement('span');
     whiskerModeLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
-    whiskerModeLabel.textContent = 'Whisker Style';
+    whiskerModeLabel.textContent = 'Whisker style';
     whiskerModeSelect = doc.createElement('select');
     whiskerModeSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select significance-controls-panel__input significance-controls-panel__input--square';
     whiskerModeSelect.setAttribute('aria-label', 'Significance whisker style');
@@ -600,14 +589,30 @@
     whiskerModeSelect.appendChild(optionAdaptive);
     whiskerModeField.appendChild(whiskerModeLabel);
     whiskerModeField.appendChild(whiskerModeSelect);
-    whiskerModeField.style.display = 'none';
+    whiskerModeField.hidden = true;
     row.appendChild(whiskerModeField);
 
-    // Box supplies the existing Label control so its owner-scoped event and
-    // persistence wiring remain authoritative. It is inserted before the
-    // scientific-format field when the toolbar opens.
-    labelModeField = null;
-    labelModeSelect = null;
+    labelModeField = doc.createElement('label');
+    labelModeField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--numeric significance-controls-panel__field--label-mode';
+    const labelModeCaption = doc.createElement('span');
+    labelModeCaption.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
+    labelModeCaption.textContent = 'Label';
+    labelModeSelect = doc.createElement('select');
+    labelModeSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select significance-controls-panel__input significance-controls-panel__input--select significance-controls-panel__input--square';
+    labelModeSelect.dataset.significanceLabelMode = '1';
+    labelModeSelect.dataset.undoIgnore = '1';
+    labelModeSelect.append(new Option('Decision (* / NS; D / ND for FDR)', 'decision'), new Option('P-value', 'p'));
+    labelModeField.append(labelModeCaption, labelModeSelect);
+    row.appendChild(labelModeField);
+    labelModeSelect.addEventListener('change', () => {
+      const config = activeConfig;
+      if(!config?.onLabelModeChange){ return; }
+      const previous = config.getLabelMode();
+      const next = labelModeSelect.value === 'decision' ? 'decision' : 'p';
+      config.onLabelModeChange(next);
+      syncPanelInputsFromConfig(config);
+      recordSignificanceStateChange(config, 'label-mode', previous, next, value => config.onLabelModeChange(value));
+    });
 
     pScientificField = doc.createElement('label');
     pScientificField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--toggle';
@@ -646,7 +651,7 @@
     pDecimalsInput.setAttribute('data-undo-ignore', '1');
     pDecimalsField.appendChild(pDecimalsLabel);
     pDecimalsField.appendChild(pDecimalsInput);
-    pDecimalsField.style.display = 'none';
+    pDecimalsField.hidden = true;
     row.appendChild(pDecimalsField);
 
     textStyleButton = null;
@@ -890,18 +895,19 @@
     }
     const svg = element.ownerSVGElement;
     if(!svg || typeof svg.ownerDocument?.createElementNS !== 'function'){ return null; }
-    const overlay = svg.ownerDocument.createElementNS(SVG_NS, 'rect');
+    const next = element.nextElementSibling;
+    const restoredOverlay = next?.matches?.('rect[data-significance-control="1"]') ? next : null;
+    const overlay = restoredOverlay || svg.ownerDocument.createElementNS(SVG_NS, 'rect');
     overlay.setAttribute('fill', 'transparent');
     overlay.setAttribute('pointer-events', 'fill');
     overlay.dataset.significanceControl = '1';
     overlay.style.cursor = 'pointer';
     const parent = element.parentNode;
-    if(parent && typeof parent.insertBefore === 'function'){
-      parent.insertBefore(overlay, element.nextSibling);
-    }else{
+    if(!parent || typeof parent.insertBefore !== 'function'){
       logDebug('overlay missing parent',{ hasParent: !!parent });
       return null;
     }
+    if(!restoredOverlay){ parent.insertBefore(overlay, element.nextSibling); }
     const padding = 6;
     const bounds = updateOverlayBounds(element, overlay, padding);
     const observer = typeof MutationObserver === 'function'
@@ -942,7 +948,7 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
-    panelEl.style.display = 'none';
+    finishThicknessDrag?.({ commit: true, reason: reason || 'panel-close' });
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
     if(activeHost){
@@ -982,6 +988,16 @@
     activeHost = null;
   }
 
+  function deactivateTab(tabLike, meta = {}){
+    const tabId = normalizeTabId(meta?.tabId || tabLike?.id || tabLike);
+    if(!tabId){ return false; }
+    const ownerTabId = resolveConfigOwnerTabId(activeConfig)
+      || normalizeTabId(activeHost?.dataset?.workspaceTabId);
+    if(ownerTabId !== tabId){ return false; }
+    closePanel(meta?.reason || 'owner-deactivation');
+    return true;
+  }
+
   function openPanel(config){
     ensurePanel();
     if(!panelEl){ return; }
@@ -999,28 +1015,9 @@
       logDebug('dendrogram close failed',{ error: err?.message || String(err) });
     }
     activeConfig = config;
-    const labelControl = config?.labelControl;
-    const panelRow = pScientificField?.parentNode;
-    if(labelControl && labelControl.nodeType === 1 && panelRow){
-      if(labelControl.parentNode !== panelRow || labelControl.nextElementSibling !== pScientificField){
-        panelRow.insertBefore(labelControl, pScientificField);
-      }
-      labelControl.hidden = false;
-      labelControl.removeAttribute?.('aria-hidden');
-      labelModeField = labelControl;
-      labelModeSelect = labelControl.querySelector?.('[data-significance-label-mode], #boxSignificanceLabelMode, select') || null;
-    }else if(labelModeField){
-      labelModeField.style.display = 'none';
-      labelModeSelect = null;
-    }
     const host = resolveToolbarHost(config.scopeId);
     if(host){
-      try{
-        host.querySelectorAll('.workspace-toolbar__form, .box-point-controls, [data-point-controls="1"]').forEach(n => n.remove());
-      }catch(e){}
-      if(panelEl.parentElement !== host){
-        host.appendChild(panelEl);
-      }
+      Shared.getWorkspaceToolbarApi().mountPanels(host, [panelEl]);
       clearHostSizing(host);
       const toolbarApi = Shared.getWorkspaceToolbarApi();
       if(typeof toolbarApi.showHost === 'function'){
@@ -1040,7 +1037,6 @@
       logDebug('host unavailable for open',{ scopeId: config.scopeId });
     }
     updatePanelInputs(config);
-    panelEl.style.display = 'flex';
     panelEl.hidden = false;
     panelEl.dataset.open = '1';
     if(textStyleButton){
@@ -1057,10 +1053,11 @@
     const disableOverlay = config.disableOverlay === true;
     const overlayInfo = disableOverlay ? null : ensureSignificanceOverlay(element);
     const handler = evt => {
+      const ownerTabId = normalizeTabId(config.ownerTabId || config.tabId || resolveOwnerTabId(element) || getActiveTabId());
+      if(ownerTabId && ownerTabId !== getActiveTabId()){ return; }
       evt.preventDefault();
       evt.stopPropagation();
       logDebug('significance clicked',{ orientation: config.orientation, scopeId: config.scopeId });
-      const ownerTabId = normalizeTabId(config.ownerTabId || config.tabId || resolveOwnerTabId(element) || getActiveTabId());
       openPanel({
         orientation: config.orientation,
         scopeId: config.scopeId,
@@ -1071,7 +1068,7 @@
         getWhiskers: config.getWhiskers,
         getWhiskerMode: config.getWhiskerMode,
         getLabelMode: config.getLabelMode,
-        labelControl: config.labelControl,
+        onLabelModeChange: config.onLabelModeChange,
         getPScientific: config.getPScientific,
         getPDecimals: config.getPDecimals,
         getFontTarget: config.getFontTarget,
@@ -1111,6 +1108,7 @@
     }
     return true;
   };
+  significanceControls.deactivateTab = deactivateTab;
 
   try{
     Shared.workspaceTabs?.registerSharedControlDisposer?.('significanceControls', significanceControls.disposeTab);

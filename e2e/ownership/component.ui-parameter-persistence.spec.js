@@ -16,6 +16,10 @@ const {
 } = require('../helpers/uiMutationDriver');
 
 test.describe.configure({ mode: 'serial' });
+const requestedMutationIds = String(process.env.UI_MUTATION_IDS || '')
+  .split(',')
+  .map(value => value.trim())
+  .filter(Boolean);
 
 for (const component of COMPONENT_MATRIX) {
   test(`${component.type} UI mutations survive archive reopen`, async ({ page }, testInfo) => {
@@ -31,8 +35,12 @@ for (const component of COMPONENT_MATRIX) {
     const baseline = await readActivePayload(page);
     expect(baseline?.type).toBe(component.type);
 
+    const mutations = component.mutationPlan.uiMutations.filter(mutation => !requestedMutationIds.length
+      || requestedMutationIds.includes(mutation.id));
+    expect(mutations.length, `${component.type}: selected UI mutation plan is empty`).toBeGreaterThan(0);
+
     const results = [];
-    for (const mutation of component.mutationPlan.uiMutations) {
+    for (const mutation of mutations) {
       const baselineValue = await readActiveDurableValue(page, mutation);
       const applied = await applyUiMutation(page, component, mutation, {
         expectedTabId: activeBefore.id,
@@ -77,6 +85,33 @@ for (const component of COMPONENT_MATRIX) {
       };
       await waitForDurableValue(page, mutation, result.canonical, { timeout: 60_000 });
       expect(await readActiveDurableValue(page, mutation), `${component.type}/${result.id} after reopen`).toEqual(result.canonical);
+      if(component.type === 'heatmap' && result.id === 'heatmap.color-scheme'){
+        const restoredScheme = await page.evaluate(() => {
+          const workspace = window.Main?.session?.workspaceState || null;
+          const tab = workspace?.tabs?.find(item => String(item?.id || '') === String(workspace?.activeTabId || '')) || null;
+          const session = tab?.id ? window.Components?.heatmap?.__testHooks?.getSession?.(tab.id) : null;
+          const root = document.querySelector('#heatmapPage:not([hidden])');
+          return {
+            tabId: tab?.id || null,
+            sessionTabId: session?.tabId || null,
+            payloadScheme: tab?.payload?.config?.colorScheme || null,
+            controlScheme: root?.querySelector('#heatmapColorSchemeSelect')?.value || null,
+            payloadDendrogramColor: tab?.payload?.config?.dendrogram?.color || null,
+            sessionDendrogramColor: session?.state?.dendrogramSettings?.color || null,
+            renderedDendrogramColor: root?.querySelector('#heatmapSvg .heatmap-dendrogram')?.getAttribute('stroke') || null,
+            displayedScheme: window.Shared?.colorSchemes?.resolveDisplayedSchemeIdForType?.(
+              'heatmap',
+              { captureLive: true }
+            ) || null
+          };
+        });
+        expect(restoredScheme.sessionTabId).toBe(restoredScheme.tabId);
+        expect(restoredScheme.payloadScheme).toBe(result.canonical);
+        expect(restoredScheme.controlScheme).toBe(result.canonical);
+        expect(restoredScheme.sessionDendrogramColor).toBe(restoredScheme.payloadDendrogramColor);
+        expect(restoredScheme.renderedDendrogramColor).toBe(restoredScheme.payloadDendrogramColor);
+        expect(restoredScheme.displayedScheme).toBe(result.canonical);
+      }
     }
     expect(restoreReadiness?.ready, `${component.type} restore readiness`).toBe(true);
     expect(restoreReadiness?.owner?.activeTabId).toBe(activeAfter?.id);

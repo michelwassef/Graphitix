@@ -24,7 +24,7 @@ test('ROC classification controls are visible, effective, undoable, and warnings
   await expect(setup).toBeVisible();
   await expect(setup).toContainText('Classification setup');
   await expect(root.locator('#rocPositiveClass option:checked')).toHaveText('1');
-  await expect(root.locator('#rocNegativeClass')).toHaveValue('0');
+  await expect(root.locator('#rocNegativeClass')).toHaveCount(0);
   await expect(root.locator('#rocScoreDirection')).toHaveValue('higher');
 
   const order = await root.locator('.config-panel').evaluate(panel =>

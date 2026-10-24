@@ -132,12 +132,22 @@ async function readCovariateSnapshot(page) {
     root?.querySelectorAll?.('[id^="survivalCovariateToggle-"]').forEach((checkbox) => {
       const key = checkbox.id.replace('survivalCovariateToggle-', '');
       const select = root.querySelector(`select[data-column-index="${key}"]`);
-      controls[key] = { enabled: !!checkbox.checked, type: select?.value || null };
+      const row = checkbox.closest('.survival-covariate-option');
+      controls[key] = {
+        enabled: !!checkbox.checked,
+        type: select?.value || null,
+        rowDisplay: row ? getComputedStyle(row).display : null,
+        rowInlineDisplay: row?.style.display || '',
+        selectMinWidth: select ? getComputedStyle(select).minWidth : null,
+        selectInlineMinWidth: select?.style.minWidth || ''
+      };
     });
     return {
       xLabel: payload?.config?.xLabel || '',
       settings,
       controls,
+      hintCount: root?.querySelectorAll?.('.survival-covariate-hint-text').length || 0,
+      hintInlineStyle: root?.querySelector?.('.survival-covariate-hint-text')?.style.cssText || '',
       statsText: root?.querySelector?.('#survivalStatsCox')?.textContent || ''
     };
   });
@@ -147,8 +157,16 @@ function expectCovariates(snapshot, expectedPayload) {
   expect(snapshot.xLabel).toBe(expectedPayload.config.xLabel);
   for (const [key, cfg] of Object.entries(expectedPayload.config.covariateSettings)) {
     expect(snapshot.settings[key], `payload covariate ${key}`).toMatchObject(cfg);
-    expect(snapshot.controls[key], `DOM covariate ${key}`).toMatchObject(cfg);
+    expect(snapshot.controls[key], `DOM covariate ${key}`).toMatchObject({
+      ...cfg,
+      rowDisplay: 'flex',
+      rowInlineDisplay: ''
+    });
+    expect(Number.parseFloat(snapshot.controls[key].selectMinWidth)).toBeGreaterThan(0);
+    expect(snapshot.controls[key].selectInlineMinWidth).toBe(snapshot.controls[key].selectMinWidth);
   }
+  expect(snapshot.hintCount).toBe(1);
+  expect(snapshot.hintInlineStyle).toBe('');
   expect(snapshot.statsText).toMatch(/Cox|Reporting and reproducibility|coefficient/i);
 }
 

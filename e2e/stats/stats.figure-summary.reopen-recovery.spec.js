@@ -27,6 +27,7 @@ async function exportSummaryGeometry(page){
       .find(node => /STATISTICS|STATISTICAL (?:ANALYSIS|SUMMARY)|ANALYSIS SUMMARY/i.test(node.textContent || '')) || null;
     return {
       count:summaryTitle ? 1 : 0,
+      text:parsed.documentElement.textContent,
       hasDominantBaseline:!!summaryTitle?.hasAttribute('dominant-baseline'),
       hasExplicitY:Number.isFinite(Number(summaryTitle?.getAttribute('y'))),
       hasParentDy:!!summaryTitle?.hasAttribute('dy'),
@@ -69,15 +70,27 @@ async function readVennGeometry(page){
     const stage = document.querySelector('#vennPage:not([hidden]) #stage');
     const summary = stage?.querySelector('g[data-stats-figure-summary="1"]');
     if(!stage || !summary) return null;
+    const root = stage.closest('#vennPage');
     const circles = [...stage.querySelectorAll('circle[data-venn-trace-id]')];
     const circleBottom = circles.reduce((bottom, node) => Math.max(bottom, node.getBoundingClientRect().bottom), 0);
     const summaryRect = summary.getBoundingClientRect();
+    const inputPanel = root?.querySelector('#vennInputPanel') || null;
+    const tablePanel = root?.querySelector('#vennTablePanel') || null;
+    const numericMode = root?.querySelector('#vennNumericMode') || null;
+    const graphFrame = root?.querySelector('#vennGraphPanel .svgbox') || null;
+    const inputRect = inputPanel?.getBoundingClientRect?.() || null;
+    const numericRect = numericMode?.getBoundingClientRect?.() || null;
+    const graphRect = graphFrame?.getBoundingClientRect?.() || null;
     return {
       gap:summaryRect.top - circleBottom,
       circleBottom,
+      circleDiameters:circles.map(node => node.getBoundingClientRect().width),
       summaryTop:summaryRect.top,
       summaryBottom:summaryRect.bottom,
       stageBottom:stage.getBoundingClientRect().bottom,
+      tableFlexGrow:Number.parseFloat(getComputedStyle(tablePanel).flexGrow),
+      numericBottomGap:inputRect && numericRect ? inputRect.bottom - numericRect.bottom : null,
+      graphFrame:{ width:graphRect?.width || 0, height:graphRect?.height || 0 },
       reserve:Number(stage.dataset.statsFigureSummaryReserveBottom || 0),
       viewBox:String(stage.getAttribute('viewBox') || ''),
       baseViewBoxHeight:Number(stage.dataset.statsFigureSummaryBaseViewBoxHeight || 0),
@@ -129,16 +142,40 @@ async function readSpecializedGeometry(page, config){
         const rect = node.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0 ? Math.max(bottom, rect.bottom) : bottom;
       }, 0);
+    const graphTop = Array.from(svg.querySelectorAll('*'))
+      .filter(node => node !== summary
+        && !node.closest?.('g[data-stats-figure-summary="1"]')
+        && !node.closest?.('defs,clipPath,mask'))
+      .reduce((top, node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 ? Math.min(top, rect.top) : top;
+      }, Infinity);
+    const graphLeft = Array.from(svg.querySelectorAll('*'))
+      .filter(node => node !== summary
+        && !node.closest?.('g[data-stats-figure-summary="1"]')
+        && !node.closest?.('defs,clipPath,mask'))
+      .reduce((left, node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 ? Math.min(left, rect.left) : left;
+      }, Infinity);
+    const graphRight = Array.from(svg.querySelectorAll('*'))
+      .filter(node => node !== summary
+        && !node.closest?.('g[data-stats-figure-summary="1"]')
+        && !node.closest?.('defs,clipPath,mask'))
+      .reduce((right, node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 ? Math.max(right, rect.right) : right;
+      }, 0);
     return {
       gap:summaryRect.top - graphBottom,
       summaryInsideSvg:summaryRect.bottom <= svgRect.bottom + 2,
       svgRect:{top:svgRect.top, bottom:svgRect.bottom, height:svgRect.height},
       summaryRect:{top:summaryRect.top, bottom:summaryRect.bottom, height:summaryRect.height},
+      graphTop,
+      graphWidth:graphRight - graphLeft,
+      graphHeight:graphBottom - graphTop,
       graphBottom,
       reserve:Number(svg.dataset.statsFigureSummaryReserveBottom || 0),
-      baseHeight:Number(svg.dataset.graphContentBaseHeight || 0),
-      summaryBaseHeight:Number(svg.dataset.statsFigureSummaryBaseHeight || 0),
-      viewBox:String(svg.getAttribute('viewBox') || '')
     };
   }, config);
 }
@@ -215,6 +252,8 @@ test('figure-summary toggle is serialized and projected after file reopen and re
   expect(exported.hasExplicitY).toBe(true);
   expect(exported.hasParentDy).toBe(false);
   expect(exported.hasSummaryDataAttributes).toBe(false);
+  expect(exported.text).toContain('statistic = q = 15.81');
+  expect(exported.text).not.toContain('unavailable (invalid probability)');
 
   const manual = await captureArchivePayload(page, 'document-snapshot');
   const recovery = await captureArchivePayload(page, 'recovery');
@@ -229,6 +268,8 @@ test('figure-summary toggle is serialized and projected after file reopen and re
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout:45_000 });
   await expect(page.locator('.workspace-page:not([hidden]) .stats-figure-summary-checkbox').last()).toBeChecked({ timeout:30_000 });
   await expect(page.locator('#boxPlot svg g[data-stats-figure-summary="1"]')).toHaveCount(1, { timeout:30_000 });
+  await expect(page.locator('#boxPlot svg g[data-stats-figure-summary="1"]')).toContainText('statistic = q = 15.81');
+  await expect(page.locator('#boxPlot svg g[data-stats-figure-summary="1"]')).not.toContainText('unavailable (invalid probability)');
   expect(issues.critical).toEqual([]);
 });
 
@@ -239,10 +280,18 @@ test('Venn summary cache preserves graph-to-table spacing through recovery', asy
   await page.goto('/index.html', { waitUntil:'domcontentloaded' });
 
   const summaryTab = await prepareVennSummary(page, true);
+  const plotStats = page.locator('#vennPage:not([hidden]) #vennShowPlotStats');
+  await expect(plotStats).toBeEnabled({ timeout:30_000 });
+  await plotStats.check();
+  await expect(page.locator('#vennPage:not([hidden]) #stage [data-venn-plot-stats="1"]')).toHaveCount(1, { timeout:30_000 });
   const before = await readVennGeometry(page);
   expect(before?.gap).toBeLessThan(100);
+  expect(before?.tableFlexGrow).toBeGreaterThanOrEqual(0.99);
+  expect(before?.numericBottomGap).toBeLessThanOrEqual(14);
 
   const otherTab = await prepareVennSummary(page, false);
+  await expect(page.locator('#vennPage:not([hidden]) #vennShowPlotStats')).not.toBeChecked();
+  await expect(page.locator('#vennPage:not([hidden]) #stage [data-venn-plot-stats="1"]')).toHaveCount(0);
   await page.locator('#vennPage:not([hidden]) .stats-figure-summary-checkbox').last().uncheck();
   await expect(page.locator('#vennPage:not([hidden]) #stage g[data-stats-figure-summary="1"]')).toHaveCount(0);
   await page.locator(`.workspace-tab[data-tab-id="${summaryTab}"]`).click({ force:true });
@@ -270,11 +319,21 @@ test('Venn summary cache preserves graph-to-table spacing through recovery', asy
   await page.locator(`.workspace-tab[data-tab-id="${recoveredSummaryTab}"]`).click({ force:true });
   await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, recoveredSummaryTab, { timeout:20_000 });
   await expect(page.locator('#vennPage:not([hidden]) .stats-figure-summary-checkbox').last()).toBeChecked({ timeout:30_000 });
+  await expect(page.locator('#vennPage:not([hidden]) #vennShowPlotStats')).toBeChecked({ timeout:30_000 });
   await expect(page.locator('#vennPage:not([hidden]) #stage g[data-stats-figure-summary="1"]')).toHaveCount(1, { timeout:30_000 });
+  await expect(page.locator('#vennPage:not([hidden]) #stage [data-venn-plot-stats="1"]')).toHaveCount(1, { timeout:30_000 });
   const after = await readVennGeometry(page);
   expect(after?.gap).toBeLessThan(100);
   expect(after?.summaryTop).toBeGreaterThanOrEqual(after?.circleBottom - 2);
   expect(after?.summaryBottom).toBeLessThanOrEqual(after?.stageBottom + 2);
+  expect(after?.tableFlexGrow).toBeGreaterThanOrEqual(0.99);
+  expect(after?.numericBottomGap).toBeLessThanOrEqual(14);
+  expect(after?.graphFrame.width).toBeCloseTo(before.graphFrame.width, 0);
+  expect(after?.graphFrame.height).toBeCloseTo(before.graphFrame.height, 0);
+  expect(after?.circleDiameters).toHaveLength(before.circleDiameters.length);
+  after.circleDiameters.forEach((diameter, index) => {
+    expect(diameter).toBeCloseTo(before.circleDiameters[index], 0);
+  });
   expect(otherTab).not.toBe(summaryTab);
   expect(issues.critical).toEqual([]);
 });
@@ -321,7 +380,10 @@ for (const specialized of [
     expect(after?.gap).toBeLessThan(160);
     expect(after?.gap).toBeGreaterThanOrEqual(-2);
     if(specialized.type === 'heatmap'){
-      expect(after?.viewBox).toBe(before?.viewBox);
+      // Heatmap remeasures text bounds after restore, so its viewBox origin can
+      // move while the visible plot stays the same size.
+      expect(Math.abs(after.graphWidth - before.graphWidth)).toBeLessThanOrEqual(2);
+      expect(Math.abs(after.graphHeight - before.graphHeight)).toBeLessThanOrEqual(2);
     }
     if(specialized.recoverySampler){
       await page.waitForFunction(() => window.__statsSummaryRecoverySamplingComplete === true, null, { timeout:30_000 });

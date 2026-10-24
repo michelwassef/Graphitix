@@ -10,6 +10,20 @@ describe('session.assignTabPayload: dirty state', () => {
 
   const createTabWithPayload = () => createPayloadTabForSession(session);
 
+  test('export background writes only the owning tab and survives workspace capture', () => {
+    const first = createTabWithPayload();
+    const second = createTabWithPayload();
+    session.workspaceState.activeTabId = first.id;
+    expect(session.setExportOptions(first.id, { transparentBackground: true })).toBe(true);
+    expect(first.uiState.export.transparentBackground).toBe(true);
+    expect(second.uiState?.export).toBeUndefined();
+    expect(first.payloadDirty).not.toBe(true);
+    expect(first.userModified).toBe(true);
+    expect(session.captureWorkspaceUiState(first).export.transparentBackground).toBe(true);
+    expect(session.setExportOptions(first.id, { transparentBackground: true })).toBe(false);
+    expect(session.setExportOptions(first.id, { transparentBackground: false })).toBe(true);
+  });
+
   test('dirty loaded tab flushes live payload once, then clears payloadDirty', () => {
     const tab = createTabWithPayload();
     tab.loadedFromArchive = true;
@@ -141,6 +155,20 @@ describe('session.assignTabPayload: dirty state', () => {
     expect(session.workspaceState.sessionUserDirty).toBe(false);
     expect(tab.userModified).toBe(false);
     expect(tab.payloadDirty).toBe(false);
+  });
+
+  test('stale save cannot clear a newer dirty revision', () => {
+    const tab = createTabWithPayload();
+    session.markTabUserModified(tab, 'table-cell-edit', { origin: 'user' });
+    const savedRevision = session.workspaceState.sessionRevision;
+
+    session.markTabUserModified(tab, 'table-cell-edit', { origin: 'user' });
+
+    expect(session.clearSessionDirty('graph-save-success', savedRevision)).toBe(false);
+    expect(session.workspaceState.sessionDirty).toBe(true);
+    expect(session.workspaceState.sessionUserDirty).toBe(true);
+    expect(tab.userModified).toBe(true);
+    expect(tab.payloadDirty).toBe(true);
   });
 
   test('clean tab on lifecycle activate-switch never reads live payload state', () => {

@@ -328,6 +328,38 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
   });
 
+  test.each([0.5, 0.95, 1])('repeated axis resizing at %s zoom preserves the other screen dimension', zoom => {
+    for(const axis of ['x', 'y']){
+      const { box, svg } = createSvg({ locked: false });
+      const content = document.createElement('div');
+      content.className = 'resizer-zoom-content';
+      content.style.setProperty('--resizer-content-zoom', String(zoom));
+      box.appendChild(content);
+      content.appendChild(svg);
+      const slot = { width: 600, height: 300 };
+      content.getBoundingClientRect = () => ({ width: slot.width * zoom, height: slot.height * zoom });
+      svg.getBoundingClientRect = () => ({
+        width: (svg.style.width.endsWith('px') ? parseFloat(svg.style.width) : slot.width) * zoom,
+        height: (svg.style.height.endsWith('px') ? parseFloat(svg.style.height) : slot.height) * zoom
+      });
+      svg.getBBox = () => ({ x: 0, y: 0, ...slot });
+      setSvgBase(svg, slot.width, slot.height);
+      window.Shared.graphViewport.captureStableAxes(box, { svg, axis, reason: 'pointer-start' });
+      box.dataset.resizerLastAxis = axis;
+      box.dataset.resizerAxisViewportLockAxis = axis;
+      box.dataset.resizerAxisViewportLockUntil = String(Date.now() + 60_000);
+      for(const delta of [20, 40, 60, 40, 20, 0]){
+        slot[axis === 'x' ? 'width' : 'height'] = (axis === 'x' ? 600 : 300) + delta;
+        window.Shared.graphViewport.applyLiveResizeLock(box, { svg, axis });
+        window.Shared.autoResizeSvg(svg, { padding: 0, remeasure: false, baseViewport: slot });
+        expect(parseFloat(svg.style.width)).toBeCloseTo(slot.width, 6);
+        expect(parseFloat(svg.style.height)).toBeCloseTo(slot.height, 6);
+        expect(svg.getBoundingClientRect().width).toBeCloseTo(slot.width * zoom, 6);
+        expect(svg.getBoundingClientRect().height).toBeCloseTo(slot.height * zoom, 6);
+      }
+    }
+  });
+
   test('supports independent horizontal and vertical content-fit padding', () => {
     const { svg } = createSvg({ locked: false });
     svg.getBBox = () => ({ x: -10, y: -5, width: 100, height: 80 });

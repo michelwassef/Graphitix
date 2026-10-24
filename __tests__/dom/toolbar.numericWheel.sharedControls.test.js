@@ -19,6 +19,7 @@ describe('shared toolbar numeric wheel transactions', () => {
     jest.resetModules();
     delete window.Shared;
     window.Shared = {};
+    window.Main = { session: { getActiveTab: () => ({ id: 'tab-a' }) } };
     require('../../js/shared/workspaceToolbarAccess.js');
     require('../../js/shared/workspaceToolbar.js');
     require('../../js/shared/styleUndo.js');
@@ -70,6 +71,9 @@ describe('shared toolbar numeric wheel transactions', () => {
 
     const chip = host.querySelector('.grid-controls-panel .shared-border-style-chip');
     expect(chip).toBeTruthy();
+    const panel = host.querySelector('.grid-controls-panel');
+    expect(panel.hidden).toBe(false);
+    expect(panel.style.display).toBe('');
     for(let i = 0; i < 4; i += 1){
       wheel(chip, -100);
     }
@@ -111,6 +115,95 @@ describe('shared toolbar numeric wheel transactions', () => {
     expect(style.thickness).toBe(1.8391);
   });
 
+  test('tab-owned numeric drag stops before a delayed pointer event can reach the next owner', () => {
+    installSharedModules('../../js/shared/gridControls.js');
+    const surface = document.createElement('button');
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = '0.25';
+    input.value = '1';
+    document.body.append(surface, input);
+    const ownerA = {};
+    const ownerB = {};
+    let owner = { tabId: 'tab-a', token: ownerA };
+    let activeTabId = 'tab-a';
+    window.Main = { session: { getActiveTab: () => ({ id: activeTabId }) } };
+    const events = [];
+    input.addEventListener('input', () => events.push('input'));
+    input.addEventListener('change', () => events.push('change'));
+    input.addEventListener(window.Shared.workspaceToolbar.numericWheelEndEventName, event => {
+      events.push(`end:${event.detail.committed}:${event.detail.reason}`);
+    });
+
+    window.Shared.workspaceToolbar.bindTabOwnedNumericDrag(surface, input, {
+      resolveOwner: () => owner,
+      calculateValue: ({ startValue, deltaX, step }) =>
+        startValue + (Math.round(deltaX / 8) * step)
+    });
+    surface.dispatchEvent(new MouseEvent('mousedown', {
+      altKey: true,
+      button: 0,
+      clientX: 160,
+      bubbles: true,
+      cancelable: true
+    }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 168 }));
+    expect(input.value).toBe('1.25');
+    expect(events).toEqual(['input']);
+
+    activeTabId = 'tab-b';
+    owner = { tabId: 'tab-b', token: ownerB };
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 176 }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 176 }));
+    expect(input.value).toBe('1.25');
+    expect(events).toEqual(['input', 'end:false:stale-owner']);
+  });
+
+  test('tab-owned numeric drag commits its captured owner when that panel deactivates', () => {
+    installSharedModules('../../js/shared/gridControls.js');
+    const surface = document.createElement('button');
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = '0.25';
+    input.value = '1';
+    document.body.append(surface, input);
+    const ownerA = {};
+    let owner = { tabId: 'tab-a', token: ownerA };
+    let activeTabId = 'tab-a';
+    window.Main = { session: { getActiveTab: () => ({ id: activeTabId }) } };
+    const events = [];
+    input.addEventListener('input', () => events.push('input'));
+    input.addEventListener('change', () => events.push('change'));
+    input.addEventListener(window.Shared.workspaceToolbar.numericWheelEndEventName, event => {
+      events.push(`end:${event.detail.committed}:${event.detail.reason}`);
+    });
+
+    window.Shared.workspaceToolbar.bindTabOwnedNumericDrag(surface, input, {
+      resolveOwner: () => owner,
+      calculateValue: ({ startValue, deltaX, step }) =>
+        startValue + (Math.round(deltaX / 8) * step)
+    });
+    surface.dispatchEvent(new MouseEvent('mousedown', {
+      altKey: true,
+      button: 0,
+      clientX: 160,
+      bubbles: true,
+      cancelable: true
+    }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 168 }));
+    expect(window.Shared.workspaceToolbar.finishTabOwnedNumericDrag('tab-a', {
+      commit: true,
+      reason: 'owner-deactivation'
+    })).toBe(true);
+    activeTabId = 'tab-b';
+    owner = { tabId: 'tab-b', token: {} };
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 176 }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 176 }));
+
+    expect(input.value).toBe('1.25');
+    expect(events).toEqual(['input', 'change', 'end:true:owner-deactivation']);
+  });
+
   test('additional-line width keeps the configured tenth-pixel step instead of a hard-coded half-pixel step', () => {
     const recorded = installSharedModules('../../js/shared/additionalLineControls.js');
     const host = document.createElement('div');
@@ -139,6 +232,9 @@ describe('shared toolbar numeric wheel transactions', () => {
       onColorChange: () => {}
     });
 
+    const panel = host.querySelector('.additional-line-controls-panel');
+    expect(panel.hidden).toBe(false);
+    expect(panel.style.display).toBe('');
     const chip = host.querySelector('.additional-line-controls-panel .shared-border-style-chip');
     expect(chip).toBeTruthy();
     for(let i = 0; i < 3; i += 1){
@@ -191,6 +287,9 @@ describe('shared toolbar numeric wheel transactions', () => {
       onWhiskersChange: () => {}
     });
     line.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const panel = host.querySelector('.significance-controls-panel');
+    expect(panel.hidden).toBe(false);
+    expect(panel.style.display).toBe('');
     const chip = host.querySelector('.significance-controls-panel .shared-border-style-chip');
     expect(chip).toBeTruthy();
     expect(host.dataset.workspaceTabId).toBe('tab-a');
@@ -215,8 +314,9 @@ describe('shared toolbar numeric wheel transactions', () => {
     expect(host.dataset.workspaceTabId).toBe('tab-a');
   });
 
-  test('significance toolbar places the Box label control before scientific formatting', () => {
+  test('significance toolbar owns one Label control before scientific formatting', () => {
     installSharedModules('../../js/shared/significanceControls.js');
+    window.Main = { session: { getActiveTab: () => ({ id: 'tab-a' }) } };
     const host = document.createElement('div');
     host.className = 'font-toolbar-host';
     host.dataset.fontToolbarScope = 'box';
@@ -228,25 +328,12 @@ describe('shared toolbar numeric wheel transactions', () => {
     const line = document.createElementNS(svg.namespaceURI, 'line');
     svg.appendChild(line);
     ownerRoot.appendChild(svg);
-    const labelControl = document.createElement('label');
-    labelControl.id = 'boxSignificanceLabelCtl';
-    labelControl.className = 'significance-controls-panel__field';
-    const label = document.createElement('span');
-    label.className = 'significance-controls-panel__field-label';
-    label.textContent = 'Label';
-    const select = document.createElement('select');
-    select.id = 'boxSignificanceLabelMode';
-    select.setAttribute('data-significance-label-mode', '1');
-    select.append(new Option('Decision (* / NS; D / ND for FDR)', 'decision'), new Option('P-value', 'p'));
-    labelControl.append(label, select);
-    ownerRoot.append(labelControl);
     document.body.appendChild(ownerRoot);
 
     window.Shared.significanceControls.registerSignificanceElement(line, {
       orientation: 'vertical',
       scopeId: 'box',
       disableOverlay: true,
-      labelControl,
       getLabelMode: () => 'p',
       getThickness: () => 1,
       getColor: () => '#000000',
@@ -259,8 +346,63 @@ describe('shared toolbar numeric wheel transactions', () => {
 
     const fields = Array.from(host.querySelectorAll('.significance-controls-panel__field'))
       .map(field => field.querySelector('.significance-controls-panel__field-label')?.textContent);
-    expect(fields).toEqual(['Border', 'Whiskers', 'Whisker Style', 'Label', 'Scientific', 'Decimals']);
+    expect(fields).toEqual(['Style', 'Whiskers', 'Whisker style', 'Label', 'Scientific', 'Decimals']);
+    const select = host.querySelector('[data-significance-label-mode]');
     expect(select.value).toBe('p');
-    expect(labelControl.parentElement).toBe(host.querySelector('.significance-controls-panel__row'));
+    expect(host.querySelectorAll('[data-significance-label-mode]')).toHaveLength(1);
+  });
+
+  test('label, delayed color and drag edits keep their initiating owner', () => {
+    let picker;
+    const recorded = installSharedModules('../../js/shared/significanceControls.js');
+    const host = document.createElement('div');
+    host.className = 'font-toolbar-host';
+    host.dataset.fontToolbarScope = 'box';
+    document.body.appendChild(host);
+    window.Shared.openColorPicker = config => {
+      picker = config;
+      return document.createElement('div');
+    };
+    let active = 'tab-a';
+    window.Main = { session: { getActiveTab: () => ({ id: active }) } };
+    const settings = { 'tab-a': { mode: 'decision', thickness: 1, color: '#000000' }, 'tab-b': { mode: 'p', thickness: 2, color: '#ff0000' } };
+    const lines = {};
+    for(const id of Object.keys(settings)){
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const line = document.createElementNS(svg.namespaceURI, 'line');
+      svg.appendChild(line);
+      document.body.appendChild(svg);
+      lines[id] = line;
+      window.Shared.significanceControls.registerSignificanceElement(line, {
+        scopeId: 'box', orientation: 'vertical', ownerTabId: id, disableOverlay: true,
+        getLabelMode: () => settings[id].mode,
+        onLabelModeChange: value => { settings[id].mode = value; },
+        getThickness: () => settings[id].thickness,
+        onThicknessChange: value => { settings[id].thickness = value; },
+        getColor: () => settings[id].color,
+        onColorChange: value => { settings[id].color = value; }
+      });
+    }
+    lines['tab-a'].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const panel = document.querySelector('.significance-controls-panel');
+    const select = panel.querySelector('[data-significance-label-mode]');
+    select.value = 'p';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(settings['tab-a'].mode).toBe('p');
+    expect(recorded.at(-1).label).toBe('significance:box:vertical:label-mode');
+    const chip = panel.querySelector('.shared-border-style-chip');
+    chip.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    chip.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, altKey: true, button: 0, clientX: 0 }));
+    active = 'tab-b';
+    lines['tab-b'].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(panel.querySelectorAll('[data-significance-label-mode]')).toHaveLength(1);
+    picker.onInput('#00ff00');
+    picker.onChange('#00ff00');
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 80 }));
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    expect(settings['tab-b']).toEqual({ mode: 'p', thickness: 2, color: '#ff0000' });
+    recorded[0].apply(recorded[0].from, 'undo');
+    expect(settings['tab-a'].mode).toBe('decision');
+    expect(select.value).toBe('p');
   });
 });

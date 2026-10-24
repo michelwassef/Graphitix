@@ -3,6 +3,27 @@ const { createBoxSwarmTestContext } = require('../../test-support/boxSwarmSuite'
 describe('Box swarm offsets — interaction proxies', () => {
   const suite = createBoxSwarmTestContext();
 
+  function createInactiveBoxTab(id, fragment){
+    const svg = fragment.querySelector('svg');
+    svg?.setAttribute('id', 'boxSvg');
+    svg?.setAttribute('data-box-tab-id', id);
+    const metadata = window.Shared.renderCacheSchema.createMetadata({
+      component: 'box',
+      tabId: id,
+      complete: true,
+      extra: { symbolGeometryVersion: window.Shared.symbolGeometry.RENDER_GEOMETRY_VERSION }
+    });
+    return {
+      id,
+      renderCache: {
+        cache: {
+          plot: { fragment },
+          __graphitixRenderCache: metadata
+        }
+      }
+    };
+  }
+
   test('canvas-backed point lookup ignores hidden export geometry and keeps proxy size metadata', () => {
     expect(suite.hooks).toBeDefined();
     expect(typeof suite.hooks.findBoxPointNodeForTrace).toBe('function');
@@ -76,14 +97,7 @@ describe('Box swarm offsets — interaction proxies', () => {
     };
     svg.appendChild(group);
     frag.appendChild(svg);
-    const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-test',
-      renderCache: {
-        cache: {
-          plot: { fragment: frag }
-        }
-      }
-    });
+    const previewSvg = window.Components.box.getPreviewSvg(createInactiveBoxTab('workspace-preview-test', frag));
     expect(previewSvg).toBe(svg);
     expect(previewSvg.querySelector('foreignObject')).toBe(foreignObject);
   });

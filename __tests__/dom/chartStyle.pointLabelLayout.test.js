@@ -377,4 +377,81 @@ describe('chartStyle point-label layout', () => {
     expect(placement.leaderPoints).toHaveLength(2);
     expectOutwardLeader(placement);
   });
+
+  test('rehydrates point-label drag metrics and binds the new owner after SVG cloning', () => {
+    const labelLayout = window.Shared.labelLayout;
+    const initialOwner = { tabId: 'scatter-tab-1' };
+    const restoredOwner = { tabId: 'scatter-tab-2' };
+    window.Shared.enableLabelDrag = jest.fn((node, svg, options) => {
+      node.__graphitixLabelDragBinding = { svg };
+      node.__graphitixLabelDragOptions = options;
+    });
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    layer.setAttribute('data-layer', 'point-labels');
+    const leader = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    const entry = { labelKey: 'scatter|2d|row:1|A', cx: 100, cy: 60, radius: 3 };
+    const placement = labelLayout.resolvePinnedPointLabelPlacement(entry, {
+      x: 140,
+      y: 52,
+      anchor: 'start'
+    }, {
+      textWidth: 24,
+      labelHeight: 12,
+      leaderGap: 4,
+      containerLeft: 0,
+      containerRight: 240,
+      containerTop: 0,
+      containerBottom: 140
+    });
+    label.setAttribute('x', String(placement.textX));
+    label.setAttribute('y', String(placement.textY));
+    label.textContent = 'A';
+    layer.append(leader, label);
+    svg.appendChild(layer);
+
+    expect(labelLayout.enablePointLabelDrag({
+      textNode: label,
+      leaderNode: leader,
+      svg,
+      owner: initialOwner,
+      entry,
+      placement,
+      leaderGap: 4,
+      containerLeft: 0,
+      containerRight: 240,
+      containerTop: 0,
+      containerBottom: 140,
+      onPositionChange: jest.fn()
+    })).toBe(true);
+    expect(JSON.parse(label.dataset.pointLabelDragMetrics)).toEqual(expect.objectContaining({
+      labelKey: entry.labelKey,
+      cx: 100,
+      cy: 60,
+      textWidth: 24,
+      labelHeight: 12
+    }));
+    expect(leader.dataset.pointLabelLeaderKey).toBe(entry.labelKey);
+    expect(leader.hasAttribute('data-point-label-key')).toBe(false);
+
+    const restoredSvg = svg.cloneNode(true);
+    const restoredLabel = restoredSvg.querySelector('text[data-point-label-key]');
+    const onPositionChange = jest.fn();
+    expect(labelLayout.rehydratePointLabelDrags(restoredSvg, {
+      owner: restoredOwner,
+      tabId: restoredOwner.tabId,
+      onPositionChange
+    })).toBe(true);
+
+    const reboundOptions = window.Shared.enableLabelDrag.mock.calls[1][2];
+    expect(reboundOptions.owner).toBe(restoredOwner);
+    reboundOptions.onPositionChange({ x: 152, y: 64 });
+    expect(onPositionChange).toHaveBeenCalledWith(
+      entry.labelKey,
+      expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+      restoredLabel
+    );
+  });
 });

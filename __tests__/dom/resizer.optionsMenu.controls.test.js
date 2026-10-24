@@ -10,6 +10,57 @@ describe('Shared resizer options menu controls', () => {
 
   beforeEach(harness.setup);
 
+  test('creates controls directly in the header without staging a tray inside the graph', () => {
+    const box = harness.createSvgBox();
+    const frame = document.createElement('div');
+    frame.className = 'graph-frame';
+    const header = document.createElement('div');
+    header.className = 'graph-controls-header';
+    box.before(frame);
+    frame.append(header, box);
+    const appendToGraph = jest.spyOn(box, 'appendChild');
+
+    window.Shared.attachResizableBox(box, { defaultWidth: 420, defaultHeight: 320, controlsHost: header });
+
+    expect(header.querySelectorAll(':scope > .resizer-control-tray')).toHaveLength(1);
+    expect(box.querySelector('.resizer-control-tray')).toBeNull();
+    expect(appendToGraph.mock.calls.some(([node]) => node.classList?.contains('resizer-control-tray'))).toBe(false);
+    box.__sharedResizableBoxApi.destroy();
+  });
+
+  test('explicit zoom and manual resizing replace fit intent in the owning session', () => {
+    const tab = { id: 'tab-a', type: 'scatter' };
+    const record = { runtime: {} };
+    window.Shared.workspaceTabs = {
+      resolveTab: () => tab,
+      ensureSessionRecord: () => record
+    };
+    window.Main = { session: { workspaceState: { activeTabId: tab.id } } };
+    window.Shared.undoManager = { record: jest.fn() };
+    jest.resetModules();
+    require('../../js/shared/resizer.js');
+    const box = harness.createSvgBox();
+    box.dataset.workspaceTabId = tab.id;
+    window.Shared.attachResizableBox(box, {
+      tabId: tab.id, componentName: tab.type, defaultWidth: 420, defaultHeight: 320
+    });
+    const api = box.__sharedResizableBoxApi;
+    expect(api.getViewState()).toEqual({ version: 1, mode: 'fit' });
+    api.setZoomLevel(1.25, { reason: 'publication-style-zoom' });
+    expect(record.runtime.graphView).toEqual({ version: 1, mode: 'manual', zoomLevel: 1.25 });
+    record.runtime.graphView = { version: 1, mode: 'fit' };
+    expect(api.beginUserResize('x')).toBe(true);
+    expect(record.runtime.graphView).toEqual({ version: 1, mode: 'manual', zoomLevel: 1.25 });
+    api.finishUserResize();
+    const resizeAction = window.Shared.undoManager.record.mock.calls.at(-1)[0];
+    resizeAction.undo();
+    expect(record.runtime.graphView).toEqual({ version: 1, mode: 'fit' });
+    resizeAction.redo();
+    expect(record.runtime.graphView).toEqual({ version: 1, mode: 'manual', zoomLevel: 1.25 });
+    api.destroy();
+    delete window.Main;
+  });
+
   test('keeps zoom visible and moves standard graph options into a cog menu', () => {
     const box = harness.createSvgBox();
 
@@ -37,7 +88,7 @@ describe('Shared resizer options menu controls', () => {
     expect(tray.querySelector(':scope > .resizer-fontresize-control')).toBeNull();
   });
 
-  test('adds tab-scoped graph and axes title controls when font controls are available', () => {
+  test.each([false, true])('adds tab-scoped title controls with separate header: %s', separateHeader => {
     const setRoleVisibility = jest.fn(() => true);
     const recordStateChange = jest.fn();
     window.Shared.fontControls = {
@@ -47,6 +98,15 @@ describe('Shared resizer options menu controls', () => {
     window.Shared.styleUndo = { recordStateChange };
     const box = harness.createSvgBox();
     box.dataset.workspaceTabId = 'tab-a';
+    let controlsHost = box;
+    if(separateHeader){
+      const frame = document.createElement('div');
+      frame.className = 'graph-frame';
+      controlsHost = document.createElement('div');
+      controlsHost.className = 'graph-controls-header';
+      box.before(frame);
+      frame.append(controlsHost, box);
+    }
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const xTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     xTitle.dataset.fontRole = 'xTitle';
@@ -62,10 +122,12 @@ describe('Shared resizer options menu controls', () => {
       minHeight: 90
     });
 
-    const graphInput = box.querySelector('.resizer-graph-title-checkbox');
-    const axesInput = box.querySelector('.resizer-axes-title-checkbox');
+    const graphInput = controlsHost.querySelector('.resizer-graph-title-checkbox');
+    const axesInput = controlsHost.querySelector('.resizer-axes-title-checkbox');
     expect(graphInput).toBeTruthy();
     expect(axesInput).toBeTruthy();
+    expect(graphInput.checked).toBe(true);
+    expect(axesInput.checked).toBe(true);
     expect(axesInput.closest('label').hidden).toBe(false);
 
     graphInput.checked = false;
@@ -120,11 +182,14 @@ describe('Shared resizer options menu controls', () => {
 
     const menu = box.querySelector('.resizer-options-menu');
     const labels = Array.from(menu.children).map(control => (
-      control.matches('.resizer-axeslength-control')
-        ? control.querySelector('summary')?.textContent
-        : control.querySelector('span')?.textContent
+      control.matches('.resizer-size-control-group')
+        ? control.getAttribute('aria-label')
+        : control.matches('.resizer-axeslength-control')
+          ? control.querySelector('summary')?.textContent
+          : control.querySelector('span')?.textContent
     ));
     expect(labels).toEqual([
+      'Graph size controls',
       'Lock ratio',
       'Proportional font resize',
       'Show graph title',
@@ -132,6 +197,8 @@ describe('Shared resizer options menu controls', () => {
       'Show legend',
       'Axes length'
     ]);
+    expect(menu.querySelector('.resizer-size-width')?.getAttribute('aria-label')).toBe('Graph width in pixels');
+    expect(menu.querySelector('.resizer-size-height')?.getAttribute('aria-label')).toBe('Graph height in pixels');
   });
 
   test('tracks axis-title applicability from the active rendered graph', async () => {
@@ -202,7 +269,7 @@ describe('Shared resizer options menu controls', () => {
     const menu = box.querySelector('.resizer-options-menu');
     expect(menu?.querySelector('.resizer-legend-control')).toBe(legend);
     expect(menu?.querySelector('.resizer-axeslength-control')).toBe(axes);
-    expect(axes.hasAttribute('open')).toBe(true);
+    expect(axes.hasAttribute('open')).toBe(false);
     expect(tray.querySelector(':scope > .resizer-legend-control')).toBeNull();
     expect(tray.querySelector(':scope > .resizer-axeslength-control')).toBeNull();
   });
@@ -229,6 +296,7 @@ describe('Shared resizer options menu controls', () => {
     await Promise.resolve();
 
     const options = box.querySelector('.resizer-options-control');
+    expect(axes.hasAttribute('open')).toBe(false);
     axes.removeAttribute('open');
     options.setAttribute('open', '');
     options.dispatchEvent(new Event('toggle'));

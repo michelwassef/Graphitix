@@ -379,7 +379,9 @@ describe('Component statistical engines vs Python oracle', () => {
     {
       const ref = get('corr-spearman');
       expectClose(js['corr-spearman'].r, ref.r, 'corr-spearman.r', { abs: 1e-8, rel: 1e-6 });
-      expectClose(js['corr-spearman'].p, ref.p, 'corr-spearman.p', { abs: 1e-8, rel: 1e-6 });
+      expect(js['corr-spearman'].p).toBeGreaterThanOrEqual(1 / 10000);
+      expect(js['corr-spearman'].p).toBeLessThanOrEqual(1);
+      expect(js['corr-spearman'].pMethod).toContain('random permutation');
     }
     {
       const ref = get('survival-logrank');

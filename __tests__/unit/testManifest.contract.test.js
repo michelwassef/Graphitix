@@ -1,5 +1,10 @@
 'use strict';
 
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
 const {
   CANONICAL_CONTRACTS,
   buildFileManifest,
@@ -83,13 +88,21 @@ describe('generated test manifest', () => {
     expect(summary.componentMatrix.heatmap.directScenarioIds).toEqual([
       'CACHE.heatmap-render-cache-restore',
       'MODE.component-persistence-matrix-direct',
+      'OWN.heatmap-inactive-payload-owner',
+      'OWN.heatmap-live-color-scheme-snapshot',
+      'OWN.heatmap-stale-pvalue-owner',
       'OWN.heatmap-tab-context',
+      'OWN.heatmap-worker-session-isolation',
       'PERSIST.heatmap-notes-direct'
     ]);
     expect(summary.componentMatrix.heatmap.explicitRequirementIds).toEqual([
       'CACHE.heatmap-render-cache-restore',
       'MODE.component-persistence-matrix-direct',
+      'OWN.heatmap-inactive-payload-owner',
+      'OWN.heatmap-live-color-scheme-snapshot',
+      'OWN.heatmap-stale-pvalue-owner',
       'OWN.heatmap-tab-context',
+      'OWN.heatmap-worker-session-isolation',
       'PERSIST.heatmap-notes-direct'
     ]);
     expect(summary.componentMatrix.box.directScenarioIds).toEqual([
@@ -119,9 +132,15 @@ describe('generated test manifest', () => {
       evidence: 'source-and-target-payload-contract',
       transition: 'persist-transition',
       metadataSource: 'explicit'
+    }), expect.objectContaining({
+      id: 'A11Y.modal-lifecycle',
+      capability: 'modal-accessibility',
+      evidence: 'shared-modal-lifecycle-browser-contract',
+      transition: 'a11y-transition',
+      metadataSource: 'explicit'
     })]);
     expect(entry.requirementEvidence).toEqual({
-      explicit: 1,
+      explicit: 2,
       inferred: 0,
       critical: ['PERSIST.style-sync-across-tabs']
     });
@@ -186,17 +205,23 @@ describe('generated test manifest', () => {
 
   test('keeps rendered statistics and restore suites out of the numerical-oracle lane', () => {
     const cases = [
-      ['__tests__/integration/stats.ui.presentation.branches.test.js', 'STATS.ui-presentation-branches'],
-      ['__tests__/integration/stats.ui.persistence.restore.test.js', 'STATS.ui-persistence-restore']
+      ['__tests__/integration/stats.ui.presentation.branches.test.js', ['STATS.ui-presentation-branches']],
+      ['__tests__/integration/stats.ui.persistence.restore.test.js', [
+        'STATS.ui-persistence-restore',
+        'STATS.box-grouped-owner-reopen',
+        'STATS.box-legacy-signature-boundaries',
+        'STATS.box-paired-rank-effect',
+        'STATS.box-friedman-mode'
+      ]]
     ];
 
-    for (const [file, scenarioId] of cases) {
+    for (const [file, scenarioIds] of cases) {
       const entry = classifyTestFile(file);
       expect(entry.layer).toBe('app-integration');
       expect(entry.defaultLane).toBe('integration');
       expect(entry.oracle).toBe('not-applicable');
       expect(entry.setupClassification).toBe('mixed');
-      expect(entry.scenarioIds).toEqual([scenarioId]);
+      expect(entry.scenarioIds).toEqual(scenarioIds);
       expect(validateManifest([entry])).toEqual([]);
     }
   });
@@ -206,7 +231,11 @@ describe('generated test manifest', () => {
     const legacy = classifyTestFile('e2e/unknown-legacy.spec.js', 'playwright');
 
     expect(migrated.status).toBe('migrated');
-    expect(migrated.scenarioIds).toEqual(['BOOTSTRAP.browser-smoke']);
+    expect(migrated.scenarioIds).toEqual([
+      'BOOTSTRAP.browser-smoke',
+      'DOM.welcome-graph-actions',
+      'A11Y.modal-lifecycle'
+    ]);
     expect(legacy.status).toBe('legacy-unmapped');
     expect(legacy.scenarioIds).toEqual([]);
     expect(legacy.skipPolicy).toBeNull();
@@ -283,16 +312,51 @@ describe('generated test manifest', () => {
     const entries = buildFileManifest({
       e2ePaths: [
         'e2e/layout/axis.tick-label-optical-clearance.spec.js',
-        'e2e/workspace/welcome.icons.contract.spec.js',
+        'e2e/workspace/welcome.first-frame.spec.js',
         'e2e/diagnostics/vendor.runtime.smoke.spec.js'
       ]
     });
     const byFile = new Map(entries.map(entry => [entry.file, entry]));
 
     expect(byFile.get('e2e/layout/axis.tick-label-optical-clearance.spec.js').setupClassification).toBe('api');
-    expect(byFile.get('e2e/workspace/welcome.icons.contract.spec.js').setupClassification).toBe('ui');
+    expect(byFile.get('e2e/workspace/welcome.first-frame.spec.js').setupClassification).toBe('ui');
     expect(byFile.get('e2e/diagnostics/vendor.runtime.smoke.spec.js').setupClassification).toBe('declared-in-suite');
     expect(byFile.get('e2e/diagnostics/vendor.runtime.smoke.spec.js').setupEvidence[0]).toMatch(/^reviewed-in-suite:/);
     expect(validateManifest(entries, { requireReviewedSetupClassification: true })).toEqual([]);
+  });
+
+  test('tab-isolation ledger check rejects stale counts and source rows', () => {
+    const root = path.resolve(__dirname, '../..');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graphitix-ledger-check-'));
+    const tempLedgerPath = path.join(tempDir, 'ledger.json');
+    try {
+      const builderPath = path.join(root, 'scripts/build-tab-isolation-review-ledger.cjs');
+      const buildResult = spawnSync(process.execPath, [
+        builderPath,
+        '--ledger',
+        tempLedgerPath
+      ], { cwd: root, encoding: 'utf8' });
+      expect(buildResult.error).toBeUndefined();
+      expect(buildResult.status).toBe(0);
+
+      const corruptedLedger = JSON.parse(fs.readFileSync(tempLedgerPath, 'utf8'));
+      corruptedLedger.dispositionCounts['pending source trace'] += 1;
+      corruptedLedger.candidates[0].source.sourceHash = 'stale-source-signature';
+      fs.writeFileSync(tempLedgerPath, JSON.stringify(corruptedLedger));
+
+      const result = spawnSync(process.execPath, [
+        builderPath,
+        '--check',
+        '--ledger',
+        tempLedgerPath
+      ], { cwd: root, encoding: 'utf8' });
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).toContain('changed source rows: 1');
+      expect(result.stdout).toContain('disposition counts stale: true');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

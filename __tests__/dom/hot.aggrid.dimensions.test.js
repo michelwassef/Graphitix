@@ -40,9 +40,41 @@ describe('Shared.hot AG Grid dimensions', () => {
       debugLabel: 'row-height-test'
     });
 
-    expect(window.__getCapturedGridOptions().rowHeight).toBe(20);
-    expect(window.__getCapturedGridOptions().headerHeight).toBe(20);
+    expect(window.__getCapturedGridOptions().rowHeight).toBe(24);
+    expect(window.__getCapturedGridOptions().headerHeight).toBe(24);
     expect(window.__getCapturedGridOptions().defaultColDef.width).toBe(80);
+  });
+
+  test('keeps header target height independent from compact body-row height', () => {
+    const container = document.createElement('div');
+    container.className = 'ag-theme-balham';
+    container.style.setProperty('--graphitix-ag-row-height', '20px');
+    container.style.setProperty('--graphitix-ag-header-row-height', '24px');
+    document.body.appendChild(container);
+
+    window.Shared.hot.createStandardTable(container, { rows: 2, cols: 2 }, () => {}, {
+      debugLabel: 'independent-header-height-test'
+    });
+
+    const options = window.__getCapturedGridOptions();
+    expect(options.rowHeight).toBe(20);
+    expect(options.headerHeight).toBe(24);
+  });
+
+  test('names the shared grid root for assistive technology', () => {
+    const container = document.createElement('div');
+    const gridRoot = document.createElement('div');
+    gridRoot.className = 'ag-root';
+    gridRoot.setAttribute('role', 'treegrid');
+    container.appendChild(gridRoot);
+    document.body.appendChild(container);
+
+    window.Shared.hot.createStandardTable(container, { rows: 2, cols: 2 }, () => {}, {
+      ariaLabel: 'Scatter data table'
+    });
+
+    expect(gridRoot.getAttribute('role')).toBe('grid');
+    expect(gridRoot.getAttribute('aria-label')).toBe('Scatter data table');
   });
 
   test.each([1, 2])('keeps %i pinned editable row(s) out of the normal body model', pinnedCount => {

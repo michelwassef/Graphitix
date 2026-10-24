@@ -3,6 +3,41 @@ const { createSessionActionsSaveTestContext } = require('../../test-support/sess
 describe('sessionActions — owner readiness and recovery snapshots', () => {
   const { installSessionActions, createContext } = createSessionActionsSaveTestContext();
 
+  test('tab-scoped autosave cannot overwrite a file owned by an inactive sibling tab', async () => {
+    const sessionActions = installSessionActions();
+    const context = createContext();
+    const ownerA = { ...context.workspaceState.tabs[0], id: 'tab-a', title: 'Owner A' };
+    const ownerB = { ...context.workspaceState.tabs[0], id: 'tab-b', title: 'Owner B' };
+    context.workspaceState.tabs = [ownerA, ownerB];
+    context.workspaceState.sessionUserDirty = true;
+    context.workspaceState.sessionFileScope = 'tab';
+    context.workspaceState.sessionFileTabId = ownerA.id;
+    context.workspaceState.sessionFileHandle = {
+      queryPermission: jest.fn().mockResolvedValue('granted')
+    };
+    context.session.getActiveTab.mockReturnValue(ownerB);
+    window.Shared.fileIO.saveGraphFile = jest.fn().mockResolvedValue({
+      status: 'saved',
+      savedRevision: 1,
+      fileName: 'owner-a.graph'
+    });
+
+    await expect(sessionActions.autosaveWorkspace(context)).resolves.toEqual({
+      status: 'skipped',
+      reason: 'file-target-tab-inactive'
+    });
+
+    expect(window.Shared.fileIO.saveGraphFile).not.toHaveBeenCalled();
+    expect(context.session.persistActiveTabState).not.toHaveBeenCalled();
+
+    context.session.getActiveTab.mockReturnValue(ownerA);
+    await expect(sessionActions.autosaveWorkspace(context)).resolves.toEqual(expect.objectContaining({
+      status: 'saved',
+      scope: 'tab'
+    }));
+    expect(window.Shared.fileIO.saveGraphFile).toHaveBeenCalledTimes(1);
+  });
+
   test('manual save and recovery independently capture the same canonical active owner state', async () => {
     const sessionActions = installSessionActions();
     const context = createContext();
@@ -150,7 +185,7 @@ describe('sessionActions — owner readiness and recovery snapshots', () => {
     expect(context.session.persistActiveTabState).not.toHaveBeenCalled();
   });
 
-  test('autosave defers cleanly when the active owner has not published a settled frame', async () => {
+  test.each(['autosave', 'autosave-interval', 'autosave-enabled'])('autosave defers an unsettled owner for %s', async reason => {
     const sessionActions = installSessionActions();
     window.Shared.fileIO.saveGraphFileAs = jest.fn();
     const context = createContext({
@@ -161,7 +196,7 @@ describe('sessionActions — owner readiness and recovery snapshots', () => {
 
     const result = await sessionActions.saveWorkspaceArchiveWithScope(context, {
       scope: 'workspace',
-      reason: 'autosave',
+      reason,
       snapshotKind: 'autosave'
     });
 

@@ -9,11 +9,15 @@ describe('documentState recovery snapshot throttling', () => {
       writeRecoverySnapshot: jest.fn().mockResolvedValue(true),
       clearRecoverySnapshot: jest.fn().mockResolvedValue(true)
     };
-    Object.defineProperty(window, 'localStorage', {
-      value: {
-        getItem: jest.fn(() => '0'),
-        setItem: jest.fn()
-      },
+  const localValues = new Map();
+  Object.defineProperty(window, 'localStorage', {
+    value: {
+      getItem: jest.fn(key => localValues.has(key)
+        ? localValues.get(key)
+        : (key === 'graphitix.autosave.enabled' ? '0' : null)),
+      setItem: jest.fn((key, value) => localValues.set(key, String(value))),
+      removeItem: jest.fn(key => localValues.delete(key))
+    },
       configurable: true
     });
   });
@@ -78,6 +82,14 @@ describe('documentState recovery snapshot throttling', () => {
     for (let pass = 0; pass < 5; pass += 1) {
       await Promise.resolve();
     }
+  }
+
+  async function flushUntil(predicate, limit = 30) {
+    for (let attempt = 0; attempt < limit; attempt += 1) {
+      if (predicate()) return true;
+      await flushTimers();
+    }
+    return predicate();
   }
 
   test('ordinary edits use a trailing recovery delay', async () => {
@@ -267,6 +279,55 @@ describe('documentState recovery snapshot throttling', () => {
     expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
   });
 
+  test('a supported no-IndexedDB clear removes the local journal fallback', async () => {
+    const originalIndexedDb = Object.getOwnPropertyDescriptor(window, 'indexedDB');
+    Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true });
+    window.desktop.isDesktop = false;
+    let journalValue = 'revision-1';
+    window.localStorage.getItem.mockImplementation(key => key === 'graphitix.canonical-journal.v1'
+      ? journalValue
+      : (key === 'graphitix.autosave.enabled' ? '0' : null));
+    window.localStorage.removeItem.mockImplementation(key => {
+      if (key === 'graphitix.canonical-journal.v1') journalValue = null;
+    });
+    try {
+      installDocumentState();
+      await expect(window.Main.documentState.clearRecoverySnapshot('local-fallback', 1, { allowDirty:true }))
+        .resolves.toBe(true);
+      expect(journalValue).toBeNull();
+    } finally {
+      if (originalIndexedDb) Object.defineProperty(window, 'indexedDB', originalIndexedDb);
+      else delete window.indexedDB;
+    }
+  });
+
+  test('a failed no-data clear remains eligible for a same-revision retry', async () => {
+    const originalIndexedDb = Object.getOwnPropertyDescriptor(window, 'indexedDB');
+    Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true });
+    window.desktop.clearRecoverySnapshot
+      .mockRejectedValueOnce(new Error('injected desktop delete failure'))
+      .mockResolvedValue(true);
+    const { sessionActions } = installDocumentState({
+      session: {
+        graphTabsHaveData: jest.fn(() => false),
+        tabHasTableData: jest.fn(() => false)
+      }
+    });
+    try {
+      await expect(window.Main.documentState.writeRecoverySnapshot('no-data-clear-failure'))
+        .resolves.toEqual({ status:'skipped', reason:'no-recoverable-data' });
+      expect(window.desktop.clearRecoverySnapshot).toHaveBeenCalledTimes(1);
+
+      await expect(window.Main.documentState.writeRecoverySnapshot('no-data-clear-retry'))
+        .resolves.toEqual({ status:'skipped', reason:'no-recoverable-data' });
+      expect(window.desktop.clearRecoverySnapshot).toHaveBeenCalledTimes(2);
+      expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(2);
+    } finally {
+      if (originalIndexedDb) Object.defineProperty(window, 'indexedDB', originalIndexedDb);
+      else delete window.indexedDB;
+    }
+  });
+
   test('periodic recovery checks do not restart an already pending debounce', async () => {
     const { sessionActions } = installDocumentState();
 
@@ -344,6 +405,77 @@ describe('documentState recovery snapshot throttling', () => {
     expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
   });
 
+  test('a stale autosave leaves a newer recovery revision scheduled and stored', async () => {
+    window.localStorage.getItem.mockReturnValue('1');
+    let installed;
+    const autosaveWorkspace = jest.fn(async () => {
+      installed.workspaceState.sessionRevision = 2;
+      installed.workspaceState.sessionDirty = true;
+      installed.workspaceState.sessionUserDirty = true;
+      window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+        detail: { type: 'dirty', revision: 2, userDirty: true }
+      }));
+      return { status: 'saved', savedRevision: 1 };
+    });
+    installed = installDocumentState({ sessionActions: { autosaveWorkspace } });
+
+    const result = await window.Main.documentState.runAutosave('stale-save-regression');
+
+    expect(result).toEqual({ status: 'saved', savedRevision: 1 });
+    expect(installed.workspaceState.sessionUserDirty).toBe(true);
+    expect(window.desktop.clearRecoverySnapshot).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(2500);
+    await flushUntil(() => window.desktop.writeRecoverySnapshot.mock.calls.length > 0);
+    expect(installed.sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ reason: 'dirty' })
+    );
+    expect(window.desktop.writeRecoverySnapshot).toHaveBeenCalled();
+  });
+
+  test('a newer recovery revision is written after an older snapshot clear finishes', async () => {
+    let finishClear;
+    let storedRevision = null;
+    const clearGate = new Promise(resolve => { finishClear = resolve; });
+    window.desktop.clearRecoverySnapshot = jest.fn(async () => {
+      await clearGate;
+      storedRevision = null;
+      return true;
+    });
+    window.desktop.writeRecoverySnapshot = jest.fn(async ({ meta }) => {
+      storedRevision = meta.revision;
+      return true;
+    });
+    const installed = installDocumentState();
+    installed.workspaceState.sessionDirty = false;
+    installed.workspaceState.sessionUserDirty = false;
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'clean', revision: 1 }
+    }));
+    await flushTimers();
+    expect(window.desktop.clearRecoverySnapshot).toHaveBeenCalledTimes(1);
+
+    installed.workspaceState.sessionRevision = 2;
+    installed.workspaceState.sessionDirty = true;
+    installed.workspaceState.sessionUserDirty = true;
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 2, userDirty: true }
+    }));
+    jest.advanceTimersByTime(2500);
+    await flushTimers();
+    expect(storedRevision).toBeNull();
+
+    finishClear();
+    await flushTimers();
+    jest.advanceTimersByTime(2500);
+    await flushTimers();
+
+    expect(storedRevision).toBe(2);
+    expect(window.desktop.writeRecoverySnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      meta: expect.objectContaining({ revision: 2, dirty: true })
+    }));
+  });
+
   test('new dirty revisions schedule a new recovery snapshot', async () => {
     const { workspaceState, sessionActions } = installDocumentState();
 
@@ -382,7 +514,12 @@ describe('documentState recovery snapshot throttling', () => {
   });
 
   test('recovery snapshot forwards canonical recovery policy inputs', async () => {
-    const { sessionActions } = installDocumentState();
+    const { sessionActions } = installDocumentState({
+      workspaceState: {
+        sessionFileScope: 'tab',
+        sessionFileTabId: 'tab-1'
+      }
+    });
 
     await window.Main.documentState.writeRecoverySnapshot('recovery-interval');
 
@@ -394,6 +531,9 @@ describe('documentState recovery snapshot throttling', () => {
         useWorker: true
       })
     );
+    expect(window.desktop.writeRecoverySnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      meta: expect.objectContaining({ fileScope: 'tab', fileTargetTabId: 'tab-1' })
+    }));
   });
 
   test('desktop recovery writes binary data and exposes phase metrics', async () => {
@@ -441,7 +581,7 @@ describe('documentState recovery snapshot throttling', () => {
     });
     const applyArchiveBlob = jest.fn(() => restoreBarrier);
     const markSessionDirty = jest.fn();
-    const { sessionActions } = installDocumentState({
+    const { sessionActions, workspaceState } = installDocumentState({
       sessionActions: { applyArchiveBlob },
       session: { markSessionDirty }
     });
@@ -453,7 +593,8 @@ describe('documentState recovery snapshot throttling', () => {
         hasData: true,
         tabCount: 1,
         fileName: 'recovered.graph',
-        fileScope: 'workspace'
+        fileScope: 'tab',
+        fileTargetTabId: 'tab-1'
       }
     });
     window.confirm = jest.fn(() => true);
@@ -475,6 +616,230 @@ describe('documentState recovery snapshot throttling', () => {
       fileName: 'recovered.graph',
       origin: 'user'
     }));
+    expect(workspaceState.sessionFileTabId).toBe('tab-1');
+  });
+
+  test('a stale empty checkpoint build cannot clear a newer recovery target', async () => {
+    let resolveArchive;
+    const { workspaceState } = installDocumentState({
+      sessionActions: {
+        buildWorkspaceArchiveBlob: jest.fn(() => new Promise(resolve => {
+          resolveArchive = resolve;
+        }))
+      }
+    });
+
+    const writePromise = window.Main.documentState.writeRecoverySnapshot('recovery-interval');
+    workspaceState.sessionRevision = 2;
+    workspaceState.sessionUserDirty = true;
+    resolveArchive(null);
+
+    await expect(writePromise).resolves.toMatchObject({
+      status: 'skipped',
+      reason: 'stale-revision'
+    });
+    expect(window.desktop.clearRecoverySnapshot).not.toHaveBeenCalled();
+  });
+
+  test('a delayed older desktop checkpoint cannot overwrite a newer stored revision', async () => {
+    let finishOldWrite;
+    let storedRevision = null;
+    const oldWriteBarrier = new Promise(resolve => {
+      finishOldWrite = resolve;
+    });
+    window.desktop.writeRecoverySnapshot = jest.fn(async ({ meta }) => {
+      if (meta.revision === 1) {
+        await oldWriteBarrier;
+      }
+      storedRevision = meta.revision;
+      return true;
+    });
+    const { workspaceState } = installDocumentState();
+
+    const oldWrite = window.Main.documentState.writeRecoverySnapshot('older-revision');
+    await flushTimers();
+    expect(window.desktop.writeRecoverySnapshot).toHaveBeenCalledTimes(1);
+    expect(window.desktop.writeRecoverySnapshot.mock.calls[0][0].meta.revision).toBe(1);
+
+    workspaceState.sessionRevision = 2;
+    let newWriteSettled = false;
+    const newWrite = window.Main.documentState.writeRecoverySnapshot('newer-revision');
+    void newWrite.then(() => {
+      newWriteSettled = true;
+    });
+    await flushTimers();
+    expect(newWriteSettled).toBe(false);
+    expect(window.desktop.writeRecoverySnapshot).toHaveBeenCalledTimes(1);
+
+    finishOldWrite();
+    await expect(oldWrite).resolves.toMatchObject({ status: 'skipped', reason: 'stale-storage-completion' });
+    await expect(newWrite).resolves.toMatchObject({ status: 'saved', via: 'desktop' });
+    expect(storedRevision).toBe(2);
+  });
+
+  test('a delayed recovery clear cannot erase a checkpoint for a newer revision', async () => {
+    let finishOldWrite;
+    let storedRevision = null;
+    const oldWriteBarrier = new Promise(resolve => {
+      finishOldWrite = resolve;
+    });
+    window.desktop.writeRecoverySnapshot = jest.fn(async ({ meta }) => {
+      if (meta.revision === 1) {
+        await oldWriteBarrier;
+      }
+      storedRevision = meta.revision;
+      return true;
+    });
+    const { workspaceState } = installDocumentState();
+
+    const oldWrite = window.Main.documentState.writeRecoverySnapshot('older-revision');
+    await flushTimers();
+    expect(window.desktop.writeRecoverySnapshot).toHaveBeenCalledTimes(1);
+
+    workspaceState.sessionDirty = false;
+    workspaceState.sessionUserDirty = false;
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'clean', revision: 1 }
+    }));
+    await flushTimers();
+    expect(window.desktop.clearRecoverySnapshot).not.toHaveBeenCalled();
+
+    workspaceState.sessionRevision = 2;
+    workspaceState.sessionDirty = true;
+    workspaceState.sessionUserDirty = true;
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 2, userDirty: true }
+    }));
+    finishOldWrite();
+    await oldWrite;
+    await flushTimers();
+
+    expect(window.desktop.clearRecoverySnapshot).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(2500);
+    await flushTimers();
+    expect(storedRevision).toBe(2);
+  });
+
+  test('startup recovery does not replace workspace changes made while the checkpoint is loading', async () => {
+    let resolveStoredRecovery;
+    const applyArchiveBlob = jest.fn().mockResolvedValue({ status: 'loaded' });
+    const { workspaceState } = installDocumentState({
+      workspaceState: {
+        sessionRevision: 4,
+        sessionDirty: false,
+        sessionUserDirty: false
+      },
+      sessionActions: { applyArchiveBlob },
+      session: { markSessionDirty: jest.fn() }
+    });
+    window.desktop.readRecoverySnapshot = jest.fn(() => new Promise(resolve => {
+      resolveStoredRecovery = resolve;
+    }));
+    window.confirm = jest.fn(() => true);
+
+    const restorePromise = window.Main.documentState.maybeRestoreRecovery();
+    workspaceState.sessionRevision = 5;
+    workspaceState.sessionDirty = true;
+    workspaceState.sessionUserDirty = true;
+    workspaceState.tabs[0].payloadSignature = 'newer-user-edit';
+    resolveStoredRecovery({
+      exists: true,
+      dataBase64: Buffer.from('graphitix-recovery').toString('base64'),
+      meta: {
+        dirty: true,
+        hasData: true,
+        tabCount: 1,
+        revision: 4,
+        fileName: 'recovered.graph',
+        fileScope: 'workspace'
+      }
+    });
+
+    await expect(restorePromise).resolves.toBe(false);
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(applyArchiveBlob).not.toHaveBeenCalled();
+    expect(workspaceState.tabs[0].payloadSignature).toBe('newer-user-edit');
+  });
+
+  test('startup recovery does not clear a checkpoint after its restore target changes', async () => {
+    let resolveStoredRecovery;
+    const { workspaceState } = installDocumentState({
+      workspaceState: {
+        sessionRevision: 4,
+        sessionDirty: false,
+        sessionUserDirty: false
+      }
+    });
+    window.desktop.readRecoverySnapshot = jest.fn(() => new Promise(resolve => {
+      resolveStoredRecovery = resolve;
+    }));
+
+    const restorePromise = window.Main.documentState.maybeRestoreRecovery();
+    workspaceState.sessionRevision = 5;
+    workspaceState.sessionDirty = true;
+    workspaceState.sessionUserDirty = true;
+    resolveStoredRecovery({
+      exists: true,
+      dataBase64: Buffer.from('empty-graphitix-recovery').toString('base64'),
+      meta: {
+        dirty: true,
+        hasData: false,
+        tabCount: 0,
+        revision: 4,
+        fileName: 'recovered.graph',
+        fileScope: 'workspace'
+      }
+    });
+
+    await expect(restorePromise).resolves.toBe(false);
+    expect(window.desktop.clearRecoverySnapshot).not.toHaveBeenCalled();
+  });
+
+  test('startup recovery does not replace a document opened while the checkpoint is loading', async () => {
+    let resolveStoredRecovery;
+    const applyArchiveBlob = jest.fn().mockResolvedValue({ status: 'loaded' });
+    const { workspaceState } = installDocumentState({
+      workspaceState: {
+        sessionRevision: 4,
+        sessionDirty: false,
+        sessionUserDirty: false
+      },
+      sessionActions: { applyArchiveBlob },
+      session: { markSessionDirty: jest.fn() }
+    });
+    const originalTab = workspaceState.tabs[0];
+    window.desktop.readRecoverySnapshot = jest.fn(() => new Promise(resolve => {
+      resolveStoredRecovery = resolve;
+    }));
+    window.confirm = jest.fn(() => true);
+
+    const restorePromise = window.Main.documentState.maybeRestoreRecovery();
+    workspaceState.tabs = [{
+      id: 'opened-tab',
+      title: 'Opened document',
+      type: 'box',
+      isWelcome: false
+    }];
+    workspaceState.activeTabId = 'opened-tab';
+    workspaceState.sessionFileName = 'opened.graph';
+    resolveStoredRecovery({
+      exists: true,
+      dataBase64: Buffer.from('graphitix-recovery').toString('base64'),
+      meta: {
+        dirty: true,
+        hasData: true,
+        tabCount: 1,
+        revision: 4,
+        fileName: 'recovered.graph',
+        fileScope: 'workspace'
+      }
+    });
+
+    await expect(restorePromise).resolves.toBe(false);
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(applyArchiveBlob).not.toHaveBeenCalled();
+    expect(workspaceState.tabs).not.toContain(originalTab);
+    expect(workspaceState.sessionFileName).toBe('opened.graph');
   });
 
   test('restored recovery checkpoint stays current until a genuine new revision', async () => {

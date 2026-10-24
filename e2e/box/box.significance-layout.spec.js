@@ -96,6 +96,8 @@ function readVerticalBoxLayoutMetrics() {
   const graphEnvelopeTopPx = Number.isFinite(Number(svgBoxRect?.top))
     ? Number(svgBoxRect.top) - cartesianTopExtensionPx * zoomScale
     : null;
+  const graphFrame = svgBox?.closest('.graph-frame') || null;
+  const graphControlsHeader = graphFrame?.querySelector(':scope > .graph-controls-header') || null;
   const aspectRatioMeta = svgBox && svgBox.dataset
     ? Number(svgBox.dataset.resizerAspectRatio)
     : NaN;
@@ -104,6 +106,7 @@ function readVerticalBoxLayoutMetrics() {
     : null;
   const svgRect = svg.getBoundingClientRect();
   const controlTrayRect = controlTray ? controlTray.getBoundingClientRect() : null;
+  const graphControlsHeaderRect = graphControlsHeader ? graphControlsHeader.getBoundingClientRect() : null;
   const graphTitleRect = graphTitle ? graphTitle.getBoundingClientRect() : null;
   const significanceTopPx = significanceNodes.length
     ? significanceNodes.reduce((top, node) => {
@@ -139,6 +142,9 @@ function readVerticalBoxLayoutMetrics() {
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]').length,
     graphEnvelopeTopPx,
     controlTrayTopPx: Number.isFinite(Number(controlTrayRect?.top)) ? Number(controlTrayRect.top) : null,
+    graphControlsHeaderTopPx: Number.isFinite(Number(graphControlsHeaderRect?.top)) ? Number(graphControlsHeaderRect.top) : null,
+    graphControlsHeaderBottomPx: Number.isFinite(Number(graphControlsHeaderRect?.bottom)) ? Number(graphControlsHeaderRect.bottom) : null,
+    controlTrayBottomPx: Number.isFinite(Number(controlTrayRect?.bottom)) ? Number(controlTrayRect.bottom) : null,
     graphTitleTopPx: Number.isFinite(Number(graphTitleRect?.top)) ? Number(graphTitleRect.top) : null,
     graphTitleBottomPx: Number.isFinite(Number(graphTitleRect?.bottom)) ? Number(graphTitleRect.bottom) : null,
     significanceTopPx: Number.isFinite(Number(significanceTopPx)) ? Number(significanceTopPx) : null,
@@ -163,6 +169,19 @@ function readVerticalBoxLayoutMetrics() {
       : null,
     cartesianTopExtensionPx
   };
+}
+
+function expectBoxControlsToStayInHeader(metrics) {
+  expect(metrics.graphControlsHeaderTopPx).not.toBeNull();
+  expect(metrics.graphControlsHeaderBottomPx).not.toBeNull();
+  expect(metrics.controlTrayTopPx).not.toBeNull();
+  expect(metrics.controlTrayBottomPx).not.toBeNull();
+  expect(Math.abs(metrics.graphControlsHeaderBottomPx - metrics.graphEnvelopeTopPx)).toBeLessThanOrEqual(1);
+  expect(metrics.controlTrayTopPx).toBeGreaterThanOrEqual(metrics.graphControlsHeaderTopPx);
+  expect(metrics.controlTrayBottomPx).toBeLessThanOrEqual(metrics.graphControlsHeaderBottomPx);
+  const trayCenter = (metrics.controlTrayTopPx + metrics.controlTrayBottomPx) / 2;
+  const headerCenter = (metrics.graphControlsHeaderTopPx + metrics.graphControlsHeaderBottomPx) / 2;
+  expect(Math.abs(trayCenter - headerCenter)).toBeLessThanOrEqual(1);
 }
 
 async function dragBoxVerticalHandle(page, deltaY) {
@@ -361,18 +380,39 @@ test('significance toolbar places the label selector before scientific formattin
   await setBoxSignificanceToggle(page, true);
   await page.waitForFunction(() => document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0, null, { timeout: 45_000 });
   await page.locator('#boxPlot path.box-significance-hit-overlay').first().dispatchEvent('click');
-  await expect(page.locator('.font-toolbar-host--visible .significance-controls-panel')).toBeVisible();
+  const panel = page.locator('.font-toolbar-host--visible .significance-controls-panel');
+  await expect(panel).toBeVisible();
+  await expect(page.locator('.font-toolbar-host--visible .font-controls-panel')).toBeVisible();
+  await expect(page.locator('.font-toolbar-host--visible > .workspace-toolbar__panel:visible')).toHaveCount(2);
+  expect(await panel.evaluate(node => ({ hidden: node.hidden, inlineDisplay: node.style.display, display: getComputedStyle(node).display })))
+    .toEqual({ hidden: false, inlineDisplay: '', display: 'flex' });
+  const squareRadii = await page.locator(
+    '.font-toolbar-host--visible .significance-controls-panel__input--square:visible'
+  ).evaluateAll(nodes => nodes.map(node => getComputedStyle(node).borderRadius));
+  expect(squareRadii.length).toBeGreaterThan(0);
+  expect(new Set(squareRadii)).toEqual(new Set(['0px']));
 
   const toolbarState = await page.evaluate(() => {
     const panel = document.querySelector('.font-toolbar-host--visible .significance-controls-panel');
+    const fieldState = label => {
+      const field = Array.from(panel?.querySelectorAll('.significance-controls-panel__field') || [])
+        .find(candidate => candidate.querySelector('.significance-controls-panel__field-label')?.textContent === label);
+      return field ? { hidden: field.hidden, inlineDisplay: field.style.display } : null;
+    };
     return {
       fields: Array.from(panel?.querySelectorAll('.significance-controls-panel__field') || [])
         .map(field => field.querySelector('.significance-controls-panel__field-label')?.textContent),
-      mode: document.querySelector('#boxSignificanceLabelMode')?.value || null
+      mode: document.querySelector('[data-significance-label-mode]')?.value || null,
+      conditionalFields: ['Whisker style', 'Label', 'Decimals'].map(label => ({ label, ...fieldState(label) }))
     };
   });
-  expect(toolbarState.fields).toEqual(['Border', 'Whiskers', 'Whisker Style', 'Label', 'Scientific', 'Decimals']);
+  expect(toolbarState.fields).toEqual(['Style', 'Whiskers', 'Whisker style', 'Label', 'Scientific', 'Decimals']);
   expect(toolbarState.mode).toBe('p');
+  expect(toolbarState.conditionalFields).toEqual([
+    { label: 'Whisker style', hidden: false, inlineDisplay: '' },
+    { label: 'Label', hidden: false, inlineDisplay: '' },
+    { label: 'Decimals', hidden: false, inlineDisplay: '' }
+  ]);
   expect(issues.critical).toEqual([]);
 });
 
@@ -451,9 +491,13 @@ test('flipped adaptive whiskers clear full-width P-value labels', async ({ page 
 
   const layout = await page.evaluate(() => {
     const hooks = window.Components?.box?.__testHooks;
-    const labelMode = document.querySelector('#boxSignificanceLabelMode');
-    labelMode.value = 'p';
-    labelMode.dispatchEvent(new Event('change', { bubbles: true }));
+    const payload = window.Components.box.getPayload();
+    payload.config.significanceLabelMode = 'p';
+    window.Components.box.loadFromPayload(payload, {
+      tabId: window.Main.session.workspaceState.activeTabId,
+      suppressDraw: true,
+      reason: 'e2e-flipped-annotation-fixture'
+    });
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 800 420');
     svg.setAttribute('width', '800');
@@ -594,9 +638,9 @@ test('box versus-reference significance stacks correctly when the reference is t
   await waitForBoxOwnerIdle(page);
 
   await page.locator('#boxStatsScope').selectOption('reference');
-  await page.waitForFunction(() => Array.from(document.querySelectorAll('label')).some(label => label.textContent?.trim() === 'Reference:'));
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('label')).some(label => label.textContent?.trim() === 'Reference'));
   const referenceIndex = await page.evaluate(() => {
-    const label = Array.from(document.querySelectorAll('label')).find(node => node.textContent?.trim() === 'Reference:');
+    const label = Array.from(document.querySelectorAll('label')).find(node => node.textContent?.trim() === 'Reference');
     const select = label?.parentElement?.querySelector('select');
     if (!select || !select.options.length) {
       throw new Error('Reference selector is unavailable');
@@ -809,7 +853,7 @@ test('box title and graph controls remain on the visible top rail with significa
   expect(after?.graphTitleTopPx).not.toBeNull();
   expect(after?.graphTitleBottomPx).not.toBeNull();
   expect(after?.significanceTopPx).not.toBeNull();
-  expect(Math.abs(after.controlTrayTopPx - after.graphEnvelopeTopPx - 10)).toBeLessThanOrEqual(3);
+  expectBoxControlsToStayInHeader(after);
   expect(Math.abs(
     (after.graphTitleTopPx - after.graphEnvelopeTopPx)
       - (before.graphTitleTopPx - before.graphEnvelopeTopPx)
@@ -887,7 +931,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(after.significanceTopPx).not.toBeNull();
   expect(afterManualResize.graphEnvelopeTopPx).not.toBeNull();
   expect(afterManualResize.graphTitleTopPx).not.toBeNull();
-  expect(Math.abs(after.controlTrayTopPx - after.graphEnvelopeTopPx - 10)).toBeLessThanOrEqual(3);
+  expectBoxControlsToStayInHeader(after);
   expect(Math.abs(
     (after.graphTitleTopPx - after.graphEnvelopeTopPx)
       - (afterManualResize.graphTitleTopPx - afterManualResize.graphEnvelopeTopPx)

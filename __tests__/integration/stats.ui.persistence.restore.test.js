@@ -1,5 +1,6 @@
 const { ensureJStatStub } = require('../helpers/jstatTestStub');
 const { loadProductionBootstrap, resetProductionNamespaces } = require('../../test-support/productionLoader');
+const { waitForIntegrationOwnerReady } = require('../../test-support/readiness');
 
 const STATISTICAL_COMPONENT_TYPES = Object.freeze([
   'box', 'scatter', 'line', 'pie', 'hist', 'roc', 'survival', 'pca', 'heatmap'
@@ -273,6 +274,302 @@ describe('UI stats persistence and restore', () => {
     console.log = originalLog;
   });
 
+  test('Box uses automatic post-hoc for new sessions and preserves requested choices on restore', async () => {
+    await activateWorkspace('box');
+    await flushAsyncWork(20);
+    const initialBox=window.Components?.box;
+    expect(initialBox?.__getState?.().statsPostHoc).toBe('auto');
+    expect(initialBox?.createEmptyPayload?.().config?.stats?.postHoc).toBe('auto');
+    expect(initialBox?.createEmptyPayload?.().config?.stats?.correctionExplicit).toBe(false);
+
+    const box=await prepareBoxStats();
+    const explicitPayload=box.getPayload();
+    expect(explicitPayload?.config?.stats?.postHoc).toBe('tukey');
+    box.loadFromPayload(explicitPayload,{ source:'posthoc-explicit-restore',skipDraw:true });
+    await flushAsyncWork(30);
+    expect(box.__getState().statsPostHoc).toBe('tukey');
+
+    const selector=getBoxNode('boxStatsPostHoc');
+    expect(selector).toBeTruthy();
+    selector.value='auto';
+    selector.dispatchEvent(new Event('change',{ bubbles:true }));
+    await flushAsyncWork(20);
+    expect(box.__getState().statsPostHoc).toBe('auto');
+    const automaticSelector=getBoxNode('boxStatsPostHoc');
+    expect(Array.from(automaticSelector.options).find(option=>option.value==='auto')?.textContent).toBe('Automatic (Tukey HSD)');
+    expect(getBoxNode('boxStatsCorrection').disabled).toBe(true);
+    const hypothesisLabel=Array.from(getBoxNode('boxStatsPostHoc').closest('.box-stats-options')?.querySelectorAll('label') || [])
+      .find(label=>(label.textContent || '').trim()==='Hypothesis');
+    const hypothesisSelect=hypothesisLabel?.parentElement?.querySelector('select');
+    expect(hypothesisSelect?.disabled).toBe(true);
+    expect(hypothesisSelect?.title).toMatch(/two-sided/i);
+    const automaticPayload=box.getPayload();
+    expect(automaticPayload?.config?.stats?.postHoc).toBe('auto');
+    box.loadFromPayload(automaticPayload,{ source:'posthoc-auto-restore',skipDraw:true });
+    await flushAsyncWork(30);
+    expect(box.__getState().statsPostHoc).toBe('auto');
+
+    const postHocSelector=getBoxNode('boxStatsPostHoc');
+    postHocSelector.value='anovaPooled';
+    postHocSelector.dispatchEvent(new Event('change',{ bubbles:true }));
+    await flushAsyncWork(15);
+    expect(box.__getState().statsCorrection).toBe('holm');
+    expect(box.__getState().statsCorrectionExplicit).toBe(false);
+    let correctionSelector=getBoxNode('boxStatsCorrection');
+    correctionSelector.value='bonferroni';
+    correctionSelector.dispatchEvent(new Event('change',{ bubbles:true }));
+    await flushAsyncWork(15);
+    expect(box.__getState().statsCorrectionExplicit).toBe(true);
+    const explicitPooledSelector=getBoxNode('boxStatsPostHoc');
+    explicitPooledSelector.value='tukey';
+    explicitPooledSelector.dispatchEvent(new Event('change',{ bubbles:true }));
+    await flushAsyncWork(15);
+    const restoredPooledSelector=getBoxNode('boxStatsPostHoc');
+    restoredPooledSelector.value='anovaPooled';
+    restoredPooledSelector.dispatchEvent(new Event('change',{ bubbles:true }));
+    await flushAsyncWork(15);
+    expect(box.__getState().statsCorrection).toBe('bonferroni');
+    expect(box.getPayload()?.config?.stats?.correctionExplicit).toBe(true);
+  },120000);
+
+  test.each([
+    ['studentized-range-direct-sf-v2', null],
+    ['control-sidak-v2', { mode: 'reference', postHoc: 'dunnett' }],
+    ['rank-differences-decimal-v1', { test: 'nonparametric', paired: true, postHoc: 'standard' }],
+    ['paired-rank-biserial-v2', { test: 'nonparametric', paired: true, postHoc: 'standard', effectNonParametric: 'rankBiserial' }],
+    ['friedman-resampling-v2', { test: 'nonparametric', paired: true, postHoc: 'standard', resamplingMode: 'exact' }],
+    ['outlier-screening-v2', { postHoc: 'standard', outlierMode: 'rout' }]
+  ])('Box preserves historical values and requests recalculation for %s', async (versionToken, settings) => {
+    const box = await prepareBoxStats();
+    if(settings){
+      const payload=box.getPayload();
+      Object.assign(payload.config.stats,settings);
+      box.loadFromPayload(payload,{source:'versioned-statistics-fixture',skipDraw:true});
+      await box.draw();
+      await flushAsyncWork(20);
+      getBoxNode('boxComputeStats').click();
+      await flushAsyncWork(30);
+    }
+    const significanceToggle = getBoxNode('boxShowSignificance');
+    significanceToggle.checked = true;
+    significanceToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(30);
+    const currentPayload = box.getPayload();
+    const currentSignature = currentPayload?.config?.stats?.contextSignature;
+    expect(currentSignature).toContain(versionToken);
+
+    box.loadFromPayload(currentPayload, { source: 'studentized-range-current-restore', skipDraw: true });
+    await flushAsyncWork(20);
+    const tabId = window.Main?.session?.getActiveTab?.()?.id;
+    const session = box.__testHooks.getSession(tabId);
+    expect(session?.state?.results?.signature).toBe(currentSignature);
+    expect(box.__getState().statsLastRunVersion).toBeGreaterThan(0);
+
+    const legacyPayload = JSON.parse(JSON.stringify(currentPayload));
+    const legacySignature = currentSignature.split('|').filter(part=>part!==versionToken).join('|');
+    legacyPayload.config.stats.contextSignature = legacySignature;
+    if(legacyPayload.config.stats.annotationModel){
+      legacyPayload.config.stats.annotationModel.signature = legacySignature;
+    }
+    box.loadFromPayload(legacyPayload, { source: 'studentized-range-legacy-restore', skipDraw: true });
+    await flushAsyncWork(20);
+
+    const passivelyCapturedPayload = box.getPayload();
+    expect(passivelyCapturedPayload.config.stats.contextSignature).toBe(legacySignature);
+    expect(session.state.results.signature).toBe(legacySignature);
+    const historicalResults = JSON.parse(JSON.stringify(session.state.results));
+    expect(historicalResults.hasResults).toBe(true);
+    expect(historicalResults.panelModel.resultsModel).toBeTruthy();
+    expect(historicalResults.report).toBeTruthy();
+    expect(historicalResults.annotationModel).toBeTruthy();
+
+    await box.draw();
+    await flushAsyncWork(30);
+    expect(box.__getState().statsLastRunVersion).toBe(0);
+    expect(session.state.results.hasResults).toBe(true);
+    expect(session.state.results.signature).toBe(legacySignature);
+    expect(session.state.results.panelModel).toEqual(historicalResults.panelModel);
+    expect(session.state.results.report).toEqual(historicalResults.report);
+    expect(session.state.results.annotationModel).toEqual(historicalResults.annotationModel);
+    expect(getBoxNode('boxStatsStatus')?.textContent).toMatch(/recalculate|earlier/i);
+    expect(document.querySelectorAll('#boxPage:not([hidden]) #boxPlot .box-significance-annotation')).toHaveLength(0);
+
+    const stalePayload = box.getPayload();
+    expect(stalePayload.config.stats.lastRunVersion).toBe(0);
+    expect(stalePayload.config.stats.contextSignature).toBe(legacySignature);
+    expect(stalePayload.config.stats.resultsModel).toBeTruthy();
+    box.loadFromPayload(stalePayload, { source: 'studentized-range-stale-result-reopen', skipDraw: true });
+    await flushAsyncWork(20);
+    expect(session.state.results.hasResults).toBe(true);
+    expect(session.state.results.signature).toBe(legacySignature);
+    expect(session.state.results.panelModel).toEqual(historicalResults.panelModel);
+    expect(session.state.results.annotationModel).toEqual(historicalResults.annotationModel);
+    expect(box.__getState().statsLastRunVersion).toBe(0);
+    expect(getBoxNode('boxStatsStatus')?.textContent).toMatch(/recalculate|earlier/i);
+    expect(document.querySelectorAll('#boxPage:not([hidden]) #boxPlot .box-significance-annotation')).toHaveLength(0);
+  }, 60000);
+
+  test('Box report finalization is pure and idempotent', async () => {
+    await activateWorkspace('box');
+    await flushAsyncWork(20);
+    const box=window.Components?.box;
+    const source={
+      methodsText:'A parametric analysis was performed.',
+      resultsText:'The result was recorded.',
+      methodsParts:['A parametric analysis was performed.'],
+      resultsParts:['The result was recorded.'],
+      analysisSpec:{ family:'parametric' }
+    };
+    const context={ familyDescription:'The planned family was preserved.',resultSuffix:'The result is final.' };
+    const once=box.__testHooks.finalizeStatsReportForTest(source,context);
+    const twice=box.__testHooks.finalizeStatsReportForTest(once,context);
+    expect(source.methodsParts).toEqual(['A parametric analysis was performed.']);
+    expect(once).toEqual(twice);
+    expect(once.methodsText.match(/planned family/g)).toHaveLength(1);
+    expect(once.resultsText.match(/result is final/g)).toHaveLength(1);
+    expect(once.methodsText).not.toMatch(/rank-based|outlier screening/i);
+  },60000);
+
+  test.each(['plain', 'fusion', 'fusion-pairs'])('Box single-table reopen keeps paired historical results after a grouped Box tab was active (%s labels)', async labelKind => {
+    const box = await prepareBoxStats();
+    const Main = window.Main;
+    const liveBoxState = box.__getState();
+    if(labelKind !== 'plain'){
+      liveBoxState.hot.setDataAtCell(0, 2, 'BCR::ABL1');
+    }
+    liveBoxState.statsPaired = true;
+    liveBoxState.statsPairsText = labelKind === 'fusion-pairs' ? 'BCR::ABL1-Treatment A' : '3-2';
+    liveBoxState.statsCustomPairs = [{ ai: 2, bi: 1 }];
+    await box.draw();
+    await flushAsyncWork(20);
+    getBoxNode('boxComputeStats').click();
+    await flushAsyncWork(30);
+    const targetTab = Main.session.getActiveTab();
+    const targetSession = box.__testHooks.getSession(targetTab.id, { create: false });
+    const savedPayload = JSON.parse(JSON.stringify(box.getPayload()));
+    expect(savedPayload.config.stats.customPairs).toEqual([{ ai: 2, bi: 1 }]);
+    delete savedPayload.config.stats.customPairs;
+    const currentGroupedConfig = savedPayload.config.grouped || {};
+    const legacyGroupedConfig = { replicatesPerGroup: currentGroupedConfig.replicatesPerGroup };
+    const currentGroupedJson = JSON.stringify(currentGroupedConfig);
+    const legacyGroupedJson = JSON.stringify(legacyGroupedConfig);
+    const currentSignature = targetSession?.state?.results?.signature;
+    const currentGroupedSignaturePart = `single|${currentGroupedJson}|`;
+    let legacySignature = typeof currentSignature === 'string'
+      ? currentSignature.split('|')
+          .filter(part => !/^(?:paired-rank-biserial-v\d+|box-statistical-inputs-v\d+)$/.test(part))
+          .join('|')
+      : currentSignature;
+    if(legacySignature?.includes(currentGroupedSignaturePart)){
+      legacySignature = legacySignature.replace(currentGroupedSignaturePart, `single|${legacyGroupedJson}|`);
+    }
+    legacySignature = legacySignature?.replace(/:\d+:[0-9a-f]+:[0-9a-f]+(?=;|$)/gi, '');
+    savedPayload.config.grouped = legacyGroupedConfig;
+    savedPayload.config.stats.contextSignature = legacySignature;
+    if(savedPayload.config.stats.annotationModel){
+      savedPayload.config.stats.annotationModel.signature = legacySignature;
+    }
+    expect(targetSession?.state?.results?.hasResults).toBe(true);
+    expect(legacySignature).toBeTruthy();
+    expect(legacySignature).toContain('[{\"ai\":2,\"bi\":1}]');
+
+    Main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('box');
+    const groupedTab = Main.session.getActiveTab();
+    expect(groupedTab.id).not.toBe(targetTab.id);
+    const groupedActivation = Main.tabs.activateTab(groupedTab.id, { reason: 'activate-grouped-box-owner' });
+    if(groupedActivation && typeof groupedActivation.then === 'function') await groupedActivation;
+    await waitForIntegrationOwnerReady({
+      type: 'box',
+      expectedTabId: groupedTab.id,
+      requireMountedRoot: true,
+      condition: () => String(box.__boundTabId || '') === String(groupedTab.id)
+        && box.__testHooks.getSession(groupedTab.id, { create: false })?.refs?.root?.isConnected === true
+    });
+    const groupedPayload = box.createEmptyPayload();
+    groupedPayload.config.tableFormat = 'grouped';
+    groupedPayload.config.grouped = {
+      replicatesPerGroup: 2,
+      groups: ['Foreign group A', 'Foreign group B'],
+      conditions: ['Foreign condition A', 'Foreign condition B']
+    };
+    groupedPayload.data[0][0] = 'Foreign group A';
+    groupedPayload.data[0][2] = 'Foreign group B';
+    groupedPayload.data[1][0] = 'Foreign condition A';
+    groupedPayload.data[1][2] = 'Foreign condition B';
+    box.loadFromPayload(groupedPayload, {
+      source: 'grouped-owner-before-single-reopen',
+      tab: groupedTab,
+      tabId: groupedTab.id
+    });
+    await flushAsyncWork(30);
+    expect(box.__getState().grouped.groups).toEqual(expect.arrayContaining(['Foreign group A', 'Foreign group B']));
+    expect(box.__getState().grouped.conditions).toContain('Foreign condition A');
+
+    Main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('box');
+    const reopenedTab = Main.session.getActiveTab();
+    expect(reopenedTab.id).not.toBe(groupedTab.id);
+    const activation = Main.tabs.activateTab(reopenedTab.id, { reason: 'single-box-reopen-after-grouped-owner' });
+    if(activation && typeof activation.then === 'function') await activation;
+    await waitForIntegrationOwnerReady({
+      type: 'box',
+      expectedTabId: reopenedTab.id,
+      requireMountedRoot: true,
+      condition: () => String(box.__boundTabId || '') === String(reopenedTab.id)
+        && box.__testHooks.getSession(reopenedTab.id, { create: false })?.refs?.root?.isConnected === true
+    });
+    await flushAsyncWork(20);
+    const reopenedSession = box.__testHooks.getSession(reopenedTab.id, { create: false });
+    box.loadFromPayload(savedPayload, {
+      source: 'single-box-reopen-after-grouped-owner',
+      tab: reopenedTab,
+      tabId: reopenedTab.id
+    });
+    expect(reopenedSession.state.visual.grouped.groups || []).toEqual([]);
+    expect(reopenedSession.state.visual.grouped.conditions || []).toEqual([]);
+    await flushAsyncWork(30);
+    await box.draw();
+    await flushAsyncWork(30);
+
+    const restoredPayload = box.getPayload();
+    expect(restoredPayload.config.grouped.groups || []).toEqual([]);
+    expect(restoredPayload.config.grouped.conditions || []).toEqual([]);
+    expect(reopenedSession.state.results.hasResults).toBe(true);
+    expect(reopenedSession.state.results.signature).toBe(legacySignature);
+    expect(reopenedSession.state.results.lastRunVersion).toBe(0);
+    expect(reopenedSession.state.results.panelModel.resultsModel).toBeTruthy();
+    expect(box.__getState().statsCustomPairs).toEqual([{ ai: 2, bi: 1 }]);
+
+    // Moving the final paired observation preserves its values and order but
+    // changes pairing. Historical results must become invalid in the live owner.
+    const hot = box.__getState().hot;
+    const data = hot.getData();
+    let lastRow = data.length - 1;
+    while(lastRow > 0 && (data[lastRow]?.[0] == null || data[lastRow][0] === '')) lastRow -= 1;
+    const finalValue = data[lastRow][0];
+    hot.setDataAtCell([[lastRow, 0, ''], [lastRow + 1, 0, finalValue]], 'edit');
+    await box.draw();
+    await flushAsyncWork(30);
+    expect(reopenedSession.state.results.hasResults).toBe(false);
+
+    // Changed observations or inference settings cannot reuse archived results.
+    for(const change of ['value', 'confidence']){
+      const changedPayload = JSON.parse(JSON.stringify(savedPayload));
+      if(change === 'value'){
+        changedPayload.data[1][0] = Number(changedPayload.data[1][0]) + 1;
+      }else{
+        changedPayload.config.stats.ciLevel = 0.9;
+      }
+      box.loadFromPayload(changedPayload, { tab: reopenedTab, tabId: reopenedTab.id });
+      await box.draw();
+      await flushAsyncWork(30);
+      expect(reopenedSession.state.results.hasResults).toBe(false);
+    }
+  },120000);
+
   test('box reporting stays below descriptive statistics and survives switching to another component tab', async () => {
     await prepareBoxStats();
 
@@ -312,7 +609,7 @@ describe('UI stats persistence and restore', () => {
     document.getElementById('lineStatsResults').innerHTML = '';
     line.loadFromPayload(linePayload, { source: 'test-line-restore', skipDraw: true });
     await flushAsyncWork(40);
-    expect(document.getElementById('lineStatsResults')?.textContent || '').toMatch(/correlation coefficients|Reporting and reproducibility|Series/i);
+    expect(document.getElementById('lineStatsResults')?.textContent || '').toMatch(/Pearson correlation|Reporting and reproducibility|Series/i);
     expectSingleReportPanel('lineStatsResults', 'lineStatsReportHost');
 
     // pie's render cache carries the graph only; its stats panel is rebuilt from the
@@ -328,7 +625,7 @@ describe('UI stats persistence and restore', () => {
 
     const pca = await preparePcaStats();
     const pcaPayload = pca.getPayload();
-    expect(JSON.stringify(pcaPayload?.config?.stats?.summaryModel || {})).toContain('Samples analysed');
+    expect(JSON.stringify(pcaPayload?.config?.stats?.summaryModel || {})).toContain('Samples');
     expectStructuredReport(pcaPayload?.config?.stats);
     document.getElementById('pcaStatsResults').innerHTML = '';
     pca.loadFromPayload(pcaPayload, { source: 'test-pca-restore', skipDraw: true });

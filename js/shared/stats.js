@@ -8,56 +8,56 @@
       label: 'None (unadjusted)',
       shortLabel: 'None',
       description: 'No multiple-testing correction applied.',
-      footnote: count => `p-values are unadjusted${count > 0 ? ` (${count} comparison${count === 1 ? '' : 's'})` : ''}.`,
+      footnote: count => `P-values are unadjusted${count > 0 ? ` (${count} comparison${count === 1 ? '' : 's'})` : ''}.`,
       aliases: ['unadjusted']
     },
     bonferroni: {
       label: 'Bonferroni',
       shortLabel: 'Bonferroni',
       description: 'Controls family-wise error rate via Bonferroni adjustment.',
-      footnote: count => `Bonferroni-adjusted p-values across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Bonferroni adjustment was applied across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: []
     },
     holm: {
       label: 'Holm',
       shortLabel: 'Holm',
       description: 'Holm step-down adjustment for family-wise error control.',
-      footnote: count => `Holm correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Holm correction was applied across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: ['holm-bonferroni', 'holm_bonferroni']
     },
     'holm-sidak': {
       label: 'Holm-Šidák',
       shortLabel: 'Holm-Šidák',
       description: 'Holm-Šidák step-down adjustment for family-wise error control.',
-      footnote: count => `Holm-Šidák correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Holm-Šidák correction was applied across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: ['holm-sidak', 'holm sidak', 'holmsidak', 'holm_sidak']
     },
     sidak: {
       label: 'Šidák',
       shortLabel: 'Šidák',
       description: 'Šidák correction assuming independent tests.',
-      footnote: count => `Šidák correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Šidák correction was applied across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: ['sidak', 'sidak-bonferroni', 'sidak_bonferroni']
     },
     hochberg: {
       label: 'Hochberg',
       shortLabel: 'Hochberg',
       description: 'Hochberg step-up procedure for family-wise error control.',
-      footnote: count => `Hochberg correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Hochberg correction was applied across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: []
     },
     bh: {
       label: 'Benjamini–Hochberg (FDR)',
       shortLabel: 'BH',
       description: 'Benjamini–Hochberg false discovery rate control.',
-      footnote: count => `Benjamini–Hochberg FDR correction across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Benjamini–Hochberg procedure controlled the false discovery rate across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: ['fdr', 'benjamini-hochberg', 'benjaminihochberg', 'bh-fdr']
     },
     by: {
       label: 'Benjamini–Yekutieli (FDR)',
       shortLabel: 'BY',
       description: 'Benjamini–Yekutieli false discovery rate control for dependent tests.',
-      footnote: count => `Benjamini–Yekutieli FDR correction across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Benjamini–Yekutieli procedure controlled the false discovery rate across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: ['benjamini-yekutieli', 'benjaminiyekutieli', 'by-fdr']
     }
   };
@@ -362,6 +362,188 @@
     }
     const x = degrees / (degrees + t * t);
     return regularizedBeta(x, degrees / 2, 0.5);
+  }
+
+  function rankValuesAverage(values){
+    const ordered = values
+      .map((value, index) => ({ value: Number(value), index }))
+      .sort((left, right) => left.value - right.value || left.index - right.index);
+    const ranks = new Array(values.length);
+    let start = 0;
+    while(start < ordered.length){
+      let end = start + 1;
+      while(end < ordered.length && ordered[end].value === ordered[start].value){ end += 1; }
+      const averageRank = ((start + 1) + end) / 2;
+      for(let index = start; index < end; index += 1){ ranks[ordered[index].index] = averageRank; }
+      start = end;
+    }
+    return ranks;
+  }
+
+  function spearmanCorrelationFromRanks(ranksX, ranksY){
+    const count = Math.min(ranksX.length, ranksY.length);
+    if(count < 2){ return NaN; }
+    const mean = (count + 1) / 2;
+    let cross = 0;
+    let sumX2 = 0;
+    let sumY2 = 0;
+    for(let index = 0; index < count; index += 1){
+      const dx = ranksX[index] - mean;
+      const dy = ranksY[index] - mean;
+      cross += dx * dy;
+      sumX2 += dx * dx;
+      sumY2 += dy * dy;
+    }
+    const denominator = Math.sqrt(sumX2 * sumY2);
+    return denominator > 0 ? cross / denominator : NaN;
+  }
+
+  function deriveSpearmanPermutationSeed(ranksX, ranksY){
+    let hash = 2166136261;
+    const source = `${ranksX.join(',')}|${ranksY.join(',')}`;
+    for(let index = 0; index < source.length; index += 1){
+      hash ^= source.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) || 1337;
+  }
+
+  function spearmanPermutationTest(x, y, options = {}){
+    const xs = Array.isArray(x) ? x : [];
+    const ys = Array.isArray(y) ? y : [];
+    const count = Math.min(xs.length, ys.length);
+    const cleanX = [];
+    const cleanY = [];
+    for(let index = 0; index < count; index += 1){
+      if(xs[index] == null || ys[index] == null || xs[index] === '' || ys[index] === ''){ continue; }
+      if(typeof xs[index] === 'boolean' || typeof ys[index] === 'boolean'){ continue; }
+      const valueX = Number(xs[index]);
+      const valueY = Number(ys[index]);
+      if(Number.isFinite(valueX) && Number.isFinite(valueY)){
+        cleanX.push(valueX);
+        cleanY.push(valueY);
+      }
+    }
+    const n = cleanX.length;
+    const unavailable = (method, reason, extra = {}) => ({
+      available: false,
+      rho: NaN,
+      pValue: NaN,
+      n,
+      method,
+      reason,
+      exact: false,
+      resamples: null,
+      hasTies: false,
+      ...extra
+    });
+    if(n < 3){
+      return unavailable('not estimable', 'At least three complete pairs are required.');
+    }
+    const ranksX = rankValuesAverage(cleanX);
+    const ranksY = rankValuesAverage(cleanY);
+    const rho = spearmanCorrelationFromRanks(ranksX, ranksY);
+    const hasTies = new Set(ranksX).size < n || new Set(ranksY).size < n;
+    if(!Number.isFinite(rho)){
+      return unavailable('not estimable', 'Correlation is undefined for a constant variable.', { hasTies });
+    }
+    if(n > 500){
+      const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, rho));
+      const tStatistic = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - bounded * bounded));
+      const pValue = studentTTwoSidedPValue(tStatistic, n - 2);
+      return Number.isFinite(pValue)
+        ? { available: true, rho, pValue, n, method: 'two-sided t approximation (n > 500)', exact: false, resamples: null, hasTies }
+        : unavailable('not estimable', 'The large-sample t approximation could not be evaluated.', { rho, hasTies });
+    }
+
+    const familySize = Number.isInteger(options.pairCount) && options.pairCount > 0 ? options.pairCount : 1;
+    const configuredWorkLimit = Number(options.maxPermutationWork);
+    const workLimit = Number.isFinite(configuredWorkLimit) && configuredWorkLimit > 0
+      ? Math.floor(configuredWorkLimit)
+      : 20_000_000;
+    let permutations = 1;
+    for(let value = 2; value <= n; value += 1){
+      permutations *= value;
+      if(!Number.isSafeInteger(permutations) || permutations * n * familySize > workLimit){
+        permutations = Infinity;
+        break;
+      }
+    }
+    const observed = Math.abs(rho);
+    const tolerance = 1e-12;
+    if(Number.isFinite(permutations)){
+      // Exact two-sided inference is P(|rho under reassignment| >= |rho observed|).
+      const permuted = ranksY.slice();
+      let total = 0;
+      let extreme = 0;
+      const visit = position => {
+        if(position >= n){
+          const rhoPermuted = spearmanCorrelationFromRanks(ranksX, permuted);
+          total += 1;
+          if(Math.abs(rhoPermuted) >= observed - tolerance){ extreme += 1; }
+          return;
+        }
+        for(let index = position; index < n; index += 1){
+          const value = permuted[position];
+          permuted[position] = permuted[index];
+          permuted[index] = value;
+          visit(position + 1);
+          permuted[index] = permuted[position];
+          permuted[position] = value;
+        }
+      };
+      visit(0);
+      return {
+        available: total > 0,
+        rho,
+        pValue: total > 0 ? extreme / total : NaN,
+        n,
+        method: 'two-sided exact permutation',
+        exact: true,
+        resamples: total,
+        hasTies
+      };
+    }
+
+    const requestedIterations = Number.isInteger(options.iterations) && options.iterations > 0
+      ? Math.min(100_000, options.iterations)
+      : 9_999;
+    const minIterations = Number.isInteger(options.minIterations) && options.minIterations > 0
+      ? options.minIterations
+      : 1_000;
+    const iterations = Math.min(requestedIterations, Math.floor(workLimit / (n * familySize)));
+    if(iterations < minIterations){
+      return unavailable(
+        'not calculated (permutation work limit)',
+        'There is not enough computation budget for a stable permutation p-value across this comparison family.',
+        { rho, hasTies }
+      );
+    }
+    const random = createStatsSeededRandom(Number.isFinite(Number(options.seed))
+      ? Number(options.seed)
+      : deriveSpearmanPermutationSeed(ranksX, ranksY));
+    const permuted = ranksY.slice();
+    let extreme = 0;
+    for(let iteration = 0; iteration < iterations; iteration += 1){
+      for(let index = n - 1; index > 0; index -= 1){
+        const swapIndex = Math.floor(random() * (index + 1));
+        const value = permuted[index];
+        permuted[index] = permuted[swapIndex];
+        permuted[swapIndex] = value;
+      }
+      const rhoPermuted = spearmanCorrelationFromRanks(ranksX, permuted);
+      if(Math.abs(rhoPermuted) >= observed - tolerance){ extreme += 1; }
+    }
+    return {
+      available: true,
+      rho,
+      pValue: (extreme + 1) / (iterations + 1),
+      n,
+      method: `two-sided random permutation (${iterations.toLocaleString()} resamples)`,
+      exact: false,
+      resamples: iterations,
+      hasTies
+    };
   }
 
   function studentTUpperTail(statistic, df){
@@ -988,7 +1170,7 @@
 
   function adjustSidak(values){
     const m = values.length || 1;
-    return values.map(p => clampUnit(1 - Math.pow(1 - p, m)));
+    return values.map(p => clampUnit(-Math.expm1(m * Math.log1p(-p))));
   }
 
   function adjustHolm(values){
@@ -1009,7 +1191,7 @@
     const adjusted = new Array(m).fill(1);
     let running = 0;
     ordered.forEach((entry, idx) => {
-      running = Math.max(running, clampUnit(1 - Math.pow(1 - entry.p, m - idx)));
+      running = Math.max(running, clampUnit(-Math.expm1((m - idx) * Math.log1p(-entry.p))));
       adjusted[entry.index] = clampUnit(running);
     });
     return adjusted;
@@ -1530,6 +1712,193 @@
     };
   }
 
+  function countLabelAllocations(n,k,limit){
+    const choose=Math.min(k,n-k);
+    let count=1;
+    for(let index=1;index<=choose;index++){
+      count=(count*(n-choose+index))/index;
+      if(count>limit){ return Infinity; }
+    }
+    return Math.round(count);
+  }
+
+  function deriveKolmogorovPermutationSeed(sortedValues,nA,nB){
+    let hash=2166136261;
+    const source=`${nA}|${nB}|${sortedValues.map(value=>String(value===0?0:value)).join(',')}`;
+    for(let index=0;index<source.length;index++){
+      hash^=source.charCodeAt(index);
+      hash=Math.imul(hash,16777619);
+    }
+    return (hash>>>0) || 1337;
+  }
+
+  function computeTwoSampleKsFromLabels(groups,labels,nA,nB){
+    let cumulativeA=0;
+    let cumulativeB=0;
+    let dPlus=0;
+    let dMinus=0;
+    for(const group of groups){
+      let countA=0;
+      for(let index=group.start;index<group.end;index++){
+        if(labels[index]===0){ countA+=1; }
+      }
+      cumulativeA+=countA;
+      cumulativeB+=group.size-countA;
+      const difference=(cumulativeA/nA)-(cumulativeB/nB);
+      dPlus=Math.max(dPlus,difference);
+      dMinus=Math.max(dMinus,-difference);
+    }
+    return { dPlus,dMinus,D:Math.max(dPlus,dMinus) };
+  }
+
+  function enumerateTwoSampleKsPermutations(groups,labels,nA,nB,observedStatistic,allocationCount,alternative){
+    const total=labels.length;
+    const selected=Array.from({length:nA},(_,index)=>index);
+    let extreme=0;
+    let visited=0;
+    while(true){
+      labels.fill(1);
+      selected.forEach(index=>{ labels[index]=0; });
+      const sampleStatistic=computeTwoSampleKsFromLabels(groups,labels,nA,nB);
+      const statistic=alternative==='greater' ? sampleStatistic.dPlus
+        : alternative==='less' ? sampleStatistic.dMinus
+          : sampleStatistic.D;
+      if(statistic>=observedStatistic-1e-14){ extreme+=1; }
+      visited+=1;
+      let cursor=nA-1;
+      while(cursor>=0 && selected[cursor]===total-nA+cursor){ cursor-=1; }
+      if(cursor<0){ break; }
+      selected[cursor]+=1;
+      for(let index=cursor+1;index<nA;index++){
+        selected[index]=selected[index-1]+1;
+      }
+    }
+    return { p:extreme/visited, iterations:visited, allocationCount };
+  }
+
+  // The pooled-label permutation null retains observed ties. Small spaces are
+  // enumerated exactly; Monte Carlo uses a deterministic seed and the +1 rule.
+  // Auto mode keeps the classical asymptotic path only for larger tie-free data.
+  stats.kolmogorovSmirnovTwoSample = function kolmogorovSmirnovTwoSample(sampleA,sampleB,options={}){
+    const valuesA=Array.isArray(sampleA)?sampleA.filter(Number.isFinite):[];
+    const valuesB=Array.isArray(sampleB)?sampleB.filter(Number.isFinite):[];
+    const nA=valuesA.length;
+    const nB=valuesB.length;
+    const alternative=['less','greater'].includes(options?.alternative)?options.alternative:'two-sided';
+    const unavailable=(message)=>({
+      available:false,D:NaN,DTwoSided:NaN,DPlus:NaN,DMinus:NaN,p:NaN,nA,nB,
+      method:null,methodCode:null,alternative,hasTies:false,iterations:0,seed:null,warning:null,message
+    });
+    if(!nA || !nB){
+      return unavailable('Kolmogorov-Smirnov test needs at least one observation per group.');
+    }
+
+    const pooled=[
+      ...valuesA.map(value=>({ value,group:0 })),
+      ...valuesB.map(value=>({ value,group:1 }))
+    ].sort((left,right)=>left.value-right.value);
+    const labels=Uint8Array.from(pooled,entry=>entry.group);
+    const groups=[];
+    let hasTies=false;
+    for(let start=0;start<pooled.length;){
+      let end=start+1;
+      while(end<pooled.length && pooled[end].value===pooled[start].value){ end+=1; }
+      const size=end-start;
+      if(size>1){ hasTies=true; }
+      groups.push({ start,end,size });
+      start=end;
+    }
+    const observed=computeTwoSampleKsFromLabels(groups,labels,nA,nB);
+    // SciPy/R KS alternatives are defined on F_A - F_B: "greater" uses its
+    // maximum, while "less" uses the magnitude of its minimum.
+    const statistic=alternative==='greater' ? observed.dPlus
+      : alternative==='less' ? observed.dMinus
+        : observed.D;
+    const exactLimit=50000;
+    const allocationCount=pooled.length<=80
+      ? countLabelAllocations(pooled.length,nA,exactLimit)
+      : Infinity;
+    const exactAvailable=Number.isFinite(allocationCount) && allocationCount<=exactLimit;
+    const requestedMode=['permutation','exact','monte-carlo','asymptotic'].includes(options?.resamplingMode)
+      ? options.resamplingMode
+      : 'auto';
+    let mode=requestedMode;
+    let warning=null;
+    if(mode==='auto'){
+      mode=hasTies
+        ? (exactAvailable?'exact':'monte-carlo')
+        : (exactAvailable?'exact':'asymptotic');
+    }else if(mode==='permutation'){
+      mode=exactAvailable?'exact':'monte-carlo';
+    }
+    if(mode==='asymptotic' && hasTies){
+      mode=exactAvailable?'exact':'monte-carlo';
+      warning='Asymptotic KS calibration was replaced with permutation calibration because tied observations are present.';
+    }
+    if(mode==='exact' && !exactAvailable){
+      mode='monte-carlo';
+      warning='The exact permutation space is too large; Monte Carlo permutation calibration was used.';
+    }
+
+    let p=NaN;
+    let iterations=0;
+    let seed=null;
+    let method='asymptotic';
+    if(mode==='exact'){
+      const exact=enumerateTwoSampleKsPermutations(groups,labels,nA,nB,statistic,allocationCount,alternative);
+      p=exact.p;
+      iterations=exact.iterations;
+      method='exact permutation';
+    }else if(mode==='monte-carlo'){
+      const requestedIterations=Number(options?.iterations);
+      iterations=Number.isFinite(requestedIterations) && requestedIterations>0
+        ? Math.min(200000,Math.max(1,Math.round(requestedIterations)))
+        : 19999;
+      const requestedSeed=Number(options?.seed);
+      seed=Number.isFinite(requestedSeed)
+        ? (Math.round(requestedSeed)>>>0) || 1337
+        : deriveKolmogorovPermutationSeed(pooled.map(entry=>entry.value),nA,nB);
+      const nextRandom=createStatsSeededRandom(seed);
+      let extreme=0;
+      for(let iteration=0;iteration<iterations;iteration++){
+        for(let index=labels.length-1;index>0;index--){
+          const other=Math.floor(nextRandom()*(index+1));
+          const current=labels[index];
+          labels[index]=labels[other];
+          labels[other]=current;
+        }
+        if(computeTwoSampleKsFromLabels(groups,labels,nA,nB)[alternative==='two-sided'?'D':alternative==='greater'?'dPlus':'dMinus']>=statistic-1e-14){
+          extreme+=1;
+        }
+      }
+      p=(extreme+1)/(iterations+1);
+      method=`Monte Carlo permutation (${iterations.toLocaleString('en-US')} shuffles)`;
+    }else{
+      const effectiveN=(nA*nB)/(nA+nB);
+      if(alternative==='two-sided'){
+        const sqrtN=Math.sqrt(Math.max(effectiveN,0));
+        const lambda=(sqrtN+0.12+(0.11/(sqrtN||1)))*statistic;
+        let sum=0;
+        for(let index=1;index<=100;index++){
+          const term=Math.exp(-2*index*index*lambda*lambda);
+          sum+=(index%2?1:-1)*term;
+          if(term<1e-10){ break; }
+        }
+        p=statistic===0?1:clampUnit(2*sum);
+      }else{
+        p=clampUnit(Math.exp(-2*effectiveN*statistic*statistic));
+      }
+      method='asymptotic';
+    }
+    if(!Number.isFinite(p) || p<0 || p>1){
+      return unavailable('Kolmogorov-Smirnov p-value could not be evaluated.');
+    }
+    return {
+      available:true,D:statistic,DTwoSided:observed.D,DPlus:observed.dPlus,DMinus:observed.dMinus,p,nA,nB,
+      method,methodCode:mode,alternative,hasTies,iterations,seed,warning,message:null
+    };
+  };
+
   function sampleStandardNormal(random){
     const u1=Math.max(Number.EPSILON,random());
     const u2=random();
@@ -1804,6 +2173,7 @@
   stats.fUpperTail = fUpperTail;
   stats.studentTUpperTail = studentTUpperTail;
   stats.studentTTwoSidedPValue = studentTTwoSidedPValue;
+  stats.spearmanPermutationTest = spearmanPermutationTest;
   stats.normalUpperTail = normalUpperTail;
   stats.normalTwoSidedPValue = normalTwoSidedPValue;
   stats.normalQuantile = normalQuantile;
@@ -2094,13 +2464,19 @@
     return lines.filter(line => line.value && line.value !== 'null').slice(0, 14);
   }
 
-  function appendAnalysisSummaryBlock(target, lines, documentRef){
+  function appendAnalysisSummaryBlock(target, lines, documentRef, reportModel, reportTarget){
     if(!target || !Array.isArray(lines) || !lines.length || !documentRef || !documentRef.createElement){
       return;
     }
     const summaryText = lines.map(line => `${line.label}: ${line.value}`).join('\n');
     target.appendChild(createReportBlockHeader(documentRef, 'Configuration summary', summaryText));
 
+    const details = documentRef.createElement('details');
+    details.className = 'stats-report-panel__configuration';
+    details.open = reportModel?.configurationOpen === true;
+    const summary = documentRef.createElement('summary');
+    summary.textContent = `Configuration details (${lines.length} settings)`;
+    details.appendChild(summary);
     const list = documentRef.createElement('ul');
     list.className = 'stats-report-panel__summary-list';
     lines.forEach(line => {
@@ -2112,7 +2488,18 @@
       item.appendChild(documentRef.createTextNode(line.value));
       list.appendChild(item);
     });
-    target.appendChild(list);
+    details.appendChild(list);
+    target.appendChild(details);
+    details.addEventListener?.('toggle', () => {
+      if(!reportModel || typeof reportModel !== 'object'){
+        return;
+      }
+      reportModel.configurationOpen = details.open === true;
+      target.__statsReportModel = cloneStatsReportingValue(reportModel);
+      if(reportTarget && typeof reportTarget === 'object'){
+        reportTarget.__statsReportModel = cloneStatsReportingValue(reportModel);
+      }
+    });
   }
 
   function cloneStatsReportingValue(value){
@@ -2205,6 +2592,13 @@
     return merged;
   }
 
+  function containsStatsReportPValueToken(value){
+    if(Array.isArray(value)){
+      return value.some(containsStatsReportPValueToken);
+    }
+    return !!normalizeStatsReportPValueToken(value);
+  }
+
   function renderStatsReportTextParts(parts, options = {}){
     const scientific = options.scientific === true;
     const rendered = normalizeStatsReportTextParts(parts).map(part => {
@@ -2218,6 +2612,8 @@
   }
 
   function getReportSourceParts(source, baseName){
+    const textKey = `${baseName}Text`;
+    const textValue = typeof source[textKey] === 'string' ? source[textKey] : '';
     const candidates = [
       `${baseName}Parts`,
       `${baseName}Segments`,
@@ -2226,11 +2622,105 @@
     for(let index = 0; index < candidates.length; index += 1){
       const key = candidates[index];
       if(Object.prototype.hasOwnProperty.call(source, key) && source[key] != null){
+        // Plain-text sentence arrays duplicate the complete text and can lose
+        // sentence separators. Prefer that complete string unless the parts
+        // contain p-value tokens that need live formatting.
+        if(textValue.trim() && !containsStatsReportPValueToken(source[key])){
+          return textValue;
+        }
         return source[key];
       }
     }
-    const textKey = `${baseName}Text`;
-    return Object.prototype.hasOwnProperty.call(source, textKey) ? source[textKey] : '';
+    return Object.prototype.hasOwnProperty.call(source, textKey) ? textValue : '';
+  }
+
+  function migrateLegacyStatsReportText(value, source, baseName){
+    const text = String(value || '');
+    if(Number(source.schemaVersion) >= 4){
+      return text;
+    }
+    const analysisSpec = source.analysisSpec || {};
+    const component = String(analysisSpec.component || '').toLowerCase();
+    let migrated = text
+      .replace(/\banalysed\b/gi, word => word[0] === word[0].toUpperCase() ? 'Analyzed' : 'analyzed')
+      .replace(/\banalysable\b/gi, word => word[0] === word[0].toUpperCase() ? 'Analyzable' : 'analyzable')
+      .replace(/\bsummarised\b/gi, word => word[0] === word[0].toUpperCase() ? 'Summarized' : 'summarized')
+      .replace(/\bmodelling\b/gi, word => word[0] === word[0].toUpperCase() ? 'Modeling' : 'modeling')
+      .replace(/\bp values\b/gi, 'p-values');
+
+    [
+      'cutoff row', 'category row', 'comparison', 'estimate', 'condition', 'group', 'value', 'test', 'row'
+    ].forEach(noun => {
+      const escapedNoun = noun.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const expression = new RegExp(`\\b(\\d+)\\s+${escapedNoun}\\(s\\)`, 'gi');
+      migrated = migrated.replace(expression, (_match, count) => `${count} ${noun}${Number(count) === 1 ? '' : 's'}`);
+    });
+
+    if(/^box-stats-spec-v(?:7|8)$/.test(String(analysisSpec.schemaVersion || ''))){
+      migrated = migrated
+        .replace(/([.!?])(?=[A-Z])/g, '$1 ')
+        .replace(/\ba independent design\b/gi, 'an independent design')
+        .replace(/Confidence intervals not intrinsically tied to the multiplicity procedure used (\d+(?:\.\d+)?)%\./gi, 'Confidence intervals used a nominal $1% confidence level and were not adjusted for multiplicity.')
+        .replace(/\b(Holm(?:-Sidak)?|Sidak|Hochberg|Bonferroni) correction applied across (\d+) tests?\./gi, 'The $1 correction was applied across $2 tests.');
+      if(analysisSpec.mode === 'grouped'){
+        if(/was applied to the grouped dataset\./.test(migrated)){
+          const sentenceEnd = migrated.indexOf('.') + 1;
+          const remainder = migrated.slice(sentenceEnd).trim();
+          const label = String(analysisSpec.analysisLabel || analysisSpec.analysisId || 'The selected analysis');
+          const countLabel = (count, singular) => `${Number(count) || 0} ${Number(count) === 1 ? singular : `${singular}s`}`;
+          const firstSentence = `${label} was applied to ${countLabel(analysisSpec.groupsCount, 'group')}, ${countLabel(analysisSpec.conditionsCount, 'condition')}, and ${countLabel(analysisSpec.rowsWithData, 'complete row')}.`;
+          migrated = [firstSentence, 'The selected grouped analysis was used as configured.', remainder].filter(Boolean).join(' ');
+        }
+        if(baseName === 'results' && /The selected grouped analysis \(.+\) completed\./.test(migrated)){
+          const label = String(analysisSpec.analysisLabel || analysisSpec.analysisId || 'selected grouped analysis');
+          const skipped = Number(analysisSpec.partialRowsSkipped) || 0;
+          migrated = `The ${label} results are reported in the accompanying table${skipped ? `; ${skipped} incomplete row${skipped === 1 ? '' : 's'} were excluded from complete-case factorial calculations` : ''}.`;
+        }
+      }
+    }
+
+    if(component === 'survival'){
+      const comparison = analysisSpec.inference?.comparisons || {};
+      if(migrated.includes('at the same family-wise α')){
+        const criterion = comparison.criterion === 'fdr'
+          ? 'target FDR'
+          : comparison.errorControl === 'fwer'
+            ? 'family-wise α'
+            : 'α';
+        const level = Shared.statsInference?.formatLevel?.(comparison.level) || String(comparison.level || '0.05');
+        migrated = migrated.replace('at the same family-wise α', `at ${criterion} = ${level}`);
+      }
+      migrated = migrated
+        .replace('The duplicate Cox coefficient table was omitted because the single coefficient equals log(HR).', 'The duplicate Cox coefficient table was omitted because it repeats the single log(HR) coefficient.')
+        .replace('Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.', 'Rows with missing or invalid survival time, group, event, or covariate values were excluded from each affected analysis.');
+    }
+
+    if(component === 'line' && baseName === 'results'){
+      migrated = migrated.replace(/([^.!?]+?) returned (r(?:ₛ)?|R²) =/g, (_match, series, symbol) => `For ${series.trim()}, ${symbol} =`);
+    }
+    if(component === 'heatmap'){
+      migrated = migrated
+        .replace('Row and column clustering summaries reflect the clustering options active in the displayed heatmap.', 'The displayed row and column order reflects the active clustering settings.')
+        .replace('after applying the active parsing, filtering, transformation, and clustering options.', 'after applying the active parsing, filtering, and transformation settings. Clustering changes the displayed row and column order.')
+        .replace(/family-wise α =/g, analysisSpec.significanceCorrection === 'none' ? 'α =' : 'family-wise α =');
+    }
+    if(component === 'venn' && baseName === 'results'){
+      migrated = migrated.replace(/Smallest Holm-adjusted p-value:\s*(.+?),\s*adjusted p\s*(=|<|>|≤|≥)\s*(.+?)(?=\.\s|$)/, 'Overlap $1 had the smallest Holm-adjusted p-value (p $2 $3)');
+    }
+    return migrated;
+  }
+
+  function migrateLegacyStatsReportParts(value, source, baseName){
+    if(Array.isArray(value)){
+      return value.map(part => migrateLegacyStatsReportParts(part, source, baseName));
+    }
+    if(normalizeStatsReportPValueToken(value)){
+      return value;
+    }
+    if(value && typeof value === 'object' && typeof value.text === 'string'){
+      return { ...value, text: migrateLegacyStatsReportText(value.text, source, baseName) };
+    }
+    return typeof value === 'string' ? migrateLegacyStatsReportText(value, source, baseName) : value;
   }
 
   function normalizeReportModel(report, options = {}){
@@ -2238,10 +2728,10 @@
     const title = typeof options?.title === 'string' && options.title.trim()
       ? options.title.trim()
       : (typeof source.title === 'string' && source.title.trim() ? source.title.trim() : 'Reporting and reproducibility');
-    const methodsParts = normalizeStatsReportTextParts(getReportSourceParts(source, 'methods'));
-    const resultsParts = normalizeStatsReportTextParts(getReportSourceParts(source, 'results'));
+    const methodsParts = normalizeStatsReportTextParts(migrateLegacyStatsReportParts(getReportSourceParts(source, 'methods'), source, 'methods'));
+    const resultsParts = normalizeStatsReportTextParts(migrateLegacyStatsReportParts(getReportSourceParts(source, 'results'), source, 'results'));
     return {
-      schemaVersion: 2,
+      schemaVersion: 4,
       kind: 'stats-report',
       title,
       methodsLabel: typeof options?.methodsLabel === 'string' && options.methodsLabel.trim()
@@ -2250,9 +2740,6 @@
       resultsLabel: typeof options?.resultsLabel === 'string' && options.resultsLabel.trim()
         ? options.resultsLabel.trim()
         : (typeof source.resultsLabel === 'string' && source.resultsLabel.trim() ? source.resultsLabel.trim() : 'Results text'),
-      specLabel: typeof options?.specLabel === 'string' && options.specLabel.trim()
-        ? options.specLabel.trim()
-        : (typeof source.specLabel === 'string' && source.specLabel.trim() ? source.specLabel.trim() : 'Technical analysis record (advanced)'),
       methodsText: renderStatsReportTextParts(methodsParts, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC }),
       resultsText: renderStatsReportTextParts(resultsParts, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC }),
       methodsParts,
@@ -2260,7 +2747,7 @@
       analysisSpec: cloneStatsReportingValue(source.analysisSpec || options?.analysisSpecFallback || null),
       figureSummary: cloneStatsReportingValue(source.figureSummary || options?.figureSummary || null),
       open: source.open === true || options?.open === true,
-      advancedOpen: source.advancedOpen === true || options?.advancedOpen === true
+      configurationOpen: source.configurationOpen === true
     };
   }
 
@@ -2273,15 +2760,11 @@
     const existingPanel = existingHost?.classList?.contains('stats-report-panel')
       ? existingHost
       : (existingHost?.querySelector?.('.stats-report-panel') || null);
-    const existingAdvanced = existingPanel?.querySelector?.(':scope > .stats-report-panel__advanced') || null;
     const reportModel = normalizeReportModel({
       ...(report && typeof report === 'object' ? report : {}),
       open: Object.prototype.hasOwnProperty.call(report || {}, 'open')
         ? report.open === true
-        : existingPanel?.open === true,
-      advancedOpen: Object.prototype.hasOwnProperty.call(report || {}, 'advancedOpen')
-        ? report.advancedOpen === true
-        : existingAdvanced?.open === true
+        : existingPanel?.open === true
     }, options || {});
     if(typeof reporting.clearReportHost === 'function' && options?.replaceExisting !== false){
       reporting.clearReportHost(target);
@@ -2328,27 +2811,8 @@
     const displaySpec = sanitizeAnalysisSpecForDisplay(spec);
     const summaryLines = buildAnalysisSummaryLines(displaySpec);
     if(summaryLines.length){
-      appendAnalysisSummaryBlock(panel, summaryLines, documentRef);
+      appendAnalysisSummaryBlock(panel, summaryLines, documentRef, reportModel, reportTarget);
     }
-    if(displaySpec){
-      const advanced = documentRef.createElement('details');
-      advanced.className = 'stats-report-panel__advanced';
-      advanced.open = reportModel.advancedOpen === true;
-      const advancedSummary = documentRef.createElement('summary');
-      advancedSummary.textContent = reportModel.specLabel;
-      advanced.appendChild(advancedSummary);
-      const note = documentRef.createElement('p');
-      note.className = 'stats-report-panel__note';
-      note.textContent = 'Machine-readable analysis settings snapshot kept for reproducibility and troubleshooting.';
-      advanced.appendChild(note);
-      const advancedJson = JSON.stringify(displaySpec, null, 2);
-      advanced.appendChild(createReportBlockHeader(documentRef, 'Technical analysis record', advancedJson));
-      const pre = documentRef.createElement('pre');
-      pre.textContent = advancedJson;
-      advanced.appendChild(pre);
-      panel.appendChild(advanced);
-    }
-
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       statsDebug('Debug: statsReporting.appendReportPanel',{ title: reportModel.title, hasMethods: !!reportModel.methodsText, hasResults: !!reportModel.resultsText, hasAnalysisSpec: !!displaySpec });
     }
@@ -2365,15 +2829,12 @@
     reporting.syncFigureSummaryControls(tabId);
     const syncDisclosureState = () => {
       reportModel.open = panel.open === true;
-      const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
-      reportModel.advancedOpen = advancedPanel?.open === true;
       panel.__statsReportModel = cloneStatsReportingValue(reportModel);
       if(reportTarget && typeof reportTarget === 'object'){
         reportTarget.__statsReportModel = cloneStatsReportingValue(reportModel);
       }
     };
     panel.addEventListener?.('toggle', syncDisclosureState);
-    panel.querySelector?.(':scope > .stats-report-panel__advanced')?.addEventListener?.('toggle', syncDisclosureState);
     syncDisclosureState();
     if(typeof reporting.pinReportHostLast === 'function'){
       reporting.pinReportHostLast(target);
@@ -2697,13 +3158,14 @@
     const scientific = getPanelPValueScientific(target, options);
     const wrap = documentRef.createElement('span');
     wrap.className = 'stats-pvalue-format-inline';
+    const formatLabel = String(target?.getAttribute?.('data-stats-pvalue-format-label') || '').trim() || 'p-value format';
     const label = documentRef.createElement('span');
     label.className = 'stats-pvalue-format-inline__label';
-    label.textContent = 'p-value format:';
+    label.textContent = `${formatLabel}:`;
     wrap.appendChild(label);
     const select = documentRef.createElement('select');
     select.className = 'stats-pvalue-format-select';
-    select.setAttribute('aria-label', 'p-value format');
+    select.setAttribute('aria-label', formatLabel || 'p-value format');
     select.setAttribute('data-parameter-p-value-scientific', scientific ? 'true' : 'false');
     select.setAttribute('data-undo-ignore', '1');
     [['decimal', 'Decimal'], ['scientific', 'Scientific']].forEach(([value, text]) => {
@@ -2737,6 +3199,25 @@
     const documentRef = options.document || target?.ownerDocument || global.document;
     const tabId = options.tabId || resolveTargetStatsTabId(target, options) || null;
     return createDefaultPValueFormatControl(documentRef, target, { ...options, tabId });
+  };
+
+  reporting.createResultsHeaderControls = function createResultsHeaderControls(target, options = {}){
+    const documentRef = options.document || target?.ownerDocument || global.document;
+    if(!documentRef || typeof documentRef.createDocumentFragment !== 'function'){
+      return null;
+    }
+    const fragment = documentRef.createDocumentFragment();
+    const heading = documentRef.createElement('h3');
+    heading.className = 'stats-results-title';
+    heading.textContent = options.title || 'Results';
+    fragment.appendChild(heading);
+    const control = reporting.createPValueFormatControl(target, {
+      document: documentRef,
+      tabId: options.tabId || null,
+      onChange: options.onChange
+    });
+    if(control){ fragment.appendChild(control); }
+    return fragment;
   };
 
 
@@ -3169,7 +3650,7 @@
     if(!node || node.nodeType !== 1){
       return false;
     }
-    if(node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced')){
+    if(node.classList.contains('stats-report-panel')){
       return false;
     }
     return COLLAPSED_STATS_SECTIONS.has(readStatsSection(node));
@@ -3182,7 +3663,7 @@
     if(node.getAttribute('data-stats-reporting') === '1'){
       return true;
     }
-    return node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced');
+    return node.classList.contains('stats-report-panel');
   }
 
   function resolveReportingHost(target){
@@ -3291,9 +3772,10 @@
     return false;
   };
 
-  reporting.clearReportHost = function clearReportHost(target){
+  reporting.clearReportHost = function clearReportHost(target, options = {}){
     const reportHost = resolveReportingHost(target);
     const tabId = resolveTargetStatsTabId(target);
+    const preserveRenderedPanel = options?.preserveRenderedPanel === true;
     if(tabId){
       Shared.statsFigureSummary?.clearReportModel?.(tabId);
       deferFigureSummaryReadinessSync(tabId);
@@ -3302,7 +3784,14 @@
       return false;
     }
     if(reportHost !== target){
-      reportHost.innerHTML = '';
+      if(!preserveRenderedPanel){
+        reportHost.innerHTML = '';
+      }
+      delete reportHost.__statsReportModel;
+      delete reportHost.__statsPanelModel;
+      return true;
+    }
+    if(preserveRenderedPanel){
       delete reportHost.__statsReportModel;
       delete reportHost.__statsPanelModel;
       return true;
@@ -3319,6 +3808,25 @@
       delete reportHost.__statsPanelModel;
     }
     return removed;
+  };
+
+  reporting.markPanelStale = function markPanelStale(target){
+    if(!target || target.nodeType !== 1){
+      return false;
+    }
+    // Preserve the last render for stable layout, but detach its report models and
+    // keep it out of capture until a component publishes a fresh result.
+    target.setAttribute('data-stats-stale', 'true');
+    reporting.clearReportHost(target, { preserveRenderedPanel: true });
+    return true;
+  };
+
+  reporting.markPanelCurrent = function markPanelCurrent(target){
+    if(!target || target.nodeType !== 1){
+      return false;
+    }
+    target.removeAttribute('data-stats-stale');
+    return true;
   };
 
   const STATS_MODEL_ALLOWED_TAGS = new Set([
@@ -3487,6 +3995,11 @@
     if(!documentRef || !model || typeof model !== 'object'){
       return null;
     }
+    // Retired disclosure: legacy panel models may still carry the removed technical
+    // analysis record node, so never re-mount it from saved state.
+    if(model.type !== 'text' && String(model.className || '').split(/\s+/).includes('stats-report-panel__advanced')){
+      return null;
+    }
     if(model.type === 'text'){
       return documentRef.createTextNode(String(model.text || ''));
     }
@@ -3590,11 +4103,9 @@
     }
     const storedModel = panel.__statsReportModel;
     if(storedModel && typeof storedModel === 'object'){
-      const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
       return normalizeReportModel({
         ...storedModel,
-        open: panel.open === true,
-        advancedOpen: advancedPanel?.open === true
+        open: panel.open === true
       }, storedModel);
     }
     if(!panel.classList?.contains('stats-report-panel')){
@@ -3604,26 +4115,14 @@
     const preBlocks = Array.from(panel.querySelectorAll?.(':scope > pre') || []);
     const methodsText = preBlocks[0] ? String(preBlocks[0].textContent || '') : '';
     const resultsText = preBlocks[1] ? String(preBlocks[1].textContent || '') : '';
-    const advancedPre = panel.querySelector?.(':scope > .stats-report-panel__advanced pre');
-    let analysisSpec = null;
-    if(advancedPre){
-      const rawSpec = String(advancedPre.textContent || '').trim();
-      if(rawSpec){
-        try{ analysisSpec = JSON.parse(rawSpec); }
-        catch(_err){ analysisSpec = { note: rawSpec }; }
-      }
-    }
-    if(!methodsText && !resultsText && !analysisSpec){
+    if(!methodsText && !resultsText){
       return null;
     }
-    const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
     return normalizeReportModel({
       title,
       methodsText,
       resultsText,
-      analysisSpec,
-      open: panel.open === true,
-      advancedOpen: advancedPanel?.open === true
+      open: panel.open === true
     }, { title });
   }
 
@@ -3640,8 +4139,7 @@
         const liveModel = reportPanel ? extractReportModelFromPanel(reportPanel) : null;
         return normalizeReportModel({
           ...storedModel,
-          open: liveModel?.open === true,
-          advancedOpen: liveModel?.advancedOpen === true
+          open: liveModel?.open === true
         }, storedModel);
       }
       return normalizeStatsPanelModel(storedModel);
@@ -3651,6 +4149,9 @@
 
   reporting.capturePanelModel = function capturePanelModel(target){
     if(!target || target.nodeType !== 1){
+      return { resultsModel: null, reportModel: null };
+    }
+    if(target.getAttribute?.('data-stats-stale') === 'true'){
       return { resultsModel: null, reportModel: null };
     }
     const reportHost = resolveReportingHost(target);
@@ -3732,6 +4233,7 @@
     if(typeof reporting.enhancePanelNow === 'function'){
       reporting.enhancePanelNow(target, 'restore-panel-model');
     }
+    reporting.markPanelCurrent(target);
     return {
       restoredMain,
       restoredReport

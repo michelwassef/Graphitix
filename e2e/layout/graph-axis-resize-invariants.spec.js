@@ -171,6 +171,51 @@ function expectClose(actual, expected, tolerance, label) {
   ).toBeLessThanOrEqual(tolerance);
 }
 
+for (const component of CARTESIAN_AXIS_COMPONENTS) {
+  test(`${component.type} locked resize fits the rendered SVG inside the content envelope`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await openComponentFromWelcome(page, component, { first: true, loadExample: true });
+    const ready = () => waitForComponentOwnerReady(page, component, { requireMountedRoot: true, requireIdle: true });
+    await ready();
+    await page.evaluate(({ pageId }) => {
+      const input = document.querySelector(`#${pageId}:not([hidden]) .resizer-aspect-checkbox`);
+      if (!input.checked) {
+        input.checked = true;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }, component);
+    const readBounds = () => page.evaluate(({ pageId }) => {
+      const box = document.querySelector(`#${pageId}:not([hidden]) .svgbox`);
+      const svg = box.querySelector('svg');
+      const frame = box.getBoundingClientRect();
+      const rendered = svg.getBoundingClientRect();
+      const style = getComputedStyle(box);
+      return {
+        right: rendered.right - frame.right - (parseFloat(style.getPropertyValue('--graph-content-extra-right')) || 0),
+        bottom: rendered.bottom - frame.bottom - (parseFloat(style.getPropertyValue('--graph-content-extra-bottom')) || 0)
+      };
+    }, component);
+    for (const [axis, value] of [['width', 480], ['width', 180], ['height', 180], ['width', 300]]) {
+      await page.evaluate(({ pageId, axis, value }) => {
+        const input = document.querySelector(`#${pageId}:not([hidden]) .resizer-size-${axis}`);
+        input.value = String(value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }, { ...component, axis, value });
+      await ready();
+      const bounds = await readBounds();
+      expect(Math.max(bounds.right, bounds.bottom), JSON.stringify({ axis, value, bounds })).toBeLessThanOrEqual(1);
+    }
+    await dragSvgBoxHandle(page, component, '.resizer-corner', -45, -45);
+    const bounds = await readBounds();
+    expect(Math.max(bounds.right, bounds.bottom), JSON.stringify(bounds)).toBeLessThanOrEqual(1);
+    const metrics = await collectViewportMetrics(page, component.pageId);
+    expect(metrics.lock.aspectLocked).toBe('true');
+  });
+}
+
 test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in every 2-D Cartesian component', async ({ page }, testInfo) => {
   test.setTimeout(8 * 60 * 1000);
   const issues = registerIssueCollectors(page);

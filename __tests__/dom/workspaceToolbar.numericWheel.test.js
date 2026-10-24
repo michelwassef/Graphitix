@@ -1,6 +1,8 @@
 require('../../js/shared/workspaceToolbar.js');
 
 describe('workspace toolbar numeric wheel editing', () => {
+  let originalMain;
+
   function wheel(target, deltaY, init = {}) {
     target.dispatchEvent(new WheelEvent('wheel', {
       bubbles: true,
@@ -107,6 +109,10 @@ describe('workspace toolbar numeric wheel editing', () => {
   }
 
   beforeEach(() => {
+    originalMain = window.Main;
+    window.Main = {
+      session: { getActiveTab: () => ({ id: 'test-tab' }) }
+    };
     jest.useFakeTimers();
     jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => (
       window.setTimeout(() => callback(performance.now()), 0)
@@ -120,6 +126,7 @@ describe('workspace toolbar numeric wheel editing', () => {
     jest.useRealTimers();
     jest.restoreAllMocks();
     document.body.innerHTML = '';
+    window.Main = originalMain;
   });
 
   test.each([
@@ -364,28 +371,127 @@ describe('workspace toolbar numeric wheel editing', () => {
     }
   });
 
+  test('drops a pending wheel commit when the active tab owner cannot be resolved', () => {
+    const previousMain = window.Main;
+    let activeTabId = 'tab-a';
+    window.Main = {
+      session: {
+        getActiveTab: () => activeTabId ? { id: activeTabId } : null
+      }
+    };
+    try{
+      const { surface, input } = mountNumber('font-toolbar-host', {
+        value: 1,
+        step: 0.25
+      });
+      toolbarApi().showHost(surface, { ownerTabId: 'tab-a' });
+
+      const events = [];
+      input.addEventListener('input', () => events.push('input'));
+      input.addEventListener('change', () => events.push('change'));
+
+      wheel(input, -1);
+      expect(input.value).toBe('1.25');
+      activeTabId = null;
+      flushLiveFrame();
+      finishIdleGesture();
+
+      expect(events).toEqual([]);
+      expect(toolbarApi().getNumericWheelPhase(input)).toBeNull();
+    } finally {
+      window.Main = previousMain;
+    }
+  });
+
+  test('does not edit an unowned numeric projection when workspace ownership is unavailable', () => {
+    const previousMain = window.Main;
+    window.Main = {
+      session: { getActiveTab: () => null }
+    };
+    try{
+      const { input } = mountNumber('workspace-toolbar__panel', {
+        value: 1,
+        step: 0.25
+      });
+      const events = [];
+      input.addEventListener('input', () => events.push('input'));
+      input.addEventListener('change', () => events.push('change'));
+
+      wheel(input, -1);
+      flushLiveFrame();
+      finishIdleGesture();
+
+      expect(input.value).toBe('1');
+      expect(events).toEqual([]);
+    } finally {
+      window.Main = previousMain;
+    }
+  });
+
+  test('rebinds a reused numeric control before continuing a wheel gesture for its next tab', () => {
+    const previousMain = window.Main;
+    let activeTabId = 'tab-a';
+    window.Main = {
+      session: { getActiveTab: () => ({ id: activeTabId }) }
+    };
+    try{
+      const { surface, input } = mountNumber('font-toolbar-host', {
+        value: 1,
+        step: 0.25
+      });
+      toolbarApi().showHost(surface, { ownerTabId: 'tab-a' });
+      const events = [];
+      input.addEventListener('input', () => events.push(`input:${input.value}`));
+      input.addEventListener('change', () => events.push(`change:${input.value}`));
+
+      wheel(input, -1);
+      expect(input.value).toBe('1.25');
+      expect(events).toEqual([]);
+
+      activeTabId = 'tab-b';
+      toolbarApi().showHost(surface, { ownerTabId: 'tab-b' });
+      input.value = '5';
+      wheel(input, -1);
+      expect(input.value).toBe('5.25');
+      flushLiveFrame();
+      finishIdleGesture();
+
+      expect(events).toEqual(['input:5.25', 'change:5.25']);
+    } finally {
+      window.Main = previousMain;
+    }
+  });
+
 
   test('hiding an unrelated toolbar host does not terminate another host wheel gesture', () => {
-    const first = mountNumber('font-toolbar-host', { value: 1, step: 0.25 });
-    const secondHost = document.createElement('div');
-    secondHost.className = 'font-toolbar-host';
-    document.body.appendChild(secondHost);
-    toolbarApi().showHost(first.surface, { ownerTabId: 'tab-a' });
-    toolbarApi().showHost(secondHost, { ownerTabId: 'tab-a' });
+    const previousMain = window.Main;
+    window.Main = {
+      session: { getActiveTab: () => ({ id: 'tab-a' }) }
+    };
+    try{
+      const first = mountNumber('font-toolbar-host', { value: 1, step: 0.25 });
+      const secondHost = document.createElement('div');
+      secondHost.className = 'font-toolbar-host';
+      document.body.appendChild(secondHost);
+      toolbarApi().showHost(first.surface, { ownerTabId: 'tab-a' });
+      toolbarApi().showHost(secondHost, { ownerTabId: 'tab-a' });
 
-    const events = [];
-    first.input.addEventListener('input', () => events.push(`input:${first.input.value}`));
-    first.input.addEventListener('change', () => events.push(`change:${first.input.value}`));
+      const events = [];
+      first.input.addEventListener('input', () => events.push(`input:${first.input.value}`));
+      first.input.addEventListener('change', () => events.push(`change:${first.input.value}`));
 
-    wheel(first.input, -1);
-    expect(first.input.value).toBe('1.25');
-    toolbarApi().hideHost(secondHost);
-    expect(events).toEqual([]);
-    expect(toolbarApi().getNumericWheelPhase(first.input)).toBe('active');
+      wheel(first.input, -1);
+      expect(first.input.value).toBe('1.25');
+      toolbarApi().hideHost(secondHost);
+      expect(events).toEqual([]);
+      expect(toolbarApi().getNumericWheelPhase(first.input)).toBe('active');
 
-    toolbarApi().hideHost(first.surface);
-    expect(events).toEqual(['input:1.25', 'change:1.25']);
-    expect(toolbarApi().getNumericWheelPhase(first.input)).toBeNull();
+      toolbarApi().hideHost(first.surface);
+      expect(events).toEqual(['input:1.25', 'change:1.25']);
+      expect(toolbarApi().getNumericWheelPhase(first.input)).toBeNull();
+    } finally {
+      window.Main = previousMain;
+    }
   });
 
   test('emits an explicit non-committed wheel-end signal when owner validation cancels a gesture', () => {

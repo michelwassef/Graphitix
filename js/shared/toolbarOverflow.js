@@ -7,7 +7,7 @@
   const SCROLL_PADDING = 8;
   const DEFAULT_POPUP_OFFSET = 6;
   const DEFAULT_POPUP_MARGIN = 6;
-  const DEFAULT_POPUP_Z_INDEX = 12050;
+  const FLOATING_OVERLAY_LAYER_TOKEN = '--ui-layer-floating-overlay';
   const SECTION_SELECTOR = '.workspace-toolbar__section[data-toolbar-section-id]';
   const SHELL_SELECTOR = '.workspace-toolbar__overflow-shell[data-toolbar-overflow-shell="1"]';
   const VIEWPORT_SELECTOR = '.workspace-toolbar__overflow-viewport[data-toolbar-overflow-viewport="1"]';
@@ -23,6 +23,13 @@
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: toolbarOverflow ' + message, payload || {});
     }
+  }
+
+  function getDefaultPopupZIndex(){
+    const token = global.getComputedStyle?.(doc?.documentElement)
+      ?.getPropertyValue(FLOATING_OVERLAY_LAYER_TOKEN);
+    const layer = Number(token);
+    return Number.isFinite(layer) ? layer : 0;
   }
 
   function scheduleFrame(callback){
@@ -576,7 +583,7 @@
     popup.style.position = 'fixed';
     popup.style.right = 'auto';
     popup.style.bottom = 'auto';
-    popup.style.zIndex = String(Number.isFinite(options.zIndex) ? options.zIndex : DEFAULT_POPUP_Z_INDEX);
+    popup.style.zIndex = String(Number.isFinite(options.zIndex) ? options.zIndex : getDefaultPopupZIndex());
     const viewportWidth = Math.max(0, Number(global.innerWidth) || doc?.documentElement?.clientWidth || 0);
     const viewportHeight = Math.max(0, Number(global.innerHeight) || doc?.documentElement?.clientHeight || 0);
     const margin = Math.max(0, Number.isFinite(options.margin) ? options.margin : DEFAULT_POPUP_MARGIN);
@@ -588,6 +595,7 @@
     if(options.matchAnchorWidth === true){
       const width = Math.min(availableWidth, Math.max(requestedMinWidth, Math.ceil(anchorRect.width)));
       popup.style.width = `${Math.max(0, width)}px`;
+      popup.style.minWidth = `${Math.max(0, width)}px`;
     }
 
     let popupRect = popup.getBoundingClientRect();
@@ -610,30 +618,39 @@
     }
 
     const belowTop = anchorRect.bottom + offset;
-    const belowSpace = viewportHeight > 0 ? viewportHeight - belowTop - margin : Number.POSITIVE_INFINITY;
+    const hasViewport = viewportHeight > 0;
+    const requestedViewportBottom = Number(options.viewportBottom);
+    const viewportBottom = hasViewport && Number.isFinite(requestedViewportBottom)
+      ? Math.max(0, Math.min(viewportHeight, requestedViewportBottom))
+      : viewportHeight;
+    const belowSpace = hasViewport
+      ? Math.max(0, viewportBottom - belowTop - margin)
+      : Number.POSITIVE_INFINITY;
     const aboveSpace = Math.max(0, anchorRect.top - margin - offset);
     const preferAbove = options.placement === 'top'
       || (options.placement !== 'bottom' && popupHeight > belowSpace && aboveSpace > belowSpace);
     let top = preferAbove
       ? anchorRect.top - offset - popupHeight
       : belowTop;
-    if(viewportHeight > 0){
+    if(viewportHeight > 0 && options.placement !== 'bottom'){
       top = Math.max(margin, Math.min(top, viewportHeight - Math.min(popupHeight, viewportHeight - (margin * 2)) - margin));
     }
 
     if(options.constrainHeight !== false && viewportHeight > 0){
       const viewportCapacity = Math.max(0, viewportHeight - (margin * 2));
       const minimumUsableHeight = Math.min(80, viewportCapacity);
-      const available = Math.min(
-        viewportCapacity,
-        Math.max(minimumUsableHeight, preferAbove ? aboveSpace : belowSpace)
-      );
+      const available = options.placement === 'bottom'
+        ? Math.max(0, Math.min(viewportCapacity, belowSpace))
+        : Math.min(
+          viewportCapacity,
+          Math.max(minimumUsableHeight, preferAbove ? aboveSpace : belowSpace)
+        );
       const requestedLimit = Number.isFinite(options.maxHeight) ? Math.max(0, options.maxHeight) : null;
       const cssLimit = readComputedPixelLimit(popup, 'max-height');
       const limits = [available, requestedLimit, cssLimit].filter(Number.isFinite);
       const maxHeight = limits.length ? Math.min(...limits) : available;
       popup.style.maxHeight = `${Math.max(0, Math.floor(maxHeight))}px`;
-      popup.style.overflowY = 'auto';
+      popup.style.overflowY = typeof options.overflowY === 'string' ? options.overflowY : 'auto';
     }
     popup.style.left = `${Math.round(left)}px`;
     popup.style.top = `${Math.round(top)}px`;

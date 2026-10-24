@@ -1,7 +1,9 @@
 const { loadProductionBootstrap } = require('../../test-support/productionLoader');
+const { installSvgTextGeometry } = require('../setup/svgTextGeometry');
 
 describe('Surface render cache redraw', () => {
   jest.setTimeout(240000);
+  let restoreSvgTextGeometry;
 
   async function flush() {
     await Promise.resolve();
@@ -61,6 +63,7 @@ describe('Surface render cache redraw', () => {
 
   beforeEach(() => {
     jest.resetModules();
+    restoreSvgTextGeometry = installSvgTextGeometry();
     if (typeof global.__restoreTestDebugLogs === 'function') {
       global.__restoreTestDebugLogs();
     }
@@ -75,6 +78,8 @@ describe('Surface render cache redraw', () => {
   });
 
   afterEach(() => {
+    restoreSvgTextGeometry?.();
+    restoreSvgTextGeometry = null;
     if (typeof global.__suppressTestDebugLogs === 'function') {
       global.__suppressTestDebugLogs();
     }
@@ -163,11 +168,14 @@ describe('Surface render cache redraw', () => {
     expect(Number(svg.getAttribute('height'))).toBeGreaterThan(0);
     let viewBox = parseViewBox(svg);
     expect(viewBox).toEqual([
-      0,
-      0,
-      Number(svg.getAttribute('data-plot3d-canonical-width')),
-      Number(svg.getAttribute('data-surface-base-height'))
+      Number(svg.getAttribute('data-plot3d-viewport-min-x')),
+      Number(svg.getAttribute('data-plot3d-viewport-min-y')),
+      Number(svg.getAttribute('data-plot3d-viewport-width')),
+      Number(svg.getAttribute('data-plot3d-viewport-height'))
     ]);
+    expect(Number(svg.getAttribute('data-plot3d-viewport-width')))
+      .toBeGreaterThan(Number(svg.getAttribute('data-plot3d-canonical-width')));
+    expect(Number(svg.getAttribute('data-plot3d-legend-reserve-width'))).toBeGreaterThan(0);
     expect(cache.svgRootState.attributes['data-surface-base-width']).toBeTruthy();
     expect(cache.svgRootState.attributes['data-surface-base-height']).toBeTruthy();
     const state = surface.__getState();
@@ -225,10 +233,10 @@ describe('Surface render cache redraw', () => {
     expect(Number(svg.getAttribute('height'))).toBeGreaterThan(0);
     viewBox = parseViewBox(svg);
     expect(viewBox).toEqual([
-      0,
-      0,
-      Number(svg.getAttribute('data-plot3d-canonical-width')),
-      Number(cache.svgRootState.attributes['data-surface-base-height'])
+      Number(cache.svgRootState.attributes['data-plot3d-viewport-min-x']),
+      Number(cache.svgRootState.attributes['data-plot3d-viewport-min-y']),
+      Number(cache.svgRootState.attributes['data-plot3d-viewport-width']),
+      Number(cache.svgRootState.attributes['data-plot3d-viewport-height'])
     ]);
     expect(svg.getAttribute('data-surface-base-width'))
       .toBe(cache.svgRootState.attributes['data-surface-base-width']);

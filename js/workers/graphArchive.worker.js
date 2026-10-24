@@ -438,6 +438,7 @@
         title: tabManifest.title,
         type: tabManifest.type,
         runtimeTabId: tabManifest.runtimeTabId || null,
+        matrixSignatures: Array.isArray(tab?.matrixSignatures) ? tab.matrixSignatures : [],
         rawDataMode: tabManifest.rawDataMode,
         payloadMode: tabManifest.payloadMode,
         files: tabManifest.files

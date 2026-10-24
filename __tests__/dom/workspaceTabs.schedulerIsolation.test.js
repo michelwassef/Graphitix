@@ -110,6 +110,27 @@ describe('workspace tab-scoped scheduler isolation', () => {
     })).toBe(false);
   });
 
+  test('tab work is cancelled before component disposal can release its session', () => {
+    const Shared = window.Shared;
+    const events = [];
+    const tab = { id: 'dispose-order', type: 'demo' };
+    const workspaceConfig = {
+      type: 'demo',
+      __asyncScope: { cancelAllForTab: jest.fn(() => { events.push('workspace-cancel'); return 1; }) },
+      disposeTab: jest.fn(() => { events.push('workspace-dispose'); })
+    };
+    const component = {
+      __asyncScope: { cancelAllForTab: jest.fn(() => { events.push('component-cancel'); return 1; }) }
+    };
+    window.Main.components = { registry: { demo: workspaceConfig } };
+    window.Components = { demo: component };
+    Shared.jobs = { cancelForTab: jest.fn(() => { events.push('jobs-cancel'); return 1; }) };
+
+    expect(Shared.workspaceTabs.disposeTab(tab, { reason: 'dispose-order-test' })).toBe(true);
+
+    expect(events).toEqual(['workspace-cancel', 'component-cancel', 'jobs-cancel', 'workspace-dispose']);
+  });
+
   test('buildSessionMeta resolves generation from the targeted tab record, not an unrelated active tab', () => {
     const workspaceTabs = window.Shared.workspaceTabs;
     const tabs = window.Main.session.workspaceState.tabs;

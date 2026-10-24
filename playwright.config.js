@@ -2,6 +2,7 @@ const { defineConfig } = require('@playwright/test');
 
 const PORT = Number(process.env.PLAYWRIGHT_WEB_PORT || 4173);
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${PORT}`;
+const BROWSER_CHANNEL = String(process.env.PLAYWRIGHT_BROWSER_CHANNEL || '').trim();
 
 module.exports = defineConfig({
   testDir: './e2e',
@@ -30,7 +31,7 @@ module.exports = defineConfig({
     acceptDownloads: true
   },
   projects: [
-    { name: 'chromium', use: { browserName: 'chromium' } },
+    { name: 'chromium', use: { browserName: 'chromium', ...(BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {}) } },
     { name: 'firefox', use: { browserName: 'firefox' } }
   ],
   webServer: {

@@ -128,6 +128,11 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
   const ratioLock = page.locator('#vennPage:not([hidden]) #vennGraphPanel .resizer-aspect-checkbox');
   await expect(ratioLock).not.toBeChecked();
   await expect(ratioLock).toBeEnabled();
+  const resizeFonts = page.locator('#vennPage:not([hidden]) #vennGraphPanel .resizer-fontresize-checkbox');
+  if(await resizeFonts.isChecked()){
+    await resizeFonts.uncheck();
+  }
+  await expect(resizeFonts).not.toBeChecked();
   await page.waitForFunction(() => (
     document.querySelectorAll('#vennPage:not([hidden]) #stage [data-upset-trace-kind]').length > 0
   ));
@@ -142,6 +147,7 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
       .filter(Number.isFinite);
     const intersectionAxis = stage.querySelector('[data-upset-axis="intersection-y"]');
     const setBar = stage.querySelector('rect[data-upset-trace-kind="setBars"]');
+    const matrixDot = stage.querySelector('circle[data-upset-trace-kind="matrix"]');
     window.__upsetUnlockedResizeProbe = {
       renderBatches: 0,
       fontRegistrations: 0,
@@ -184,7 +190,9 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
     return {
       panelHeight: svgBox.getBoundingClientRect().height,
       titleHeight: title.getBoundingClientRect().height,
+      titleFontSize: getComputedStyle(title).fontSize,
       matrixSpan: Math.max(...matrixRows) - Math.min(...matrixRows),
+      matrixDotRadius: Number(matrixDot?.getAttribute('r')) || 0,
       intersectionAxisHeight: Math.abs(
         Number(intersectionAxis.getAttribute('y2')) - Number(intersectionAxis.getAttribute('y1'))
       ),
@@ -212,6 +220,7 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
       .filter(Number.isFinite);
     const intersectionAxis = stage.querySelector('[data-upset-axis="intersection-y"]');
     const setBar = stage.querySelector('rect[data-upset-trace-kind="setBars"]');
+    const matrixDot = stage.querySelector('circle[data-upset-trace-kind="matrix"]');
     return {
       renderBatches: window.__upsetUnlockedResizeProbe.renderBatches,
       fontRegistrations: window.__upsetUnlockedResizeProbe.fontRegistrations,
@@ -219,11 +228,17 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
       invalidPaintedFrames: window.__upsetUnlockedResizeProbe.invalidPaintedFrames,
       panelHeight: root.querySelector('#vennGraphPanel .svgbox').getBoundingClientRect().height,
       titleHeight: stage.querySelector('text[data-font-role="graphTitle"]').getBoundingClientRect().height,
-      stageWidth: stage.getBoundingClientRect().width,
-      stageHeight: stage.getBoundingClientRect().height,
+      titleFontSize: getComputedStyle(stage.querySelector('text[data-font-role="graphTitle"]')).fontSize,
       viewBox: stage.getAttribute('viewBox').trim().split(/\s+/).map(Number),
+      contentEnvelope: {
+        minX: Number(stage.dataset.graphContentEnvelopeMinX),
+        minY: Number(stage.dataset.graphContentEnvelopeMinY),
+        maxX: Number(stage.dataset.graphContentEnvelopeMaxX),
+        maxY: Number(stage.dataset.graphContentEnvelopeMaxY)
+      },
       barBox: { y: barBox.y, height: barBox.height },
       matrixSpan: Math.max(...matrixRows) - Math.min(...matrixRows),
+      matrixDotRadius: Number(matrixDot?.getAttribute('r')) || 0,
       intersectionAxisHeight: Math.abs(
         Number(intersectionAxis.getAttribute('y2')) - Number(intersectionAxis.getAttribute('y1'))
       ),
@@ -235,12 +250,14 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
   expect(during.fontRegistrations).toBe(0);
   expect(during.invalidFrames).toBe(0);
   expect(during.invalidPaintedFrames).toBe(0);
-  expect(Math.abs(during.titleHeight - initial.titleHeight)).toBeLessThanOrEqual(1.5);
+  expect(initial.matrixDotRadius).toBeGreaterThan(0);
+  expect(during.matrixDotRadius).toBeGreaterThan(initial.matrixDotRadius);
+  // SVG screen bounds change with the resized viewBox even when text styling is fixed.
+  expect(during.titleFontSize).toBe(initial.titleFontSize);
   expect(during.viewBox[0]).toBe(0);
   expect(during.viewBox[1]).toBe(0);
-  // SVG layout may retain a small content-fit fraction during a live drag.
-  expect(Math.abs(during.viewBox[2] - during.stageWidth)).toBeLessThanOrEqual(2);
-  expect(Math.abs(during.viewBox[3] - during.stageHeight)).toBeLessThanOrEqual(1);
+  expect(during.viewBox[2]).toBeCloseTo(during.contentEnvelope.maxX - during.contentEnvelope.minX, 2);
+  expect(during.viewBox[3]).toBeCloseTo(during.contentEnvelope.maxY - during.contentEnvelope.minY, 2);
   expect(during.matrixSpan - initial.matrixSpan).toBeGreaterThan(1);
   expect(during.intersectionAxisHeight - initial.intersectionAxisHeight).toBeGreaterThan(30);
   expect(during.setBarHeight - initial.setBarHeight).toBeGreaterThan(1);
@@ -370,3 +387,97 @@ test('UpSet narrow live resize keeps set labels outside the matrix and columns a
   });
   expect(settledGap).toBeGreaterThanOrEqual(1);
 });
+
+for(const zoom of [0.95, 0.5, 1]){
+  test(`UpSet axis drags keep their scale and release geometry at ${zoom * 100}% zoom`, async ({ page }) => {
+    test.setTimeout(120_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await openComponentFromWelcome(page,
+      { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' }, { first: true });
+    await clickExpectedExampleButton(page, 'sample');
+    const root = page.locator('#vennPage:not([hidden])');
+    await root.locator('#vennPlotType').selectOption('upset');
+    const ready = () => waitForComponentOwnerReady(page, 'venn', {
+      requireMountedRoot: true, requirePublished: true, requireIdle: true, timeout: 30_000
+    });
+    await ready();
+    await root.getByRole('button', { name: 'View graph at actual size', exact: true }).click();
+    await ready();
+    const read = () => page.evaluate(() => {
+      const root = document.querySelector('#vennPage:not([hidden])');
+      const svg = root.querySelector('#stage');
+      const rect = svg.getBoundingClientRect();
+      const ctm = svg.getScreenCTM();
+      return {
+        width: rect.width, height: rect.height,
+        scaleX: ctm.a, scaleY: ctm.d,
+        viewBox: svg.getAttribute('viewBox'),
+        titleSize: svg.querySelector('text[data-font-role="graphTitle"]').getAttribute('font-size')
+      };
+    });
+    const canonical = await read();
+    const zoomInput = root.getByRole('spinbutton', { name: 'Zoom level percent', exact: true });
+    await zoomInput.fill(String(zoom * 100));
+    await zoomInput.press('Enter');
+    await page.evaluate(async () => {
+      await window.Components.venn.draw({
+        tabId: window.Main.session.getActiveTab().id,
+        reason: 'e2e-upset-zoom-redraw', force: true
+      });
+    });
+    await ready();
+    const zoomed = await read();
+    expect(zoomed.viewBox).toBe(canonical.viewBox);
+    expect(zoomed.titleSize).toBe(canonical.titleSize);
+
+    for(const axis of ['x', 'y']){
+      for(const delta of [60, -60]){
+        const before = await read();
+        const handle = root.locator(`.resizer-${axis === 'x' ? 'vertical' : 'horizontal'}`).first();
+        const rect = await handle.boundingBox();
+        expect(rect).toBeTruthy();
+        const start = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        const other = axis === 'x' ? 'height' : 'width';
+        const driven = axis === 'x' ? 'width' : 'height';
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.evaluate(() => {
+          window.__upsetZoomFrames = [];
+          const sample = () => {
+            const svg = document.querySelector('#vennPage:not([hidden]) #stage');
+            const ctm = svg.getScreenCTM();
+            const rect = svg.getBoundingClientRect();
+            window.__upsetZoomFrames.push({ width: rect.width, height: rect.height, scaleX: ctm.a, scaleY: ctm.d });
+            window.__upsetZoomRaf = requestAnimationFrame(sample);
+          };
+          window.__upsetZoomRaf = requestAnimationFrame(sample);
+        });
+        for(let step = 1; step <= 12; step++){
+          await page.mouse.move(start.x + (axis === 'x' ? delta * step / 12 : 0),
+            start.y + (axis === 'y' ? delta * step / 12 : 0));
+          await waitForAnimationFrame(page);
+        }
+        await ready();
+        const during = await read();
+        const frames = await page.evaluate(() => {
+          cancelAnimationFrame(window.__upsetZoomRaf);
+          return window.__upsetZoomFrames;
+        });
+        expect(frames.length).toBeGreaterThan(3);
+        for(const frame of frames){
+          expect(Math.abs(frame[other] - before[other])).toBeLessThanOrEqual(1.5);
+          expect(Math.abs(frame.scaleX - before.scaleX)).toBeLessThan(0.005);
+          expect(Math.abs(frame.scaleY - before.scaleY)).toBeLessThan(0.005);
+        }
+        expect((during[driven] - before[driven]) * Math.sign(delta)).toBeGreaterThan(50);
+        await page.mouse.up();
+        await ready();
+        const after = await read();
+        expect(after.viewBox).toBe(during.viewBox);
+        expect(Math.abs(after.width - during.width)).toBeLessThanOrEqual(1.5);
+        expect(Math.abs(after.height - during.height)).toBeLessThanOrEqual(1.5);
+      }
+    }
+  });
+}

@@ -1,6 +1,9 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  if(!Shared.editableCombobox && typeof require === 'function'){
+    try{ require('./editableCombobox.js'); }catch(err){}
+  }
   if(!Shared.styleUndo && typeof require === 'function'){
     try{ require('./styleUndo.js'); }catch(err){}
   }
@@ -1666,6 +1669,14 @@
         broadcast: true,
         patchKeys
       });
+      dispatchStyleChanged({
+        scopeId: storeContext.scopeId,
+        tabId: storeContext.tabId || null,
+        key: storeContext.key || null,
+        storeKey: storeContext.storeKey || null,
+        patchKeys: patchKeys.slice(),
+        reason: 'font-style-history'
+      });
       if(node === currentTarget){
         syncPanelStateFromTarget();
         updatePreviewFromInputs();
@@ -2640,9 +2651,7 @@
   }
 
   function getVisibleFontMenuOptions(){
-    if(!fontMenuPopup){ return []; }
-    const nodes = fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
-    return Array.from(nodes).filter(node => node.dataset.hidden !== '1' && !node.hidden);
+    return Shared.editableCombobox?.getOptions(fontMenuPopup, '.font-controls-panel__combo-option') || [];
   }
 
   function getActiveFontMenuOption(){
@@ -2654,50 +2663,37 @@
     return null;
   }
 
-  function focusRelativeFontOption(current, delta){
+  function setActiveFontMenuOption(target){
     if(!fontMenuPopup){ return; }
-    const visible = getVisibleFontMenuOptions();
-    if(!visible.length){ return; }
-    const index = visible.indexOf(current);
-    let nextIndex = index;
-    if(index === -1){
-      nextIndex = delta > 0 ? 0 : visible.length - 1;
-    } else {
-      nextIndex = Math.max(0, Math.min(visible.length - 1, index + delta));
-    }
-    const target = visible[nextIndex];
-    if(target){
-      target.focus();
-    }
+    const options = fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    Shared.editableCombobox.setActive(fontInput, options, target, {
+      expanded: fontMenuVisible,
+      activeClass: 'font-controls-panel__combo-option--active'
+    });
   }
 
-  function focusFirstFontOption(){
-    const visible = getVisibleFontMenuOptions();
-    if(visible.length){
-      visible[0].focus();
-    }
+  function moveFontMenuActive(delta){
+    const next = Shared.editableCombobox.moveActive(
+      getVisibleFontMenuOptions(),
+      getActiveFontMenuOption(),
+      delta
+    );
+    if(next){ setActiveFontMenuOption(next); }
   }
 
-  function focusLastFontOption(){
-    const visible = getVisibleFontMenuOptions();
-    if(visible.length){
-      visible[visible.length - 1].focus();
-    }
+  function setFontMenuActiveEdge(edge){
+    const active = Shared.editableCombobox.getEdge(getVisibleFontMenuOptions(), edge);
+    if(active){ setActiveFontMenuOption(active); }
   }
 
   function highlightFontMenuSelection(value){
     if(!fontMenuPopup){ return; }
     const normalized = (value || '').trim().toLowerCase();
-    const options = fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
-    options.forEach(option => {
+    const active = getVisibleFontMenuOptions().find(option => {
       const optionValue = (option.dataset.value || '').trim().toLowerCase();
-      const isActive = optionValue === normalized && (option.dataset.value || '') === (value || '');
-      option.classList.toggle('font-controls-panel__combo-option--active', isActive);
-      option.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      if(isActive && fontMenuVisible && typeof option.scrollIntoView === 'function'){
-        option.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      }
+      return optionValue === normalized && (option.dataset.value || '') === (value || '');
     });
+    setActiveFontMenuOption(active || null);
   }
 
   function filterFontMenuOptions(query){
@@ -2754,25 +2750,27 @@
     if(fontInput){
       fontInput.setAttribute('aria-expanded', 'true');
     }
-    filterFontMenuOptions(fontInput?.value || '');
+    // The current value can be a full CSS fallback stack, not a search query.
+    // Show the complete list on open; typing still filters it through the input handler.
+    filterFontMenuOptions('');
     highlightFontMenuSelection(fontInput?.value || '');
     attachFontMenuDismissWatcher();
     refreshOpenComboMenuPlacement('font-open');
     attachComboMenuViewportWatcher();
     const focusMode = meta?.focusOption || null;
-    if(focusMode){
-      if(focusMode === 'first'){
-        focusFirstFontOption();
-      } else if(focusMode === 'last'){
-        focusLastFontOption();
-      } else if(focusMode === 'active'){
-        const active = getActiveFontMenuOption();
-        if(active){
-          active.focus();
-        } else {
-          focusFirstFontOption();
-        }
+    if(focusMode && fontInput){
+      try {
+        fontInput.focus({ preventScroll: true });
+      } catch(focusErr){
+        fontInput.focus();
       }
+    }
+    if(focusMode === 'first'){
+      setFontMenuActiveEdge('first');
+    } else if(focusMode === 'last'){
+      setFontMenuActiveEdge('last');
+    } else if(focusMode === 'active' && !getActiveFontMenuOption()){
+      setFontMenuActiveEdge('first');
     }
     // Defer any local font hydration to avoid blocking menu open.
     if(typeof hydrateLocalFonts === 'function' && !meta?.skipHydrate){
@@ -2846,11 +2844,13 @@
       clearComboMenuFloating(popup);
       return;
     }
+    const isFontFamilyMenu = popup === fontMenuPopup;
+    const anchorWidth = Math.ceil(anchor.getBoundingClientRect?.().width || 0);
     const positioned = Shared.toolbarOverflow?.positionPopup?.(popup, anchor, {
       align: 'start',
       offset: -1,
-      minWidth: 80,
-      matchAnchorWidth: true,
+      minWidth: isFontFamilyMenu ? Math.max(260, anchorWidth + 40) : 80,
+      matchAnchorWidth: !isFontFamilyMenu,
       maxHeight: 220,
       zIndex: 12050
     }) === true;
@@ -2931,52 +2931,46 @@
   }
 
   function getVisibleSizeOptions(){
-    if(!sizeMenuPopup){ return []; }
-    const nodes = sizeMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
-    return Array.from(nodes).filter(node => node.dataset.hidden !== '1' && !node.hidden);
+    return Shared.editableCombobox?.getOptions(sizeMenuPopup, '.font-controls-panel__combo-option') || [];
   }
 
-  function focusRelativeSizeOption(current, delta){
+  function setActiveSizeMenuOption(target){
     if(!sizeMenuPopup){ return; }
-    const visible = getVisibleSizeOptions();
-    if(!visible.length){ return; }
-    const index = visible.indexOf(current);
-    if(index === -1){
-      const first = delta > 0 ? visible[0] : visible[visible.length - 1];
-      if(first){ first.focus(); }
-      return;
-    }
-    const nextIndex = Math.min(Math.max(0, index + delta), visible.length - 1);
-    visible[nextIndex].focus();
+    const options = sizeMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    Shared.editableCombobox.setActive(sizeInput, options, target, {
+      expanded: sizeMenuVisible,
+      activeClass: 'font-controls-panel__combo-option--active'
+    });
   }
 
-  function focusFirstSizeOption(){
-    const visible = getVisibleSizeOptions();
-    if(visible.length){
-      visible[0].focus();
-    }
+  function getActiveSizeMenuOption(){
+    if(!sizeMenuPopup){ return null; }
+    const active = sizeMenuPopup.querySelector('.font-controls-panel__combo-option--active');
+    return active && active.dataset.hidden !== '1' && !active.hidden ? active : null;
   }
 
-  function focusLastSizeOption(){
-    const visible = getVisibleSizeOptions();
-    if(visible.length){
-      visible[visible.length - 1].focus();
-    }
+  function moveSizeMenuActive(delta){
+    const next = Shared.editableCombobox.moveActive(
+      getVisibleSizeOptions(),
+      getActiveSizeMenuOption(),
+      delta
+    );
+    if(next){ setActiveSizeMenuOption(next); }
+  }
+
+  function setSizeMenuActiveEdge(edge){
+    const active = Shared.editableCombobox.getEdge(getVisibleSizeOptions(), edge);
+    if(active){ setActiveSizeMenuOption(active); }
   }
 
   function highlightSizeMenuSelection(value){
     if(!sizeMenuPopup){ return; }
     const normalized = formatFontSizeToken(value);
-    const options = sizeMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
-    options.forEach(option => {
+    const active = getVisibleSizeOptions().find(option => {
       const optionValue = option.dataset.value || '';
-      const isActive = normalized && optionValue && formatFontSizeToken(optionValue) === normalized;
-      option.classList.toggle('font-controls-panel__combo-option--active', isActive);
-      option.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      if(isActive && sizeMenuVisible && typeof option.scrollIntoView === 'function'){
-        option.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      }
+      return normalized && optionValue && formatFontSizeToken(optionValue) === normalized;
     });
+    setActiveSizeMenuOption(active || null);
   }
 
   function openSizeMenu(trigger, meta){
@@ -2995,22 +2989,19 @@
     refreshOpenComboMenuPlacement('size-open');
     attachComboMenuViewportWatcher();
     const focusMode = meta?.focusOption || null;
-    if(focusMode){
-      const focusTask = () => {
-        if(focusMode === 'first'){
-          focusFirstSizeOption();
-        } else if(focusMode === 'last'){
-          focusLastSizeOption();
-        } else if(focusMode === 'active'){
-          const active = sizeMenuPopup.querySelector('.font-controls-panel__combo-option--active');
-          if(active){
-            active.focus();
-          } else {
-            focusFirstSizeOption();
-          }
-        }
-      };
-      setTimeout(focusTask, 0);
+    if(focusMode && sizeInput){
+      try {
+        sizeInput.focus({ preventScroll: true });
+      } catch(focusErr){
+        sizeInput.focus();
+      }
+    }
+    if(focusMode === 'first'){
+      setSizeMenuActiveEdge('first');
+    } else if(focusMode === 'last'){
+      setSizeMenuActiveEdge('last');
+    } else if(focusMode === 'active' && !getActiveSizeMenuOption()){
+      setSizeMenuActiveEdge('first');
     }
     logDebug('size menu opened', {
       trigger: trigger || 'unknown',
@@ -4692,6 +4683,8 @@
     fontInput.className = 'font-controls-panel__input font-controls-panel__input--combo';
     fontInput.placeholder = 'Match chart default or type a font';
     fontInput.setAttribute('aria-label', 'Font family');
+    fontInput.setAttribute('role', 'combobox');
+    fontInput.setAttribute('aria-autocomplete', 'list');
     const datalistId = 'font-controls-defaults';
     const menuId = 'font-controls-font-menu';
     // Intentionally omit the native datalist to avoid the default suggestion bubble;
@@ -4738,7 +4731,7 @@
     // but rely on inline autocompletion for suggestions.
     fontMenuPopup = doc.createElement('div');
     fontMenuPopup.id = menuId;
-    fontMenuPopup.className = 'font-controls-panel__combo-menu';
+    fontMenuPopup.className = 'font-controls-panel__combo-menu font-controls-panel__combo-menu--font-family';
     fontMenuPopup.setAttribute('role', 'listbox');
     fontMenuPopup.setAttribute('aria-label', 'Common fonts');
     fontMenuPopup.hidden = true;
@@ -4749,6 +4742,7 @@
     fontMenuEmptyState.hidden = true;
     fontMenuPopup.appendChild(fontMenuEmptyState);
 
+    let fontMenuOptionSequence = 0;
     appendFontOption = (fontName, opts) => {
       const normalized = normalizeFontName(fontName);
       if(!normalized || !fontDatalist || !fontMenuPopup){ return false; }
@@ -4860,12 +4854,14 @@
       const optionBtn = doc.createElement('button');
       optionBtn.type = 'button';
       optionBtn.className = 'font-controls-panel__combo-option';
+      optionBtn.id = `${menuId}-option-${fontMenuOptionSequence++}`;
       optionBtn.dataset.value = value || '';
       optionBtn.dataset.label = label || '';
       optionBtn.dataset.hidden = '0';
       optionBtn.textContent = label || 'Match chart default';
       optionBtn.setAttribute('role', 'option');
       optionBtn.setAttribute('tabindex', '-1');
+      optionBtn.setAttribute('aria-selected', 'false');
       optionBtn.addEventListener('mousedown', (evt) => {
         evt.preventDefault();
       });
@@ -4879,34 +4875,6 @@
           } catch(focusErr){
             fontInput.focus();
           }
-        }
-      });
-      optionBtn.addEventListener('keydown', (evt) => {
-        if(evt.key === 'ArrowDown'){
-          evt.preventDefault();
-          focusRelativeFontOption(optionBtn, 1);
-        } else if(evt.key === 'ArrowUp'){
-          evt.preventDefault();
-          focusRelativeFontOption(optionBtn, -1);
-        } else if(evt.key === 'Home'){
-          evt.preventDefault();
-          focusFirstFontOption();
-        } else if(evt.key === 'End'){
-          evt.preventDefault();
-          focusLastFontOption();
-        } else if(evt.key === 'Escape'){
-          evt.preventDefault();
-          closeFontMenu('menu-escape');
-          if(fontInput){
-            try {
-              fontInput.focus({ preventScroll: true });
-            } catch(focusErr){
-              fontInput.focus();
-            }
-          }
-        } else if(evt.key === ' ' || evt.key === 'Enter'){
-          evt.preventDefault();
-          optionBtn.click();
         }
       });
       if(value){
@@ -4984,6 +4952,8 @@
     sizeInput.setAttribute('autocomplete', 'off');
     sizeInput.className = 'font-controls-panel__input font-controls-panel__input--combo font-controls-panel__input--number font-controls-panel__input--size';
     sizeInput.setAttribute('aria-label', 'Font size');
+    sizeInput.setAttribute('role', 'combobox');
+    sizeInput.setAttribute('aria-autocomplete', 'list');
     sizeInput.setAttribute('aria-haspopup', 'listbox');
     sizeInput.setAttribute('aria-expanded', 'false');
     const sizeMenuId = 'font-controls-size-menu';
@@ -5015,16 +4985,19 @@
     sizeMenuPopup.hidden = true;
     sizeComboWrapper.appendChild(sizeMenuPopup);
 
+    let sizeMenuOptionSequence = 0;
     function createSizeMenuOption(value){
       const normalizedValue = formatFontSizeToken(value);
       const optionBtn = doc.createElement('button');
       optionBtn.type = 'button';
       optionBtn.className = 'font-controls-panel__combo-option';
+      optionBtn.id = `${sizeMenuId}-option-${sizeMenuOptionSequence++}`;
       optionBtn.dataset.value = normalizedValue;
       optionBtn.dataset.label = normalizedValue;
       optionBtn.textContent = normalizedValue;
       optionBtn.setAttribute('role', 'option');
       optionBtn.setAttribute('tabindex', '-1');
+      optionBtn.setAttribute('aria-selected', 'false');
       optionBtn.addEventListener('mousedown', (evt) => {
         evt.preventDefault();
       });
@@ -5037,36 +5010,6 @@
           sizeInput.focus({ preventScroll: true });
         } catch(focusErr){
           sizeInput.focus();
-        }
-      });
-      optionBtn.addEventListener('keydown', (evt) => {
-        if(evt.key === 'ArrowDown'){
-          evt.preventDefault();
-          focusRelativeSizeOption(optionBtn, 1);
-        } else if(evt.key === 'ArrowUp'){
-          evt.preventDefault();
-          focusRelativeSizeOption(optionBtn, -1);
-        } else if(evt.key === 'Home'){
-          evt.preventDefault();
-          focusFirstSizeOption();
-        } else if(evt.key === 'End'){
-          evt.preventDefault();
-          focusLastSizeOption();
-        } else if(evt.key === 'Escape'){
-          if(sizeMenuVisible){
-            evt.preventDefault();
-            closeSizeMenu('menu-escape');
-            if(sizeInput){
-              try {
-                sizeInput.focus({ preventScroll: true });
-              } catch(focusErr){
-                sizeInput.focus();
-              }
-            }
-          }
-        } else if(evt.key === ' ' || evt.key === 'Enter'){
-          evt.preventDefault();
-          optionBtn.click();
         }
       });
       return optionBtn;
@@ -5154,7 +5097,7 @@
     alignmentField.setAttribute('aria-label', 'Text alignment');
     const alignmentLabel = doc.createElement('span');
     alignmentLabel.className = 'font-controls-panel__field-label additional-line-controls-panel__field-label';
-    alignmentLabel.textContent = 'Align';
+    alignmentLabel.textContent = 'Alignment';
     const alignmentRow = doc.createElement('div');
     alignmentRow.className = 'font-controls-panel__alignment-buttons';
     alignmentButtons = Object.create(null);
@@ -5231,7 +5174,7 @@
     controlsRow.appendChild(legendBorderFieldEl);
 
     const legendPatternParts = toolbarApi.createLinePatternField({
-      label: 'Style',
+      label: 'Pattern',
       fieldClass: 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--legend-pattern',
       labelClass: 'font-controls-panel__field-label additional-line-controls-panel__field-label',
       selectClass: 'font-controls-panel__input additional-line-controls-panel__input additional-line-controls-panel__input--select',
@@ -5581,19 +5524,35 @@
     fontInput.addEventListener('keydown', (evt) => {
       if(evt.key === 'ArrowDown'){
         evt.preventDefault();
-        openFontMenu('input-arrow', { focusOption: 'active' });
+        if(fontMenuVisible){
+          moveFontMenuActive(1);
+        }else{
+          openFontMenu('input-arrow', { focusOption: 'active' });
+        }
       } else if(evt.key === 'ArrowUp'){
         evt.preventDefault();
-        openFontMenu('input-arrow', { focusOption: 'last' });
+        if(fontMenuVisible){
+          moveFontMenuActive(-1);
+        }else{
+          openFontMenu('input-arrow', { focusOption: 'last' });
+        }
+      } else if(evt.key === 'Home' && fontMenuVisible){
+        evt.preventDefault();
+        setFontMenuActiveEdge('first');
+      } else if(evt.key === 'End' && fontMenuVisible){
+        evt.preventDefault();
+        setFontMenuActiveEdge('last');
       } else if(evt.key === 'Escape' && fontMenuVisible){
         evt.preventDefault();
         closeFontMenu('input-escape');
-      } else if((evt.key === 'Enter' || evt.key === 'Tab') && fontMenuVisible){
+      } else if(evt.key === 'Enter' && fontMenuVisible){
         const activeOption = getActiveFontMenuOption();
         if(activeOption){
           evt.preventDefault();
           activeOption.click();
         }
+      } else if(evt.key === 'Tab' && fontMenuVisible){
+        closeFontMenu('input-tab');
       }
     });
 
@@ -5787,6 +5746,41 @@
       logDebug('sizeInput input preview', { value: sizeInput.value, wheelLive });
     });
 
+    sizeInput.addEventListener('keydown', (evt) => {
+      if(evt.key === 'ArrowDown'){
+        evt.preventDefault();
+        if(sizeMenuVisible){
+          moveSizeMenuActive(1);
+        }else{
+          openSizeMenu('input-arrow', { focusOption: 'active' });
+        }
+      } else if(evt.key === 'ArrowUp'){
+        evt.preventDefault();
+        if(sizeMenuVisible){
+          moveSizeMenuActive(-1);
+        }else{
+          openSizeMenu('input-arrow', { focusOption: 'last' });
+        }
+      } else if(evt.key === 'Home' && sizeMenuVisible){
+        evt.preventDefault();
+        setSizeMenuActiveEdge('first');
+      } else if(evt.key === 'End' && sizeMenuVisible){
+        evt.preventDefault();
+        setSizeMenuActiveEdge('last');
+      } else if(evt.key === 'Escape' && sizeMenuVisible){
+        evt.preventDefault();
+        closeSizeMenu('input-escape');
+      } else if(evt.key === 'Enter' && sizeMenuVisible){
+        const activeOption = getActiveSizeMenuOption();
+        if(activeOption){
+          evt.preventDefault();
+          activeOption.click();
+        }
+      } else if(evt.key === 'Tab' && sizeMenuVisible){
+        closeSizeMenu('input-tab');
+      }
+    });
+
     const toggleHandler = (btn, attr, activeValue, propKey, options) => {
       if(!btn){ return; }
       const config = options || {};
@@ -5924,7 +5918,7 @@
     });
 
     doc.addEventListener('keydown', (evt) => {
-      if(evt.key === 'Escape'){ closePanel('escape'); }
+      if(evt.key === 'Escape' && !evt.defaultPrevented){ closePanel('escape'); }
     });
 
     doc.addEventListener('click', (evt) => {
@@ -6109,31 +6103,10 @@
       if(activeHost && activeHost !== host){
         hideToolbarHost(activeHost);
       }
-      // remove any per-component toolbar form nodes from this host so the
-      // font panel does not share the same host DOM with component controls.
-      try{
-        const removableSelector = coexistWithComponent
-          ? '.workspace-toolbar__panel--symbol, .additional-line-controls-panel:not(.significance-controls-panel), .grid-controls-panel'
-          : '.workspace-toolbar__panel--symbol, .additional-line-controls-panel, .grid-controls-panel';
-        host.querySelectorAll(removableSelector).forEach(node => {
-          if(node === panelEl){ return; }
-          try{ node.remove(); }catch(e){}
-        });
-        const removable = host.querySelectorAll('.workspace-toolbar__form, [data-point-controls="1"]');
-        removable.forEach(node => {
-          const parentPanel = node.closest ? node.closest('.workspace-toolbar__panel') : null;
-          if(parentPanel && parentPanel !== panelEl){
-            try{ parentPanel.remove(); }catch(e){}
-            return;
-          }
-          if(node !== panelEl){
-            try{ node.remove(); }catch(e){}
-          }
-        });
-      }catch(e){}
-      if(panelEl.parentElement !== host){
-        host.appendChild(panelEl);
-      }
+      const companionPanels = coexistWithComponent
+        ? Array.from(host.children).filter(child => child.matches('.significance-controls-panel, .heatmap-palette-controls-panel'))
+        : [];
+      Shared.getWorkspaceToolbarApi().mountPanels(host, [...companionPanels, panelEl]);
       activeHost = host;
       showToolbarHost(host);
       if(coexistWithComponent){
@@ -6250,6 +6223,8 @@
       }
     }
     if(!target || target.tagName?.toLowerCase() !== 'text'){ return; }
+    // Significance labels open their combined comparison/font controls at the target.
+    if(target.dataset?.significanceControl === '1'){ return; }
     frameGroup = frameGroup || resolveLegendFrameGroupFromTarget(target);
     const isFrameText = !!frameGroup;
     const editableFlag = target.dataset?.fontEditable
@@ -6455,7 +6430,23 @@
     return true;
   }
 
+  function deactivateTab(tabLike, meta = {}){
+    const tabToken = sanitizeTabToken(meta?.tabId || tabLike?.id || tabLike);
+    if(!tabToken){ return false; }
+    const activeTabToken = sanitizeTabToken(
+      currentTarget?.dataset?.fontTabId
+      || activeHost?.dataset?.workspaceTabId
+      || panelEl?.dataset?.workspaceTabId
+      || null
+    );
+    if(activeTabToken !== tabToken){ return false; }
+    closePanel(meta?.reason || 'owner-deactivation');
+    logDebug('deactivateTab complete', { tabToken, reason: meta?.reason || 'owner-deactivation' });
+    return true;
+  }
+
   fontControls.disposeTab = disposeTab;
+  fontControls.deactivateTab = deactivateTab;
   try{
     Shared.workspaceTabs?.registerSharedControlDisposer?.(FONT_CONTROLS_STATE_KEY, disposeTab);
   }catch(_err){}

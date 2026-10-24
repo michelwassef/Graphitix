@@ -2,7 +2,6 @@
 
 const REVIEWED_PARTIAL_BOOTSTRAPS = Object.freeze({
   '__tests__/architecture/box.referenceStats.contract.test.js': 'injects jStat and replaces the worker module with a VM fixture',
-  '__tests__/dom/pca.preprocessing.test.js': 'isolates preprocessing helpers with a minimal shared namespace',
   '__tests__/dom/hist.drawableFrame.test.js': 'supplies only the layout contract needed by the frame test',
   '__tests__/dom/hist.panel-layout.test.js': 'uses a deterministic chartStyle measurement double',
   '__tests__/dom/hist.schedulerOwnership.test.js': 'isolates the lifecycle scheduler contract',
@@ -12,11 +11,10 @@ const REVIEWED_PARTIAL_BOOTSTRAPS = Object.freeze({
   '__tests__/unit/roc.classificationSetup.test.js': 'isolates the ROC normalization contract with the lifecycle dependency only',
   '__tests__/dom/roc.statistics.standard.test.js': 'loads the statistical primitives explicitly for numerical tests',
   '__tests__/unit/resampling.contract.test.js': 'loads the statistical primitives explicitly for seeded ROC resampling tests',
-  '__tests__/unit/scatter.pointContextMenuSelection.test.js': 'tests a pure selection helper without a DOM bootstrap',
   '__tests__/unit/scatter.pointStyleOverrides.test.js': 'tests style resolution with intentionally minimal globals',
-  '__tests__/unit/scatter.regressionOverlayRange.test.js': 'tests a pure regression-bound helper with intentionally minimal globals',
   '__tests__/unit/stats.audit.remediation.components.test.js': 'uses a reviewed cross-component statistical fixture with explicit shared dependencies',
   '__tests__/statistical-oracle/stats.extended.coverage.test.js': 'uses a reviewed cross-component statistical fixture with explicit shared dependencies',
+  '__tests__/statistical-oracle/stats.component.differential.edges.test.js': 'loads the Heatmap component beside shared primitives to compare its correlation hook against Python SciPy',
   '__tests__/unit/line.model.test.js': 'isolates Line model helpers with a chartStyle test double'
   ,'__tests__/unit/box.indexedStylesModel.test.js': 'tests the pure Box transformation model directly without bootstrapping the component'
 });

@@ -311,6 +311,13 @@
     if(!doc){ return null; }
     const anchor = typeof cfg.anchorId === 'string' ? doc.getElementById(cfg.anchorId) : cfg.anchor;
     if(!anchor){ return null; }
+    const ownerTabId = resolveOwnerTabId(cfg, anchor);
+    if(ownerTabId){
+      Shared.workspaceToolbar?.finishTabOwnedNumericDrag?.(ownerTabId, {
+        commit: true,
+        reason: 'symbol-toolbar-replaced'
+      });
+    }
     const hostOverride = cfg.host && cfg.host.nodeType === 1 ? cfg.host : null;
     const host = hostOverride || ensureToolbarHost(anchor, cfg.scopeId, doc);
     if(!host){ return null; }
@@ -320,9 +327,6 @@
       resetHostPresentation(host, { keepVisible: false });
     }
     hideOtherVisibleHosts(host, doc);
-    if(shouldClearHost){
-      host.innerHTML = '';
-    }
 
     const panelTitleText = typeof cfg.panelTitle === 'string' && cfg.panelTitle.trim()
       ? cfg.panelTitle.trim()
@@ -995,7 +999,7 @@
     const fillShapeSwatch = typeof Shared.createShapeColorSwatch === 'function'
       ? Shared.createShapeColorSwatch({
           document: doc,
-          label: fillCfg.label || 'Fill/Shape',
+          label: fillCfg.label || 'Fill / shape',
           color: typeof fillCfg.getColor === 'function' ? fillCfg.getColor(getContext()) : '#0000ff',
           shape: typeof fillCfg.getShape === 'function' ? fillCfg.getShape(getContext()) : 'circle',
           shapeOptions: resolveShapeOptions(fillCfg.shapeOptions),
@@ -1117,36 +1121,13 @@
       if(sizeEnabled && sizeWheelInput && typeof toolbarApi.bindNumericWheelProxy === 'function'){
         toolbarApi.bindNumericWheelProxy(fillShapeSwatch.swatch, sizeWheelInput);
       }
-      let fillDragState = null;
       let suppressClick = false;
-      const onMove = evt => {
-        if(!fillDragState){ return; }
-        const deltaX = evt.clientX - fillDragState.startX;
-        const steps = Math.round(deltaX / 8);
-        if(steps === fillDragState.lastSteps){ return; }
-        fillDragState.lastSteps = steps;
-        fillDragState.moved = true;
-        const dragStep = Number(sizeWheelInput?.step) || 0.5;
-        sizeNumericInteraction.input(fillDragState.startValue + (steps * dragStep));
-      };
-      const onUp = () => {
-        if(!fillDragState){ return; }
-        const shouldCommit = fillDragState.moved === true;
-        fillDragState = null;
-        if(shouldCommit){
-          sizeNumericInteraction.change(currentSize);
-        }
-        global.removeEventListener('mousemove', onMove);
-        global.removeEventListener('mouseup', onUp);
-      };
       if(sizeEnabled){
-        fillShapeSwatch.swatch.addEventListener('mousedown', evt => {
-          if(!evt.altKey || evt.button !== 0){ return; }
-          evt.preventDefault();
-          suppressClick = true;
-          fillDragState = { startX: evt.clientX, startValue: currentSize, lastSteps: 0, moved: false };
-          global.addEventListener('mousemove', onMove);
-          global.addEventListener('mouseup', onUp);
+        toolbarApi.bindTabOwnedNumericDrag(fillShapeSwatch.swatch, sizeWheelInput, {
+          resolveOwner: () => ownerTabId ? { tabId: ownerTabId, token: cfg } : null,
+          onStart: () => { suppressClick = true; },
+          calculateValue: ({ startValue, deltaX, step }) =>
+            startValue + (Math.round(deltaX / 8) * step)
         });
       }
       fillShapeSwatch.swatch.addEventListener('click', evt => {
@@ -1223,34 +1204,19 @@
     if(borderWheelInput && typeof toolbarApi.bindNumericWheelProxy === 'function'){
       toolbarApi.bindNumericWheelProxy(borderChip, borderWheelInput);
     }
-    let borderDragState = null;
-    const onBorderMove = evt => {
-      if(!borderDragState){ return; }
-      const deltaX = evt.clientX - borderDragState.startX;
-      const steps = Math.round(deltaX / 8);
-      if(steps === borderDragState.lastSteps){ return; }
-      borderDragState.lastSteps = steps;
-      borderDragState.moved = true;
-      const dragStep = Number(borderWheelInput?.step) || 0.5;
-      borderWidthNumericInteraction.input(borderDragState.startValue + (steps * dragStep));
-    };
-    const onBorderUp = () => {
-      if(!borderDragState){ return; }
-      const shouldCommit = borderDragState.moved === true;
-      borderDragState = null;
-      if(shouldCommit){
-        borderWidthNumericInteraction.change(currentBorderWidth);
-      }
-      global.removeEventListener('mousemove', onBorderMove);
-      global.removeEventListener('mouseup', onBorderUp);
-    };
-    borderChip.addEventListener('mousedown', evt => {
-      if(!evt.altKey || evt.button !== 0){ return; }
-      evt.preventDefault();
-      borderDragState = { startX: evt.clientX, startValue: currentBorderWidth, lastSteps: 0, moved: false };
-      global.addEventListener('mousemove', onBorderMove);
-      global.addEventListener('mouseup', onBorderUp);
+    let suppressBorderClick = false;
+    toolbarApi.bindTabOwnedNumericDrag(borderChip, borderWheelInput, {
+      resolveOwner: () => ownerTabId ? { tabId: ownerTabId, token: cfg } : null,
+      onStart: () => { suppressBorderClick = true; },
+      calculateValue: ({ startValue, deltaX, step }) =>
+        startValue + (Math.round(deltaX / 8) * step)
     });
+    borderChip.addEventListener('click', evt => {
+      if(!suppressBorderClick){ return; }
+      suppressBorderClick = false;
+      evt.preventDefault();
+      evt.stopPropagation();
+    }, true);
 
     let borderPickerCleanup = null;
     if(typeof Shared.openColorPicker === 'function'){
@@ -1399,13 +1365,16 @@
     });
 
     panel.appendChild(wrap);
-    host.appendChild(panel);
+    toolbarApi.mountPanels(host, [panel], {
+      appendToHost: !shouldClearHost,
+      clearHost: shouldClearHost
+    });
     if(typeof cfg.hostClass === 'string' && cfg.hostClass.trim()){
       host.classList.add(cfg.hostClass.trim());
     }
     if(toolbarApi && typeof toolbarApi.showHost === 'function'){
       toolbarApi.showHost(host, {
-        ownerTabId: resolveOwnerTabId(cfg, anchor),
+        ownerTabId,
         hostClasses: [typeof cfg.hostClass === 'string' ? cfg.hostClass.trim() : ''].filter(Boolean)
       });
       const requestedDisplay = (typeof cfg.hostDisplay === 'string' && cfg.hostDisplay.trim())

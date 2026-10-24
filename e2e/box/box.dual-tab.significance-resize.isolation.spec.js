@@ -124,6 +124,75 @@ async function dragActiveBoxWidthHandle(page, deltaX) {
   await page.mouse.up();
 }
 
+test('continuing an SVG resize after a same-type tab switch does not change the new owner', async ({ page }) => {
+  test.setTimeout(150_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+
+  const beforeFirst = new Set(await getWorkspaceTabIds(page));
+  await openBoxTab(page, { first: true });
+  const firstId = (await getWorkspaceTabIds(page)).find(id => !beforeFirst.has(id));
+  const beforeSecond = new Set(await getWorkspaceTabIds(page));
+  await openBoxTab(page);
+  const secondId = (await getWorkspaceTabIds(page)).find(id => !beforeSecond.has(id));
+  expect(firstId).toBeTruthy();
+  expect(secondId).toBeTruthy();
+
+  await activateTabById(page, firstId);
+  const handle = page.locator('#boxPage:not([hidden]) #boxGraphPanel .svgbox .resizer-vertical').first();
+  await expect(handle).toBeVisible({ timeout: 15_000 });
+  const bounds = await handle.boundingBox();
+  expect(bounds).toBeTruthy();
+  const startX = bounds.x + bounds.width / 2;
+  const startY = bounds.y + bounds.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 24, startY, { steps: 4 });
+  const firstOwnerSizeAfterInitialMove = await page.evaluate(id => {
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id, 'box');
+    const box = root?.querySelector?.('#boxGraphPanel .svgbox');
+    return box?.dataset?.resizerWidth || box?.style?.width || '';
+  }, firstId);
+  await page.evaluate(id => window.Main?.tabs?.activateTab?.(id, { reason: 'e2e-resize-switch-while-dragging' }), secondId);
+  await waitForComponentOwnerReady(page, 'box', {
+    expectedTabId: secondId,
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
+  await page.evaluate(id => {
+    const owner = window.Components?.box?.__testHooks?.getSession?.(id, { create: false });
+    if (!owner?.state) throw new Error('Missing second Box owner session');
+    owner.state.results ||= {};
+    owner.state.results.significance = {
+      ...(owner.state.results.significance || {}),
+      restoredSignificanceGeometryLock: true,
+      restoredSignificanceGeometry: { version: 2, reserves: { significancePx: 12 } }
+    };
+  }, secondId);
+
+  await page.mouse.move(startX + 48, startY, { steps: 4 });
+  const firstOwnerSizeAfterSwitchedMove = await page.evaluate(id => {
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id, 'box');
+    const box = root?.querySelector?.('#boxGraphPanel .svgbox');
+    return box?.dataset?.resizerWidth || box?.style?.width || '';
+  }, firstId);
+  await waitForComponentOwnerReady(page, 'box', {
+    expectedTabId: secondId,
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
+  expect(firstOwnerSizeAfterSwitchedMove).toBe(firstOwnerSizeAfterInitialMove);
+  const secondOwnerLock = await page.evaluate(id => {
+    const owner = window.Components?.box?.__testHooks?.getSession?.(id, { create: false });
+    return owner?.state?.results?.significance?.restoredSignificanceGeometryLock === true;
+  }, secondId);
+  expect(secondOwnerLock).toBe(true);
+  await page.mouse.up();
+});
+
 async function setPairwiseComparisons(page, enabled) {
   const toggle = page.locator('#boxShowSignificance');
   await expect(toggle).toBeVisible({ timeout: 15_000 });

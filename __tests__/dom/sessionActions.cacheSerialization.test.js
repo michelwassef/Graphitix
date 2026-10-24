@@ -6,11 +6,17 @@ describe('sessionActions — render-cache serialization', () => {
   test('serializes the active cache captured by the shared session checkpoint owner', async () => {
     const sessionActions = installSessionActions();
     const serializedCache = {
-      __graphitixRenderCache: { tabId: 'tab-1', type: 'scatter', complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: 'tab-1', type: 'scatter', complete: true
+      },
       plot: { fragment: { kind: 'element', markup: '<svg></svg>' } }
     };
     const capturedCache = {
-      __graphitixRenderCache: { tabId: 'tab-1', type: 'scatter', complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: 'tab-1', type: 'scatter', complete: true
+      },
       plot: { fragment: document.createDocumentFragment(), count: 1 }
     };
     let archiveRequest = null;
@@ -65,19 +71,31 @@ describe('sessionActions — render-cache serialization', () => {
   test('serializes inactive tab render cache from in-memory cache without invoking live capture', async () => {
     const sessionActions = installSessionActions();
     const serializedCache = {
-      __graphitixRenderCache: { tabId: 'tab-1', type: 'scatter', complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: 'tab-1', type: 'scatter', complete: true
+      },
       plot: { kind: 'scatter' }
     };
     const capturedCache = {
-      __graphitixRenderCache: { tabId: 'tab-1', type: 'scatter', complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: 'tab-1', type: 'scatter', complete: true
+      },
       plot: { fragment: document.createDocumentFragment(), count: 1 }
     };
     const boxSerializedCache = {
-      __graphitixRenderCache: { tabId: 'tab-2', type: 'box', complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: 'tab-2', type: 'box', complete: true
+      },
       plot: { kind: 'box' }
     };
     const boxCachedFragment = {
-      __graphitixRenderCache: { tabId: 'tab-2', type: 'box', complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: 'tab-2', type: 'box', complete: true
+      },
       plot: { fragment: document.createDocumentFragment(), count: 2 }
     };
     let archiveRequest = null;
@@ -190,7 +208,13 @@ describe('sessionActions — render-cache serialization', () => {
   test('serializes an inactive archive-ready checkpoint after its warm runtime cache was pruned', async () => {
     const sessionActions = installSessionActions();
     const archiveReadyCache = {
-      __graphitixRenderCache: { tabId: 'tab-2', component: 'box', complete: true },
+      __graphitixRenderCache: {
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+        tabId: 'tab-2',
+        component: 'box',
+        type: 'box',
+        complete: true
+      },
       plot: { kind: 'box', owner: 'tab-2' }
     };
     let archiveRequest = null;
@@ -257,6 +281,58 @@ describe('sessionActions — render-cache serialization', () => {
     expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBe('box-layout-sig');
   });
 
+  test('does not carry an unsupported archived cache into a new save', async () => {
+    const sessionActions = installSessionActions();
+    let archiveRequest = null;
+    window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
+      archiveRequest = request;
+      return new Blob(['zip'], { type: 'application/zip' });
+    });
+    const context = createContext();
+    const activeTab = context.workspaceState.tabs[0];
+    activeTab.payloadSignature = 'scatter-payload-sig';
+    activeTab.layoutSignature = 'scatter-layout-sig';
+    const legacyTab = {
+      id: 'tab-2',
+      title: 'Distribution Charts',
+      type: 'box',
+      isWelcome: false,
+      payload: { type: 'box', data: [[3, 4, 'B']] },
+      layoutState: { component: 'box', width: 468, height: 456 },
+      payloadSignature: 'box-payload-sig',
+      layoutSignature: 'box-layout-sig',
+      archiveRenderCache: {
+        __graphitixRenderCache: {
+          version: 2,
+          tabId: 'tab-2',
+          component: 'box',
+          type: 'box',
+          complete: true
+        },
+        plot: { kind: 'legacy-box-cache' }
+      },
+      archiveRenderCacheSignature: 'box-payload-sig',
+      archiveRenderCacheLayoutSignature: 'box-layout-sig'
+    };
+    context.workspaceState.tabs.push(legacyTab);
+    context.session.serializeRenderCacheForArchive = jest.fn(cache => cache);
+    const inactiveCapture = jest.fn();
+    context.workspaces = { scatter: {}, box: { captureRenderCache: inactiveCapture } };
+
+    await sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      snapshotKind: 'archive-save',
+      captureRenderCacheBeforeSnapshot: false,
+      reason: 'unsupported-legacy-render-cache'
+    });
+
+    expect(inactiveCapture).not.toHaveBeenCalled();
+    expect(context.session.serializeRenderCacheForArchive).not.toHaveBeenCalled();
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCache).toBeNull();
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheSignature).toBeNull();
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBeNull();
+  });
+
   test('recovery checkpoints embed an exact existing render cache without recapturing it', async () => {
     const sessionActions = installSessionActions();
     let archiveRequest = null;
@@ -267,7 +343,10 @@ describe('sessionActions — render-cache serialization', () => {
     const context = createContext();
     const activeTab = context.workspaceState.tabs[0];
     const exactCache = {
-      __graphitixRenderCache: { tabId: activeTab.id, type: activeTab.type, complete: true },
+        __graphitixRenderCache: {
+          version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
+          tabId: activeTab.id, type: activeTab.type, complete: true
+        },
       plot: { stable: true }
     };
     activeTab.payloadSignature = 'payload-sig';
@@ -314,7 +393,7 @@ describe('sessionActions — render-cache serialization', () => {
     activeTab.renderCache = {
       cache: {
         __graphitixRenderCache: {
-          version: 2,
+          version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
           component: 'scatter',
           type: 'box',
           tabId: activeTab.id,
@@ -391,6 +470,16 @@ describe('sessionActions — render-cache serialization', () => {
 
     const context = createContext();
     const tab = context.workspaceState.tabs[0];
+    const matrixSignature = 'hot-matrix:archive-snapshot:r2:rows2:cols2';
+    const matrix = [['', 'X'], ['p1', 1]];
+    Object.defineProperty(matrix, '__graphitixMatrixSignature', {
+      value: matrixSignature,
+      configurable: true,
+      enumerable: false,
+      writable: true
+    });
+    tab.payload = { type: 'scatter', data: matrix, config: {} };
+    context.session.capturePayloadMatrixSignatures = jest.fn(() => [{ path: ['data'], signature: matrixSignature }]);
     const canonicalPayload = context.session.fastClonePayload(tab.payload);
     const canonicalLayout = context.session.fastClonePayload(tab.layoutState);
     context.session.getActiveTab.mockReturnValue(tab);
@@ -401,6 +490,8 @@ describe('sessionActions — render-cache serialization', () => {
 
     expect(result.status).toBe('saved');
     expect(archiveRequest?.tabs?.[0]?.payload).toStrictEqual(canonicalPayload);
+    expect(archiveRequest?.tabs?.[0]?.matrixSignatures).toEqual([{ path: ['data'], signature: matrixSignature }]);
+    expect(context.session.capturePayloadMatrixSignatures).toHaveBeenCalledWith(tab.payload);
     expect(archiveRequest?.tabs?.[0]?.layout).toStrictEqual(canonicalLayout);
     expect(tab.payload).toStrictEqual(canonicalPayload);
     expect(tab.layoutState).toStrictEqual(canonicalLayout);

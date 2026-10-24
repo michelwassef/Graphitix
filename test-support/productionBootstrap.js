@@ -5,6 +5,8 @@ const path = require('path');
 
 const REQUIRED_ORDER = Object.freeze([
   'js/main/session.js',
+  'js/main/workspacePresentation.js',
+  'js/main/workspacePreparation.js',
   'js/main/domControls.js',
   'js/main/sessionActions.js',
   'js/main/tabDrag.js',

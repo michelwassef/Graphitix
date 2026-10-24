@@ -179,6 +179,7 @@ Payloads must remain JSON-serializable. Do not store DOM nodes, functions, class
 ## 9. Shared UI and Data Standards
 
 - Build AG Grid tables through `Shared.hot.createStandardTable` unless a component has a proven special case.
+- Pass a component-specific `ariaLabel` to the shared table factory so every grid has a useful accessible name; dense chart navigation must point to that named grid.
 - Preserve shared clipboard and context-menu behavior, including transposed paste.
 - Route import/export through `Shared.tableImport`, `Shared.fileIO`, `Shared.graphArchive`, and `Shared.exporter`.
 - Use `Shared.dataViews` for derived table views; bind managers to the owning tab.
@@ -292,7 +293,7 @@ Payloads must remain JSON-serializable. Do not store DOM nodes, functions, class
 - Persistence/archive: `fileIO.js`, `graphArchive.js`, `graphArchiveSchema.js`, `dataViewPersistence.js`, `graphSizing.js`.
 - Layout/rendering: `componentLayout.js`, `resizer.js`, `dom.js`, `chartStyle.js`, `plot3d.js`.
 - Tables/data: `hot.js`, `agGridAdapter.js`, `tableImport.js`, `formulaEngine.js`, `dataPipeline.js`, `dataTransforms.js`, `dataViews.js`.
-- Styling/toolbars: `workspaceToolbar.js`, `toolbarOverflow.js`, `fontControls.js`, `axisControls.js`, `symbolToolbar.js`, `gridControls.js`, `significanceControls.js`, `colorSchemes.js`, `publicationStyles.js`.
+- Styling/toolbars/menus: `workspaceToolbar.js`, `toolbarOverflow.js`, `menuKeyboard.js`, `menuPosition.js`, `fontControls.js`, `axisControls.js`, `symbolToolbar.js`, `gridControls.js`, `significanceControls.js`, `colorSchemes.js`, `publicationStyles.js`.
 - Stats/integrations: `stats.js`, `boxStatsModel.js`, `regression.js`, `stats-table.js`, `goAnalysis.js`, `stringAnalysis.js`, `uniprot.js`.
 - Async/performance: `workers.js`, `jobs.js`, `loadingOverlay.js`, `performance.js`, `debounce.js`.
 

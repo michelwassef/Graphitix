@@ -1,5 +1,6 @@
 const { loadProductionBootstrap } = require('../../test-support/productionLoader');
 const { COMPONENT_MUTATION_CATALOG } = require('../../test-support/componentMutationCatalog');
+const { waitForIntegrationOwnerReady } = require('../../test-support/readiness');
 
 describe('Cross-tab graph config isolation (all components)', () => {
   jest.setTimeout(240000);
@@ -137,7 +138,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
   }
 
   function applyPayloadToOwner(workspace, session, tab, payload, source) {
-    workspace.loadFromPayload?.(payload, {
+    const loaded = workspace.loadFromPayload?.(payload, {
       source,
       tab,
       tabId: tab.id
@@ -146,11 +147,30 @@ describe('Cross-tab graph config isolation (all components)', () => {
       reason: source,
       origin: 'test'
     });
+    return loaded;
   }
 
   async function flush() {
     await Promise.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  async function waitForActiveOwner(Main, type, tab) {
+    await waitForIntegrationOwnerReady({
+      type,
+      expectedTabId: tab.id,
+      requireMountedRoot: true,
+      condition: () => {
+        const component = window.Components?.[type] || Main.components.registry[type];
+        const session = component?.__testHooks?.getSessionForTab?.(tab.id)
+          || component?.__testHooks?.getSession?.(tab.id)
+          || null;
+        return !!session
+          && String(session.tabId || '') === String(tab.id)
+          && String(component.__boundTabId || '') === String(tab.id)
+          && session.refs?.root?.isConnected === true;
+      }
+    });
   }
 
   async function activateTabById(Main, tabId, reason) {
@@ -159,6 +179,10 @@ describe('Cross-tab graph config isolation (all components)', () => {
       await maybe;
     }
     await flush();
+    const tab = Main.tabs.getActiveTab();
+    if (tab) {
+      await waitForActiveOwner(Main, tab.type, tab);
+    }
   }
 
   async function handleGraphSelection(Main, type) {
@@ -174,6 +198,10 @@ describe('Cross-tab graph config isolation (all components)', () => {
       }
     }
     await flush();
+    const activeTab = Main.tabs.getActiveTab();
+    if (activeTab?.type === type) {
+      await waitForActiveOwner(Main, type, activeTab);
+    }
   }
 
   function capturePathValues(config, paths) {
@@ -209,6 +237,37 @@ describe('Cross-tab graph config isolation (all components)', () => {
     if (typeof global.__suppressTestDebugLogs === 'function') {
       global.__suppressTestDebugLogs();
     }
+  });
+
+  test('Line payload variants survive owner persistence', async () => {
+    const Main = window.Main;
+    const workspace = Main.components.registry.line;
+    await handleGraphSelection(Main, 'line');
+    const tabA = Main.tabs.getActiveTab();
+    const basePayload = tabA.payload || workspace.getPayload({ tab: tabA, tabId: tabA.id }) || workspace.createEmptyPayload();
+    const variantA = buildCatalogVariantPayload(basePayload, 'line', 'A', { skipUnavailable: true }).payload;
+    const variantB = buildCatalogVariantPayload(basePayload, 'line', 'B', { skipUnavailable: true }).payload;
+
+    const appliedA = applyPayloadToOwner(workspace, Main.session, tabA, variantA, 'test-line-isolation-a');
+    Main.session.persistActiveTabState(tabA, { workspaces: Main.components.registry, reason: 'test-line-isolation-persist-a' });
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'line');
+    const tabB = Main.tabs.getActiveTab();
+    const appliedB = applyPayloadToOwner(workspace, Main.session, tabB, variantB, 'test-line-isolation-b');
+    Main.session.persistActiveTabState(tabB, { workspaces: Main.components.registry, reason: 'test-line-isolation-persist-b' });
+
+    expect(appliedA).toBe(true);
+    expect(appliedB).toBe(true);
+    expect([tabA.payload.config.displayMode, tabA.payload.config.colorScheme]).toEqual([
+      variantA.config.displayMode,
+      variantA.config.colorScheme
+    ]);
+    expect([tabB.payload.config.displayMode, tabB.payload.config.colorScheme]).toEqual([
+      variantB.config.displayMode,
+      variantB.config.colorScheme
+    ]);
+    expect(window.Components.line.__boundTabId).toBe(tabB.id);
   });
 
   test('switching tabs does not leak component config across all workspaces', async () => {
@@ -358,6 +417,120 @@ describe('Cross-tab graph config isolation (all components)', () => {
         });
       } catch (err) {
         failures.push(`${type}: ${err?.message || String(err)}`);
+      }
+    }
+
+    expect(failures).toEqual([]);
+  });
+
+  test('legacy Box hydration stays isolated while every component becomes active', async () => {
+    const Main = window.Main;
+    const session = Main.session;
+    const registry = Main.components.registry;
+    const failures = [];
+
+    await handleGraphSelection(Main, 'box');
+    const box = registry.box;
+
+    const targetPayload = box.createEmptyPayload();
+    targetPayload.config.tableFormat = 'single';
+    targetPayload.config.grouped = { replicatesPerGroup: 2 };
+    targetPayload.data = [
+      ['Control', 'Treatment'],
+      ['1', '2'],
+      ['2', '4'],
+      ['3', '5']
+    ];
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'box');
+    const targetTab = Main.tabs.getActiveTab();
+    applyPayloadToOwner(box, session, targetTab, targetPayload, 'test-single-box-stats-owner');
+    await flush();
+    session.persistActiveTabState(targetTab, {
+      workspaces: registry,
+      previews: Main.previews,
+      reason: 'test-single-box-owner-persist'
+    });
+    const savedTargetPayload = deepClone(targetTab.payload);
+    const targetSession = window.Components.box.__testHooks.getSession(targetTab.id, { create: false });
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'box');
+    const groupedTab = Main.tabs.getActiveTab();
+    const groupedPayload = box.createEmptyPayload();
+    groupedPayload.config.tableFormat = 'grouped';
+    groupedPayload.config.grouped = {
+      replicatesPerGroup: 2,
+      groups: ['Foreign group A', 'Foreign group B'],
+      conditions: ['Foreign condition A', 'Foreign condition B']
+    };
+    groupedPayload.data[0][0] = 'Foreign group A';
+    groupedPayload.data[0][2] = 'Foreign group B';
+    groupedPayload.data[1][0] = 'Foreign condition A';
+    groupedPayload.data[1][2] = 'Foreign condition B';
+    applyPayloadToOwner(box, session, groupedTab, groupedPayload, 'test-legacy-grouped-owner');
+    await flush();
+    session.persistActiveTabState(groupedTab, {
+      workspaces: registry,
+      previews: Main.previews,
+      reason: 'test-legacy-grouped-owner-persist'
+    });
+
+    const componentTabSnapshots = [];
+    for (const type of WORKSPACE_TYPES.filter(value => value !== 'box')) {
+      Main.tabs.handleAddTabClick();
+      await flush();
+      await handleGraphSelection(Main, type);
+      const tab = Main.tabs.getActiveTab();
+      if (!tab || tab.type !== type) {
+        failures.push(`${type}: could not activate after grouped Box owner`);
+        continue;
+      }
+      session.persistActiveTabState(tab, {
+        workspaces: registry,
+        previews: Main.previews,
+        reason: `test-owner-isolation-${type}-persist`
+      });
+      componentTabSnapshots.push({ id: tab.id, type, payload: deepClone(tab.payload) });
+    }
+
+    targetSession.state.visual = targetSession.state.visual || {};
+    delete targetSession.state.visual.grouped;
+    delete targetSession.state.visual.groupedHeaders;
+    await activateTabById(Main, targetTab.id, 'test-reopen-single-box-after-all-components');
+    applyPayloadToOwner(box, session, targetTab, savedTargetPayload, 'test-legacy-single-owner');
+    await flush();
+    session.persistActiveTabState(targetTab, {
+      workspaces: registry,
+      previews: Main.previews,
+      reason: 'test-legacy-single-owner-persist'
+    });
+
+    const restoredTargetPayload = box.getPayload({ tab: targetTab, tabId: targetTab.id, reason: 'test-legacy-single-owner-assert' });
+    const restoredGrouped = restoredTargetPayload?.config?.grouped || {};
+    if (!valueEquals(restoredGrouped, savedTargetPayload?.config?.grouped)) {
+      failures.push(`Box single tab grouped metadata changed: expected ${JSON.stringify(savedTargetPayload?.config?.grouped)} got ${JSON.stringify(restoredGrouped)}`);
+    }
+    if (JSON.stringify(restoredGrouped.groups || []) !== '[]') {
+      failures.push(`Box single tab inherited group labels: ${JSON.stringify(restoredGrouped.groups)}`);
+    }
+    if (JSON.stringify(restoredGrouped.conditions || []) !== '[]') {
+      failures.push(`Box single tab inherited condition labels: ${JSON.stringify(restoredGrouped.conditions)}`);
+    }
+    for (const snapshot of componentTabSnapshots) {
+      await activateTabById(Main, snapshot.id, `test-owner-isolation-return-${snapshot.type}`);
+      const tab = session.workspaceState.tabs.find(item => item.id === snapshot.id);
+      if (tab?.type !== snapshot.type || tab?.payload?.type !== snapshot.type) {
+        failures.push(`${snapshot.type}: another component changed its owner payload`);
+      }
+      if (!valueEquals(tab?.payload, snapshot.payload)) {
+        failures.push(`${snapshot.type}: payload changed after returning from the Box reopen`);
+      }
+      const foreignGroups = tab?.payload?.config?.grouped?.groups || [];
+      if (foreignGroups.some(label => String(label).startsWith('Foreign group'))) {
+        failures.push(`${snapshot.type}: Box header labels leaked into a different component payload`);
       }
     }
 

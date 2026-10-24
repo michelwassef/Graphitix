@@ -70,899 +70,308 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 0, 0, 0]);
   });
 
-  test('fill handle stays above selection outline for non-pinned selection', async () => {
-    const Shared = global.window.Shared;
-    const container = document.createElement('div');
-    container.id = 'agFillHandleZIndexBodyHot';
-    document.body.appendChild(container);
 
-    container.getBoundingClientRect = () => ({
-      left: 0,
-      top: 0,
-      right: 500,
-      bottom: 300,
-      width: 500,
-      height: 300
+  // Rectangles model native content coordinates. JSDOM does not composite
+  // scroll layers; the browser contract covers actual clipping and movement.
+  const rect = (left, top, width, height) => ({ left, top, right: left + width, bottom: top + height, width, height });
+  const makeCase = (options = {}) => {
+    const root = document.createElement('div');
+    root.getBoundingClientRect = () => rect(0, 0, 500, 350);
+    document.body.appendChild(root);
+    const hot = fixture.createTable(root, { rows: 20, cols: 6 }, () => {}, {
+      data: global.window.Shared.createEmptyData(20, 6),
+      pinFirstRow: true,
+      autoGrowth: { enabled: false },
+      ...options
     });
-
-    const hot = fixture.createTable(
-      container,
-      { rows: 4, cols: 3 },
-      () => {},
-      {
-        debugLabel: 'ag-fill-handle-zindex-body',
-        data: Shared.createEmptyData(4, 3),
-        pinFirstRow: true
+    return { root, hot };
+  };
+  const addPane = (root, { pinnedTop = false, pinnedLeft = false, left = 50, top = 60, width = 1200, height = 600 } = {}) => {
+    const scroll = { x: 0, y: 0 };
+    const section = document.createElement('div');
+    section.className = pinnedTop ? 'ag-floating-top' : 'ag-body-viewport';
+    const viewport = document.createElement('div');
+    viewport.className = pinnedTop ? 'ag-floating-top-viewport' : 'ag-center-cols-viewport';
+    viewport.getBoundingClientRect = () => rect(left, top, pinnedLeft ? 100 : 400, pinnedTop ? 28 : 280);
+    const pane = document.createElement('div');
+    pane.className = pinnedTop
+      ? (pinnedLeft ? 'ag-pinned-left-floating-top' : 'ag-floating-top-container')
+      : (pinnedLeft ? 'ag-pinned-left-cols-container' : 'ag-center-cols-container');
+    pane.getBoundingClientRect = () => rect(left - (pinnedLeft ? 0 : scroll.x), top - (pinnedTop ? 0 : scroll.y), width, height);
+    Object.defineProperties(pane, { clientWidth: { get: () => width }, clientHeight: { get: () => height } });
+    viewport.appendChild(pane);
+    section.appendChild(viewport);
+    root.appendChild(section);
+    const cells = [];
+    const addCell = (row, col, { selectedClass = false, cellWidth = 100 } = {}) => {
+      const rowIndex = pinnedTop ? 't-' + row : String(row - 1);
+      let rowNode = pane.querySelector('.ag-row[row-index="' + rowIndex + '"]');
+      if (!rowNode) {
+        rowNode = document.createElement('div');
+        rowNode.className = 'ag-row';
+        rowNode.setAttribute('row-index', rowIndex);
+        pane.appendChild(rowNode);
       }
-    );
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell' + (selectedClass ? ' hot-selected-cell' : '');
+      cell.setAttribute('col-id', 'c' + col);
+      cell.getBoundingClientRect = () => {
+        const bounds = pane.getBoundingClientRect();
+        return rect(bounds.left + col * 100, bounds.top + (pinnedTop ? row : row - 1) * 28, parseFloat(cell.style.width) || cellWidth, 28);
+      };
+      rowNode.appendChild(cell);
+      cells.push(cell);
+      return cell;
+    };
+    return { pane, viewport, section, scroll, addCell, cells };
+  };
+  const outlineIn = pane => pane.querySelector('.hot-selection-outline');
+  const edge = (outline, name) => outline.querySelector('[data-edge="' + name + '"]').style.display;
+  const flushMutations = async () => { await Promise.resolve(); await Promise.resolve(); };
 
-    const bodyViewport = document.createElement('div');
-    bodyViewport.className = 'ag-body-viewport';
-    bodyViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 30,
-      right: 500,
-      bottom: 300,
-      width: 500,
-      height: 270
-    });
-    const row = document.createElement('div');
-    row.className = 'ag-row';
-    row.setAttribute('row-index', '0');
-    const cell = document.createElement('div');
-    cell.className = 'ag-cell';
-    cell.setAttribute('col-id', 'c1');
-    cell.getBoundingClientRect = () => ({
-      left: 100,
-      top: 58,
-      right: 200,
-      bottom: 86,
-      width: 100,
-      height: 28
-    });
-    row.appendChild(cell);
-    bodyViewport.appendChild(row);
-    container.appendChild(bodyViewport);
-
-    hot.selectCell(1, 1, 1, 1);
-
-    if(typeof global.window.requestAnimationFrame === 'function'){
-      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
-    }else{
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
-
-    const handle = container.querySelector('.hot-fill-handle');
-    expect(handle).toBeTruthy();
-    expect(handle.style.display).toBe('block');
-    const outline = container.querySelector('.hot-selection-outline');
-    expect(outline).toBeTruthy();
+  test('fill handle and outer border keep content offsets through native and fractional scroll reprojection', async () => {
+    const { root, hot } = makeCase();
+    const body = addPane(root);
+    body.addCell(3, 1);
+    hot.selectCell(3, 1);
+    const outline = outlineIn(body.pane);
+    const handle = body.pane.querySelector('.hot-fill-handle');
+    expect(outline.parentElement).toBe(handle.parentElement);
+    expect(outline.parentElement.parentElement).toBe(body.pane);
     expect(Number(handle.style.zIndex)).toBeGreaterThan(Number(outline.style.zIndex));
-    expect(handle.dataset.pinnedSelection).toBeUndefined();
+    const local = { left: outline.style.left, top: outline.style.top, handleLeft: handle.style.left, handleTop: handle.style.top };
+    body.scroll.x = 71;
+    body.scroll.y = 35;
+    // No scroll callback, animation frame or re-render runs here.
+    expect(outline.style.left).toBe(local.left);
+    expect(outline.style.top).toBe(local.top);
+    expect(handle.style.left).toBe(local.handleLeft);
+    expect(handle.style.top).toBe(local.handleTop);
+    const paneRect = body.pane.getBoundingClientRect();
+    const cellRect = body.cells[0].getBoundingClientRect();
+    expect(paneRect.left + parseFloat(handle.style.left)).toBe(cellRect.right);
+    expect(paneRect.top + parseFloat(handle.style.top)).toBe(cellRect.bottom);
+    body.scroll.x = 71.375;
+    body.scroll.y = 35.625;
+    body.cells[0].style.width = '100px';
+    await flushMutations();
+    expect(outline.style.left).toBe(local.left);
+    expect(outline.style.top).toBe(local.top);
+    expect(handle.style.left).toBe(local.handleLeft);
+    expect(handle.style.top).toBe(local.handleTop);
   });
 
-  test('fill handle hides when selected body cell is clipped into header level', async () => {
-    const Shared = global.window.Shared;
-    const container = document.createElement('div');
-    container.id = 'agFillHandleHiddenAtHeaderLevelHot';
-    document.body.appendChild(container);
-
-    container.getBoundingClientRect = () => ({
-      left: 0,
-      top: 0,
-      right: 500,
-      bottom: 300,
-      width: 500,
-      height: 300
-    });
-
-    const hot = fixture.createTable(
-      container,
-      { rows: 8, cols: 3 },
-      () => {},
-      {
-        debugLabel: 'ag-fill-handle-hidden-header-level',
-        data: Shared.createEmptyData(8, 3),
-        pinFirstRow: true
-      }
-    );
-
-    const bodyViewport = document.createElement('div');
-    bodyViewport.className = 'ag-body-viewport';
-    bodyViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 500,
-      bottom: 300,
-      width: 500,
-      height: 240
-    });
-    const row = document.createElement('div');
-    row.className = 'ag-row';
-    row.setAttribute('row-index', '2');
-    const cell = document.createElement('div');
-    cell.className = 'ag-cell';
-    cell.setAttribute('col-id', 'c1');
-    cell.getBoundingClientRect = () => ({
-      left: 100,
-      top: 34,
-      right: 200,
-      bottom: 63,
-      width: 100,
-      height: 29
-    });
-    row.appendChild(cell);
-    bodyViewport.appendChild(row);
-    container.appendChild(bodyViewport);
-
-    const header = document.createElement('div');
-    header.className = 'ag-header';
-    header.getBoundingClientRect = () => ({
-      left: 0,
-      top: 32,
-      right: 500,
-      bottom: 60,
-      width: 500,
-      height: 28
-    });
-    container.appendChild(header);
-
-    const floatingTop = document.createElement('div');
-    floatingTop.className = 'ag-floating-top';
-    floatingTop.getBoundingClientRect = () => ({
-      left: 0,
-      top: 32,
-      right: 500,
-      bottom: 60,
-      width: 500,
-      height: 28
-    });
-    container.appendChild(floatingTop);
-
-    hot.selectCell(2, 1, 2, 1);
-
-    if(typeof global.window.requestAnimationFrame === 'function'){
-      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
-    }else{
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
-
-    const handle = container.querySelector('.hot-fill-handle');
-    expect(handle).toBeTruthy();
-    expect(handle.style.display).toBe('none');
+  test('body selections and handles inherit the body viewport clipping beneath the pinned header', () => {
+    const { root, hot } = makeCase();
+    const body = addPane(root);
+    body.addCell(2, 1);
+    hot.selectCell(2, 1);
+    body.scroll.y = 57;
+    const handle = body.pane.querySelector('.hot-fill-handle');
+    expect(handle.closest('.ag-body-viewport')).toBe(body.section);
+    expect(handle.closest('.ag-floating-top')).toBeNull();
+    expect(body.pane.getBoundingClientRect().top + parseFloat(handle.style.top)).toBeLessThan(body.viewport.getBoundingClientRect().top);
+    expect(outlineIn(body.pane).parentElement.className).toBe('hot-grid-selection-layer');
   });
 
-  test('selection outline does not spill into row headers when center columns in range are hidden behind pinned first column', async () => {
-    const Shared = global.window.Shared;
-    const container = document.createElement('div');
-    container.id = 'agSelectionOutlinePinnedLeftHiddenCenterHot';
-    document.body.appendChild(container);
-
-    container.getBoundingClientRect = () => ({
-      left: 0,
-      top: 0,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 320
-    });
-
-    const hot = fixture.createTable(
-      container,
-      { rows: 12, cols: 4 },
-      () => {},
-      {
-        debugLabel: 'ag-selection-outline-pinned-left-hidden-center',
-        data: Shared.createEmptyData(12, 4),
-        pinFirstColumn: true
-      }
-    );
-
-    const bodyViewport = document.createElement('div');
-    bodyViewport.className = 'ag-body-viewport';
-    bodyViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 260
-    });
-    container.appendChild(bodyViewport);
-
-    const pinnedLeftViewport = document.createElement('div');
-    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
-    pinnedLeftViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 156,
-      bottom: 320,
-      width: 156,
-      height: 260
-    });
-    bodyViewport.appendChild(pinnedLeftViewport);
-
-    const centerViewport = document.createElement('div');
-    centerViewport.className = 'ag-center-cols-viewport';
-    // Deliberately starts at x=0 to simulate center cells geometrically present
-    // under pinned-left overlay while being visually hidden.
-    centerViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 260
-    });
-    bodyViewport.appendChild(centerViewport);
-
-    const makeCellRect = (left, top) => ({
-      left,
-      top,
-      right: left + 100,
-      bottom: top + 28,
-      width: 100,
-      height: 28
-    });
-
-    for(let rowIndex = 2; rowIndex <= 4; rowIndex += 1){
-      const rowTop = 60 + (rowIndex * 28);
-
-      const pinnedRow = document.createElement('div');
-      pinnedRow.className = 'ag-row';
-      pinnedRow.setAttribute('row-index', String(rowIndex));
-
-      const rowHeaderCell = document.createElement('div');
-      rowHeaderCell.className = 'ag-cell';
-      rowHeaderCell.setAttribute('col-id', '__rowHeader');
-      rowHeaderCell.getBoundingClientRect = () => ({
-        left: 0,
-        top: rowTop,
-        right: 56,
-        bottom: rowTop + 28,
-        width: 56,
-        height: 28
-      });
-      pinnedRow.appendChild(rowHeaderCell);
-
-      const colA = document.createElement('div');
-      colA.className = 'ag-cell hot-selected-cell';
-      colA.setAttribute('col-id', 'c0');
-      colA.setAttribute('row-index', String(rowIndex));
-      colA.getBoundingClientRect = () => makeCellRect(56, rowTop);
-      pinnedRow.appendChild(colA);
-      pinnedLeftViewport.appendChild(pinnedRow);
-
-      const centerRow = document.createElement('div');
-      centerRow.className = 'ag-row';
-      centerRow.setAttribute('row-index', String(rowIndex));
-
-      const hiddenCenterCell = document.createElement('div');
-      hiddenCenterCell.className = 'ag-cell hot-selected-cell';
-      hiddenCenterCell.setAttribute('col-id', 'c1');
-      hiddenCenterCell.setAttribute('row-index', String(rowIndex));
-      hiddenCenterCell.getBoundingClientRect = () => makeCellRect(20, rowTop);
-      centerRow.appendChild(hiddenCenterCell);
-
-      centerViewport.appendChild(centerRow);
+  test('mixed pinned-column ranges render only their outer edges and cannot paint over row headers', () => {
+    const { root, hot } = makeCase({ pinFirstColumn: true });
+    const left = addPane(root, { pinnedLeft: true, left: 50, width: 100 });
+    const center = addPane(root, { left: 150 });
+    for (let row = 2; row <= 4; row++) {
+      left.addCell(row, 0);
+      center.addCell(row, 1);
     }
-
     hot.selectCell(2, 0, 4, 1);
-
-    if(typeof global.window.requestAnimationFrame === 'function'){
-      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
-    }else{
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
-
-    const outline = container.querySelector('.hot-selection-outline');
-    expect(outline).toBeTruthy();
-    expect(outline.style.display).toBe('block');
-    expect(outline.style.left).toBe('56px');
-    expect(outline.style.borderRightColor).toBe('transparent');
+    expect(edge(outlineIn(left.pane), 'left')).toBe('block');
+    expect(edge(outlineIn(left.pane), 'right')).toBe('none');
+    expect(edge(outlineIn(center.pane), 'left')).toBe('none');
+    expect(edge(outlineIn(center.pane), 'right')).toBe('block');
+    expect(outlineIn(left.pane).style.left).toBe('0px');
+    center.scroll.x = 180;
+    expect(outlineIn(center.pane).closest('.ag-center-cols-viewport')).toBe(center.viewport);
   });
 
-  test('selection outline does not spill into column headers when body rows in range are hidden behind pinned first row', async () => {
-    const Shared = global.window.Shared;
-    const container = document.createElement('div');
-    container.id = 'agSelectionOutlinePinnedTopHiddenBodyHot';
-    document.body.appendChild(container);
-
-    container.getBoundingClientRect = () => ({
-      left: 0,
-      top: 0,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 320
-    });
-
-    const hot = fixture.createTable(
-      container,
-      { rows: 12, cols: 4 },
-      () => {},
-      {
-        debugLabel: 'ag-selection-outline-pinned-top-hidden-body',
-        data: Shared.createEmptyData(12, 4),
-        pinFirstRow: true
-      }
-    );
-
-    const bodyViewport = document.createElement('div');
-    bodyViewport.className = 'ag-body-viewport';
-    bodyViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 32,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 288
-    });
-    container.appendChild(bodyViewport);
-
-    const centerViewport = document.createElement('div');
-    centerViewport.className = 'ag-center-cols-viewport';
-    centerViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 32,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 288
-    });
-    bodyViewport.appendChild(centerViewport);
-
-    const floatingTop = document.createElement('div');
-    floatingTop.className = 'ag-floating-top';
-    const floatingCenterViewport = document.createElement('div');
-    floatingCenterViewport.className = 'ag-floating-top-viewport';
-    floatingCenterViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 32,
-      right: 500,
-      bottom: 60,
-      width: 500,
-      height: 28
-    });
-    const pinnedRow = document.createElement('div');
-    pinnedRow.className = 'ag-row';
-    pinnedRow.setAttribute('row-index', 't-0');
-    const pinnedCell1 = document.createElement('div');
-    pinnedCell1.className = 'ag-cell hot-selected-cell';
-    pinnedCell1.setAttribute('col-id', 'c1');
-    pinnedCell1.setAttribute('row-index', 't-0');
-    pinnedCell1.getBoundingClientRect = () => ({
-      left: 100,
-      top: 32,
-      right: 200,
-      bottom: 60,
-      width: 100,
-      height: 28
-    });
-    const pinnedCell2 = document.createElement('div');
-    pinnedCell2.className = 'ag-cell hot-selected-cell';
-    pinnedCell2.setAttribute('col-id', 'c2');
-    pinnedCell2.setAttribute('row-index', 't-0');
-    pinnedCell2.getBoundingClientRect = () => ({
-      left: 200,
-      top: 32,
-      right: 300,
-      bottom: 60,
-      width: 100,
-      height: 28
-    });
-    pinnedRow.appendChild(pinnedCell1);
-    pinnedRow.appendChild(pinnedCell2);
-    floatingCenterViewport.appendChild(pinnedRow);
-    floatingTop.appendChild(floatingCenterViewport);
-    container.appendChild(floatingTop);
-
-    // Simulate the body row selected in the range but fully hidden beneath the pinned row area.
-    const hiddenBodyRow = document.createElement('div');
-    hiddenBodyRow.className = 'ag-row';
-    hiddenBodyRow.setAttribute('row-index', '1');
-    const hiddenBodyCell1 = document.createElement('div');
-    hiddenBodyCell1.className = 'ag-cell hot-selected-cell';
-    hiddenBodyCell1.setAttribute('col-id', 'c1');
-    hiddenBodyCell1.setAttribute('row-index', '1');
-    hiddenBodyCell1.getBoundingClientRect = () => ({
-      left: 100,
-      top: 18,
-      right: 200,
-      bottom: 30,
-      width: 100,
-      height: 12
-    });
-    const hiddenBodyCell2 = document.createElement('div');
-    hiddenBodyCell2.className = 'ag-cell hot-selected-cell';
-    hiddenBodyCell2.setAttribute('col-id', 'c2');
-    hiddenBodyCell2.setAttribute('row-index', '1');
-    hiddenBodyCell2.getBoundingClientRect = () => ({
-      left: 200,
-      top: 18,
-      right: 300,
-      bottom: 30,
-      width: 100,
-      height: 12
-    });
-    hiddenBodyRow.appendChild(hiddenBodyCell1);
-    hiddenBodyRow.appendChild(hiddenBodyCell2);
-    centerViewport.appendChild(hiddenBodyRow);
-
-    hot.selectCell(0, 1, 1, 2);
-
-    if(typeof global.window.requestAnimationFrame === 'function'){
-      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
-    }else{
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
-
-    const outline = container.querySelector('.hot-selection-outline');
-    expect(outline).toBeTruthy();
-    expect(outline.style.display).toBe('block');
-    expect(outline.style.top).toBe('32px');
-    expect(outline.style.borderTopColor).not.toBe('transparent');
+  test('mixed pinned-row ranges join without a horizontal border across their pane seam', () => {
+    const { root, hot } = makeCase();
+    const pinned = addPane(root, { pinnedTop: true, top: 32, height: 28 });
+    const body = addPane(root);
+    pinned.addCell(0, 1);
+    body.addCell(1, 1);
+    body.addCell(2, 1);
+    hot.selectCell(0, 1, 2, 1);
+    expect(edge(outlineIn(pinned.pane), 'top')).toBe('block');
+    expect(edge(outlineIn(pinned.pane), 'bottom')).toBe('none');
+    expect(edge(outlineIn(body.pane), 'top')).toBe('none');
+    expect(edge(outlineIn(body.pane), 'bottom')).toBe('block');
+    body.scroll.y = 80;
+    expect(outlineIn(pinned.pane).style.top).toBe('0px');
+    expect(outlineIn(body.pane).closest('.ag-body-viewport')).toBe(body.section);
   });
 
-  test('selection outline right edge scrolls under the vertical scrollbar when a pinned top row is selected', async () => {
-    const Shared = global.window.Shared;
-    const container = document.createElement('div');
-    container.id = 'agSelectionOutlinePinnedTopHorizontalClipHot';
-    document.body.appendChild(container);
-
-    container.getBoundingClientRect = () => ({
-      left: 0,
-      top: 0,
-      right: 420,
-      bottom: 320,
-      width: 420,
-      height: 320
-    });
-
-    const hot = fixture.createTable(
-      container,
-      { rows: 8, cols: 4 },
-      () => {},
-      {
-        debugLabel: 'ag-selection-outline-pinned-top-horizontal-clip',
-        data: Shared.createEmptyData(8, 4),
-        pinFirstRow: true
-      }
-    );
-
-    const floatingTop = document.createElement('div');
-    floatingTop.className = 'ag-floating-top';
-    const floatingViewport = document.createElement('div');
-    floatingViewport.className = 'ag-floating-top-viewport';
-    floatingViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 32,
-      right: 420,
-      bottom: 60,
-      width: 420,
-      height: 28
-    });
-    let horizontalOffset = 0;
-    const pinnedRow = document.createElement('div');
-    pinnedRow.className = 'ag-row';
-    pinnedRow.setAttribute('row-index', 't-0');
-    const pinnedStartCell = document.createElement('div');
-    pinnedStartCell.className = 'ag-cell hot-selected-cell';
-    pinnedStartCell.setAttribute('col-id', 'c1');
-    pinnedStartCell.setAttribute('row-index', 't-0');
-    pinnedStartCell.getBoundingClientRect = () => ({
-      left: 240 + horizontalOffset,
-      top: 32,
-      right: 340 + horizontalOffset,
-      bottom: 60,
-      width: 100,
-      height: 28
-    });
-    const pinnedClippedCell = document.createElement('div');
-    pinnedClippedCell.className = 'ag-cell hot-selected-cell';
-    pinnedClippedCell.setAttribute('col-id', 'c2');
-    pinnedClippedCell.setAttribute('row-index', 't-0');
-    pinnedClippedCell.getBoundingClientRect = () => ({
-      left: 340 + horizontalOffset,
-      top: 32,
-      right: 440 + horizontalOffset,
-      bottom: 60,
-      width: 100,
-      height: 28
-    });
-    pinnedRow.appendChild(pinnedStartCell);
-    pinnedRow.appendChild(pinnedClippedCell);
-    floatingViewport.appendChild(pinnedRow);
-    floatingTop.appendChild(floatingViewport);
-    container.appendChild(floatingTop);
-
-    const bodyViewport = document.createElement('div');
-    bodyViewport.className = 'ag-body-viewport';
-    bodyViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 420,
-      bottom: 320,
-      width: 420,
-      height: 260
-    });
-    const centerViewport = document.createElement('div');
-    centerViewport.className = 'ag-center-cols-viewport';
-    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
-    const bodyRow = document.createElement('div');
-    bodyRow.className = 'ag-row';
-    bodyRow.setAttribute('row-index', '3');
-    const bodyStartCell = document.createElement('div');
-    bodyStartCell.className = 'ag-cell hot-selected-cell';
-    bodyStartCell.setAttribute('col-id', 'c1');
-    bodyStartCell.setAttribute('row-index', '3');
-    bodyStartCell.getBoundingClientRect = () => ({
-      left: 240 + horizontalOffset,
-      top: 116,
-      right: 340 + horizontalOffset,
-      bottom: 144,
-      width: 100,
-      height: 28
-    });
-    const bodyClippedCell = document.createElement('div');
-    bodyClippedCell.className = 'ag-cell hot-selected-cell';
-    bodyClippedCell.setAttribute('col-id', 'c2');
-    bodyClippedCell.setAttribute('row-index', '3');
-    bodyClippedCell.getBoundingClientRect = () => ({
-      left: 340 + horizontalOffset,
-      top: 116,
-      right: 440 + horizontalOffset,
-      bottom: 144,
-      width: 100,
-      height: 28
-    });
-    bodyRow.appendChild(bodyStartCell);
-    bodyRow.appendChild(bodyClippedCell);
-    centerViewport.appendChild(bodyRow);
-    bodyViewport.appendChild(centerViewport);
-    container.appendChild(bodyViewport);
-
-    const verticalScrollbar = document.createElement('div');
-    verticalScrollbar.className = 'ag-body-vertical-scroll';
-    verticalScrollbar.getBoundingClientRect = () => ({
-      left: 400,
-      top: 60,
-      right: 420,
-      bottom: 320,
-      width: 20,
-      height: 260
-    });
-    container.appendChild(verticalScrollbar);
-
-    const readOutlineRight = outline => (
-      Number.parseFloat(outline.style.left || '0')
-      + Number.parseFloat(outline.style.width || '0')
-    );
-
-    hot.selectCell(0, 1, 3, 2);
-    await fixture.waitForNextFrame();
-
-    const outline = container.querySelector('.hot-selection-outline');
-    expect(outline).toBeTruthy();
-    expect(outline.style.display).toBe('block');
-    expect(outline.style.borderRightColor).toBe('transparent');
-    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('none');
-    expect(readOutlineRight(outline)).toBeLessThanOrEqual(400);
-
-    horizontalOffset = -30;
-    hot.selectCell(0, 1, 3, 2);
-    await fixture.waitForNextFrame();
-
-    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('none');
-    expect(readOutlineRight(outline)).toBeLessThanOrEqual(400);
-
-    horizontalOffset = -50;
-    hot.selectCell(0, 1, 3, 2);
-    await fixture.waitForNextFrame();
-
-    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('block');
-    expect(readOutlineRight(outline)).toBeLessThan(400);
+  test('pinned-row right edges remain in horizontally scrolling content and beneath native scrollbar clipping', () => {
+    const { root, hot } = makeCase();
+    const pinned = addPane(root, { pinnedTop: true, top: 32, height: 28 });
+    pinned.addCell(0, 1);
+    pinned.addCell(0, 2);
+    hot.selectCell(0, 1, 0, 2);
+    const outline = outlineIn(pinned.pane);
+    const localRight = parseFloat(outline.style.left) + parseFloat(outline.style.width);
+    pinned.scroll.x = 36;
+    expect(outline.parentElement.parentElement).toBe(pinned.pane);
+    expect(parseFloat(outline.style.left) + parseFloat(outline.style.width)).toBe(localRight);
+    expect(edge(outline, 'right')).toBe('block');
+    expect(outline.closest('.ag-floating-top-viewport')).toBe(pinned.viewport);
   });
 
-  test('first body row selection keeps top border visible below pinned first row', async () => {
-    const Shared = global.window.Shared;
-    const container = document.createElement('div');
-    container.id = 'agSelectionOutlineFirstBodyBelowPinnedTopHot';
-    document.body.appendChild(container);
-
-    container.getBoundingClientRect = () => ({
-      left: 0,
-      top: 0,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 320
-    });
-
-    const hot = fixture.createTable(
-      container,
-      { rows: 8, cols: 4 },
-      () => {},
-      {
-        debugLabel: 'ag-selection-outline-first-body-below-pinned-top',
-        data: Shared.createEmptyData(8, 4),
-        pinFirstRow: true
-      }
-    );
-
-    const bodyViewport = document.createElement('div');
-    bodyViewport.className = 'ag-body-viewport';
-    bodyViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 260
-    });
-    container.appendChild(bodyViewport);
-
-    const centerViewport = document.createElement('div');
-    centerViewport.className = 'ag-center-cols-viewport';
-    centerViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 260
-    });
-    bodyViewport.appendChild(centerViewport);
-
-    const floatingTop = document.createElement('div');
-    floatingTop.className = 'ag-floating-top';
-    floatingTop.getBoundingClientRect = () => ({
-      left: 0,
-      top: 32,
-      right: 500,
-      bottom: 60,
-      width: 500,
-      height: 28
-    });
-    const floatingCenterViewport = document.createElement('div');
-    floatingCenterViewport.className = 'ag-floating-top-viewport';
-    floatingCenterViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 32,
-      right: 500,
-      bottom: 60,
-      width: 500,
-      height: 28
-    });
-    floatingTop.appendChild(floatingCenterViewport);
-    container.appendChild(floatingTop);
-
-    const bodyRow = document.createElement('div');
-    bodyRow.className = 'ag-row';
-    bodyRow.setAttribute('row-index', '0');
-    const bodyCell = document.createElement('div');
-    bodyCell.className = 'ag-cell hot-selected-cell';
-    bodyCell.setAttribute('col-id', 'c1');
-    bodyCell.setAttribute('row-index', '0');
-    bodyCell.getBoundingClientRect = () => ({
-      left: 100,
-      top: 60,
-      right: 200,
-      bottom: 88,
-      width: 100,
-      height: 28
-    });
-    bodyRow.appendChild(bodyCell);
-    centerViewport.appendChild(bodyRow);
-
-    hot.selectCell(1, 1, 1, 1);
-
-    if(typeof global.window.requestAnimationFrame === 'function'){
-      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
-    }else{
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
-
-    const outline = container.querySelector('.hot-selection-outline');
-    expect(outline).toBeTruthy();
-    expect(outline.style.display).toBe('block');
-    expect(outline.style.top).toBe('60px');
-    expect(outline.style.borderTopColor).not.toBe('transparent');
+  test('first body row selection keeps its top border inside the first body cell', () => {
+    const { root, hot } = makeCase();
+    const body = addPane(root);
+    body.addCell(1, 1);
+    hot.selectCell(1, 1);
+    const outline = outlineIn(body.pane);
+    expect(outline.style.top).toBe('0px');
+    expect(edge(outline, 'top')).toBe('block');
   });
 
-  test('topmost pinned-first-column selected cell keeps visible top and side borders despite 1px seam clipping', async () => {
-    const Shared = global.window.Shared;
-    const container = document.createElement('div');
-    container.id = 'agSelectionOutlineTopPinnedFirstColumnSeamHot';
-    document.body.appendChild(container);
-
-    container.getBoundingClientRect = () => ({
-      left: 0,
-      top: 0,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 320
+  test('single-cell selection resolves its target without scanning every rendered cell', () => {
+    const { root, hot } = makeCase();
+    const body = addPane(root);
+    body.addCell(3, 1);
+    const querySelectorAll = root.querySelectorAll.bind(root);
+    const selectors = [];
+    const queryAllSpy = jest.spyOn(root, 'querySelectorAll').mockImplementation(selector => {
+      selectors.push(selector);
+      return querySelectorAll(selector);
     });
 
-    const hot = fixture.createTable(
-      container,
-      { rows: 12, cols: 4 },
-      () => {},
-      {
-        debugLabel: 'ag-selection-outline-top-pinned-first-column-seam',
-        data: Shared.createEmptyData(12, 4),
-        pinFirstColumn: true
-      }
-    );
+    hot.selectCell(3, 1);
 
-    const bodyViewport = document.createElement('div');
-    bodyViewport.className = 'ag-body-viewport';
-    bodyViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 61, // 1px lower than selected top-row cell top
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 259
-    });
-    container.appendChild(bodyViewport);
-
-    const pinnedLeftViewport = document.createElement('div');
-    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
-    pinnedLeftViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 61,
-      right: 156,
-      bottom: 320,
-      width: 156,
-      height: 259
-    });
-    bodyViewport.appendChild(pinnedLeftViewport);
-
-    const row = document.createElement('div');
-    row.className = 'ag-row';
-    row.setAttribute('row-index', '0');
-
-    const rowHeaderCell = document.createElement('div');
-    rowHeaderCell.className = 'ag-cell';
-    rowHeaderCell.setAttribute('col-id', '__rowHeader');
-    rowHeaderCell.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 56,
-      bottom: 88,
-      width: 56,
-      height: 28
-    });
-    row.appendChild(rowHeaderCell);
-
-    const cell = document.createElement('div');
-    cell.className = 'ag-cell hot-selected-cell';
-    cell.setAttribute('col-id', 'c0');
-    cell.setAttribute('row-index', '0');
-    cell.getBoundingClientRect = () => ({
-      left: 56,
-      top: 60,
-      right: 156,
-      bottom: 88,
-      width: 100,
-      height: 28
-    });
-    row.appendChild(cell);
-    pinnedLeftViewport.appendChild(row);
-
-    hot.selectCell(0, 0, 0, 0);
-
-    if(typeof global.window.requestAnimationFrame === 'function'){
-      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
-    }else{
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
-
-    const outline = container.querySelector('.hot-selection-outline');
-    expect(outline).toBeTruthy();
-    expect(outline.style.display).toBe('block');
-    expect(outline.style.borderTopColor).not.toBe('transparent');
-    expect(outline.style.borderLeftColor).not.toBe('transparent');
-    expect(outline.style.borderRightColor).not.toBe('transparent');
+    expect(selectors).not.toContain('.ag-cell');
+    expect(outlineIn(body.pane).style.display).toBe('block');
+    queryAllSpy.mockRestore();
   });
 
-  test('topmost pinned-first-column selected cell keeps borders even when selected-cell class is not present yet', async () => {
-    const Shared = global.window.Shared;
-    const container = document.createElement('div');
-    container.id = 'agSelectionOutlineTopPinnedFirstColumnNoSelectedClassHot';
-    document.body.appendChild(container);
-
-    container.getBoundingClientRect = () => ({
-      left: 0,
-      top: 0,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 320
+  for (const selectedClass of [false, true]) {
+    test('pinned first-column seam borders do not depend on selected-cell classes: ' + selectedClass, () => {
+      const { root, hot } = makeCase({ pinFirstColumn: true });
+      const left = addPane(root, { pinnedLeft: true, width: 100 });
+      left.addCell(1, 0, { selectedClass });
+      hot.selectCell(1, 0);
+      const outline = outlineIn(left.pane);
+      expect(outline.style.left).toBe('0px');
+      expect(outline.style.top).toBe('0px');
+      for (const side of ['top', 'bottom', 'left', 'right']) expect(edge(outline, side)).toBe('block');
     });
+  }
 
-    const hot = fixture.createTable(
-      container,
-      { rows: 12, cols: 4 },
-      () => {},
-      {
-        debugLabel: 'ag-selection-outline-top-pinned-first-column-no-selected-class',
-        data: Shared.createEmptyData(12, 4),
-        pinFirstColumn: true
-      }
-    );
+  test('virtualized cells and recycled row indices update native borders before the next frame', async () => {
+    const { root, hot } = makeCase();
+    const body = addPane(root);
+    const first = body.addCell(3, 1);
+    hot.selectCell(3, 1, 5, 1);
+    expect(edge(outlineIn(body.pane), 'bottom')).toBe('none');
+    const last = body.addCell(5, 1);
+    await flushMutations();
+    expect(edge(outlineIn(body.pane), 'bottom')).toBe('block');
+    last.closest('.ag-row').setAttribute('row-index', '5');
+    await flushMutations();
+    expect(edge(outlineIn(body.pane), 'bottom')).toBe('none');
+    first.closest('.ag-row').remove();
+    await flushMutations();
+    expect(outlineIn(body.pane)).toBeNull();
+  });
 
-    const bodyViewport = document.createElement('div');
-    bodyViewport.className = 'ag-body-viewport';
-    bodyViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 500,
-      bottom: 320,
-      width: 500,
-      height: 260
-    });
-    container.appendChild(bodyViewport);
+  test('whole-column selection uses native child-column bounds independently of pinned-header scroll timing', async () => {
+    const { root, hot } = makeCase();
+    const top = addPane(root, { pinnedTop: true, top: 32, height: 28 });
+    const body = addPane(root);
+    top.addCell(0, 1, { cellWidth: 300 });
+    const bodyCell = body.addCell(1, 1);
+    const lastRow = hot.countRows() - 1;
+    body.addCell(lastRow, 1);
+    hot.selectCell(0, 1, lastRow, 1);
+    expect(parseFloat(outlineIn(top.pane).style.width)).toBeLessThan(110);
+    expect(edge(outlineIn(top.pane), 'top')).toBe('none');
+    expect(edge(outlineIn(body.pane), 'top')).toBe('none');
+    const left = outlineIn(top.pane).style.left;
+    body.scroll.x = 37.25;
+    bodyCell.style.width = '100px';
+    await flushMutations();
+    expect(outlineIn(top.pane).style.left).toBe(left);
+    top.scroll.x = 37.25;
+    expect(outlineIn(top.pane).style.left).toBe(left);
+  });
 
-    const pinnedLeftViewport = document.createElement('div');
-    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
-    pinnedLeftViewport.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 156,
-      bottom: 320,
-      width: 156,
-      height: 260
-    });
-    bodyViewport.appendChild(pinnedLeftViewport);
+  test('virtualized columns and column resizing update the real outer edge and corner handle before painting', async () => {
+    const { root, hot } = makeCase();
+    const body = addPane(root);
+    body.addCell(2, 1);
+    hot.selectCell(2, 1, 2, 2);
+    expect(edge(outlineIn(body.pane), 'right')).toBe('none');
+    const last = body.addCell(2, 2);
+    await flushMutations();
+    expect(edge(outlineIn(body.pane), 'right')).toBe('block');
+    expect(outlineIn(body.pane).style.width).toBe('202px');
+    last.style.width = '140px';
+    await flushMutations();
+    expect(outlineIn(body.pane).style.width).toBe('242px');
+    expect(body.pane.querySelector('.hot-fill-handle').style.left).toBe('340px');
+  });
 
-    const row = document.createElement('div');
-    row.className = 'ag-row';
-    row.setAttribute('row-index', '0');
+  test('whole-column ranges retain their final edge when a merged header omits selected child cells', () => {
+    const { root, hot } = makeCase();
+    const top = addPane(root, { pinnedTop: true, top: 32, height: 28 });
+    const body = addPane(root);
+    top.addCell(0, 1, { cellWidth: 300 });
+    body.addCell(1, 1);
+    body.addCell(1, 2);
+    const last = hot.countRows() - 1;
+    body.addCell(last, 1);
+    body.addCell(last, 2);
+    hot.selectCell(0, 1, last, 2);
+    expect(outlineIn(top.pane).style.width).toBe('202px');
+    expect(edge(outlineIn(top.pane), 'right')).toBe('block');
+    expect(edge(outlineIn(top.pane), 'bottom')).toBe('none');
+  });
 
-    const rowHeaderCell = document.createElement('div');
-    rowHeaderCell.className = 'ag-cell';
-    rowHeaderCell.setAttribute('col-id', '__rowHeader');
-    rowHeaderCell.getBoundingClientRect = () => ({
-      left: 0,
-      top: 60,
-      right: 56,
-      bottom: 88,
-      width: 56,
-      height: 28
-    });
-    row.appendChild(rowHeaderCell);
+  test('clipboard borders share native panes, suppress duplicate green chrome and clear without leaving stale fragments', () => {
+    const { root, hot } = makeCase();
+    const top = addPane(root, { pinnedTop: true, top: 32, height: 28 });
+    const body = addPane(root);
+    top.addCell(0, 1);
+    body.addCell(1, 1);
+    hot.selectCell(0, 1, 1, 1);
+    hot.__hotSetClipboardOutlineState({ mode: 'copy', ranges: [{ from: { row: 0, col: 1 }, to: { row: 1, col: 1 } }], clipboardText: 'test' }, 'native-test');
+    expect(root.querySelector('.hot-selection-outline')).toBeNull();
+    const pinned = top.pane.querySelector('.hot-clipboard-outline');
+    const scrolling = body.pane.querySelector('.hot-clipboard-outline');
+    expect(edge(pinned, 'bottom')).toBe('none');
+    expect(edge(scrolling, 'top')).toBe('none');
+    const localTop = scrolling.style.top;
+    body.scroll.y = 16;
+    expect(scrolling.style.top).toBe(localTop);
+    hot.__hotClearClipboardOutline('native-test-clear');
+    expect(root.querySelector('.hot-clipboard-outline')).toBeNull();
+    expect(outlineIn(top.pane)).toBeTruthy();
+    expect(outlineIn(body.pane)).toBeTruthy();
+  });
 
-    const cell = document.createElement('div');
-    cell.className = 'ag-cell';
-    cell.setAttribute('col-id', 'c0');
-    cell.setAttribute('row-index', '0');
-    cell.getBoundingClientRect = () => ({
-      left: 56,
-      top: 60,
-      right: 156,
-      bottom: 88,
-      width: 100,
-      height: 28
-    });
-    row.appendChild(cell);
-    pinnedLeftViewport.appendChild(row);
-
-    hot.selectCell(0, 0, 0, 0);
-
-    if(typeof global.window.requestAnimationFrame === 'function'){
-      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
-    }else{
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
-
-    const outline = container.querySelector('.hot-selection-outline');
-    expect(outline).toBeTruthy();
-    expect(outline.style.display).toBe('block');
-    expect(outline.style.borderTopColor).not.toBe('transparent');
-    expect(outline.style.borderLeftColor).not.toBe('transparent');
-    expect(outline.style.borderRightColor).not.toBe('transparent');
+  test('native decoration observers and scheduled updates belong to their table and are removed on destroy', async () => {
+    const first = makeCase();
+    const second = makeCase();
+    const a = addPane(first.root);
+    const b = addPane(second.root);
+    a.addCell(2, 1);
+    b.addCell(2, 1);
+    first.hot.selectCell(2, 1);
+    second.hot.selectCell(2, 1);
+    const secondOutline = outlineIn(b.pane);
+    first.hot.destroy();
+    a.addCell(3, 1);
+    await flushMutations();
+    expect(first.root.querySelector('.hot-grid-selection-layer')).toBeNull();
+    expect(outlineIn(b.pane)).toBe(secondOutline);
+    expect(secondOutline.style.display).toBe('block');
   });
 });

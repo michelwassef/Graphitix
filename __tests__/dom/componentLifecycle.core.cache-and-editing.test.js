@@ -460,6 +460,7 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
         <div class="svgbox"><svg id="boxSvg">
           <line id="axis" data-axis-control="1" data-axis-key="x" x1="0" y1="10" x2="100" y2="10"></line>
           <text id="title" data-inline-editable="1">Title</text>
+          <g data-layer="point-labels"><text id="pointLabel" data-point-label-key="row:1">Point</text></g>
         </svg></div>
       </div>
     `;
@@ -477,6 +478,11 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
     title.__graphitixInlineEditBinding = { dblclick: () => {} };
     window.Shared.axisControls.isAxisElementBound = jest.fn(node => node === axis);
 
+    const pointLabel = document.getElementById('pointLabel');
+    expect(lc.rehydrateRenderCacheInteractions('box', { tab, tabId: tab.id })).toBe(false);
+    pointLabel.__graphitixLabelDragBinding = { svg: document.getElementById('boxSvg'), tabId: 'tab-other' };
+    expect(lc.rehydrateRenderCacheInteractions('box', { tab, tabId: tab.id })).toBe(false);
+    pointLabel.__graphitixLabelDragBinding.tabId = 'tab-a';
     expect(lc.rehydrateRenderCacheInteractions('box', { tab, tabId: tab.id })).toBe(true);
   });
   test('render-cache restore rebinds shared SVG and component interactions for the exact owner', () => {

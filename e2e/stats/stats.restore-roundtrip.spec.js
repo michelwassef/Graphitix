@@ -141,7 +141,7 @@ test('scatter restores computed trendline intervals, plot stats, and statistics 
 
   await waitForScatterRegressionOverlays(page);
   await waitForScatterPlotStatsText(page);
-  await expect(page.locator('#scatterComputeStats')).toHaveText(/Recalculate statistics/, { timeout: 20_000 });
+  await expect(page.locator('#scatterComputeStats')).toHaveText(/Calculate statistics/, { timeout: 20_000 });
   await expect(page.locator('#scatterStatsStatus')).toContainText('Statistics up to date.', { timeout: 20_000 });
 
   expect(issues.critical).toEqual([]);
@@ -278,7 +278,7 @@ test('pie restores computed statistics results and calculated button state from 
   }, payload);
 
   await waitForPieStatsResults(page);
-  await expect(page.locator('#pieComputeStats')).toHaveText(/Recalculate statistics/, { timeout: 20_000 });
+  await expect(page.locator('#pieComputeStats')).toHaveText(/Calculate statistics/, { timeout: 20_000 });
   await expect(page.locator('#pieStatsStatus')).toContainText('Statistics up to date.', { timeout: 20_000 });
 
   expect(issues.critical).toEqual([]);
@@ -323,13 +323,13 @@ test('line regression overlays require calculated statistics and interval toggle
   await setCheckboxes(page, ['lineShowIntervals'], false);
   await waitForLineStatsResults(page);
   await expect(page.locator('#lineStatsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
-  await expect(page.locator('#lineComputeStats')).toHaveText(/Recalculate statistics/, { timeout: 20_000 });
+  await expect(page.locator('#lineComputeStats')).toHaveText(/Calculate statistics/, { timeout: 20_000 });
   await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 20_000 });
 
   await setCheckboxes(page, ['lineShowPredictionIntervals'], false);
   await waitForLineStatsResults(page);
   await expect(page.locator('#lineStatsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
-  await expect(page.locator('#lineComputeStats')).toHaveText(/Recalculate statistics/, { timeout: 20_000 });
+  await expect(page.locator('#lineComputeStats')).toHaveText(/Calculate statistics/, { timeout: 20_000 });
   await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 20_000 });
 
   expect(issues.critical).toEqual([]);
@@ -368,7 +368,7 @@ test('line restores persisted statistics results and calculated button state fro
 
   await waitForLineStatsResults(page);
   await expect(page.locator('#lineStatsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
-  await expect(page.locator('#lineComputeStats')).toHaveText(/Recalculate statistics/, { timeout: 20_000 });
+  await expect(page.locator('#lineComputeStats')).toHaveText(/Calculate statistics/, { timeout: 20_000 });
   await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 20_000 });
 
   expect(issues.critical).toEqual([]);

@@ -1,7 +1,7 @@
+const { selectReplicateMode, clickExampleButton } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
-const { clickExampleButton } = require('../helpers/uiDriver');
 const { observeStableValue } = require('../helpers/contractWaits');
 
 async function captureLine3dTable(page) {
@@ -35,7 +35,7 @@ test('Line 3D example load keeps its canonical table stable', async ({ page }) =
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
 
-  await page.locator('#lineTableFormat').selectOption('3d');
+  await selectReplicateMode(page, 'line', '3d');
   await page.locator('#lineViewMode').selectOption('3d');
   await clickExampleButton(page, { type: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample' }, { requireMountedRoot: true });
   await expect(page.locator('#linePlot svg[data-view-mode="3d"]')).toBeVisible();

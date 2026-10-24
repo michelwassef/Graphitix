@@ -1,4 +1,5 @@
 const { loadProductionBootstrap } = require('../../test-support/productionLoader');
+const { waitForIntegrationOwnerReady } = require('../../test-support/readiness');
 
 describe('Pie tab host isolation', () => {
   jest.setTimeout(240000);
@@ -66,6 +67,26 @@ describe('Pie tab host isolation', () => {
     expect(document.querySelectorAll('#pieHotWrapper [id=\"pieHot\"]').length).toBe(1);
   });
 
+  test('readiness appears once in the action row and not again in the results panel', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+    const root = document.getElementById('piePage');
+    const tabId = Main.session?.getActiveTab?.()?.id || null;
+    root?.querySelector('#pieLoadExample')?.click();
+    await waitForIntegrationOwnerReady({
+      type: 'pie',
+      expectedTabId: tabId,
+      requireMountedRoot: true,
+      condition: () => root?.querySelector('#pieStatsStatus')?.textContent.trim() === 'Statistics ready to calculate.'
+    });
+
+    const status = root?.querySelector('#pieStatsStatus')?.textContent || '';
+    const results = root?.querySelector('#pieStatsResults')?.textContent || '';
+    expect(root?.querySelector('#pieComputeStats')?.textContent).toBe('Calculate statistics');
+    expect(status).toBe('Statistics ready to calculate.');
+    expect(results).not.toContain('Statistics ready to calculate.');
+  });
+
   test('same-type activation moves Pie bound-session authority to the activated owner', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'pie');
@@ -90,6 +111,115 @@ describe('Pie tab host isolation', () => {
     await Main.tabs.activateTab(tabB.id, { reason: 'pie-bound-owner-regression-b' });
     await flush();
     expect(pie.__boundTabId).toBe(tabB.id);
+  });
+
+  test('a retained inactive advisor toggle cannot change either Pie session', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+    const pie = window.Components?.pie;
+    const tabA = Main.session?.getActiveTab?.();
+    const rootA = window.Shared?.workspaceTabs?.getMountedRoot?.(tabA, 'pie')
+      || document.getElementById('piePage');
+    const loadExampleA = rootA?.querySelector('#pieLoadExample');
+    expect(pie && tabA && rootA && loadExampleA).toBeTruthy();
+    loadExampleA.click();
+    await flush();
+
+    const sessionA = pie.__testHooks?.getSession?.(tabA.id);
+    const advisorToggleA = rootA.querySelector('#pieStatsAdvisor .stats-advisor__toggle');
+    expect(sessionA && advisorToggleA).toBeTruthy();
+    expect(sessionA.advisor?.open).not.toBe(true);
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'pie');
+    const tabB = Main.session?.getActiveTab?.();
+    const rootB = window.Shared?.workspaceTabs?.getMountedRoot?.(tabB, 'pie')
+      || document.getElementById('piePage');
+    const loadExampleB = rootB?.querySelector('#pieLoadExample');
+    expect(tabB?.id).not.toBe(tabA.id);
+    expect(rootB && loadExampleB).toBeTruthy();
+    loadExampleB.click();
+    await flush();
+
+    const sessionB = pie.__testHooks.getSession(tabB.id);
+    const advisorToggleB = rootB.querySelector('#pieStatsAdvisor .stats-advisor__toggle');
+    expect(sessionB && advisorToggleB).toBeTruthy();
+    expect(sessionB.advisor?.open).not.toBe(true);
+
+    advisorToggleA.click();
+
+    expect(sessionA.advisor.open).toBe(false);
+    expect(sessionB.advisor.open).toBe(false);
+    expect(advisorToggleB.textContent).toBe('Help me choose');
+  });
+
+  test('a retained inactive example button cannot load data into either Pie session', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+    const pie = window.Components?.pie;
+    const tabA = Main.session?.getActiveTab?.();
+    const rootA = window.Shared?.workspaceTabs?.getMountedRoot?.(tabA, 'pie')
+      || document.getElementById('piePage');
+    const loadExampleA = rootA?.querySelector('#pieLoadExample');
+    const sessionA = pie?.__testHooks?.getSession?.(tabA?.id);
+    expect(loadExampleA && sessionA?.managers?.hot).toBeTruthy();
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'pie');
+    const tabB = Main.session?.getActiveTab?.();
+    const rootB = window.Shared?.workspaceTabs?.getMountedRoot?.(tabB, 'pie')
+      || document.getElementById('piePage');
+    const sessionB = pie.__testHooks.getSession(tabB?.id);
+    expect(tabB?.id).not.toBe(tabA.id);
+    expect(sessionB?.managers?.hot).toBeTruthy();
+
+    const readData = session => JSON.parse(JSON.stringify(session.managers.hot.getData()));
+    const dataA = readData(sessionA);
+    const dataB = readData(sessionB);
+    loadExampleA.click();
+    await flush();
+
+    expect(readData(sessionA)).toEqual(dataA);
+    expect(readData(sessionB)).toEqual(dataB);
+    expect(rootB?.querySelector('#pieLoadExample')).toBeTruthy();
+  });
+
+  test('an inactive Pie payload cannot replace the active sibling projection', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+    const pie = window.Components?.pie;
+    const tabA = Main.session.getActiveTab();
+    const payloadA = {
+      type: 'pie',
+      data: [['Category', 'Value'], ['A', 1]],
+      config: { title: 'Owner A' }
+    };
+    pie.loadFromPayload(payloadA, { tabId: tabA.id, skipDraw: true });
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'pie');
+    const tabB = Main.session.getActiveTab();
+    const payloadB = {
+      type: 'pie',
+      data: [['Category', 'Value'], ['B', 2]],
+      config: { title: 'Owner B' }
+    };
+    pie.loadFromPayload(payloadB, { tabId: tabB.id, skipDraw: true });
+    const payloadBBefore = JSON.stringify(tabB.payload || null);
+    const sessionBBefore = JSON.stringify(pie.__testHooks.getSession(tabB.id).state);
+
+    pie.loadFromPayload({ ...payloadA, config: { title: 'Late Owner A' } }, {
+      tabId: tabA.id,
+      skipDraw: true,
+      reason: 'late-inactive-owner'
+    });
+
+    expect(pie.__boundTabId).toBe(tabB.id);
+    expect(JSON.stringify(tabB.payload || null)).toBe(payloadBBefore);
+    expect(JSON.stringify(pie.__testHooks.getSession(tabB.id).state)).toBe(sessionBBefore);
   });
 
   test('reinitializing pie does not stack import file-picker handlers', async () => {

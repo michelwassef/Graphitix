@@ -221,6 +221,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     fixture.capturedGridOptions.onSelectionChanged({ api: fixture.capturedApi });
 
     container.blur();
+    const copiedColCount = hot.countCols();
     const keyboardTarget = document.activeElement === container ? document.body : document.activeElement;
     const copyEvent = new global.window.KeyboardEvent('keydown', {
       bubbles: true,
@@ -234,7 +235,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(writeText).toHaveBeenCalledTimes(1);
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const padRow = values => values.concat(Array(Math.max(0, hot.countCols() - values.length)).fill('')).join('\t');
+    const padRow = values => values.concat(Array(Math.max(0, copiedColCount - values.length)).fill('')).join('\t');
     expect(writeText).toHaveBeenCalledWith(`${padRow(['A0', 'B0', 'C0'])}\n${padRow(['A2', 'B2', 'C2'])}`);
   });
 
@@ -283,6 +284,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     };
     selectDisplayedRow(0);
     selectDisplayedRow(3);
+    const copiedColCount = hot.countCols();
 
     container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
       bubbles: true,
@@ -292,7 +294,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     }));
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const padRow = values => values.concat(Array(Math.max(0, hot.countCols() - values.length)).fill('')).join('\t');
+    const padRow = values => values.concat(Array(Math.max(0, copiedColCount - values.length)).fill('')).join('\t');
     expect(writeText).toHaveBeenCalledWith(`${padRow(['A2', 'B2', 'C2'])}\n${padRow(['A1', 'B1', 'C1'])}`);
   });
 
@@ -623,9 +625,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     let verticalOffset = 0;
     const makeRect = (left, top) => ({
       left,
-      top: top + verticalOffset,
+      top: top - verticalOffset,
       right: left + 100,
-      bottom: top + verticalOffset + 28,
+      bottom: top - verticalOffset + 28,
       width: 100,
       height: 28
     });
@@ -649,6 +651,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     fixture.capturedGridOptions?.onFirstDataRendered?.();
 
+    fixture.mountNativeSelectionPanes(container);
     hot.selectCell(2, 0, 2, 1);
 
     const copyEvt = new global.window.KeyboardEvent('keydown', {
@@ -663,18 +666,18 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const outline = container.querySelector('.hot-clipboard-outline');
     expect(outline).toBeTruthy();
     expect(outline.style.display).toBe('block');
-    expect(outline.style.left).toBe('59px');
-    expect(outline.style.top).toBe('115px');
-    const selectionOutline = container.querySelector('.hot-selection-outline');
-    if (selectionOutline) {
-      expect(selectionOutline.style.display).toBe('none');
-    }
+    expect(fixture.outlinePosition(outline).left).toBe('59px');
+    expect(fixture.outlinePosition(outline).top).toBe('115px');
+    expect(container.querySelector('.hot-selection-outline')).toBeNull();
 
+    const localTop = outline.style.top;
     verticalOffset = 56;
+    bodyViewport.scrollTop = 56;
     bodyViewport.dispatchEvent(new global.window.Event('scroll', { bubbles: true }));
-    await fixture.waitForNextFrame();
 
-    expect(outline.style.top).toBe('171px');
+    expect(fixture.outlinePosition(outline).top).toBe('59px');
+    expect(outline.style.top).toBe(localTop);
+    expect(outline.closest('.ag-center-cols-container')).toBeTruthy();
   });
 
   test('cut keeps clipboard outline visible until paste clears it', async () => {
@@ -750,6 +753,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     fixture.capturedGridOptions?.onFirstDataRendered?.();
 
+    fixture.mountNativeSelectionPanes(container);
     hot.selectCell(1, 0);
 
     const cutEvt = new global.window.KeyboardEvent('keydown', {
@@ -773,6 +777,33 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     await fixture.waitForNextFrame();
 
     expect(outline.style.display).toBe('none');
+  });
+
+  test('an older paste cannot clear a newer clipboard outline from the same table', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agClipboardOutlineRevisionHot';
+    document.body.appendChild(container);
+    const hot = fixture.createTable(container, { rows: 3, cols: 2 }, () => {}, {
+      debugLabel: 'ag-clipboard-outline-revision',
+      data: [['A', 'B'], ['1', '2'], ['3', '4']]
+    });
+    const outline = clipboardText => ({
+      mode: 'copy',
+      ranges: [{ from: { row: 0, col: 0 }, to: { row: 0, col: 0 } }],
+      clipboardText
+    });
+
+    hot.__hotSetClipboardOutlineState(outline('older-copy'), 'test-older-copy');
+    const pasteStartToken = Shared.hot.captureClipboardOutlineToken();
+    hot.__hotSetClipboardOutlineState(outline('newer-copy'), 'test-newer-copy');
+
+    expect(Shared.hot.clearClipboardOutline(hot, 'late-paste-finally', pasteStartToken)).toBe(false);
+    expect(Shared.hot.__activeClipboardSelectionOwner).toBe(hot);
+    const currentToken = Shared.hot.captureClipboardOutlineToken();
+    expect(currentToken.revision).toBeGreaterThan(pasteStartToken.revision);
+    expect(Shared.hot.clearClipboardOutline(hot, 'current-paste-finally', currentToken)).toBe(true);
+    expect(Shared.hot.__activeClipboardSelectionOwner).not.toBe(hot);
   });
 
   test('paste into another AG Grid clears the original clipboard outline', async () => {
@@ -849,6 +880,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     fixture.capturedGridOptions?.onFirstDataRendered?.();
 
+    fixture.mountNativeSelectionPanes(sourceContainer);
     sourceHot.selectCell(1, 0);
     const copyEvt = new global.window.KeyboardEvent('keydown', {
       bubbles: true,
@@ -958,6 +990,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     fixture.capturedGridOptions?.onFirstDataRendered?.();
 
+    fixture.mountNativeSelectionPanes(container);
     hot.selectCell(1, 1);
     const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
     pasteEvt.clipboardData = { getData: () => 'A\tB\nC\tD' };
@@ -968,14 +1001,11 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const outline = container.querySelector('.hot-selection-outline');
     expect(outline).toBeTruthy();
     expect(outline.style.display).toBe('block');
-    expect(outline.style.left).toBe('59px');
-    expect(outline.style.top).toBe('59px');
+    expect(fixture.outlinePosition(outline).left).toBe('59px');
+    expect(fixture.outlinePosition(outline).top).toBe('59px');
     expect(outline.style.width).toBe('202px');
     expect(outline.style.height).toBe('58px');
-    const clipboardOutline = container.querySelector('.hot-clipboard-outline');
-    if (clipboardOutline) {
-      expect(clipboardOutline.style.display).toBe('none');
-    }
+    expect(container.querySelector('.hot-clipboard-outline')).toBeNull();
   });
 
   test('paste keeps full pasted block selected even if AG sync reports only the anchor cell', async () => {
@@ -1046,6 +1076,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     }
 
     fixture.capturedGridOptions?.onFirstDataRendered?.();
+    fixture.mountNativeSelectionPanes(container);
     hot.selectCell(1, 1);
 
     fixture.capturedApi.getFocusedCell = jest.fn(() => ({

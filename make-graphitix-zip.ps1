@@ -29,6 +29,8 @@ try {
             '-xr!__tests__\fixtures\prism' `
             '-xr!node_modules' `
             '-xr!test-results' `
+            '-xr!artifacts' `
+            '-xr!coverage' `
             '-xr!.git' `
             '-x!graphitix-current.zip' `
             '-mx=5'

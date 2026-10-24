@@ -82,6 +82,13 @@
         domValue,
         domExpectedValue,
         ownerValue,
+        ...(parameter.key === 'config.colorScheme' && Array.isArray(parameter.projectionContract?.palettePairs) ? {
+          heatmapStyleState: {
+            payloadDendrogramColor: clone(getAtPath(state.payload, ['config', 'dendrogram', 'color'])),
+            ownerSessionDendrogramColor: clone(state.owner?.['componentSession.state.dendrogramSettings.color']),
+            activeMirrorDendrogramColor: clone(state.owner?.['activeState.dendrogramSettings.color'])
+          }
+        } : {}),
         paletteValues: palettePairs.map(pair => ({
           payloadPath: pair.payloadPath,
           payloadValue: clone(getAtPath(state.payload, String(pair.payloadPath || '').split('.'))),

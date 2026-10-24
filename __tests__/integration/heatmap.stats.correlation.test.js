@@ -89,4 +89,73 @@ describe('Heatmap stats — correlation reporting', () => {
     });
   });
 
+  test('Spearman pair inference uses shared tie-aware permutation calibration', () => {
+    const heatmap = window.Components.heatmap;
+    const x = [1, 1, 2, 3, 3, 4];
+    const y = [1, 2, 1, 3, 4, 4];
+    const expected = window.Shared.stats.spearmanPermutationTest(x, y, { pairCount: 1 });
+    const actual = heatmap.__testHooks.calculateCorrelationEntry(x, y, 'spearman', true, { pairCount: 1 });
+    expect(expected.available).toBe(true);
+    expect(expected.exact).toBe(true);
+    expect(expected.hasTies).toBe(true);
+    expect(actual.pValue).toBeCloseTo(expected.pValue, 14);
+    expect(actual.pMethod).toContain('exact permutation');
+    expect(actual.hasTies).toBe(true);
+  });
+
+  test('rendered Spearman inference reports raw and BH-adjusted values for the full pair family', async () => {
+    const heatmap = window.Components.heatmap;
+    const hot = global.__LAST_HEATMAP_HOT__;
+    hot.loadData([
+      ['Gene', 'A', 'B', 'C'],
+      ['G1', 1, 1, 2],
+      ['G2', 1, 2, 2],
+      ['G3', 2, 1, 1],
+      ['G4', 3, 3, 1],
+      ['G5', 3, 4, 3],
+      ['G6', 4, 4, 4]
+    ]);
+    await ensureCorrelationView();
+    const method = document.getElementById('heatmapMethod');
+    const showSignificance = document.getElementById('heatmapShowSignificance');
+    const correction = document.getElementById('heatmapSignificanceCorrection');
+    method.value = 'spearman';
+    method.dispatchEvent(new Event('change', { bubbles: true }));
+    showSignificance.checked = true;
+    showSignificance.dispatchEvent(new Event('change', { bubbles: true }));
+    correction.value = 'bh';
+    correction.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(await waitFor(() => {
+      const stats = heatmap.__getState().lastStats;
+      return stats?.type === 'correlation'
+        && stats.method === 'spearman'
+        && stats.showSignificance === true
+        && stats.testedPairCount === 3;
+    })).toBe(true);
+
+    const pairResults = heatmap.__getState().lastStats.pairResults;
+    const vectors = {
+      A: [1, 1, 2, 3, 3, 4],
+      B: [1, 2, 1, 3, 4, 4],
+      C: [2, 2, 1, 1, 3, 4]
+    };
+    const expectedP = pairResults.map(pair => window.Shared.stats.spearmanPermutationTest(
+      vectors[pair.left], vectors[pair.right], { pairCount: 3 }
+    ).pValue);
+    const expectedBh = new Array(expectedP.length);
+    const ordered = expectedP.map((pValue, index) => ({ pValue, index })).sort((a, b) => a.pValue - b.pValue);
+    let runningMinimum = 1;
+    for(let rank = ordered.length; rank > 0; rank -= 1){
+      const entry = ordered[rank - 1];
+      runningMinimum = Math.min(runningMinimum, entry.pValue * ordered.length / rank);
+      expectedBh[entry.index] = Math.min(1, runningMinimum);
+    }
+    pairResults.forEach((pair, index) => {
+      expect(pair.pMethod).toContain('exact permutation');
+      expect(pair.rawPValue).toBeCloseTo(expectedP[index], 14);
+      expect(pair.adjustedPValue).toBeCloseTo(expectedBh[index], 14);
+    });
+  });
+
 });

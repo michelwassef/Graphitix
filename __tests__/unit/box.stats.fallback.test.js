@@ -101,6 +101,6 @@ describe('Components.box stats fallbacks', () => {
       [11, 21]
     ]);
     expect(Array.isArray(result.auditNotes)).toBe(true);
-    expect(result.auditNotes.join(' ')).toMatch(/excluded 1 row/i);
+    expect(result.auditNotes.join(' ')).toMatch(/1 row with missing or non-numeric values .* was excluded/i);
   });
 });

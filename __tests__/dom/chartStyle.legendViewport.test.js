@@ -1,4 +1,13 @@
 describe('chartStyle legend viewport', () => {
+  function setLegendContentBounds(legend, { x = 0, y = 0, width, height }) {
+    Object.assign(legend.dataset, {
+      legendContentX: String(x),
+      legendContentY: String(y),
+      legendContentWidth: String(width),
+      legendContentHeight: String(height)
+    });
+  }
+
   beforeEach(() => {
     jest.resetModules();
     document.body.innerHTML = '';
@@ -27,6 +36,28 @@ describe('chartStyle legend viewport', () => {
     expect(visible.height).toBe(hidden.height);
     expect(visible.width - visibleMargin.left - visibleMargin.right)
       .toBe(hidden.width - hiddenMargin.left - hiddenMargin.right);
+  });
+
+  test('longer legend labels increase the renderer width', () => {
+    const { chartStyle } = window.Shared;
+    const short = chartStyle.computeLegendLayout({
+      entries: [{ label: 'Control', fill: '#06c' }],
+      fontSize: 12
+    });
+    const long = chartStyle.computeLegendLayout({
+      entries: [{ label: 'Control group with a much longer name', fill: '#06c' }],
+      fontSize: 12
+    });
+
+    expect(long.renderer.width).toBeGreaterThan(short.renderer.width);
+    expect(long.legendWidthForMargin).toBeGreaterThan(short.legendWidthForMargin);
+    const shortViewport = chartStyle.computeGraphContentViewport({
+      baseWidth: 320, baseHeight: 200, legendWidth: short.legendWidthForMargin
+    });
+    const longViewport = chartStyle.computeGraphContentViewport({
+      baseWidth: 320, baseHeight: 200, legendWidth: long.legendWidthForMargin
+    });
+    expect(longViewport.rightWidth).toBeGreaterThan(shortViewport.rightWidth);
   });
 
   test('stages the viewport and commits the visible envelope atomically', () => {
@@ -59,6 +90,31 @@ describe('chartStyle legend viewport', () => {
     expect(plot.dataset.graphContentViewport).toBe('true');
   });
 
+  test('publishes a cleared reserve without replacing the renderer-owned viewBox', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+    chartStyle.stageGraphContentViewport({
+      svgBox, plot, svg, baseWidth: 300, baseHeight: 200, bottomHeight: 30,
+      refineContentBounds: false
+    }).commit();
+    expect(svg.dataset.graphContentReserveBottom).toBe('30');
+    svg.setAttribute('viewBox', '0 0 300 205');
+
+    chartStyle.stageGraphContentViewport({
+      svgBox, plot, svg, baseWidth: 300, baseHeight: 200,
+      applySvgViewport: false, refineContentBounds: false
+    }).commit();
+    expect(svg.getAttribute('viewBox')).toBe('0 0 300 205');
+    expect(svg.dataset.graphContentReserveBottom).toBe('0');
+    expect(svgBox.dataset.graphContentEnvelope).toBeUndefined();
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-bottom')).toBe('');
+    expect(plot.dataset.graphContentViewport).toBeUndefined();
+  });
+
   test('multiline settlement keeps legend edge padding and removes temporary bottom overgrowth', () => {
     const { chartStyle } = window.Shared;
     const svgBox = document.createElement('div');
@@ -71,7 +127,6 @@ describe('chartStyle legend viewport', () => {
       fontSize: 12
     });
     const legend = legendRenderer.draw(svg, { x: 150, y: 0, canonicalX: 150, canonicalY: 0 });
-    legend.getBBox = () => ({ x: 0, y: 0, width: 50, height: 20 });
     let measurementCount = 0;
     svg.getBBox = jest.fn(() => {
       measurementCount += 1;
@@ -92,7 +147,7 @@ describe('chartStyle legend viewport', () => {
     });
     viewport.commit();
 
-    const expectedLegendReserve = 150 + 50
+    const expectedLegendReserve = 150 + Number(legend.dataset.legendContentWidth)
       + chartStyle.resolveGraphHorizontalEdgePadding() - 100;
     expect(viewport.getViewport().rightWidth).toBeCloseTo(expectedLegendReserve, 3);
     expect(viewport.getViewport().bottomHeight).toBe(20);
@@ -113,7 +168,7 @@ describe('chartStyle legend viewport', () => {
     legend.setAttribute('data-legend-viewport-content', 'true');
     legend.dataset.legendCanonicalOriginX = '652';
     legend.dataset.legendCanonicalOriginY = '260';
-    legend.getBBox = jest.fn(() => ({ x: 0, y: 0, width: 160, height: 240 }));
+    setLegendContentBounds(legend, { width: 160, height: 240 });
     svgBox.appendChild(plot);
     plot.appendChild(svg);
     svg.appendChild(legend);
@@ -199,7 +254,7 @@ describe('chartStyle legend viewport', () => {
     const legend = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     legend.setAttribute('data-legend-viewport-content', 'true');
     legend.dataset.legendCanonicalOriginX = '150';
-    legend.getBBox = () => ({ x: 0, y: 0, width: 52, height: 20 });
+    setLegendContentBounds(legend, { width: 52, height: 20 });
     svgBox.appendChild(plot);
     plot.appendChild(svg);
     svg.appendChild(legend);
@@ -219,9 +274,43 @@ describe('chartStyle legend viewport', () => {
       }
     });
 
-    expect(projection.getViewport().rightWidth).toBeCloseTo(120, 3);
-    expect(svg.dataset.graphContentReserveRight).toBe('120');
-    expect(svg.getAttribute('viewBox')).toBe('0 0 220 100');
+    expect(projection.getViewport().rightWidth).toBeCloseTo(110, 3);
+    expect(svg.dataset.graphContentReserveRight).toBe('110');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 210 100');
+  });
+
+  test('a smaller rendered legend replaces its Cartesian estimate without shrinking the graph frame', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const legend = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    legend.setAttribute('data-legend-viewport-content', 'true');
+    legend.dataset.legendCanonicalOriginX = '150';
+    setLegendContentBounds(legend, { width: 52, height: 20 });
+    legend.getBBox = () => ({ x: 0, y: 0, width: 32, height: 20 });
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+    svg.appendChild(legend);
+
+    const projection = chartStyle.stageGraphContentViewport({
+      svgBox, plot, svg, baseWidth: 100, baseHeight: 100,
+      rightWidth: 120, legendWidth: 120
+    });
+    projection.commit({
+      userFrame: { width: 100, height: 100 },
+      contentEnvelope: {
+        minX: 0, minY: 0, maxX: 220, maxY: 100,
+        extensionLeft: 0, extensionTop: 0,
+        extensionRight: 120, extensionBottom: 0
+      }
+    });
+
+    expect(projection.getViewport().rightWidth).toBeCloseTo(90, 3);
+    expect(svg.dataset.legendReserveWidth).toBe('90');
+    expect(svg.dataset.graphContentReserveRight).toBe('90');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 190 100');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('90px');
   });
 
   test('does not include the statistical summary in refined graph bounds', () => {
@@ -404,7 +493,7 @@ describe('chartStyle legend viewport', () => {
       svg,
       baseWidth: 640,
       baseHeight: 400,
-      canonicalWidth: 820,
+      canonicalWidth: 640,
       canonicalHeight: 400,
       legendWidth: 180,
       safeViewport
@@ -429,9 +518,67 @@ describe('chartStyle legend viewport', () => {
     ]).toEqual(initialEnvelope);
     expect(svg.getBBox).not.toHaveBeenCalled();
     expect(svg.dataset.plot3dViewport).toBe('true');
+    expect(svg.dataset.plot3dCanonicalWidth).toBe('640');
+    expect(svg.dataset.plot3dViewportWidth).toBe('820');
   });
 
-  test('allows direct 3D SVGs to keep legend width inside the graph box', () => {
+  test('3D titles and legends extend the viewport independently through cache restoration', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    svgBox.className = 'svgbox';
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+    const publish = legendWidth => chartStyle.stagePlot3dViewport({
+      svgBox, plot, svg,
+      baseWidth: 330, baseHeight: 344,
+      canonicalWidth: 346, canonicalHeight: 392,
+      legendWidth,
+      safeViewport: { titleExtensions: { right: 16, bottom: 48 } }
+    }).commit();
+
+    publish(118);
+    expect(svg.dataset.plot3dCanonicalWidth).toBe('346');
+    expect(svg.dataset.plot3dViewportWidth).toBe('464');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 464 392');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('134px');
+    expect(chartStyle.rehydratePlot3dViewports(svgBox)).toBe(1);
+    expect(svg.getAttribute('viewBox')).toBe('0 0 464 392');
+    publish(0);
+    expect(svg.dataset.plot3dCanonicalWidth).toBe('346');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 346 392');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('16px');
+  });
+
+  test('3D legend reserve follows the current rendered font bounds', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const legend = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    legend.setAttribute('data-legend-viewport-content', 'true');
+    setLegendContentBounds(legend, { width: 100, height: 20 });
+    legend.getBBox = () => ({ x: 0, y: 0, width: 40, height: 20 });
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+    svg.appendChild(legend);
+
+    chartStyle.stagePlot3dViewport({
+      svgBox, plot, svg,
+      baseWidth: 300, baseHeight: 300,
+      canonicalWidth: 300, canonicalHeight: 300,
+      legendWidth: 120,
+      safeViewport: { minX: 0, minY: 0, maxX: 300, maxY: 300 }
+    }).commit();
+
+    expect(svg.dataset.plot3dLegendReserveWidth).toBe('60');
+    expect(svg.dataset.graphContentReserveRight).toBe('60');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 360 300');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('60px');
+  });
+
+  test('3D legend extents always reserve visible space, including older cached opt-outs', () => {
     const { chartStyle } = window.Shared;
     const svgBox = document.createElement('div');
     svgBox.className = 'svgbox';
@@ -446,22 +593,21 @@ describe('chartStyle legend viewport', () => {
       svg,
       baseWidth: 456,
       baseHeight: 456,
-      canonicalWidth: 476.552,
+      canonicalWidth: 456,
       canonicalHeight: 456,
       legendWidth: 20.552,
-      applyOuterEnvelope: false,
       safeViewport: { minX: 0, minY: 0, maxX: 476.552, maxY: 456 }
     });
     projection.commit();
 
     expect(svg.getAttribute('viewBox')).toBe('0 0 476.552 456');
-    expect(svg.dataset.plot3dOuterEnvelope).toBe('false');
-    expect(svgBox.dataset.graphContentEnvelope).toBeUndefined();
-    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('');
+    expect(svgBox.dataset.graphContentEnvelope).toBe('true');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('20.552px');
 
+    svg.dataset.plot3dOuterEnvelope = 'false';
     expect(chartStyle.rehydratePlot3dViewports(svgBox)).toBe(1);
-    expect(svgBox.dataset.graphContentEnvelope).toBeUndefined();
-    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('');
+    expect(svgBox.dataset.graphContentEnvelope).toBe('true');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('20.552px');
   });
 
   test('rehydrates a cached 3D viewport without dropping its mounted figure-summary reserve', () => {
@@ -483,10 +629,9 @@ describe('chartStyle legend viewport', () => {
       svg,
       baseWidth: 456,
       baseHeight: 456,
-      canonicalWidth: 476.552,
+      canonicalWidth: 456,
       canonicalHeight: 456,
       legendWidth: 20.552,
-      applyOuterEnvelope: false,
       safeViewport: { minX: 0, minY: 0, maxX: 476.552, maxY: 456 }
     }).commit();
     Object.assign(svg.dataset, {
@@ -703,7 +848,7 @@ describe('chartStyle legend viewport', () => {
     const legend = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     legend.setAttribute('data-legend-viewport-content', 'true');
     legend.setAttribute('transform', 'translate(650,40)');
-    legend.getBBox = () => ({ x: 0, y: 0, width: 100, height: 40 });
+    setLegendContentBounds(legend, { width: 100, height: 40 });
     svg.appendChild(legend);
 
     expect(projection.commit()).toBe(true);
@@ -733,7 +878,7 @@ describe('chartStyle legend viewport', () => {
     const legend = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     legend.setAttribute('data-legend-viewport-content', 'true');
     legend.setAttribute('transform', 'translate(710,40)');
-    legend.getBBox = () => ({ x: 0, y: 0, width: 100, height: 40 });
+    setLegendContentBounds(legend, { width: 100, height: 40 });
     svg.appendChild(legend);
 
     projection.commit();

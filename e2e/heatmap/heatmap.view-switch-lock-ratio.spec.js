@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { waitForAnimationFrame, waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { expectTargetsAtLeast24 } = require('../helpers/targetSizeAssertions');
 
 async function waitForHeatmapCells(page) {
   await page.waitForFunction(() => {
@@ -179,10 +180,16 @@ test.describe('Heatmap view switch and lock ratio behavior', () => {
       expect(snapshot.lockDataset).toBe('false');
       expect(snapshot.preserveAspectRatio).toBe('none');
 
-      await page.locator('#heatmapGraphPanel .resizer-options-summary').click();
+      const optionsSummary = page.locator('#heatmapGraphPanel .resizer-options-summary');
+      await expectTargetsAtLeast24(optionsSummary, 'Heatmap graph options trigger');
+      await optionsSummary.click();
       const lockRatioInMenu = page.locator('#heatmapGraphPanel .resizer-options-menu .resizer-aspect-checkbox');
       await expect(lockRatioInMenu).toBeVisible();
       await expect(lockRatioInMenu).toBeEnabled();
+      await expectTargetsAtLeast24(
+        page.locator('#heatmapGraphPanel .resizer-options-menu .resizer-aspect-control'),
+        'Heatmap resizer Lock ratio'
+      );
 
       await lockRatioInMenu.click();
       await expect(lockRatioInMenu).toBeChecked();
@@ -273,4 +280,49 @@ test.describe('Heatmap view switch and lock ratio behavior', () => {
     expect(afterUnlock.matrixWidth).toBeCloseTo(afterReverseResize.matrixWidth, 1);
     expect(afterUnlock.matrixHeight).toBeCloseTo(afterReverseResize.matrixHeight, 1);
   });
+});
+
+test('Heatmap graph options stay within a 320×400 viewport', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 320, height: 400 });
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, {
+    type: 'heatmap',
+    pageId: 'heatmapPage',
+    exampleButtonId: 'heatmapLoadExample'
+  }, {
+    first: true,
+    loadExample: true
+  });
+
+  const graphPanel = page.locator('#heatmapGraphPanel');
+  const optionsSummary = graphPanel.locator('.resizer-options-summary');
+  await expectTargetsAtLeast24(optionsSummary, 'Heatmap graph options trigger at 320×400');
+  await optionsSummary.click();
+  const menu = graphPanel.locator('.resizer-options-menu');
+  await expect(menu).toBeVisible();
+  const optionTargets = menu.locator([
+    '.resizer-aspect-control:visible',
+    '.resizer-fontresize-control:visible',
+    '.resizer-title-control:visible',
+    '.resizer-legend-control:visible',
+    '.resizer-axeslength-summary:visible'
+  ].join(', '));
+  await expectTargetsAtLeast24(optionTargets, 'Heatmap visible graph-option controls at 320×400');
+  const bounds = await menu.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight
+    };
+  });
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.top).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth);
+  expect(bounds.bottom).toBeLessThanOrEqual(bounds.viewportHeight);
 });

@@ -86,10 +86,10 @@ describe('color scheme default isolation', () => {
       }
     };
 
-    expect(schemes.getSelectedSchemeId('line')).toBe('scientific');
+    expect(schemes.getSelectedSchemeId('line')).toBe('normal');
   });
 
-  test('missing canonical payload uses the component empty payload without a live DOM capture', () => {
+  test.each([true, false])('missing saved payload resolves the live owner before empty defaults (live payload: %s)', hasLivePayload => {
     const activeTab = {
       id: 'workspace-meta-line',
       type: 'line',
@@ -97,7 +97,7 @@ describe('color scheme default isolation', () => {
     };
     const lineWorkspace = {
       createEmptyPayload: jest.fn(() => ({ type: 'line', config: { colorScheme: 'scientific' } })),
-      getPayload: jest.fn(() => ({ type: 'line', config: { colorScheme: 'scientific' } })),
+      getPayload: jest.fn(() => hasLivePayload ? { type: 'line', data: [['X', 'Owned Y'], [1, 2]], config: { colorScheme: 'scientific' } } : null),
       applyColorSchemePayload: jest.fn(() => true)
     };
 
@@ -122,8 +122,9 @@ describe('color scheme default isolation', () => {
     require('../../js/shared/colorSchemes.js');
     const schemes = window.Shared?.colorSchemes;
     expect(schemes.applyToActiveTab('line', 'dark')).toBe(true);
-    expect(lineWorkspace.createEmptyPayload).toHaveBeenCalledTimes(1);
-    expect(lineWorkspace.getPayload).not.toHaveBeenCalled();
+    expect(lineWorkspace.createEmptyPayload).toHaveBeenCalledTimes(hasLivePayload ? 0 : 1);
+    expect(lineWorkspace.getPayload).toHaveBeenCalledWith(expect.objectContaining({ tabId: activeTab.id, type: 'line' }));
+    if(hasLivePayload) expect(activeTab.payload.data).toEqual([['X', 'Owned Y'], [1, 2]]);
     expect(activeTab.payload?.config?.colorScheme).toBe('dark');
   });
 });

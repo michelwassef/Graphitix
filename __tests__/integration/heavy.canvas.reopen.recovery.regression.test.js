@@ -63,9 +63,11 @@ describe('heavy canvas reopen/recovery regression guards', () => {
   function makeBoxCacheWithBitmapImage(tabId = 'workspace-box-a') {
     const fragment = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('id', 'boxSvg');
     svg.setAttribute('width', '640');
     svg.setAttribute('height', '480');
     svg.setAttribute('viewBox', '0 0 640 480');
+    svg.dataset.boxTabId = tabId;
     const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     layer.setAttribute('data-export-layer', 'box-points');
     const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');

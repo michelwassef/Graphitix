@@ -30,6 +30,51 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 0)).toBe('X');
   });
 
+  test('paste within existing dimensions updates cells without replacing grid rows or columns', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hot = fixture.createTable(container, { rows: 4, cols: 4 }, () => {}, {
+      debugLabel: 'ag-paste-existing-dimensions',
+      data: Shared.createEmptyData(4, 4)
+    });
+    const untouchedRow = hot.getSourceData()[3];
+    fixture.capturedApi.setRowData.mockClear();
+    fixture.capturedApi.setColumnDefs.mockClear();
+    hot.selectCell(0, 0);
+    const event = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { getData: () => 'A\tB\nC\tD' };
+    container.dispatchEvent(event);
+
+    expect(hot.getSourceData().slice(0, 2).map(row => row.slice(0, 2))).toEqual([
+      ['A', 'B'], ['C', 'D']
+    ]);
+    expect(hot.getSourceData()[3]).toBe(untouchedRow);
+    expect(fixture.capturedApi.setRowData).not.toHaveBeenCalled();
+    expect(fixture.capturedApi.setColumnDefs).not.toHaveBeenCalled();
+  });
+
+  test('paste that expands the table updates grid dimensions', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hot = fixture.createTable(container, { rows: 2, cols: 2 }, () => {}, {
+      debugLabel: 'ag-paste-expanded-dimensions',
+      data: Shared.createEmptyData(2, 2)
+    });
+    fixture.capturedApi.setRowData.mockClear();
+    fixture.capturedApi.setColumnDefs.mockClear();
+    const lastExistingCol = hot.countCols() - 1;
+    hot.selectCell(1, lastExistingCol);
+    const event = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { getData: () => 'A\tB\nC\tD' };
+    container.dispatchEvent(event);
+
+    expect(hot.getDataAtCell(2, lastExistingCol + 1)).toBe('D');
+    expect(fixture.capturedApi.setRowData).toHaveBeenCalled();
+    expect(fixture.capturedApi.setColumnDefs).toHaveBeenCalled();
+  });
+
   test('new active tab pastes into its highlighted cell without grid focus', () => {
     const Shared = global.window.Shared;
     const activeTab = { id: 'workspace-new-paste', type: 'box' };
@@ -698,8 +743,6 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
         data: Shared.createEmptyData(3, 3)
       }
     );
-    const lastCol = hot.countCols() - 1;
-
     const row0 = document.createElement('div');
     row0.className = 'ag-row';
     row0.setAttribute('row-index', '0');
@@ -737,7 +780,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
     global.window.dispatchEvent(mouseUp);
 
-    expect(hot.getSelectedLast()).toEqual([0, 0, 2, lastCol]);
+    expect(hot.getSelectedLast()).toEqual([0, 0, 2, hot.countCols() - 1]);
   });
 
   test('dragging pinned first-row cells replaces prior body selection', async () => {
@@ -928,6 +971,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     floatingTop.appendChild(pinnedViewport);
     container.appendChild(floatingTop);
 
+    fixture.mountNativeSelectionPanes(container);
     hot.selectCell(0, 0, 0, 0);
 
     if(typeof global.window.requestAnimationFrame === 'function'){
@@ -1026,6 +1070,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     floatingTop.appendChild(pinnedViewport);
     container.appendChild(floatingTop);
 
+    fixture.mountNativeSelectionPanes(container);
     hot.selectCell(0, 1, 0, 1);
 
     if(typeof global.window.requestAnimationFrame === 'function'){
@@ -1039,7 +1084,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(handle.style.display).toBe('block');
     expect(handle.style.left).toBe('200px');
     expect(handle.style.top).toBe('28px');
-    expect(handle.style.zIndex).toBe('12');
+    expect(handle.style.zIndex).toBe('9');
     expect(handle.dataset.pinnedSelection).toBe('1');
   });
 
@@ -1128,6 +1173,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     floatingTop.appendChild(floatingRow);
     container.appendChild(floatingTop);
 
+    fixture.mountNativeSelectionPanes(container);
     hot.selectCell(0, 1, 0, 1);
 
     if(typeof global.window.requestAnimationFrame === 'function'){

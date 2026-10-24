@@ -1,8 +1,10 @@
 jest.setTimeout(180000);
 
 const { installPcaViewProductionFixture } = require('../../test-support/pcaViewFixture');
+const { installSvgTextGeometry } = require('../setup/svgTextGeometry');
 
 describe('PCA view cache controls', () => {
+  let restoreSvgTextGeometry = null;
   const flush = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
   const flushAll = async (count = 10) => {
     for (let i = 0; i < count; i += 1) {
@@ -31,6 +33,7 @@ describe('PCA view cache controls', () => {
   beforeEach(async () => {
     jest.resetModules();
     installPcaViewProductionFixture();
+    restoreSvgTextGeometry = installSvgTextGeometry();
     await activateWorkspace('pca');
     const activePcaTabId = window.Main?.session?.getActiveTab?.()?.id || null;
     window.Components?.pca?.ensure?.({
@@ -41,20 +44,30 @@ describe('PCA view cache controls', () => {
     await flushAll();
   });
 
-  test('view-only styling updates and 3D rotation reuse cached PCA geometry', async () => {
-    const exampleBtn = document.getElementById('pcaLoadExample');
-    expect(exampleBtn).toBeTruthy();
-    exampleBtn.click();
-    await flushAll(20);
+  afterEach(() => {
+    restoreSvgTextGeometry?.();
+    restoreSvgTextGeometry = null;
+  });
 
+  test('view-only styling updates and 3D rotation reuse cached PCA geometry', async () => {
     const state = window.Components?.pca?.__state;
     expect(state).toBeTruthy();
+    const hot = window.Components?.pca?.getHotInstance?.();
+    expect(hot).toBeTruthy();
+    hot.loadData([
+      ['Label point', true, false, false, false],
+      ['Variable', 'S1', 'S2', 'S3', 'S4'],
+      ['Var1', 1, 2, 3, 6],
+      ['Var2', 2, 1, 4, 5],
+      ['Var3', 3, 4, 1, 2],
+      ['Var4', 6, 2, 5, 1]
+    ]);
     const includeAllAxesToggle = document.getElementById('pcaIncludeNonRetainedAxes');
     expect(includeAllAxesToggle).toBeTruthy();
     includeAllAxesToggle.checked = true;
     includeAllAxesToggle.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAll(20);
-    await flushUntil(() => !!state.cachedRender, { limit: 80, step: 2 });
+    await flushUntil(() => state.cachedRender?.dimensionMeta?.length >= 3, { limit: 80, step: 2 });
     await flushUntil(() => (state.performance?.draw?.timestamp || 0) > 0, { limit: 80, step: 2 });
 
     const initialCache = state.cachedRender;
@@ -107,10 +120,12 @@ describe('PCA view cache controls', () => {
     }, { limit: 20, step: 1 });
     const panel = document.querySelector('.axis-controls-panel');
     expect(panel).toBeTruthy();
-    const thicknessField = Array.from(panel.querySelectorAll('.axis-controls-panel__field'))
-      .find((field) => /Thickness/i.test(field.textContent || ''));
-    expect(thicknessField).toBeTruthy();
-    const thicknessInput = thicknessField.querySelector('input');
+    const styleChip = panel.querySelector('.shared-border-style-chip');
+    expect(styleChip).toBeTruthy();
+    styleChip.click();
+    const thicknessInput = document.querySelector(
+      '.shared-color-picker__section--axis-style input[aria-label="Thickness"]'
+    );
     expect(thicknessInput).toBeTruthy();
     thicknessInput.value = '2';
     thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));

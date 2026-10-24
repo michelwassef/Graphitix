@@ -72,6 +72,42 @@ describe('ROC statistical standardization', () => {
     expect(comparison.lines).toEqual(['ΔAUC = 0.120; p = 0.031']);
   });
 
+  test('single-curve inference can be restored only for the matching analysis signature', () => {
+    const hooks = window.Components.roc.__testHooks;
+    const signature = hooks.buildSingleCurveSignature({
+      data: [['Label', 'Assay A'], [1, 0.9], [0, 0.2]],
+      graphType: 'roc',
+      positiveClass: 1,
+      negativeClass: 0,
+      scoreDirection: 'higher',
+      singleRocPMethod: 'auto'
+    });
+    const calculated = [{
+      serie: { name: 'Assay A' },
+      aucUncertainty: {
+        se: 0.12,
+        ciLow: 0.6,
+        ciHigh: 1,
+        pValue: 0.031,
+        pMethod: 'exact Mann–Whitney',
+        pRequestedMethod: 'auto',
+        pFallbackReason: null,
+        mannWhitneyU: 2,
+        mannWhitneyZ: null,
+        exactPValue: true
+      }
+    }];
+    const saved = hooks.captureSingleCurveInference(calculated, signature);
+    const estimateOnly = [{ serie: { name: 'Assay A' }, aucUncertainty: { se: 0.12, ciLow: 0.6, ciHigh: 1 } }];
+
+    expect(hooks.applySingleCurveInference(estimateOnly, saved, signature)[0].aucUncertainty).toMatchObject({
+      pValue: 0.031,
+      pMethod: 'exact Mann–Whitney',
+      mannWhitneyZ: null
+    });
+    expect(hooks.applySingleCurveInference(estimateOnly, saved, `${signature}:changed`)[0]).toBe(estimateOnly[0]);
+  });
+
   test('single precision-recall curve uses the same stats toggle with average precision', () => {
     const hooks = window.Components.roc.__testHooks;
     const presentation = hooks.buildOnPlotPresentation({
@@ -164,10 +200,10 @@ describe('ROC statistical standardization', () => {
     const hooks = window.Components.roc.__testHooks;
     const pairs = referencePairs();
     const rocLabel = hooks.buildLegendMetricLabel({ name: 'Assay A', pairs }, 'roc', 'auto');
-    expect(rocLabel).toMatch(/^Assay A \(AUC=[0-9]+\.[0-9]{2}\)$/);
+    expect(rocLabel).toMatch(/^Assay A\nAUC = [0-9]+\.[0-9]{2}$/);
     expect(rocLabel).not.toMatch(/CI|\[|\]/);
     const prLabel = hooks.buildLegendMetricLabel({ name: 'Assay A', pairs }, 'pr', 'auto');
-    expect(prLabel).toMatch(/^Assay A — AP [0-9.]+$/);
+    expect(prLabel).toMatch(/^Assay A\nAP = [0-9.]+$/);
   });
 
   test('default ROC axes stay equal and horizontal resize remains continuous from that baseline', () => {

@@ -38,10 +38,11 @@ async function waitForScatterSvg(page, mode) {
 async function readScatterControls(page) {
   return page.evaluate(() => {
     const root = document.querySelector('#scatterPage:not([hidden])');
-    const lock = root?.querySelector?.('.svgbox .resizer-aspect-checkbox') || null;
+    const svgBox = root?.querySelector?.('.svgbox') || null;
+    const controlsHost = window.Shared?.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const lock = controlsHost?.querySelector?.('.resizer-aspect-checkbox') || null;
     const frame = root?.querySelector?.('#scatterShowFrame') || null;
     const mode = root?.querySelector?.('#scatterViewMode') || null;
-    const svgBox = root?.querySelector?.('.svgbox') || null;
     const svg = root?.querySelector?.('#scatterPlot svg') || null;
     return {
       mode: mode?.value || null,
@@ -57,7 +58,9 @@ async function readScatterControls(page) {
 async function setLockRatio(page, checked) {
   await page.evaluate((nextChecked) => {
     const root = document.querySelector('#scatterPage:not([hidden])');
-    const lock = root?.querySelector?.('.svgbox .resizer-aspect-checkbox') || null;
+    const svgBox = root?.querySelector?.('.svgbox') || null;
+    const controlsHost = window.Shared?.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const lock = controlsHost?.querySelector?.('.resizer-aspect-checkbox') || null;
     if (!lock) {
       throw new Error('scatter lock-ratio checkbox not found');
     }
@@ -182,6 +185,7 @@ test('scatter 2D lock ratio and frame state survive activation from a forced 3D 
   expect(controls3d.svgMode).toBe('3d');
   expect(controls3d.lockChecked).toBe(true);
   expect(controls3d.lockDisabled).toBe(true);
+  expect(controls3d.aspectLocked).toBe('true');
   expect(controls3d.showFrame).toBe(true);
 
   await dragScatter3d(page);
@@ -194,6 +198,7 @@ test('scatter 2D lock ratio and frame state survive activation from a forced 3D 
   expect(returned.lockChecked).toBe(false);
   expect(returned.lockDisabled).toBe(false);
   expect(returned.showFrame).toBe(false);
+  expect(returned.aspectLocked).toBe('false');
   expect(returned.aspectLocked).not.toBe('true');
 
   const captured = await captureActiveScatterTab(page);

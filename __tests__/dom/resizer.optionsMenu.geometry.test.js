@@ -10,6 +10,38 @@ describe('Shared resizer aspect and geometry contracts', () => {
 
   beforeEach(harness.setup);
 
+  test.each([false, true])('zoom projects the canonical locked frame without solving resize constraints (Cartesian: %s)', cartesianLayoutTransactionEnabled => {
+    const previousMain = window.Main;
+    const tab = { id: 'tab-a', type: 'line' };
+    window.Main = { session: { workspaceState: { activeTabId: tab.id, tabs: [tab] }, getActiveTab: () => tab } };
+    try {
+      const box = harness.createSvgBox();
+      window.Shared.attachResizableBox(box, {
+        componentName: 'line', tabId: 'tab-a',
+        defaultWidth: 420, defaultHeight: 320,
+        minWidth: 120, minHeight: 90,
+        aspectLocked: true, cartesianLayoutTransactionEnabled
+      });
+      // A resize constraint is deliberately different from the existing frame;
+      // viewing must preserve the frame without recalibrating that constraint.
+      box.dataset.resizerLockedGeometryRatio = '2';
+      box.dataset.resizerLockedConstraintRatio = '2';
+      box.dataset.resizerLockedGeometryInsetX = '30';
+      box.dataset.resizerLockedGeometryInsetY = '40';
+      const api = box.__sharedResizableBoxApi;
+      const ratio = api.getState().aspectRatio;
+      for (const zoom of [0.5, 1.5, 1]) {
+        api.setZoomLevel(zoom);
+        expect(api.getZoomLevel()).toBe(zoom);
+        expect(Number(box.dataset.resizerBaseWidth)).toBe(420);
+        expect(Number(box.dataset.resizerBaseHeight)).toBe(320);
+        expect(Number.parseFloat(box.dataset.resizerWidth)).toBe(420 * zoom);
+        expect(Number.parseFloat(box.dataset.resizerHeight)).toBe(320 * zoom);
+        expect(api.getState().aspectRatio).toBe(ratio);
+      }
+    } finally { window.Main = previousMain; }
+  });
+
   test('supports an immutable aspect policy without exposing a Lock ratio control', () => {
     const box = harness.createSvgBox();
     box.dataset.resizerAspectLocked = 'false';
@@ -315,6 +347,40 @@ describe('Shared resizer aspect and geometry contracts', () => {
     expect(onResize).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ['layout', 2],
+    ['user', 1.5]
+  ])('Cartesian ratio source %s applies its ownership rule to later publications', (cartesianRatioSource, expectedRatio) => {
+    const box = harness.createSvgBox();
+    box.style.width = '500px';
+    box.style.height = '400px';
+    window.Shared.attachResizableBox(box, {
+      componentName: 'pca', tabId: 'tab-a',
+      defaultWidth: 500, defaultHeight: 400, minWidth: 120, minHeight: 90,
+      aspectLocked: true, cartesianLayoutTransactionEnabled: true,
+      ...(cartesianRatioSource === 'layout' ? { cartesianRatioSource } : {})
+    });
+
+    const publish = (generation, yLength) => {
+      const plan = window.Shared.cartesianLayout.planCartesianLayout({
+        owner: { tabId: 'tab-a', component: 'pca', generation },
+        userFrame: { width: 500, height: 400 },
+        baselineMargins: { top: 30, right: 20, bottom: 60, left: 70 },
+        axisLengths: { x: 360, y: yLength },
+        minimumPlot: { width: 20, height: 20 }
+      });
+      expect(window.Shared.cartesianLayout.publishCartesianLayout(box, plan, {
+        tabId: 'tab-a', component: 'pca', generation
+      })).toBe(true);
+    };
+
+    publish(1, 240);
+    expect(Number(box.dataset.resizerCartesianPlotRatio)).toBeCloseTo(1.5, 9);
+    publish(2, 180);
+
+    expect(Number(box.dataset.resizerCartesianPlotRatio)).toBeCloseTo(expectedRatio, 9);
+  });
+
   test('Cartesian reset uses only the orientation-specific user frame and never adds legacy automatic reserves', () => {
     const box = harness.createSvgBox();
     box.style.width = '700px';
@@ -400,7 +466,7 @@ describe('Shared resizer aspect and geometry contracts', () => {
       .toBeCloseTo((450 / 300) * 1.6 / (260 / 175), 9);
   });
 
-  test('ResizeObserver ignores geometry already delivered by an explicit resize phase', () => {
+  test('ResizeObserver ignores geometry applied by explicit or silent programmatic resizing', () => {
     const originalResizeObserver = window.ResizeObserver;
     let observerCallback = null;
     window.ResizeObserver = class ResizeObserverMock {
@@ -423,6 +489,14 @@ describe('Shared resizer aspect and geometry contracts', () => {
       minHeight: 90,
       onResize
     });
+    observerCallback?.();
+    expect(onResize).not.toHaveBeenCalled();
+
+    box.__sharedResizableBoxApi.applySize({
+      width: 450, height: 330, axis: 'both', suppressOnResize: true,
+      reason: 'layout-restore'
+    });
+    now += 1_000;
     observerCallback?.();
     expect(onResize).not.toHaveBeenCalled();
 

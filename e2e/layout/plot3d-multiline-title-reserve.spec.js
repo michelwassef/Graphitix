@@ -1,4 +1,6 @@
+const { selectReplicateMode } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
+const { readContainment, expectContained } = require('../helpers/plot3dContainment');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
@@ -14,6 +16,7 @@ async function read3dTitleGeometry(page){
     const svgBox = svg?.closest('.svgbox') || null;
     const frame = svgBox?.getBoundingClientRect?.() || null;
     const frameStyle = svgBox ? getComputedStyle(svgBox) : null;
+    const zoom = Number(svgBox?.dataset.resizerZoomLevel || 1);
     const frameFlowHeight = frame
       ? frame.height + (Number.parseFloat(frameStyle?.marginTop || '0') || 0) + (Number.parseFloat(frameStyle?.marginBottom || '0') || 0)
       : 0;
@@ -25,6 +28,9 @@ async function read3dTitleGeometry(page){
       const axisLines = Array.from(node?.querySelectorAll('tspan[data-title-line="1"]') || []);
       return {
         text: node?.dataset?.titleBlockText || node?.textContent || '',
+        x: Number(node?.getAttribute('x')),
+        anchorX: Number(node?.getAttribute('data-title-anchor-x')),
+        ticks: Array.from(svg?.querySelectorAll(`[data-axis-tick-label][data-axis-key="${role[0]}"]`) || []).map(tick => ({ text: tick.textContent, visible: tick.getBoundingClientRect().width > 0 })),
         lineHeight: Number(node?.dataset?.titleLineHeight) || Number.parseFloat(node?.getAttribute('font-size') || '') || 0,
         baselines: axisLines.length ? axisLines.map(line => Number(line.getAttribute('y'))) : (node ? [Number(node.getAttribute('y'))] : [])
       };
@@ -38,8 +44,8 @@ async function read3dTitleGeometry(page){
       pointBox: pointBox ? { x: pointBox.x, y: pointBox.y, width: pointBox.width, height: pointBox.height } : null,
       viewBox,
       frameHeight: Number(frame?.height) || 0,
-      frameFlowHeight,
-      frameFlowWidth,
+      frameFlowHeight: frameFlowHeight / zoom,
+      frameFlowWidth: frameFlowWidth / zoom,
       baseHeight: Number(svg?.dataset?.plot3dBaseHeight) || 0,
       canonicalHeight: Number(svg?.dataset?.plot3dCanonicalHeight) || 0,
       canonicalWidth: Number(svg?.dataset?.plot3dCanonicalWidth) || 0,
@@ -80,7 +86,7 @@ async function append3dAxisTitleLine(page, role, suffix){
 async function buildLine3d(page){
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
   await waitForComponentOwnerReady(page, 'line', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
-  await page.locator('#linePage:not([hidden]) #lineTableFormat').selectOption('3d');
+  await selectReplicateMode(page, 'line', '3d');
   await page.locator('#linePage:not([hidden]) #lineViewMode').selectOption('3d');
   await waitForComponentOwnerReady(page, 'line', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   await clickExpectedExampleButton(page, 'lineLoadExample');
@@ -98,6 +104,17 @@ async function buildPca3d(page){
   await page.locator('#pcaPage:not([hidden]) #pcaViewMode').selectOption('3d');
   await page.waitForFunction(() => document.querySelector('#pcaPage:not([hidden]) #pcaPlot #pcaSvg')?.dataset?.viewMode === '3d', null, { timeout: 40_000 });
   await waitForComponentOwnerReady(page, 'pca', { requireMountedRoot: true, requireIdle: true, timeout: 40_000 });
+  // The default camera sees Z edge-on. Title editing requires a projection
+  // in which all three axes are visible.
+  const box = await page.locator('#pcaPage:not([hidden]) #pcaSvg').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 45, box.y + box.height / 2 + 35, { steps: 8 });
+  await page.mouse.up();
+  await waitForComponentOwnerReady(page, 'pca', { requireMountedRoot: true, requireIdle: true, timeout: 40_000 });
+  for(const axis of ['x', 'y', 'z']){
+    await expect(page.locator(`#pcaPage:not([hidden]) #pcaSvg [data-axis-label][data-axis-key="${axis}"]`)).toBeVisible();
+  }
 }
 
 async function buildSurface3d(page){
@@ -115,6 +132,7 @@ async function read3dFixtureGeometry(page, fixture){
     const frame = svg?.closest('.svgbox') || null;
     const frameRect = frame?.getBoundingClientRect?.() || null;
     const frameStyle = frame ? getComputedStyle(frame) : null;
+    const zoom = Number(frame?.dataset.resizerZoomLevel || 1);
     const boxes = Array.from(svg?.querySelectorAll(geometrySelector) || []).map(node => {
       try { return node.getBBox(); } catch (_err) { return null; }
     }).filter(Boolean);
@@ -124,11 +142,15 @@ async function read3dFixtureGeometry(page, fixture){
       width: Math.max(...boxes.map(box => box.x + box.width)) - Math.min(...boxes.map(box => box.x)),
       height: Math.max(...boxes.map(box => box.y + box.height)) - Math.min(...boxes.map(box => box.y))
     } : null;
+    const scaleBar = svg?.querySelector('[data-surface-color-scale-bar="1"]');
     const axis = key => {
       const node = svg?.querySelector(`[data-axis-label][data-axis-key="${key}"]`) || null;
       const lines = Array.from(node?.querySelectorAll('tspan[data-title-line="1"]') || []);
       return {
         text: node?.dataset?.titleBlockText || node?.textContent || '',
+        x: Number(node?.getAttribute('x')),
+        anchorX: Number(node?.getAttribute('data-title-anchor-x')),
+        ticks: Array.from(svg?.querySelectorAll(`[data-axis-tick-label][data-axis-key="${key}"]`) || []).map(tick => ({ text: tick.textContent, visible: tick.getBoundingClientRect().width > 0 })),
         lineHeight: Number(node?.dataset?.titleLineHeight) || Number.parseFloat(node?.getAttribute('font-size') || '') || 0,
         baselines: lines.length ? lines.map(line => Number(line.getAttribute('y'))) : (node ? [Number(node.getAttribute('y'))] : [])
       };
@@ -139,14 +161,16 @@ async function read3dFixtureGeometry(page, fixture){
       titleLineHeight: Number(title?.dataset?.titleLineHeight) || Number.parseFloat(title?.getAttribute('font-size') || '') || 0,
       titleBaseline: Number(title?.querySelector('tspan[data-title-line="1"]')?.getAttribute('y') || title?.getAttribute('y')) || 0,
       geometry,
+      zoom,
+      scaleBar: scaleBar ? { width: Number(scaleBar.getAttribute('width')), height: Number(scaleBar.getAttribute('height')) } : null,
       axes: { x: axis('x'), y: axis('y'), z: axis('z') },
       viewBox,
       canonicalWidth: Number(svg?.dataset?.plot3dCanonicalWidth) || 0,
       canonicalHeight: Number(svg?.dataset?.plot3dCanonicalHeight) || 0,
       titleReserveRight: Number(svg?.dataset?.plot3dTitleReserveRight) || 0,
       titleReserveBottom: Number(svg?.dataset?.plot3dTitleReserveBottom) || 0,
-      frameFlowWidth: frameRect ? frameRect.width + (parseFloat(frameStyle?.marginLeft || '0') || 0) + (parseFloat(frameStyle?.marginRight || '0') || 0) : 0,
-      frameFlowHeight: frameRect ? frameRect.height + (parseFloat(frameStyle?.marginTop || '0') || 0) + (parseFloat(frameStyle?.marginBottom || '0') || 0) : 0
+      frameFlowWidth: frameRect ? (frameRect.width + (parseFloat(frameStyle?.marginLeft || '0') || 0) + (parseFloat(frameStyle?.marginRight || '0') || 0)) / zoom : 0,
+      frameFlowHeight: frameRect ? (frameRect.height + (parseFloat(frameStyle?.marginTop || '0') || 0) + (parseFloat(frameStyle?.marginBottom || '0') || 0)) / zoom : 0
     };
   }, {
     rootSelector: fixture.rootSelector,
@@ -243,6 +267,9 @@ test('Scatter 3D graph-title lines add one exact outer reserve and keep the proj
   await append3dAxisTitleLine(page, 'yTitle', 'Y axis line');
   const afterY = await read3dTitleGeometry(page);
   expect(afterY.axes[1].text).toBe(`${beforeY.axes[1].text}\nY axis line`);
+  expect(afterY.axes[1].anchorX).toBeCloseTo(afterY.axes[1].x, 4);
+  expect(afterY.axes[1].ticks[0].visible).toBe(true);
+  expect(afterY.axes[1].ticks[afterY.axes[1].ticks.length - 1].visible).toBe(true);
   expect(afterY.axes[1].baselines[1] - afterY.axes[1].baselines[0]).toBeCloseTo(yLineHeight, 2);
   expect(afterY.titleReserveRight - beforeY.titleReserveRight).toBeCloseTo(yLineHeight, 2);
   expect(afterY.canonicalWidth - beforeY.canonicalWidth).toBeCloseTo(yLineHeight, 2);
@@ -278,6 +305,7 @@ test('Scatter 3D graph-title lines add one exact outer reserve and keep the proj
   expect(axesRedrawn.titleReserveBottom).toBeCloseTo(afterX.titleReserveBottom, 2);
   expect(axesRedrawn.pointBox.x).toBeCloseTo(afterX.pointBox.x, 2);
   expect(axesRedrawn.pointBox.y).toBeCloseTo(afterX.pointBox.y, 2);
+  expectContained(await readContainment(page, '#scatterPage:not([hidden]) #scatterSvg'), 'Scatter multiline titles');
 });
 
 const threeDComponentFixtures = [
@@ -301,17 +329,30 @@ const threeDComponentFixtures = [
     svgSelector: '#surfaceSvg',
     geometrySelector: 'g.surface-faces',
     build: buildSurface3d
+  },
+  {
+    type: 'surface',
+    zoom: 100,
+    rootSelector: '#surfacePage:not([hidden])',
+    svgSelector: '#surfaceSvg',
+    geometrySelector: 'g.surface-faces',
+    build: buildSurface3d
   }
 ];
 
 for(const fixture of threeDComponentFixtures){
-  test(`${fixture.type} 3D title and axis lines reserve exactly one line-height`, async ({ page }) => {
+  test(`${fixture.type} 3D title and axis lines reserve exactly one line-height${fixture.zoom ? ` at ${fixture.zoom}% zoom` : ''}`, async ({ page }, testInfo) => {
     test.setTimeout(120_000);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await fixture.build(page);
+    if(fixture.zoom){
+      await page.locator(fixture.rootSelector).getByRole('button', { name: 'View graph at actual size', exact: true }).click();
+      await waitForComponentOwnerReady(page, fixture.type, { requireMountedRoot: true, requireIdle: true, timeout: 40_000 });
+    }
 
     const beforeGraph = await read3dFixtureGeometry(page, fixture);
+    if(fixture.zoom){ expect(beforeGraph.zoom).toBe(fixture.zoom / 100); }
     expect(beforeGraph.geometry, `${fixture.type} projected geometry should exist`).toBeTruthy();
     expect(beforeGraph.titleText.trim()).not.toBe('');
     expect(beforeGraph.titleReserveBottom).toBe(0);
@@ -335,7 +376,15 @@ for(const fixture of threeDComponentFixtures){
     await append3dLineToText(page, `${fixture.rootSelector} ${fixture.svgSelector} [data-axis-label][data-axis-key="y"]`, 'Y axis continued');
     await waitForComponentOwnerReady(page, fixture.type, { requireMountedRoot: true, requireIdle: true, timeout: 40_000 });
     const afterY = await read3dFixtureGeometry(page, fixture);
+    expect(afterY.scaleBar).toEqual(beforeY.scaleBar);
+    if(fixture.type === 'surface'){
+      expect(afterY.scaleBar.width).toBeCloseTo(15, 2);
+      expect(afterY.scaleBar.height).toBeCloseTo(80, 2);
+    }
     expect(afterY.axes.y.text).toBe(`${beforeY.axes.y.text}\nY axis continued`);
+    expect(afterY.axes.y.anchorX).toBeCloseTo(afterY.axes.y.x, 4);
+    expect(afterY.axes.y.ticks[0].visible).toBe(true);
+    expect(afterY.axes.y.ticks[afterY.axes.y.ticks.length - 1].visible).toBe(true);
     expect(afterY.axes.y.baselines[1] - afterY.axes.y.baselines[0]).toBeCloseTo(yLineHeight, 2);
     expect(afterY.titleReserveRight - beforeY.titleReserveRight).toBeCloseTo(yLineHeight, 2);
     expect(afterY.canonicalWidth - beforeY.canonicalWidth).toBeCloseTo(yLineHeight, 2);
@@ -390,5 +439,37 @@ for(const fixture of threeDComponentFixtures){
     expect(redrawn.geometry.y).toBeCloseTo(afterZ.geometry.y, 2);
     expect(redrawn.geometry.width).toBeCloseTo(afterZ.geometry.width, 2);
     expect(redrawn.geometry.height).toBeCloseTo(afterZ.geometry.height, 2);
+    const svgSelector = `${fixture.rootSelector} ${fixture.svgSelector}`;
+    expectContained(await readContainment(page, svgSelector), `${fixture.type} multiline titles`);
+    if(fixture.zoom === 100){
+      await page.locator(`${svgSelector} [data-axis-label][data-axis-key="y"]`).dblclick();
+      const editor = page.locator('.inline-edit-input').last();
+      await expect(editor).toBeVisible();
+      await page.getByRole('button', { name: 'Align right', exact: true }).click();
+      const size = page.getByRole('combobox', { name: 'Font size', exact: true });
+      await size.fill('18');
+      await size.press('Enter');
+      await page.mouse.click(3, 3);
+      await expect(editor).toBeHidden();
+      await waitForComponentOwnerReady(page, fixture.type, { requireMountedRoot: true, requireIdle: true, timeout: 40_000 });
+      const styledTitle = page.locator(`${svgSelector} [data-axis-label][data-axis-key="y"]`);
+      await expect(styledTitle).toHaveAttribute('data-title-text-align', 'right');
+      expectContained(await readContainment(page, svgSelector), `${fixture.type} styled multiline title`);
+    }
+    await testInfo.attach('multiline-graph', {
+      body: await page.locator(`${fixture.rootSelector} .graph-frame`).first().screenshot(),
+      contentType: 'image/png'
+    });
+    await testInfo.attach('multiline-svg', {
+      body: Buffer.from(await page.locator(`${fixture.rootSelector} ${fixture.svgSelector}`).evaluate(node => node.outerHTML)),
+      contentType: 'image/svg+xml'
+    });
+    const box = await page.locator(svgSelector).boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 40, { steps: 8 });
+    await page.mouse.up();
+    await waitForComponentOwnerReady(page, fixture.type, { requireMountedRoot: true, requireIdle: true, timeout: 40_000 });
+    expectContained(await readContainment(page, svgSelector), `${fixture.type} rotated multiline titles`);
   });
 }

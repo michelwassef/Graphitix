@@ -95,6 +95,10 @@ describe('session.assignTabPayload: canonical UI events', () => {
     button.addEventListener('click', () => { canonicalValue = 'violin'; });
     try {
       select.dispatchEvent(makeTrustedEvent('change', select));
+      expect(window.Main.documentState.persistCanonicalJournalNow).toHaveBeenCalledWith(
+        expect.objectContaining({ tabId: tab.id, reason: 'control-change' })
+      );
+      expect(tab.payload.config.graphType).toBe('box');
       await session.flushCanonicalUserMutationState();
       await new Promise(resolve => setTimeout(resolve, 0));
       expect(window.Main.documentState.persistCanonicalJournalNow).toHaveBeenCalledWith(
@@ -107,10 +111,115 @@ describe('session.assignTabPayload: canonical UI events', () => {
       expect(tab.payload.config.graphType).toBe('3d');
 
       button.dispatchEvent(makeTrustedEvent('click', button));
+      expect(window.Main.documentState.persistCanonicalJournalNow).toHaveBeenLastCalledWith(
+        expect.objectContaining({ tabId: tab.id, reason: 'control-click' })
+      );
+      expect(tab.payload.config.graphType).toBe('violin');
       await session.flushCanonicalUserMutationState();
       expect(tab.payload.config.graphType).toBe('violin');
     } finally {
       document.body.removeChild(root);
+    }
+  });
+
+  test('owner recovery checkpoint is durable before the async journal can commit', () => {
+    jest.useFakeTimers();
+    window.localStorage.clear();
+    require('../../js/main/snapshotPolicy.js');
+    require('../../js/main/documentState.js');
+    window.Main.documentState.init({
+      session,
+      sessionActions: {},
+      workspaceState: session.workspaceState,
+      getSessionActionsContext: () => ({ session, workspaceState: session.workspaceState }),
+      dom: {}
+    });
+
+    const tab = createPayloadTabForSession(session);
+    session.workspaceState.activeTabId = tab.id;
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    root.setAttribute('data-workspace-tab-id', tab.id);
+    const select = document.createElement('select');
+    ['strip', 'violin'].forEach(value => {
+      const option = document.createElement('option');
+      option.value = value;
+      select.appendChild(option);
+    });
+    root.appendChild(select);
+    document.body.appendChild(root);
+    let canonicalGraphType = 'strip';
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: () => ({
+            type: 'box',
+            data: [['Lib1', 'Lib2'], [180, 109]],
+            config: { graphType: canonicalGraphType }
+          })
+        }
+      }
+    };
+    const delegatedChangeHandler = event => {
+      if (event.target === select) canonicalGraphType = select.value;
+    };
+    document.addEventListener('change', delegatedChangeHandler);
+
+    try {
+      select.value = 'violin';
+      select.dispatchEvent(makeTrustedEvent('change', select));
+
+      // The target handler and owner-session projection have completed, but the
+      // queued capture timer and IndexedDB write have not run.
+      expect(tab.payload.config.graphType).toBe('violin');
+      const rawCheckpoint = window.localStorage.getItem('graphitix.canonical-journal.v1');
+      expect(rawCheckpoint).not.toBeNull();
+      const checkpoint = JSON.parse(rawCheckpoint);
+      expect(checkpoint.tabs).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: tab.id,
+          payload: expect.objectContaining({ config: { graphType: 'violin' } })
+        })
+      ]));
+    } finally {
+      document.removeEventListener('change', delegatedChangeHandler);
+      window.Main.documentState.dispose();
+      document.body.removeChild(root);
+      window.localStorage.clear();
+      jest.runOnlyPendingTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  test('documentState removes its autosave listener when disposed', () => {
+    require('../../js/main/snapshotPolicy.js');
+    require('../../js/main/documentState.js');
+    const documentState = window.Main.documentState;
+    const preferenceKey = 'graphitix.autosave.enabled';
+    window.localStorage.setItem(preferenceKey, '1');
+    documentState.init({
+      session,
+      sessionActions: {},
+      workspaceState: session.workspaceState,
+      getSessionActionsContext: () => ({ session, workspaceState: session.workspaceState }),
+      dom: {}
+    });
+    documentState.dispose();
+
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'line');
+    const autosave = document.createElement('input');
+    autosave.type = 'checkbox';
+    autosave.setAttribute('data-document-autosave', '1');
+    root.appendChild(autosave);
+    document.body.appendChild(root);
+    try {
+      autosave.dispatchEvent(makeTrustedEvent('change', autosave));
+      expect(window.localStorage.getItem(preferenceKey)).toBe('1');
+    } finally {
+      documentState.dispose();
+      document.body.removeChild(root);
+      window.localStorage.clear();
     }
   });
 

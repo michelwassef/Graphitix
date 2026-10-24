@@ -888,8 +888,13 @@
     if (!styleSyncPrompt || styleSyncPrompt.hasAttribute('hidden')) {
       return;
     }
-    styleSyncPrompt.setAttribute('hidden', 'hidden');
-    styleSyncPrompt.setAttribute('aria-hidden', 'true');
+    const modal = window.Shared?.modalLifecycle;
+    if (modal?.isOpen?.(styleSyncPrompt)) {
+      modal.close(styleSyncPrompt);
+    } else {
+      styleSyncPrompt.setAttribute('hidden', 'hidden');
+      styleSyncPrompt.setAttribute('aria-hidden', 'true');
+    }
     state.isOpen = false;
     console.debug('Debug: styleSync prompt hidden', { reason: reason || 'unspecified' });
   }
@@ -1347,18 +1352,12 @@
     });
   }
 
-  function handlePromptKeydown(event) {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      hidePrompt('escape');
-    }
-  }
-
   function openPrompt(trigger) {
     if (!state.session || !state.workspaceState) {
       console.warn('styleSync open skipped: session or workspace state unavailable');
       return;
     }
+    const returnFocus = document.activeElement;
     const activeTab = state.session.getActiveTab ? state.session.getActiveTab() : null;
     if (activeTab) {
       try {
@@ -1385,8 +1384,17 @@
       });
       return;
     }
-    prompt.removeAttribute('hidden');
-    prompt.setAttribute('aria-hidden', 'false');
+    const modal = window.Shared?.modalLifecycle;
+    if (modal?.open && !modal.isOpen?.(prompt)) {
+      modal.open(prompt, {
+        initialFocus: () => state.dom.styleSyncSource,
+        returnFocus,
+        onEscape: () => hidePrompt('escape')
+      });
+    } else if (!modal?.open) {
+      prompt.removeAttribute('hidden');
+      prompt.setAttribute('aria-hidden', 'false');
+    }
     state.isOpen = true;
     const sourceTab = populateSourceOptions(activeTab?.id || state.activeSourceId);
     state.activeSourceId = sourceTab ? sourceTab.id : null;
@@ -1458,7 +1466,6 @@
       state.dom.styleSyncCancel.addEventListener('click', () => hidePrompt('cancel'));
     }
     if (state.dom.styleSyncForm) {
-      state.dom.styleSyncForm.addEventListener('keydown', handlePromptKeydown);
       state.dom.styleSyncForm.addEventListener('change', () => {
         const schema = STYLE_SCHEMAS[getTabById(state.activeSourceId)?.type];
         syncTitleScopeOptions(schema);

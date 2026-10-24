@@ -110,12 +110,6 @@
       '  </div>',
       '</div>'
     ].join('');
-    overlay.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && overlay.dataset.state === 'error') {
-        event.preventDefault();
-        overlay.querySelector('[data-document-open-action="close"]')?.click();
-      }
-    });
     document.body.appendChild(overlay);
     return overlay;
   }
@@ -124,24 +118,6 @@
     if (!operation || typeof document === 'undefined' || !document.body) {
       return;
     }
-    operation.lockedElements = [];
-    const lockTargets = new Set([
-      ...Array.from(document.body.children),
-      document.querySelector('main'),
-      document.getElementById('workspaceTabsDock')
-    ].filter(Boolean));
-    lockTargets.forEach(element => {
-      if ((typeof HTMLElement !== 'undefined' && !(element instanceof HTMLElement))
-        || element.id === DOCUMENT_OPEN_OVERLAY_ID
-        || ['SCRIPT', 'STYLE', 'LINK'].includes(element.tagName)) {
-        return;
-      }
-      operation.lockedElements.push({
-        element,
-        inert: !!element.inert
-      });
-      element.inert = true;
-    });
     operation.previousBodyBusy = document.body.getAttribute('aria-busy');
     document.body.setAttribute('aria-busy', 'true');
   }
@@ -150,16 +126,11 @@
     if (!operation || typeof document === 'undefined' || !document.body) {
       return;
     }
-    (operation.lockedElements || []).forEach(entry => {
-      if (!entry?.element) return;
-      entry.element.inert = !!entry.inert;
-    });
     if (operation.previousBodyBusy === null || operation.previousBodyBusy === undefined) {
       document.body.removeAttribute('aria-busy');
     } else {
       document.body.setAttribute('aria-busy', operation.previousBodyBusy);
     }
-    operation.lockedElements = [];
   }
 
   function renderDocumentOperation(operation) {
@@ -192,6 +163,7 @@
     if (workspaceState.documentOperation?.active) {
       throw new Error('Another document operation is already in progress.');
     }
+    window.Main?.workspacePreparation?.cancel();
     const reason = String(meta.reason || 'graph-load');
     const kind = reason.includes('recovery')
       ? 'recovery'
@@ -208,8 +180,7 @@
       total: 0,
       overlay: ensureDocumentOpenOverlay(),
       context,
-      previousFocus: typeof document !== 'undefined' ? document.activeElement : null,
-      lockedElements: []
+      previousFocus: typeof document !== 'undefined' ? document.activeElement : null
     };
     lastDocumentOpenError = null;
     workspaceState.documentOperation = {
@@ -236,7 +207,26 @@
           }, 0);
         }
       };
-      operation.overlay.focus({ preventScroll: true });
+      const modal = window.Shared?.modalLifecycle;
+      if (modal?.open) {
+        modal.open(operation.overlay, {
+          initialFocus: operation.overlay,
+          returnFocus: () => {
+            const activeTabId = context?.workspaceState?.activeTabId;
+            return Array.from(document.querySelectorAll('.workspace-tab'))
+              .find(tab => tab.dataset.tabId === activeTabId)
+              || operation.previousFocus;
+          },
+          fallbackFocus: operation.previousFocus,
+          onEscape: () => {
+            if (operation.status === 'error') {
+              operation.overlay.querySelector('[data-document-open-action="close"]')?.click();
+            }
+          }
+        });
+      } else {
+        operation.overlay.focus({ preventScroll: true });
+      }
     }
     return operation;
   }
@@ -266,7 +256,6 @@
     operation.active = false;
     unlockDocumentInteraction(operation);
     if (operation.overlay) {
-      operation.overlay.hidden = true;
       operation.overlay.removeAttribute('data-state');
       operation.overlay.onclick = null;
     }
@@ -274,13 +263,19 @@
       context.workspaceState.documentOperation = null;
     }
     context?.renderTabs?.();
-    if (options.restoreFocus !== false) {
-      const activeTabId = context?.workspaceState?.activeTabId || null;
-      const activeTabButton = activeTabId && typeof document !== 'undefined'
-        ? document.querySelector(`.workspace-tab[data-tab-id="${activeTabId}"]`)
-        : null;
-      const focusTarget = activeTabButton || operation.previousFocus;
-      focusTarget?.focus?.({ preventScroll: true });
+    if (operation.overlay) {
+      const modal = window.Shared?.modalLifecycle;
+      if (modal?.isOpen?.(operation.overlay)) {
+        modal.close(operation.overlay, { restoreFocus: options.restoreFocus !== false });
+      } else {
+        operation.overlay.hidden = true;
+        if (options.restoreFocus !== false) {
+          const activeTabId = context?.workspaceState?.activeTabId;
+          const focusTarget = Array.from(document.querySelectorAll('.workspace-tab'))
+            .find(tab => tab.dataset.tabId === activeTabId) || operation.previousFocus;
+          focusTarget?.focus?.({ preventScroll: true });
+        }
+      }
     }
   }
 
@@ -305,9 +300,6 @@
       total: 0,
       errorMessage: error?.message || String(error || '')
     });
-    if (operation.overlay) {
-      operation.overlay.focus({ preventScroll: true });
-    }
     if (!canPresentError) {
       finishDocumentOpenTransaction(context, operation);
     }
@@ -334,6 +326,42 @@
       return null;
     }
     return workspaceState.tabs.find(tab => tab && tab.id === tabId) || null;
+  }
+
+  function resolveSessionFileTabId(workspaceState) {
+    const storedTabId = String(workspaceState?.sessionFileTabId || '').trim();
+    if (storedTabId) {
+      return storedTabId;
+    }
+    const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
+    if (graphTabs.length !== 1) {
+      return null;
+    }
+    const tabId = String(graphTabs[0].id || '').trim();
+    if (tabId) {
+      workspaceState.sessionFileTabId = tabId;
+    }
+    return tabId || null;
+  }
+
+  function resolveSessionFileTargetKind(workspaceState) {
+    if (workspaceState?.sessionFileTargetKind === 'new'
+      || workspaceState?.sessionFileTargetKind === 'existing') {
+      return workspaceState.sessionFileTargetKind;
+    }
+    return workspaceState?.sessionFileHandle
+      || workspaceState?.sessionFileName
+      || workspaceState?.sessionFilePath
+      || workspaceState?.sessionFileScope
+      ? 'existing'
+      : 'new';
+  }
+
+  function resolveSessionFileScope(workspaceState) {
+    if (workspaceState?.sessionFileScope === 'tab' || workspaceState?.sessionFileScope === 'workspace') {
+      return workspaceState.sessionFileScope;
+    }
+    return getGraphTabsFromWorkspaceState(workspaceState).length === 1 ? 'tab' : 'workspace';
   }
 
   function cloneWithSession(session, value) {
@@ -469,11 +497,10 @@
       tabId,
       component: expectedComponentType
     }, {
-      // Newly captured caches are already required to use the current schema by
-      // session.persistActiveTabState(). Archive construction also accepts an
-      // exact legacy checkpoint loaded from an older .graph file so reopening
-      // and saving that document does not discard an otherwise valid cache.
-      requireVersion: false,
+      // Archived caches are reusable only when they were captured under the
+      // current restore contract. Older caches remain safe to open through the
+      // payload redraw path, but must not be copied into a newly saved archive.
+      requireVersion: true,
       requireComplete: true
     }) === true;
     return !!tabId
@@ -507,6 +534,13 @@
     const includeRenderCache = options.includeRenderCache === true;
 
     const archivePayloadForSignature = deferArchiveNormalization ? payload : rehomeArchiveValue(session, payload, tab.id);
+    const matrixSignatures = typeof session?.capturePayloadMatrixSignatures === 'function'
+      ? session.capturePayloadMatrixSignatures(tab.payload || null)
+      : [];
+    const archiveMatrixSignatures = deferArchiveNormalization
+      ? matrixSignatures
+      : rehomeArchiveValue(session, matrixSignatures, tab.id);
+    session?.restorePayloadMatrixSignatures?.(archivePayloadForSignature, archiveMatrixSignatures);
     const archiveLayoutForSignature = deferArchiveNormalization ? layout : rehomeArchiveValue(session, layout, tab.id);
     const archivePayloadSignature = deferArchiveNormalization
       ? (tab.payloadSignature || null)
@@ -596,6 +630,7 @@
       title: tab.title || 'Workspace',
       type: tab.type || tab?.payload?.type || null,
       runtimeTabId: tab.id || null,
+      matrixSignatures: archiveMatrixSignatures,
       payload: archivePayloadForSignature,
       layout: archiveLayoutForSignature,
       previewMarkup: typeof tab.previewMarkup === 'string'
@@ -628,6 +663,7 @@
       snapshotKind: options.snapshotKind
     }, 'before-active-owner-capture');
     if (!(options.skipActiveProjectionCapture === true && canonicalActiveState)) {
+      options.assertSaveTarget?.();
       persistActiveTabIfNeeded(context, {
         reason: options.reason || 'archive-save',
         snapshotKind: options.snapshotKind || 'archive-save',
@@ -643,6 +679,7 @@
         : [options.targetTabId || activeTab?.id].filter(Boolean);
       await context.previews.awaitPendingCaptures(pendingTabIds);
     }
+    options.assertSaveTarget?.();
 
     if (scope === 'workspace') {
       const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
@@ -793,6 +830,9 @@
     if (!session || !workspaceState) {
       throw new Error('Document checkpoint unavailable: missing session context.');
     }
+    // Tie the checkpoint to the revision present before readiness or capture
+    // awaits. An edit during snapshot construction must remain dirty on save.
+    const sessionRevision = Number(workspaceState.sessionRevision) || 0;
     const scope = options.scope === 'tab' ? 'tab' : 'workspace';
     const requestedSnapshotKind = options.snapshotKind || 'document-snapshot';
     const policy = resolveArchiveBuildPolicy({
@@ -828,6 +868,7 @@
       }
     }
     assertRecoveryInteractionAvailable(context, policy, 'after-readiness');
+    options.assertSaveTarget?.();
 
     const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
     const preserveRenderCacheTabIds = policy.preserveRenderCacheTabScope === 'all'
@@ -854,7 +895,7 @@
       snapshot,
       policy,
       fileName: resolveArchiveNameForScope(context, scope, options),
-      sessionRevision: Number(workspaceState.sessionRevision) || 0,
+      sessionRevision,
       createdAt: Date.now()
     };
   }
@@ -973,6 +1014,7 @@
       fileHandle,
       fileName,
       fileScope,
+      fileTargetKind: loadMode === 'append' ? 'new' : 'existing',
       hideDuplicatePrompt,
       renderTabs,
       activateTab,
@@ -996,6 +1038,8 @@
         workspaceState.sessionFileHandle = null;
         workspaceState.sessionFileName = ensureGraphFileName(context, '', 'workspace.graph');
         workspaceState.sessionFileScope = 'workspace';
+        workspaceState.sessionFileTabId = null;
+        workspaceState.sessionFileTargetKind = 'new';
       }
       if (existingTabCount > 0 && typeof session.markSessionDirty === 'function') {
         session.markSessionDirty('graph-load-append', { existingTabCount, addedTabCount, origin: 'user' });
@@ -1045,6 +1089,7 @@
         documentOperation
       });
       finishDocumentOpenTransaction(context, documentOperation);
+      window.Main?.workspacePreparation?.start(context);
       return result;
     } catch (err) {
       failDocumentOpenTransaction(context, documentOperation, err);
@@ -1075,107 +1120,200 @@
       return { status: 'cancelled', reason: 'document-operation' };
     }
 
-    const scope = options.scope === 'workspace' ? 'workspace' : 'tab';
+    const fileTargetKind = resolveSessionFileTargetKind(workspaceState);
+    const existingFileScope = resolveSessionFileScope(workspaceState);
+    const requestedScope = options.scope === 'workspace' || options.scope === 'tab'
+      ? options.scope
+      : null;
+    const scope = requestedScope || (fileTargetKind === 'existing' ? existingFileScope : 'workspace');
+    const targetTabId = scope === 'tab'
+      ? String(options.targetTabId
+        || (fileTargetKind === 'existing' ? resolveSessionFileTabId(workspaceState) : '')
+        || session.getActiveTab?.()?.id
+        || '').trim() || null
+      : null;
     const rememberFile = options.rememberFile !== false;
     const requestedSnapshotKind = options.snapshotKind
       || (options.reason === 'autosave' ? 'autosave' : 'archive-save');
-    let checkpoint = null;
-    try {
-      checkpoint = await createDocumentCheckpoint(context, {
-        ...options,
-        scope,
-        reason: options.reason || 'archive-save',
-        snapshotKind: requestedSnapshotKind,
-        policyMode: options.reason === 'autosave' ? 'autosave' : 'manual-save',
-        readyReason: 'pre-save-active-ready'
-      });
-    } catch (err) {
-      if (options.reason === 'autosave' && err?.code === 'GRAPHITIX_SNAPSHOT_NOT_READY') {
-        debug(context, 'saveWorkspaceArchiveWithScope.deferred', {
-          scope,
-          reason: 'snapshot-not-ready',
-          tabId: err.tabId || null,
-          component: err.component || null
-        });
-        return { status: 'skipped', reason: 'snapshot-not-ready' };
-      }
-      throw err;
+    const isAutosave = requestedSnapshotKind === 'autosave';
+    const saveRevision = Number(workspaceState.sessionRevision) || 0;
+    const fileHandle = workspaceState.sessionFileHandle;
+    const targetTabs = workspaceState.tabs;
+    const targetTabIdMatches = scope !== 'tab'
+      || (fileTargetKind === 'existing' && resolveSessionFileTabId(workspaceState) === targetTabId);
+    if (!options.forcePicker && fileTargetKind === 'existing' && !fileHandle) {
+      return {
+        status: 'error',
+        reason: 'existing-file-handle-unavailable',
+        fileName: workspaceState.sessionFileName || 'workspace.graph'
+      };
     }
-    if (!checkpoint) {
-      debug(context, 'saveWorkspaceArchiveWithScope.skip', { scope, reason: 'no-tabs' });
+    if (!options.forcePicker && fileTargetKind === 'existing'
+      && (scope !== existingFileScope || !targetTabIdMatches)) {
+      return {
+        status: 'error',
+        reason: 'existing-file-target-mismatch',
+        fileName: workspaceState.sessionFileName || ''
+      };
+    }
+    const canReuseHandle = !options.forcePicker
+      && fileTargetKind === 'existing'
+      && !!fileHandle
+      && scope === existingFileScope
+      && (scope !== 'tab' || resolveSessionFileTabId(workspaceState) === targetTabId);
+    const targetTab = scope === 'tab' ? findTabById(workspaceState, targetTabId) : null;
+    if (!getGraphTabsFromWorkspaceState(workspaceState).length || (scope === 'tab' && !targetTab)) {
       return { status: 'cancelled', reason: 'no-tabs' };
     }
-    const { snapshot, policy: snapshotPolicy, fileName } = checkpoint;
-    const snapshotKind = snapshotPolicy.snapshotKind || requestedSnapshotKind;
-    const captureRenderCache = snapshotPolicy.captureRenderCache === true;
-
-    let archiveBlobPromise = null;
-    const getArchiveBlob = async () => {
-      if (!archiveBlobPromise) {
-        archiveBlobPromise = serializeDocumentCheckpoint(context, checkpoint, {
-          compression: options.compression,
-          payloadMode: options.payloadMode,
-          useWorker: options.useWorker
-        }).then(blob => {
-          debug(context, 'saveWorkspaceArchiveWithScope.archiveBuilt', {
-            scope,
-            tabCount: snapshot.tabs.length,
-            bytes: blob?.size || 0,
-            fileName
-          });
-          return blob;
+    const isCurrentTarget = () => workspaceState.tabs === targetTabs
+      && !hasActiveDocumentOperation(context)
+      && (scope !== 'tab' || findTabById(workspaceState, targetTabId) === targetTab);
+    const assertCurrentTarget = () => {
+      if (!isCurrentTarget()) {
+        throw Object.assign(new Error('The save document changed.'), {
+          name: 'GraphFileOwnerError', code: 'GRAPHITIX_SAVE_TARGET_CHANGED', status: 'cancelled'
         });
+      }
+    };
+    const fileName = resolveArchiveNameForScope(context, scope, { ...options, targetTabId });
+    let checkpoint = null;
+    let checkpointPromise = null;
+    const prepareCheckpoint = () => {
+      if (!checkpointPromise) {
+        checkpointPromise = (async () => {
+          assertCurrentTarget();
+          const captured = await createDocumentCheckpoint(context, {
+            ...options, scope, targetTabId,
+            reason: options.reason || 'archive-save',
+            snapshotKind: requestedSnapshotKind,
+            policyMode: isAutosave ? 'autosave' : 'manual-save',
+            readyReason: 'pre-save-active-ready',
+            assertSaveTarget: assertCurrentTarget
+          });
+          assertCurrentTarget();
+          if (!captured) {
+            throw Object.assign(new Error('The save document has no graph tabs.'), {
+              name: 'GraphFileOwnerError', code: 'GRAPHITIX_SAVE_TARGET_CHANGED', status: 'cancelled'
+            });
+          }
+          captured.sessionRevision = saveRevision;
+          checkpoint = captured;
+          return captured;
+        })();
+      }
+      return checkpointPromise;
+    };
+    // Manual saves obtain their destination/permission during the click, then
+    // capture canonical state through fileIO's lazy payload contract.
+    // Autosave has no picker and retains its readiness deferral contract.
+    if (isAutosave) {
+      try {
+        await prepareCheckpoint();
+      } catch (err) {
+        if (err?.code === 'GRAPHITIX_SNAPSHOT_NOT_READY') {
+          return { status: 'skipped', reason: 'snapshot-not-ready' };
+        }
+        if (err?.code === 'GRAPHITIX_SAVE_TARGET_CHANGED') {
+          return { status: 'cancelled', reason: 'file-target-changed' };
+        }
+        throw err;
+      }
+    }
+    let archiveBlobPromise = null;
+    const getArchiveBlob = () => {
+      if (!archiveBlobPromise) {
+        archiveBlobPromise = (async () => {
+          const captured = await prepareCheckpoint();
+          const blob = await serializeDocumentCheckpoint(context, captured, {
+            compression: options.compression, payloadMode: options.payloadMode, useWorker: options.useWorker
+          });
+          assertCurrentTarget();
+          return blob;
+        })();
       }
       return archiveBlobPromise;
     };
 
-    const canReuseHandle = !options.forcePicker
-      && !!workspaceState.sessionFileHandle
-      && workspaceState.sessionFileScope === scope;
-    const saveFn = canReuseHandle
-      ? Shared.fileIO.saveGraphFile
-      : Shared.fileIO.saveGraphFileAs;
-    const result = await saveFn({
-      context: 'workspace',
-      fileHandle: canReuseHandle ? workspaceState.sessionFileHandle : null,
-      getPayload: getArchiveBlob,
-      fileName,
-      downloadFileName: fileName,
-      fileTypes: sessionFileTypes,
-      mimeType: 'application/zip',
-      allowFallback: options.allowFallback !== false,
-      setFileHandle: handle => {
-        if (rememberFile) {
-          workspaceState.sessionFileHandle = handle || null;
-          workspaceState.sessionFilePath = handle?.__desktopFilePath || '';
-          workspaceState.sessionFileScope = scope;
+    const saveFn = options.forcePicker || fileTargetKind === 'new'
+      ? Shared.fileIO.saveGraphFileAs
+      : Shared.fileIO.saveGraphFile;
+    let result;
+    try {
+      result = await saveFn({
+        context: 'workspace',
+        fileHandle: canReuseHandle ? fileHandle : null,
+        getPayload: getArchiveBlob,
+        fileName,
+        downloadFileName: fileName,
+        fileTypes: sessionFileTypes,
+        mimeType: 'application/zip',
+        setFileHandle: handle => {
+          if (rememberFile && isCurrentTarget()) {
+            workspaceState.sessionFileHandle = handle || null;
+            workspaceState.sessionFilePath = handle?.__desktopFilePath || '';
+            workspaceState.sessionFileScope = scope;
+            workspaceState.sessionFileTabId = targetTabId;
+            workspaceState.sessionFileTargetKind = 'existing';
+          }
+          debug(context, 'save.handleStored', { hasHandle: !!handle, scope });
+        },
+        setFileName: name => {
+          if (rememberFile && isCurrentTarget()) {
+            workspaceState.sessionFileName = ensureGraphFileName(context, name || fileName, fileName);
+            workspaceState.sessionFileScope = scope;
+            workspaceState.sessionFileTabId = targetTabId;
+            workspaceState.sessionFileTargetKind = 'existing';
+          }
+          debug(context, 'save.fileNameStored', { name: rememberFile ? workspaceState.sessionFileName : name, scope, rememberFile });
         }
-        debug(context, 'save.handleStored', { hasHandle: !!handle, scope });
-      },
-      setFileName: name => {
-        if (rememberFile) {
-          workspaceState.sessionFileName = ensureGraphFileName(context, name || fileName, fileName);
-          workspaceState.sessionFileScope = scope;
-        }
-        debug(context, 'save.fileNameStored', { name: rememberFile ? workspaceState.sessionFileName : name, scope, rememberFile });
-      }
-    });
+      });
+    } catch (err) {
+      if (err?.code !== 'GRAPHITIX_SAVE_TARGET_CHANGED') throw err;
+      return { status: 'cancelled', reason: 'file-target-changed' };
+    }
+    if (!isCurrentTarget() || result?.error?.code === 'GRAPHITIX_SAVE_TARGET_CHANGED') {
+      return { status: 'cancelled', reason: 'file-target-changed' };
+    }
+    const snapshotPolicy = checkpoint?.policy || {};
+    const snapshotKind = snapshotPolicy.snapshotKind || requestedSnapshotKind;
+    const captureRenderCache = snapshotPolicy.captureRenderCache === true;
 
     if (result && (result.status === 'saved' || result.status === 'downloaded')) {
       if (rememberFile && typeof session.clearSessionDirty === 'function') {
-        session.clearSessionDirty('graph-save-success');
+        session.clearSessionDirty('graph-save-success', checkpoint.sessionRevision);
       }
+      const fileNameAfterSave = ensureGraphFileName(context, result.fileName || workspaceState.sessionFileName || fileName, fileName);
       if (rememberFile) {
-        workspaceState.sessionFileName = ensureGraphFileName(context, result.fileName || workspaceState.sessionFileName || fileName, fileName);
-        workspaceState.sessionFilePath = result.filePath || workspaceState.sessionFileHandle?.__desktopFilePath || workspaceState.sessionFilePath || '';
-        workspaceState.sessionFileScope = scope;
+        if (result.status === 'saved') {
+          workspaceState.sessionFileName = fileNameAfterSave;
+          workspaceState.sessionFilePath = result.filePath || workspaceState.sessionFileHandle?.__desktopFilePath || workspaceState.sessionFilePath || '';
+          workspaceState.sessionFileScope = scope;
+          workspaceState.sessionFileTabId = targetTabId;
+          workspaceState.sessionFileTargetKind = 'existing';
+        } else if (options.forcePicker) {
+          // A downloaded Save As copy has no reusable browser handle. Retire
+          // the old target so later Save cannot silently overwrite it.
+          workspaceState.sessionFileHandle = null;
+          workspaceState.sessionFileName = fileNameAfterSave;
+          workspaceState.sessionFilePath = '';
+          workspaceState.sessionFileScope = null;
+          workspaceState.sessionFileTabId = null;
+          workspaceState.sessionFileTargetKind = 'new';
+        } else if (fileTargetKind === 'new') {
+          // Download fallback created a copy, but did not give us a target we
+          // can update in place on the next Save.
+          workspaceState.sessionFileName = fileNameAfterSave;
+          workspaceState.sessionFileTargetKind = 'new';
+        }
       }
       window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
         detail: {
-          type: rememberFile ? 'saved' : 'saved-copy',
-          dirty: rememberFile ? false : !!workspaceState.sessionUserDirty,
-          userDirty: rememberFile ? false : !!workspaceState.sessionUserDirty,
-          fileName: rememberFile ? workspaceState.sessionFileName : (result.fileName || fileName),
+          type: rememberFile && result.status === 'saved' ? 'saved' : 'saved-copy',
+          dirty: !!workspaceState.sessionDirty,
+          userDirty: !!workspaceState.sessionUserDirty,
+          revision: Number(workspaceState.sessionRevision) || 0,
+          savedRevision: checkpoint.sessionRevision,
+          fileName: rememberFile ? (workspaceState.sessionFileName || fileNameAfterSave) : (result.fileName || fileName),
           filePath: rememberFile ? workspaceState.sessionFilePath : (result.filePath || ''),
           fileScope: scope,
           reason: options.reason || 'graph-save-success'
@@ -1191,11 +1329,20 @@
       captureRenderCache,
       snapshotPolicyId: snapshotPolicy.policyId || 'unknown'
     });
-    return Object.assign({ scope }, result || {});
+    return Object.assign({ scope }, result || {},
+      result && (result.status === 'saved' || result.status === 'downloaded')
+        ? { savedRevision: checkpoint.sessionRevision }
+        : {});
   };
 
   namespace.handleSessionSaveClick = async function handleSessionSaveClick(context, options = {}) {
-    const scope = options.scope === 'tab' ? 'tab' : 'workspace';
+    const { workspaceState } = context || {};
+    const hasRequestedScope = options.scope === 'tab' || options.scope === 'workspace';
+    const scope = hasRequestedScope
+      ? options.scope
+      : (resolveSessionFileTargetKind(workspaceState) === 'existing'
+        ? resolveSessionFileScope(workspaceState)
+        : 'workspace');
     debug(context, 'handleSessionSaveClick.scope', { scope, explicit: options.scope || null });
 
     return namespace.saveWorkspaceArchiveWithScope(context, {
@@ -1440,15 +1587,21 @@
     if (!workspaceState.sessionUserDirty) {
       return { status: 'skipped', reason: 'clean' };
     }
+    const scope = workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace';
+    const targetTabId = scope === 'tab' ? resolveSessionFileTabId(workspaceState) : null;
+    if (scope === 'tab'
+      && (!targetTabId || targetTabId !== String(session.getActiveTab?.()?.id || '').trim())) {
+      return { status: 'skipped', reason: 'file-target-tab-inactive' };
+    }
     const handle = workspaceState.sessionFileHandle;
     if (handle?.__desktopFilePath) {
       return namespace.saveWorkspaceArchiveWithScope(context, {
         ...options,
         reason: options.reason || 'autosave',
         snapshotKind: 'autosave',
-        scope: workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace',
-        forcePicker: false,
-        allowFallback: false
+        scope,
+        targetTabId,
+        forcePicker: false
       });
     }
     if (handle && typeof handle.queryPermission === 'function') {
@@ -1459,9 +1612,9 @@
             ...options,
             reason: options.reason || 'autosave',
             snapshotKind: 'autosave',
-            scope: workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace',
-            forcePicker: false,
-            allowFallback: false
+            scope,
+            targetTabId,
+            forcePicker: false
           });
         }
       } catch (err) {

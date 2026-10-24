@@ -110,7 +110,6 @@
       </g>
     `, { x: 24.25, y: 24.25, opticalX: 0.5 }),
     pie: welcomeGraphIcon(`
-      <circle class="welcome-icon__donut-track" cx="24" cy="24" r="13" />
       <circle class="welcome-icon__donut-a" cx="24" cy="24" r="13" pathLength="100" />
       <circle class="welcome-icon__donut-b" cx="24" cy="24" r="13" pathLength="100" />
       <circle class="welcome-icon__donut-c" cx="24" cy="24" r="13" pathLength="100" />
@@ -138,9 +137,16 @@
     `, { x: 25.5, y: 27 })
   });
 
+  const GRAPH_CATEGORIES = [
+    { id: 'compare', label: 'Compare & summarize' },
+    { id: 'relate', label: 'Relate & explore' },
+    { id: 'outcomes', label: 'Over time & outcomes' }
+  ];
+
   const GRAPH_TYPES = [
     {
       type: 'box',
+      category: 'compare',
       label: 'Distribution Charts',
       hint: 'Group comparisons',
       description: 'Compare groups with box, violin, bar, and individual-value plots, with statistical tests.',
@@ -152,9 +158,10 @@
     },
     {
       type: 'scatter',
+      category: 'relate',
       label: 'XY Plots',
       hint: 'Correlation & expression',
-      description: 'Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.',
+      description: 'Create scatter plots in 2D/3D, or volcano and MA plots.',
       exampleTitle: 'Scatter plot',
       exampleSummary: 'Explore pairwise relationships, groups, regression, and point-level styling.',
       previewAsset: 'assets/welcome-examples/scatter.svg',
@@ -163,9 +170,10 @@
     },
     {
       type: 'line',
+      category: 'outcomes',
       label: 'Line & Area Charts',
       hint: 'Trends & forecasting',
-      description: 'Plot time series as lines or areas with regression, forecasting, and correlation metrics.',
+      description: 'Plot series as lines, areas, or 3D charts with regression and forecasts.',
       exampleTitle: 'Line graph',
       exampleSummary: 'Show trajectories, repeated measures, and time-dependent patterns.',
       previewAsset: 'assets/welcome-examples/line.svg',
@@ -174,9 +182,10 @@
     },
     {
       type: 'hist',
+      category: 'compare',
       label: 'Histogram / Density Plot',
       hint: 'Frequency distribution',
-      description: 'Summarize distributions with adjustable binning, density curves, and distribution fitting.',
+      description: 'Explore distributions with custom bins, density curves, and model fitting.',
       exampleTitle: 'Histogram',
       exampleSummary: 'Inspect distribution shape, spread, tails, and fitted probability models.',
       previewAsset: 'assets/welcome-examples/hist.svg',
@@ -185,9 +194,10 @@
     },
     {
       type: 'heatmap',
+      category: 'relate',
       label: 'Heatmap & Clustering',
       hint: 'Matrix view',
-      description: 'Visualize matrices with hierarchical clustering, dendrograms, and annotations.',
+      description: 'Visualize data or correlations; cluster rows/columns, flag significant pairs.',
       exampleTitle: 'Clustered heatmap',
       exampleSummary: 'Reveal coordinated patterns, sample structure, and hierarchical clusters.',
       previewAsset: 'assets/welcome-examples/heatmap.svg',
@@ -196,9 +206,10 @@
     },
     {
       type: 'pca',
+      category: 'relate',
       label: 'Dimensionality Reduction',
       hint: 'PCA / MDS / t-SNE / UMAP',
-      description: 'Run PCA, MDS, t-SNE, or UMAP on wide tables with 2D/3D views and variance summaries.',
+      description: 'Explore high-dimensional data with PCA, MDS, t-SNE, or UMAP.',
       exampleTitle: 'PCA plot',
       exampleSummary: 'Project high-dimensional samples into an interpretable low-dimensional view.',
       previewAsset: 'assets/welcome-examples/pca.svg',
@@ -207,9 +218,10 @@
     },
     {
       type: 'pie',
+      category: 'compare',
       label: 'Pie, Donut & Stacked Bar',
       hint: 'Category proportions',
-      description: 'Visualize category proportions as pie charts, donuts, or stacked bars with Chi-square tests.',
+      description: 'Visualize category proportions and compare them with chi-square tests.',
       exampleTitle: 'Proportion charts',
       exampleSummary: 'Compare observed composition with reference or expected proportions.',
       previewAsset: 'assets/welcome-examples/pie.svg',
@@ -218,9 +230,10 @@
     },
     {
       type: 'roc',
+      category: 'outcomes',
       label: 'Classification Curves',
       hint: 'ROC & precision-recall',
-      description: 'Evaluate classifiers with ROC or precision-recall curves, AUC metrics, and DeLong comparisons.',
+      description: 'Assess and compare classifiers with ROC or precision-recall curves.',
       exampleTitle: 'ROC curves',
       exampleSummary: 'Assess diagnostic discrimination and compare several biomarkers or models.',
       previewAsset: 'assets/welcome-examples/roc.svg',
@@ -229,9 +242,10 @@
     },
     {
       type: 'survival',
+      category: 'outcomes',
       label: 'Survival Analysis',
       hint: 'Time-to-event analysis',
-      description: 'Build Kaplan-Meier curves with confidence intervals, log-rank tests, and Cox regression.',
+      description: 'Analyze survival with Kaplan-Meier curves, log-rank tests, and Cox regression.',
       exampleTitle: 'Survival curves',
       exampleSummary: 'Analyse time-to-event outcomes with Kaplan-Meier and Cox workflows.',
       previewAsset: 'assets/welcome-examples/survival.svg',
@@ -240,9 +254,10 @@
     },
     {
       type: 'venn',
+      category: 'compare',
       label: 'Venn Diagram / UpSet Plot',
       hint: 'Set comparisons',
-      description: 'Visualize set overlaps as Venn diagrams or UpSet plots with downstream enrichment tools.',
+      description: 'Compare set overlaps with Venn or UpSet plots and enrichment analysis.',
       exampleTitle: 'Venn diagram',
       exampleSummary: 'Inspect shared and unique members across several biological sets.',
       previewAsset: 'assets/welcome-examples/venn.svg',
@@ -251,9 +266,10 @@
     },
     {
       type: 'surface',
+      category: 'relate',
       label: '3D Surface Plot',
       hint: '3D visualization',
-      description: 'Render 3D surfaces from X/Y/Z data with rotation, interpolation, and color ramps.',
+      description: 'Explore X/Y/Z data as 3D surfaces or points, with rotation and color ramps.',
       exampleTitle: '3D surface',
       exampleSummary: 'Explore a continuous response landscape across two predictors.',
       previewAsset: 'assets/welcome-examples/surface.svg',
@@ -283,7 +299,6 @@
     if (!info?.type || !doc?.createElement) return null;
 
     const card = createElement('article', 'graph-card', null, doc);
-    card.setAttribute('role', 'listitem');
     card.dataset.graphType = info.type;
 
     const main = createElement('div', 'graph-card__main', null, doc);
@@ -291,8 +306,8 @@
     icon.setAttribute('aria-hidden', 'true');
     icon.innerHTML = info.icon || '';
     const content = createElement('div', 'graph-card__content', null, doc);
-    content.appendChild(createElement('span', 'graph-card__hint', info.hint || '', doc));
     content.appendChild(createElement('h3', 'graph-card__title', info.label || '', doc));
+    content.appendChild(createElement('p', 'graph-card__description', info.description || '', doc));
     main.append(icon, content);
 
     const actions = createElement('div', 'graph-card__actions', null, doc);
@@ -306,9 +321,47 @@
     exampleButton.setAttribute('aria-label', `Load example ${info.label || info.type}`);
     actions.append(newButton, exampleButton);
 
-    card.append(main, createElement('p', 'graph-card__description', info.description || '', doc), actions);
+    card.append(main, actions);
     return card;
   };
+
+  function resolveGraphCategory(info) {
+    const categoryId = info?.category || GRAPH_CATEGORIES[0].id;
+    return GRAPH_CATEGORIES.find(category => category.id === categoryId) || GRAPH_CATEGORIES[0];
+  }
+
+  function renderWelcomeGraphCategories(container, items, doc) {
+    container.textContent = '';
+    const groups = new Map(GRAPH_CATEGORIES.map(category => [category.id, []]));
+    items.forEach(info => groups.get(resolveGraphCategory(info).id).push(info));
+
+    const fragment = doc.createDocumentFragment();
+    GRAPH_CATEGORIES.forEach(category => {
+      const entries = groups.get(category.id);
+      if (!entries.length) return;
+
+      const section = createElement('section', 'welcome-graph-category', null, doc);
+      const titleId = `welcomeGraphCategory-${category.id}`;
+      section.setAttribute('aria-labelledby', titleId);
+      const title = createElement('h2', 'welcome-graph-category__title', category.label, doc);
+      title.id = titleId;
+      const list = createElement('ul', 'welcome-graph-category__items', null, doc);
+      list.setAttribute('aria-label', category.label);
+
+      entries.forEach(info => {
+        const card = namespace.createWelcomeGraphCard(info, doc);
+        if (card) {
+          const item = createElement('li', 'welcome-graph-category__item', null, doc);
+          item.appendChild(card);
+          list.appendChild(item);
+        }
+      });
+      section.append(title, list);
+      fragment.appendChild(section);
+    });
+    container.appendChild(fragment);
+    return true;
+  }
 
   namespace.createWelcomeExampleCard = function createWelcomeExampleCard(info, options = {}, doc = document) {
     if (!info?.type || !doc?.createElement) return null;
@@ -323,6 +376,16 @@
     const thumbnail = window.GraphitixWelcomeThumbnails?.[info.type];
     if (thumbnail) {
       thumb.innerHTML = thumbnail;
+      if (compact) {
+        // Remove only the generator's centered letterboxing, retaining the full source viewport.
+        const svg = thumb.firstElementChild;
+        const scale = Number(svg.dataset.thumbnailVisualScale);
+        const width = Number(svg.dataset.sourceViewportWidth) * scale;
+        const height = Number(svg.dataset.sourceViewportHeight) * scale;
+        const x = (Number(svg.getAttribute('width')) - width) / 2;
+        const y = (Number(svg.getAttribute('height')) - height) / 2;
+        svg.setAttribute('viewBox', [x - 2, y - 2, width + 4, height + 4].join(' '));
+      }
     } else {
       const fallback = createElement('span', 'welcome-example-card__thumb-fallback', null, doc);
       fallback.setAttribute('aria-hidden', 'true');
@@ -344,8 +407,7 @@
     const doc = container.ownerDocument;
     const fragment = doc.createDocumentFragment();
     items.forEach(info => {
-      const item = createElement('div', 'welcome-example-item', null, doc);
-      item.setAttribute('role', 'listitem');
+      const item = createElement('li', 'welcome-example-item', null, doc);
       item.appendChild(createCard(info));
       fragment.appendChild(item);
     });
@@ -360,10 +422,7 @@
     const popularList = doc.getElementById('welcomePopularExamplesList');
     if (!welcomeScreen || !selectionGrid || !popularList) return false;
 
-    selectionGrid.textContent = '';
-    const graphFragment = doc.createDocumentFragment();
-    GRAPH_TYPES.forEach(info => graphFragment.appendChild(namespace.createWelcomeGraphCard(info, doc)));
-    selectionGrid.appendChild(graphFragment);
+    renderWelcomeGraphCategories(selectionGrid, GRAPH_TYPES, doc);
     renderWelcomeCollection(
       popularList,
       GRAPH_TYPES,

@@ -30,7 +30,7 @@
   let styleChipPreviewEl = null;
   let styleChipValueEl = null;
   let stylePickerCleanup = null;
-  let styleDragState = null;
+  let finishThicknessDrag = null;
   let suppressStyleChipClick = false;
   let thicknessInput = null;
   let colorInput = null;
@@ -1675,7 +1675,7 @@
       }
     }
     if(additionalTicksAddButton){
-      additionalTicksAddButton.style.display = shouldShow ? 'inline-flex' : 'none';
+      additionalTicksAddButton.hidden = !shouldShow;
     }
   }
 
@@ -1696,10 +1696,10 @@
     }
     const segmentsVisible = shouldShow && brokenAxisCheckbox && brokenAxisCheckbox.checked;
     if(brokenAxisSegmentsContainer){
-      brokenAxisSegmentsContainer.style.display = segmentsVisible ? 'flex' : 'none';
+      brokenAxisSegmentsContainer.hidden = !segmentsVisible;
     }
     if(brokenAxisAddButton){
-      brokenAxisAddButton.style.display = segmentsVisible ? 'flex' : 'none';
+      brokenAxisAddButton.hidden = !segmentsVisible;
       const enabled = brokenAxisCheckbox ? brokenAxisCheckbox.checked : false;
       brokenAxisAddButton.disabled = !enabled;
       brokenAxisAddButton.setAttribute('aria-disabled', enabled ? 'false' : 'true');
@@ -1716,6 +1716,15 @@
       minWidth: dropdownEl.classList.contains('axis-controls-panel__dropdown--additional-ticks') ? 360 : 260,
       zIndex: 12050
     });
+  }
+
+  function focusFirstPopupControl(popup){
+    const control = popup?.querySelector?.('input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)');
+    if(!control || control.closest('[hidden]')){
+      return false;
+    }
+    control.focus();
+    return global.document?.activeElement === control;
   }
 
 
@@ -2046,7 +2055,7 @@
       }else{
         brokenAxisFieldEl.hidden = true;
         if(brokenAxisSegmentsContainer){
-          brokenAxisSegmentsContainer.style.display = 'none';
+          brokenAxisSegmentsContainer.hidden = true;
           brokenAxisSegmentsContainer.innerHTML = '';
         }
         if(brokenAxisConfigButton){
@@ -2170,7 +2179,6 @@
       rowClass: 'additional-line-controls-panel__row axis-controls-panel__row'
     });
     panelEl = panelParts.panel;
-    panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
     panelTitleEl = panelParts.title;
@@ -2273,7 +2281,7 @@
     axisLengthPreserveToggleInput.setAttribute('aria-label', 'preserve ratio');
     axisLengthPreserveToggleInput.setAttribute('data-undo-ignore', '1');
     const axisLengthPreserveText = doc.createElement('span');
-    axisLengthPreserveText.textContent = 'preserve ratio';
+    axisLengthPreserveText.textContent = 'Preserve ratio';
     axisLengthPreserveLabel.appendChild(axisLengthPreserveToggleInput);
     axisLengthPreserveLabel.appendChild(axisLengthPreserveText);
     axisLengthRow.appendChild(axisLengthPreserveLabel);
@@ -2355,7 +2363,7 @@
     styleField.className = 'axis-controls-panel__field additional-line-controls-panel__field additional-line-controls-panel__field--style axis-controls-panel__field--style';
     const styleLabel = doc.createElement('span');
     styleLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
-    styleLabel.textContent = 'Thickness';
+    styleLabel.textContent = 'Style';
     const styleControlParts = toolbarApi.createBorderStyleControl({
       chipTitle: 'Click to edit axis line color. Wheel or Alt+drag to adjust line thickness.',
       includeThicknessInput: true,
@@ -2416,10 +2424,12 @@
     notationComboWrapper.appendChild(notationComboRow);
 
     notationMenuPopup = doc.createElement('div');
+    notationMenuPopup.id = 'axis-number-format-options';
     notationMenuPopup.className = 'font-controls-panel__combo-menu axis-controls-panel__notation-menu';
     notationMenuPopup.setAttribute('role', 'listbox');
     notationMenuPopup.setAttribute('aria-label', 'Number format');
     notationMenuPopup.hidden = true;
+    notationMenuToggle.setAttribute('aria-controls', notationMenuPopup.id);
 
     AXIS_NOTATION_OPTIONS.forEach(opt => {
       const optionEl = doc.createElement('button');
@@ -2481,11 +2491,15 @@
     additionalTicksButton.setAttribute('aria-expanded', 'false');
     additionalTicksButton.setAttribute('aria-disabled', 'true');
     additionalTicksButton.setAttribute('aria-haspopup', 'dialog');
+    additionalTicksButton.setAttribute('aria-controls', 'axis-additional-ticks-dialog');
     additionalTicksButton.setAttribute('data-undo-ignore', '1');
     additionalTicksFieldEl.appendChild(additionalTicksButton);
 
     additionalTicksDropdown = doc.createElement('div');
+    additionalTicksDropdown.id = 'axis-additional-ticks-dialog';
     additionalTicksDropdown.className = 'axis-controls-panel__dropdown axis-controls-panel__dropdown--additional-ticks';
+    additionalTicksDropdown.setAttribute('role', 'dialog');
+    additionalTicksDropdown.setAttribute('aria-label', 'Additional ticks and lines settings');
     additionalTicksDropdown.hidden = true;
     additionalTicksDropdown.dataset.open = '0';
     additionalTicksFieldEl.appendChild(additionalTicksDropdown);
@@ -2497,7 +2511,8 @@
     additionalTicksAddButton = doc.createElement('button');
     additionalTicksAddButton.type = 'button';
     additionalTicksAddButton.className = 'axis-controls-panel__button axis-controls-panel__button--add-extra';
-    additionalTicksAddButton.textContent = '+ Add Mark';
+    additionalTicksAddButton.textContent = '+ Add mark';
+    additionalTicksAddButton.hidden = true;
     additionalTicksAddButton.setAttribute('data-undo-ignore', '1');
     additionalTicksAddButton.disabled = true;
     additionalTicksAddButton.setAttribute('aria-disabled', 'true');
@@ -2522,11 +2537,15 @@
     brokenAxisConfigButton.setAttribute('aria-expanded', 'false');
     brokenAxisConfigButton.setAttribute('aria-disabled', 'true');
     brokenAxisConfigButton.setAttribute('aria-haspopup', 'dialog');
+    brokenAxisConfigButton.setAttribute('aria-controls', 'axis-broken-axis-dialog');
     brokenAxisConfigButton.setAttribute('data-undo-ignore', '1');
     brokenAxisFieldEl.appendChild(brokenAxisConfigButton);
 
     brokenAxisDropdown = doc.createElement('div');
+    brokenAxisDropdown.id = 'axis-broken-axis-dialog';
     brokenAxisDropdown.className = 'axis-controls-panel__dropdown';
+    brokenAxisDropdown.setAttribute('role', 'dialog');
+    brokenAxisDropdown.setAttribute('aria-label', 'Broken axis settings');
     brokenAxisDropdown.hidden = true;
     brokenAxisDropdown.dataset.open = '0';
     brokenAxisFieldEl.appendChild(brokenAxisDropdown);
@@ -2545,12 +2564,14 @@
 
     brokenAxisSegmentsContainer = doc.createElement('div');
     brokenAxisSegmentsContainer.className = 'axis-controls-panel__segments-container';
+    brokenAxisSegmentsContainer.hidden = true;
     brokenAxisDropdown.appendChild(brokenAxisSegmentsContainer);
 
     brokenAxisAddButton = doc.createElement('button');
     brokenAxisAddButton.type = 'button';
     brokenAxisAddButton.className = 'axis-controls-panel__button axis-controls-panel__button--add-segment';
     brokenAxisAddButton.textContent = '+ Add Break';
+    brokenAxisAddButton.hidden = true;
     brokenAxisAddButton.setAttribute('data-undo-ignore', '1');
     brokenAxisAddButton.disabled = true;
     brokenAxisAddButton.setAttribute('aria-disabled', 'true');
@@ -3024,33 +3045,22 @@
       if(typeof toolbarApi.bindNumericWheelProxy === 'function'){
         toolbarApi.bindNumericWheelProxy(styleChipEl, thicknessInput);
       }
-      const onStyleDragMove = evt => {
-        if(!styleDragState){ return; }
-        const deltaX = evt.clientX - styleDragState.startX;
-        const steps = Math.round(deltaX / 8);
-        const dragStep = typeof toolbarApi.getNumericWheelStep === 'function'
-          ? toolbarApi.getNumericWheelStep(thicknessInput)
-          : (Number(thicknessInput?.step) || 0.25);
-        const next = styleDragState.startValue + (steps * dragStep);
-        thicknessInput.value = String(next);
-        thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-      };
-      const onStyleDragUp = () => {
-        if(!styleDragState){ return; }
-        styleDragState = null;
-        thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-        global.removeEventListener('mousemove', onStyleDragMove);
-        global.removeEventListener('mouseup', onStyleDragUp);
-      };
-      styleChipEl.addEventListener('mousedown', evt => {
-        if(!evt.altKey || evt.button !== 0){ return; }
-        evt.preventDefault();
-        suppressStyleChipClick = true;
-        const current = sanitizeThicknessValue(thicknessInput?.value);
-        styleDragState = { startX: evt.clientX, startValue: current == null ? 0 : current };
-        global.addEventListener('mousemove', onStyleDragMove);
-        global.addEventListener('mouseup', onStyleDragUp);
-      });
+      finishThicknessDrag = typeof toolbarApi.bindTabOwnedNumericDrag === 'function'
+        ? toolbarApi.bindTabOwnedNumericDrag(styleChipEl, thicknessInput, {
+          resolveOwner: () => {
+            const config = activeConfig;
+            const tabId = normalizeAxisControlsTabId(
+              config?.tabId
+              || config?.workspaceTabId
+              || resolveAxisControlsTabIdFromNode(config?.target || config?.svg || config?.host || config?.root || activeHost)
+            );
+            return tabId && config ? { tabId, token: config } : null;
+          },
+          onStart: () => { suppressStyleChipClick = true; },
+          calculateValue: ({ startValue, deltaX, step }) =>
+            startValue + (Math.round(deltaX / 8) * step)
+        })
+        : null;
       styleChipEl.addEventListener('click', evt => {
         if(!suppressStyleChipClick){ return; }
         suppressStyleChipClick = false;
@@ -3083,8 +3093,8 @@
           const toolbarApi = Shared.getWorkspaceToolbarApi();
           stylePickerCleanup = toolbarApi.attachColorPickerNumericSection(overlayEl, {
             canonicalInput: thicknessInput,
-            title: 'Line width',
-            ariaLabel: 'Line width',
+            title: 'Thickness',
+            ariaLabel: 'Thickness',
             sectionClass: 'shared-color-picker__section--axis-style',
             clearSelector: '.shared-color-picker__section--axis-style',
             min: '0.25',
@@ -3176,10 +3186,14 @@
     if(brokenAxisConfigButton){
       brokenAxisConfigButton.addEventListener('click', () => {
         if(brokenAxisConfigButton.disabled){ return; }
+        const opening = !brokenAxisConfigExpanded;
         setAdditionalTicksConfigExpanded(false);
-        setBrokenAxisConfigExpanded(!brokenAxisConfigExpanded);
+        setBrokenAxisConfigExpanded(opening);
         if(activeConfig){
           renderBrokenAxisSegments(activeConfig);
+        }
+        if(opening){
+          focusFirstPopupControl(brokenAxisDropdown);
         }
       });
     }
@@ -3187,10 +3201,14 @@
     if(additionalTicksButton){
       additionalTicksButton.addEventListener('click', () => {
         if(additionalTicksButton.disabled){ return; }
+        const opening = !additionalTicksConfigExpanded;
         setBrokenAxisConfigExpanded(false);
-        setAdditionalTicksConfigExpanded(!additionalTicksConfigExpanded);
+        setAdditionalTicksConfigExpanded(opening);
         if(activeConfig){
           renderAdditionalTickRows(activeConfig);
+        }
+        if(opening){
+          focusFirstPopupControl(additionalTicksDropdown);
         }
       });
     }
@@ -3349,6 +3367,7 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
+    finishThicknessDrag?.({ commit: true, reason: reason || 'panel-close' });
     if(panelRefreshFrame){
       if(typeof global.cancelAnimationFrame === 'function'){
         global.cancelAnimationFrame(panelRefreshFrame);
@@ -3362,7 +3381,6 @@
       stylePickerCleanup = null;
     }
     closeNotationMenu(reason || 'panel-close');
-    panelEl.style.display = 'none';
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
     if(activeHost){
@@ -3420,14 +3438,7 @@
     brokenAxisConfigExpanded = false;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
-      // Mount axis controls in a clean host so layout is identical across components
-      // (histogram still has legacy toolbar content that can otherwise affect vertical flow).
-      try{
-        host.innerHTML = '';
-      }catch(e){}
-      if(panelEl.parentElement !== host){
-        host.appendChild(panelEl);
-      }
+      Shared.getWorkspaceToolbarApi().mountPanels(host, [panelEl]);
       clearHostSizing(host);
       showToolbarHost(host, 'font-toolbar-host--axis', resolveAxisControlsTabId(config));
       updateAxisSectionActiveState(host, true);
@@ -3439,7 +3450,6 @@
     updatePanelInputs(config);
     setAdditionalTicksConfigExpanded(false);
     setBrokenAxisConfigExpanded(false);
-    panelEl.style.display = 'flex';
     panelEl.hidden = false;
     panelEl.dataset.open = '1';
     logDebug('panel opened',{ axis: config.axis, scopeId: config.scopeId });
@@ -3494,24 +3504,49 @@
     return null;
   }
 
+  // The resizer accepts canonical pixels. Screen measurements include the
+  // owner's display zoom and must cross this boundary before toolbar editing.
+  function resolveAxisDisplayZoom(target){
+    return sanitizeAxisLengthValue(target?.__sharedResizableBoxApi?.getZoomLevel?.()) || 1;
+  }
+
   function resolveResizeTargetGraphSize(target){
-    if(!target || typeof target.getBoundingClientRect !== 'function'){
-      return null;
-    }
-    try{
-      const rect = target.getBoundingClientRect();
-      const width = sanitizeAxisLengthValue(rect && rect.width);
-      const height = sanitizeAxisLengthValue(rect && rect.height);
-      if(width == null || height == null){
-        return null;
+    if(!target) return null;
+    const width = sanitizeAxisLengthValue(target.dataset?.resizerBaseWidth);
+    const height = sanitizeAxisLengthValue(target.dataset?.resizerBaseHeight);
+    if(width != null && height != null) return { width, height };
+    const rect = target.getBoundingClientRect?.();
+    const zoom = resolveAxisDisplayZoom(target);
+    const measuredWidth = sanitizeAxisLengthValue(rect?.width);
+    const measuredHeight = sanitizeAxisLengthValue(rect?.height);
+    return measuredWidth != null && measuredHeight != null
+      ? { width: measuredWidth / zoom, height: measuredHeight / zoom }
+      : null;
+  }
+
+  function resolveAxisCanonicalLength(axisElement, axis, target){
+    const svg = axisElement?.ownerSVGElement;
+    const rootMatrix = svg?.getCTM?.();
+    const axisMatrix = axisElement?.getCTM?.();
+    if(rootMatrix && axisMatrix){
+      // Remove the SVG viewport transform as well as display magnification.
+      // Nested renderer transforms still belong to the exported geometry.
+      const matrix = rootMatrix.inverse().multiply(axisMatrix);
+      const isLine = String(axisElement.localName).toLowerCase() === 'line';
+      let dx;
+      let dy;
+      if(isLine){
+        dx = Number(axisElement.getAttribute('x2')) - Number(axisElement.getAttribute('x1'));
+        dy = Number(axisElement.getAttribute('y2')) - Number(axisElement.getAttribute('y1'));
+      }else{
+        const bounds = axisElement.getBBox();
+        dx = axis === 'y' ? 0 : bounds.width;
+        dy = axis === 'y' ? bounds.height : 0;
       }
-      return { width, height };
-    }catch(err){
-      logDebug('axis graph size rect failed',{
-        error: err && err.message
-      });
-      return null;
+      return sanitizeAxisLengthValue(Math.hypot(matrix.a * dx + matrix.c * dy, matrix.b * dx + matrix.d * dy));
     }
+    const displayedLength = resolveAxisDisplayLength(axisElement, axis);
+    return displayedLength == null ? null : displayedLength / resolveAxisDisplayZoom(target);
   }
 
   function resolveAxisDisplayLength(axisElement, axis){
@@ -3832,16 +3867,8 @@
       const fallbackGetAxisLength = axisName => {
         const axisKey = axisName === 'y' ? 'y' : 'x';
         const target = resolveResizeTarget();
-        const desiredDatasetKey = axisKey === 'y' ? 'axisDesiredLengthY' : 'axisDesiredLengthX';
-        const desiredTimestampKey = axisKey === 'y' ? 'axisDesiredLengthYTs' : 'axisDesiredLengthXTs';
-        const desiredLength = sanitizeAxisLengthValue(target?.dataset ? target.dataset[desiredDatasetKey] : null);
-        const desiredTimestamp = Number(target?.dataset ? target.dataset[desiredTimestampKey] : NaN);
-        const desiredIsFresh = desiredLength != null && Number.isFinite(desiredTimestamp) && (Date.now() - desiredTimestamp) < 10000;
-        if(desiredIsFresh){
-          return desiredLength;
-        }
         const currentAxisElement = resolveAxisControlElementFromTarget(target, axisKey) || element;
-        const axisLength = resolveAxisDisplayLength(currentAxisElement, axisKey);
+        const axisLength = resolveAxisCanonicalLength(currentAxisElement, axisKey, target);
         if(axisLength != null){
           return axisLength;
         }
@@ -3860,7 +3887,7 @@
         }
         const currentAxisElement = resolveAxisControlElementFromTarget(target, axisKey) || element;
         const size = resolveResizeTargetGraphSize(target);
-        const axisLength = resolveAxisDisplayLength(currentAxisElement, axisKey);
+        const axisLength = resolveAxisCanonicalLength(currentAxisElement, axisKey, target);
         const basis = size ? sanitizeAxisLengthValue(axisKey === 'y' ? size.height : size.width) : null;
         const axisOffset = (axisLength != null && basis != null) ? Math.max(0, basis - axisLength) : 0;
         const min = sanitizeAxisLengthValue(bounds.min);
@@ -3893,16 +3920,9 @@
         }
         const axisKey = axisName === 'y' ? 'y' : 'x';
         const generationToken = nextAxisLengthGeneration(config, target, axisKey);
-        const desiredDatasetKey = axisKey === 'y' ? 'axisDesiredLengthY' : 'axisDesiredLengthX';
-        const desiredTimestampKey = axisKey === 'y' ? 'axisDesiredLengthYTs' : 'axisDesiredLengthXTs';
-        const desiredTimestamp = Date.now();
-        if(target.dataset){
-          target.dataset[desiredDatasetKey] = String(numericLength);
-          target.dataset[desiredTimestampKey] = String(desiredTimestamp);
-        }
         const currentAxisElement = resolveAxisControlElementFromTarget(target, axisKey) || element;
         const currentSize = resolveResizeTargetGraphSize(target);
-        const currentAxisLength = resolveAxisDisplayLength(currentAxisElement, axisKey);
+        const currentAxisLength = resolveAxisCanonicalLength(currentAxisElement, axisKey, target);
         const resizePlan = computeAxisLengthResizeRequest({
           axis: axisKey,
           requestedLength: numericLength,
@@ -3954,9 +3974,24 @@
             if(!isAxisLengthGenerationCurrent(generationToken)){
               return;
             }
-            scheduleAxisControlTimeout({ ...(config || {}), tabId: scheduledTabId }, target, `${options.reason || `axis-length-${axisKey}`}-refine-delay`, () => {
+            scheduleAxisControlTimeout({ ...(config || {}), tabId: scheduledTabId }, target, `${options.reason || `axis-length-${axisKey}`}-refine-delay`, async () => {
               if(!isAxisLengthGenerationCurrent(generationToken)){
                 return;
+              }
+              const componentKey = resolveAxisControlsComponentKey(config, target);
+              const component = global.Components?.[componentKey];
+              if(typeof component?.awaitReadyForSnapshot === 'function'){
+                // A requested frame size is published before its SVG. Refine
+                // only after the owning renderer has committed that frame.
+                const ready = await component.awaitReadyForSnapshot({
+                  tabId: scheduledTabId,
+                  componentKey,
+                  reason: 'axis-length-refinement'
+                });
+                if(ready?.ok === false || !isAxisLengthGenerationCurrent(generationToken)
+                  || resolveAxisControlsActiveTabId() !== scheduledTabId){
+                  return;
+                }
               }
               const latestTarget = resolveResizeTarget();
               if(!latestTarget || latestTarget.isConnected === false || typeof Shared.applyResizableBoxSize !== 'function'){
@@ -3971,13 +4006,14 @@
                 return;
               }
               const latestAxisElement = resolveAxisControlElementFromTarget(latestTarget, axisKey);
-              const measuredLength = resolveAxisDisplayLength(latestAxisElement, axisKey);
+              const measuredLength = resolveAxisCanonicalLength(latestAxisElement, axisKey, latestTarget);
               const latestBasis = sanitizeAxisLengthValue(axisKey === 'y' ? latestSize.height : latestSize.width);
               if(measuredLength == null || latestBasis == null){
                 return;
               }
               const delta = numericLength - measuredLength;
               if(Math.abs(delta) < 0.25){
+                syncPanelInputsFromConfig(config);
                 return;
               }
               const refinePlan = computeAxisLengthResizeRequest({
@@ -4226,11 +4262,25 @@
     return bound === elements.length;
   }
 
+  axisControls.deactivateTab = function deactivateTab(tabLike, meta = {}){
+    const tabId = normalizeAxisControlsTabId(meta?.tabId || tabLike?.id || tabLike);
+    if(activeConfig && tabId && resolveAxisControlsTabId(activeConfig) === tabId){
+      const reason = meta.reason || 'owner-deactivated';
+      setAdditionalTicksConfigExpanded(false);
+      setBrokenAxisConfigExpanded(false);
+      closePanel(reason);
+      return true;
+    }
+    return false;
+  };
+
   axisControls.disposeTab = function disposeTab(tabLike, meta = {}){
     const tabId = normalizeAxisControlsTabId(meta?.tabId || tabLike?.id || tabLike);
     if(activeConfig && tabId && resolveAxisControlsTabId(activeConfig) === tabId){
-      closePanel('dispose-tab');
+      closePanel(meta.reason || 'dispose-tab');
+      return true;
     }
+    return false;
   };
 
   try{
@@ -4272,6 +4322,15 @@
       constraintWidth: projected3d ? sanitizeAxisLengthValue(constraintRect?.width) : null,
       constraintHeight: projected3d ? sanitizeAxisLengthValue(constraintRect?.height) : null
     };
+  };
+  // Renderer-specific editors share the same canonical-pixel boundary. Keep
+  // measureRenderedAxes in display pixels for viewport and ratio-lock consumers.
+  axisControls.measureCanonicalAxes = function measureCanonicalAxes(target){
+    const measured = axisControls.measureRenderedAxes(target);
+    if(!measured) return null;
+    const x = resolveAxisCanonicalLength(measured.xElement, 'x', target);
+    const y = resolveAxisCanonicalLength(measured.yElement, 'y', target);
+    return { x, y, ratio: x / y, xElement: measured.xElement, yElement: measured.yElement };
   };
   axisControls.refreshActivePanel = function refreshActivePanel(options = {}){
     if(typeof options === 'string'){

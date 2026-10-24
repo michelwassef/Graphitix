@@ -1,3 +1,4 @@
+const { selectReplicateMode } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
@@ -25,7 +26,7 @@ async function clickSeriesPath(page) {
 
 async function loadLineExampleForFormat(page, tableFormat) {
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
-  await page.locator('#lineTableFormat').selectOption(tableFormat);
+  await selectReplicateMode(page, 'line', tableFormat);
   await clickExpectedExampleButton(page, 'lineLoadExample');
   await waitForSeriesPath(page);
 }
@@ -71,6 +72,11 @@ test('grouped Line uncertainty toolbar switches between identical-SD error bars 
 
   await clickSeriesPath(page);
   await expect(toolbarPanel).toBeVisible();
+  expect(await page.locator('.workspace-toolbar__panel--additional-line:visible').evaluate(node => ({
+    hidden: node.hidden,
+    inlineDisplay: node.style.display,
+    display: getComputedStyle(node).display
+  }))).toEqual({ hidden: false, inlineDisplay: '', display: 'grid' });
   await expect(toolbarPanel.locator('.additional-line-controls-panel__title')).toHaveText('Uncertainty (±SD)');
 
   const modeSelect = toolbarPanel.locator('select[aria-label="Uncertainty display"]');
@@ -190,6 +196,13 @@ test('grouped Line uncertainty toolbar switches between identical-SD error bars 
   await expect(backingMode).toHaveValue('bars');
   await expect(page.locator('#linePlot [data-line-error-bar="1"]')).not.toHaveCount(0);
   await expect(page.locator('#linePlot [data-line-uncertainty-band="1"]')).toHaveCount(0);
+
+  const additionalLinePanel = page.locator(
+    '.workspace-toolbar__panel--additional-line[role="toolbar"][aria-label="Additional line controls"]'
+  );
+  await expect(additionalLinePanel).toHaveAttribute('data-open', '1');
+  await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' });
+  await expect(additionalLinePanel).toBeHidden();
 
   expect(issues.critical).toEqual([]);
 });

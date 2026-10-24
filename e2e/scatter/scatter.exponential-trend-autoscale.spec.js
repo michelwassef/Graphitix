@@ -66,6 +66,8 @@ test('scatter exponential trend expands automatic Y range and never clamps into 
 
   const showLine = page.locator('#scatterShowLine');
   if (await showLine.isChecked()) {
+    await page.locator('#scatterRegressionOverlayButton').click();
+    await expect(showLine).toBeVisible();
     await showLine.uncheck();
   }
   await setRegressionMode(page, 'exponential');
@@ -75,6 +77,10 @@ test('scatter exponential trend expands automatic Y range and never clamps into 
   await expect(page.locator('#scatterStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
 
   await expect(page.locator('#scatterYMax')).toHaveValue('');
+  if (!(await showLine.isVisible())) {
+    await page.locator('#scatterRegressionOverlayButton').click();
+    await expect(showLine).toBeVisible();
+  }
   await showLine.check();
   await expect(page.locator('#scatterPage:not([hidden]) #scatterPlot svg path[data-scatter-overlay="trend"]')).toHaveCount(1, { timeout: 20_000 });
   await waitForScatterIdle(page);

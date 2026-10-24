@@ -110,6 +110,65 @@ describe('Venn additional tabs — GO and STRING ownership', () => {
     expect(tabB.payload.analysis.goResult.map(item => item.term_name)).toContain('BETA GO term');
   });
 
+  test('a delayed string-overlay file read commits to its owner without projecting into a sibling', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+    const venn = window.Components?.venn;
+    const tabA = Main.tabs.getActiveTab();
+    const payloadA = venn.createEmptyPayload();
+    payloadA.data.labelA = 'ALPHA';
+    payloadA.data.listA = 'ALPHA_GENE_1\nALPHA_GENE_2';
+    await venn.loadFromPayload(payloadA, { tab: tabA, tabId: tabA.id, source: 'overlay-owner-a' });
+    await venn.draw({ tab: tabA, tabId: tabA.id, reason: 'overlay-owner-a', force: true });
+    await flush();
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'venn');
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB.id).not.toBe(tabA.id);
+
+    await activateTabById(Main, tabA.id, 'overlay-file-start-a');
+    const inputA = venn.__getState().ui.stringOverlayFile;
+    expect(inputA).toBeTruthy();
+    const OriginalFileReader = window.FileReader;
+    let deferredReader = null;
+    window.FileReader = class DeferredFileReader {
+      readAsText(file){
+        this.file = file;
+        deferredReader = this;
+      }
+    };
+    try{
+      const file = new window.File(['Source,Target,Score\nALPHA_GENE_1,ALPHA_GENE_2,0.75'], 'edges.csv', { type: 'text/csv' });
+      Object.defineProperty(inputA, 'files', { configurable: true, value: [file] });
+      inputA.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await flush();
+      expect(deferredReader).toBeTruthy();
+
+      await activateTabById(Main, tabB.id, 'overlay-file-active-sibling-b');
+      const statusB = venn.__getState().ui.stringOverlayStatus;
+      expect(statusB).toBeTruthy();
+      statusB.textContent = 'tab-b-overlay-owner-sentinel';
+
+      deferredReader.onload({ target: { result: 'Source,Target,Score\nALPHA_GENE_1,ALPHA_GENE_2,0.75' } });
+      await flush();
+      await flush();
+
+      const ownerA = venn.__testHooks.getSession(tabA.id);
+      expect(ownerA.results.stringOverlay.edges).toEqual([
+        { source: 'ALPHA_GENE_1', target: 'ALPHA_GENE_2', value: 0.75 }
+      ]);
+      expect(tabA.payload.analysis.stringOverlay.edges).toEqual(ownerA.results.stringOverlay.edges);
+      expect(statusB.textContent).toBe('tab-b-overlay-owner-sentinel');
+
+      await activateTabById(Main, tabA.id, 'overlay-file-return-a');
+      expect(venn.__getState().analysis.stringOverlay.edges).toEqual(ownerA.results.stringOverlay.edges);
+    }finally{
+      window.FileReader = OriginalFileReader;
+    }
+  });
+
   test('restored venn GO and STRING tabs preserve session-owned results on tab click', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'venn');
@@ -241,8 +300,7 @@ describe('Venn additional tabs — GO and STRING ownership', () => {
       ...runtimeA,
       persistence: {
         ...(runtimeA?.persistence || {}),
-        fileName: 'venn-owner-a-updated.graph',
-        fileHandle: null
+        fileName: 'venn-owner-a-updated.graph'
       },
       ui: {
         ...(runtimeA?.ui || {}),
@@ -264,7 +322,7 @@ describe('Venn additional tabs — GO and STRING ownership', () => {
     const ownerASession = venn.__testHooks.getSession(tabA.id);
 
     expect(ownerASession?.state?.runtime?.persistence?.fileName).toBe('venn-owner-a-updated.graph');
-    expect(ownerASession?.managers?.fileHandle).toBeNull();
+    expect(ownerASession?.managers).not.toHaveProperty('fileHandle');
   });
 
   test('restored venn GO and STRING tab click uses clicked root owner when active mirror is stale', async () => {

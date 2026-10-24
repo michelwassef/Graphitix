@@ -15,7 +15,10 @@ test('Pie biomedical example calculates its two-cohort comparison', async ({ pag
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'pie', pageId: 'piePage' }, { first: true, loadExample: true });
 
-  const scope = page.locator('#pieStatsControls .box-stats-options__row').filter({ hasText: 'Comparison scope:' }).locator('select');
+  const scopeRow = page.locator('#pieStatsControls .box-stats-options__row').filter({
+    has: page.locator('label').filter({ hasText: /^Comparison scope$/ })
+  });
+  const scope = scopeRow.locator(':scope > select');
   await expect(scope).toHaveValue('all');
   const alphaInput = page.locator('#pieStatsInferenceControls [data-stats-inference-key="alpha"]');
   await expect(alphaInput).toBeVisible();

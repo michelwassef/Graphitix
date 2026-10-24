@@ -1,3 +1,4 @@
+const { selectReplicateMode, clickExampleButton } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
@@ -10,6 +11,9 @@ const CASES = [
     tableSelector: '#hot',
     formatId: 'boxTableFormat',
     replicatesId: 'boxGroupedReplicates',
+    groupedDataStartSelector: '.ag-cell.box-grouped-header-merge-start',
+    groupedDataMiddleSelector: '.ag-cell.box-grouped-header-merge-middle',
+    groupedDataEndSelector: '.ag-cell.box-grouped-header-merge-end',
     groupStartSelector: '.ag-header-cell.box-group-colheader-merge-start',
     groupFollowerSelector: '.ag-header-cell.box-group-colheader-merge-middle, .ag-header-cell.box-group-colheader-merge-end',
     groupEndSelector: '.ag-header-cell.box-group-colheader-merge-end'
@@ -20,6 +24,9 @@ const CASES = [
     tableSelector: '#scatterHot',
     formatId: 'scatterTableFormat',
     replicatesId: 'scatterReplicates',
+    groupedDataStartSelector: '.ag-cell.scatter-grouped-header-merge-start',
+    groupedDataMiddleSelector: '.ag-cell.scatter-grouped-header-merge-middle',
+    groupedDataEndSelector: '.ag-cell.scatter-grouped-header-merge-end',
     groupStartSelector: '.ag-header-cell.scatter-group-colheader-merge-start',
     groupFollowerSelector: '.ag-header-cell.scatter-group-colheader-merge-middle, .ag-header-cell.scatter-group-colheader-merge-end',
     groupEndSelector: '.ag-header-cell.scatter-group-colheader-merge-end'
@@ -30,6 +37,9 @@ const CASES = [
     tableSelector: '#lineHot',
     formatId: 'lineTableFormat',
     replicatesId: 'lineReplicates',
+    groupedDataStartSelector: '.ag-cell.line-grouped-header-merge-start',
+    groupedDataMiddleSelector: '.ag-cell.line-grouped-header-merge-middle',
+    groupedDataEndSelector: '.ag-cell.line-grouped-header-merge-end',
     groupStartSelector: '.ag-header-cell.line-group-colheader-merge-start',
     groupFollowerSelector: '.ag-header-cell.line-group-colheader-merge-middle, .ag-header-cell.line-group-colheader-merge-end',
     groupEndSelector: '.ag-header-cell.line-group-colheader-merge-end'
@@ -40,6 +50,9 @@ const CASES = [
     tableSelector: '#pcaHot',
     formatId: 'pcaTableFormat',
     replicatesId: 'pcaGroupedReplicates',
+    groupedDataStartSelector: '.ag-cell.pca-grouped-header-merge-start',
+    groupedDataMiddleSelector: '.ag-cell.pca-grouped-header-merge-middle',
+    groupedDataEndSelector: '.ag-cell.pca-grouped-header-merge-end',
     groupStartSelector: '.ag-header-cell.pca-group-colheader-merge-start',
     groupFollowerSelector: '.ag-header-cell.pca-group-colheader-merge-middle, .ag-header-cell.pca-group-colheader-merge-end',
     groupEndSelector: '.ag-header-cell.pca-group-colheader-merge-end'
@@ -79,7 +92,14 @@ for (const component of CASES) {
     await openComponentFromWelcome(page, { type: component.type, pageId: component.pageId }, { first: true });
     await configureGroupedMode(page, component);
 
-    const snapshot = await page.evaluate(({ tableSelector, groupStartSelector, groupFollowerSelector }) => {
+    const snapshot = await page.evaluate(({
+      tableSelector,
+      groupStartSelector,
+      groupFollowerSelector,
+      groupedDataStartSelector,
+      groupedDataMiddleSelector,
+      groupedDataEndSelector
+    }) => {
       const table = document.querySelector(tableSelector);
       if (!table) {
         return null;
@@ -90,6 +110,26 @@ for (const component of CASES) {
       };
       const starts = Array.from(table.querySelectorAll(groupStartSelector)).filter(isRendered);
       const followers = Array.from(table.querySelectorAll(groupFollowerSelector)).filter(isRendered);
+      const dataStarts = Array.from(table.querySelectorAll(groupedDataStartSelector)).filter(isRendered);
+      const dataMiddles = Array.from(table.querySelectorAll(groupedDataMiddleSelector)).filter(isRendered);
+      const dataEnds = Array.from(table.querySelectorAll(groupedDataEndSelector)).filter(isRendered);
+      const transparent = color => color === 'transparent' || color === 'rgba(0, 0, 0, 0)';
+      const mergeCells = [...starts, ...followers];
+      const mergeHeadersOverflow = mergeCells.every(cell => getComputedStyle(cell).overflow === 'visible');
+      const mergeBordersHidden = starts.every(cell => transparent(getComputedStyle(cell).borderRightColor))
+        && followers.every(cell => {
+          const style = getComputedStyle(cell);
+          const middle = Array.from(cell.classList).some(name => name.endsWith('-merge-middle'));
+          return transparent(style.borderLeftColor) && (!middle || transparent(style.borderRightColor));
+        });
+      const dataMergeBordersHidden = dataStarts.every(cell => cell.classList.contains('hot-spanned-cell')
+        ? !transparent(getComputedStyle(cell).borderRightColor)
+        : transparent(getComputedStyle(cell).borderRightColor))
+        && dataMiddles.every(cell => {
+          const style = getComputedStyle(cell);
+          return transparent(style.borderLeftColor) && transparent(style.borderRightColor);
+        })
+        && dataEnds.every(cell => transparent(getComputedStyle(cell).borderLeftColor));
       const isVisibleHandle = handle => !!handle
         && !handle.classList.contains('hot-col-drag-handle--hidden')
         && window.getComputedStyle(handle).display !== 'none';
@@ -103,6 +143,22 @@ for (const component of CASES) {
         visibleFollowerHandles: followerHandles.filter(isVisibleHandle).length,
         allAnchorsMarked: anchorHandles.every(handle => handle?.classList.contains('hot-col-drag-handle--group-anchor')),
         allFollowersHidden: followerHandles.every(handle => handle?.classList.contains('hot-col-drag-handle--hidden')),
+        mergeHeadersOverflow,
+        mergeBordersHidden,
+        dataMergeCellCount: dataStarts.length + dataMiddles.length + dataEnds.length,
+        dataMergeBordersHidden,
+        dataMergeBorderColors: [...dataStarts, ...dataMiddles, ...dataEnds].map(cell => {
+          const style = getComputedStyle(cell);
+          return { classes: cell.className, left: style.borderLeftColor, right: style.borderRightColor };
+        }),
+        mergeBorderColors: mergeCells.map(cell => {
+          const style = getComputedStyle(cell);
+          return {
+            classes: cell.className,
+            left: style.borderLeftColor,
+            right: style.borderRightColor
+          };
+        }),
         firstHandleLeft: firstHandleRect?.left ?? null,
         firstLabelLeft: firstLabelRect?.left ?? null
       };
@@ -114,10 +170,119 @@ for (const component of CASES) {
     expect(snapshot.visibleFollowerHandles).toBe(0);
     expect(snapshot.allAnchorsMarked).toBe(true);
     expect(snapshot.allFollowersHidden).toBe(true);
+    expect(snapshot.mergeHeadersOverflow).toBe(true);
+    expect(snapshot.mergeBordersHidden, JSON.stringify(snapshot.mergeBorderColors)).toBe(true);
+    expect(snapshot.dataMergeCellCount).toBeGreaterThan(0);
+    expect(snapshot.dataMergeBordersHidden, JSON.stringify(snapshot.dataMergeBorderColors)).toBe(true);
     expect(snapshot.firstHandleLeft).not.toBeNull();
     expect(snapshot.firstLabelLeft).not.toBeNull();
     expect(snapshot.firstHandleLeft).toBeLessThan(snapshot.firstLabelLeft);
     expect(issues.critical).toEqual([]);
+  });
+}
+
+test('Line 3D dataset header seams stay clear in header and data rows', async ({ page }) => {
+  test.setTimeout(90_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
+  await selectReplicateMode(page, 'line', '3d');
+  await page.waitForFunction(() => {
+    const table = document.querySelector('#lineHot');
+    return !!table?.querySelector('.ag-header-cell.line-3d-colheader-merge-start')
+      && !!table.querySelector('.ag-cell.line-3d-header-merge-start');
+  });
+
+  const datasetHeaderDivider = await page.evaluate(() => {
+    const table = document.querySelector('#lineHot');
+    const cell = table?.querySelector('.ag-floating-top .ag-cell.line-3d-header-anchor, .ag-floating-top .ag-cell.line-3d-header-follower, .ag-pinned-top .ag-cell.line-3d-header-anchor, .ag-pinned-top .ag-cell.line-3d-header-follower');
+    if (!table || !cell) return null;
+    const style = getComputedStyle(cell);
+    const borderReference = document.createElement('div');
+    borderReference.style.cssText = 'position:fixed;left:-2000px;top:0;visibility:hidden;border-bottom:1px solid var(--gt-border)';
+    table.appendChild(borderReference);
+    const expectedColor = getComputedStyle(borderReference).borderBottomColor;
+    borderReference.remove();
+    return {
+      width: style.borderBottomWidth,
+      line: style.borderBottomStyle,
+      color: style.borderBottomColor,
+      expectedColor
+    };
+  });
+  expect(datasetHeaderDivider).toMatchObject({ width: '1px', line: 'solid' });
+  expect(datasetHeaderDivider.color).toBe(datasetHeaderDivider.expectedColor);
+
+  const seams = await page.evaluate(() => {
+    const table = document.querySelector('#lineHot');
+    const rendered = selector => Array.from(table.querySelectorAll(selector)).filter(cell => {
+      const rect = cell.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    const headerStarts = rendered('.ag-header-cell.line-3d-colheader-merge-start');
+    const headerMiddles = rendered('.ag-header-cell.line-3d-colheader-merge-middle');
+    const headerEnds = rendered('.ag-header-cell.line-3d-colheader-merge-end');
+    const dataStarts = rendered('.ag-cell.line-3d-header-merge-start');
+    const dataMiddles = rendered('.ag-cell.line-3d-header-merge-middle');
+    const dataEnds = rendered('.ag-cell.line-3d-header-merge-end');
+    const transparent = color => color === 'transparent' || color === 'rgba(0, 0, 0, 0)';
+    const sidesHidden = (starts, middles, ends) => starts.every(cell => cell.classList.contains('hot-spanned-cell')
+      ? !transparent(getComputedStyle(cell).borderRightColor)
+      : transparent(getComputedStyle(cell).borderRightColor))
+      && middles.every(cell => {
+        const style = getComputedStyle(cell);
+        return transparent(style.borderLeftColor) && transparent(style.borderRightColor);
+      })
+      && ends.every(cell => transparent(getComputedStyle(cell).borderLeftColor));
+    return {
+      headerCount: headerStarts.length + headerMiddles.length + headerEnds.length,
+      dataCount: dataStarts.length + dataMiddles.length + dataEnds.length,
+      headerHidden: sidesHidden(headerStarts, headerMiddles, headerEnds),
+      dataHidden: sidesHidden(dataStarts, dataMiddles, dataEnds)
+    };
+  });
+
+  expect(seams.headerCount).toBeGreaterThan(0);
+  expect(seams.dataCount).toBeGreaterThan(0);
+  expect(seams.headerHidden).toBe(true);
+  expect(seams.dataHidden).toBe(true);
+  expect(issues.critical).toEqual([]);
+});
+
+for (const component of [...CASES, { ...CASES.find(item => item.type === 'line'), mode: '3d' }]) {
+  test(`${component.type} ${component.mode || 'grouped'} populated group boundaries stay visible`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await openComponentFromWelcome(page, component, { first: true });
+    if (component.mode) await selectReplicateMode(page, component.type, component.mode);
+    else await configureGroupedMode(page, component);
+    await clickExampleButton(page, component.type);
+
+    const table = page.locator(component.tableSelector);
+    const spans = table.locator('.ag-cell.hot-spanned-cell');
+    await expect(spans.first()).toBeVisible();
+    const checkBorders = async () => {
+      const borders = await spans.evaluateAll(cells => cells.map(cell => {
+        const style = getComputedStyle(cell);
+        const reference = document.createElement('div');
+        reference.style.borderRight = '1px solid var(--gt-border)';
+        cell.parentElement.appendChild(reference);
+        const expected = getComputedStyle(reference).borderRightColor;
+        reference.remove();
+        return { width: style.borderRightWidth, line: style.borderRightStyle, color: style.borderRightColor, expected };
+      }));
+      // PCA's example can fit only one group in the visible table viewport.
+      expect(borders.length).toBeGreaterThan(0);
+      for (const border of borders) {
+        expect(border).toMatchObject({ width: '1px', line: 'solid', color: border.expected });
+      }
+    };
+    await checkBorders();
+    await spans.first().hover();
+    await checkBorders();
+    await table.screenshot({ path: test.info().outputPath('group-boundaries.png') });
   });
 }
 
@@ -186,7 +351,7 @@ test('line grouped headers stay normalized while horizontal capacity grows', asy
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
 
   const linePage = page.locator('#linePage:not([hidden])');
-  await linePage.locator('#lineTableFormat').selectOption('grouped');
+  await selectReplicateMode(page, 'line', 'grouped');
   await linePage.locator('#lineReplicates').fill('2');
   await linePage.locator('#lineReplicates').press('Enter');
   await page.waitForFunction(() => {

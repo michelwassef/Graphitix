@@ -250,9 +250,16 @@ describe('UI statistical presentation branches', () => {
     expect(computeBtn).toBeTruthy();
     const statsResults = document.getElementById('lineStatsResults');
     computeBtn.click();
-    await waitFor(() => /correlation coefficients|Correlation summary/i.test(statsResults?.textContent || ''));
+    await waitFor(() => /Pearson correlation|Regression summary \(Linear\)/i.test(statsResults?.textContent || ''));
     const defaultText = statsResults?.textContent || '';
-    expect(defaultText).toMatch(/correlation coefficients|Correlation summary/i);
+    expect(defaultText).toContain('Pearson correlation');
+    expect(defaultText).toContain('Regression summary (Linear)');
+    expect(defaultText).not.toContain('Forecast accuracy metrics');
+    const additionalParameters = statsResults.querySelector('.line-regression-parameters');
+    expect(additionalParameters).toBeTruthy();
+    expect(additionalParameters.open).toBe(false);
+    expect(additionalParameters.textContent).toContain('X-intercept');
+    expect(additionalParameters.textContent).toContain('1/Slope');
     expect(defaultText).toContain('Reporting and reproducibility');
     expectReportHostAtBottom('lineStatsReportHost');
 
@@ -286,7 +293,7 @@ describe('UI statistical presentation branches', () => {
     expect(computeBtn).toBeTruthy();
     const statsResults = document.getElementById('pieStatsResults');
     const controls = document.getElementById('pieStatsControls');
-    const expectedDistribution = getLabeledSelect(controls, 'Expected distribution:');
+    const expectedDistribution = getLabeledSelect(controls, 'Expected distribution');
     expect(expectedDistribution).toBeTruthy();
     expect(expectedDistribution.disabled).toBe(true);
     expect(expectedDistribution.value).toBe('equal-proportions');
@@ -312,7 +319,7 @@ describe('UI statistical presentation branches', () => {
     pie.loadFromPayload(pairwisePayload);
     await flushAsyncWork(40);
 
-    const scopeSelect = getLabeledSelect(controls, 'Comparison scope:');
+    const scopeSelect = getLabeledSelect(controls, 'Comparison scope');
     expect(scopeSelect).toBeTruthy();
     scopeSelect.value = 'all';
     scopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -328,6 +335,11 @@ describe('UI statistical presentation branches', () => {
     const pairwiseText = statsResults?.textContent || '';
     expect(pairwiseText).toMatch(/Overall test summary|Pairwise comparisons/i);
     expect(pairwiseText).toMatch(/N\s*101/i);
+    expect(pairwiseText).toContain('Control');
+    expect(pairwiseText).toContain('Treatment');
+    const pairCaptions = Array.from(statsResults.querySelectorAll('.stats-table-card .stats-table-caption'))
+      .map(caption => caption.textContent?.trim());
+    expect(pairCaptions).not.toContain('Pairwise comparisons');
   }, 30000);
 
   test('hist stats render descriptive, fit-diagnostic, comparison-note, and reporting branches', async () => {
@@ -345,19 +357,31 @@ describe('UI statistical presentation branches', () => {
       const text = histStatsResults?.textContent || '';
       expect(text).toContain('Descriptive statistics');
       expect(text).toContain('Distribution shape');
-      expect(text).toMatch(/Fit diagnostics|Normal fit diagnostics/i);
       expect(text).toContain('Reporting and reproducibility');
+      expect(text).not.toMatch(/Fit diagnostics|Normal fit diagnostics/i);
+      expect(goodnessOfFit).not.toHaveBeenCalled();
       expectReportHostAtBottom('histStatsReportHost');
 
-      const firstDrawCalls = goodnessOfFit.mock.calls.length;
       await hist?.draw?.();
-      expect(goodnessOfFit).toHaveBeenCalledTimes(firstDrawCalls);
+      expect(goodnessOfFit).not.toHaveBeenCalled();
+
+      const diagnosticsMode = document.getElementById('histStatsDiagnosticsMode');
+      diagnosticsMode.value = 'normal-fit';
+      diagnosticsMode.dispatchEvent(new Event('change', { bubbles: true }));
+      await flushAsyncWork(20);
+      await hist?.draw?.();
+      expect(goodnessOfFit).not.toHaveBeenCalled();
+      expect(document.getElementById('histComputeStats').disabled).toBe(false);
+      document.getElementById('histComputeStats').click();
+      await waitFor(() => /Normal fit diagnostics/i.test(histStatsResults?.textContent || ''));
+      expect(goodnessOfFit).toHaveBeenCalled();
 
       const comparisonMode = document.getElementById('histStatsComparisonMode');
       comparisonMode.value = 'ks';
       comparisonMode.dispatchEvent(new Event('change', { bubbles: true }));
       await flushAsyncWork(20);
       await hist?.draw?.();
+      document.getElementById('histComputeStats').click();
       await waitFor(() => /Distribution comparison|Kolmogorov-Smirnov/i.test(document.getElementById('histStatsResults')?.textContent || ''));
 
       expect(document.getElementById('histStatsResults')?.textContent || '').toMatch(/Distribution comparison|Kolmogorov-Smirnov/i);
@@ -375,9 +399,10 @@ describe('UI statistical presentation branches', () => {
     await waitFor(() => /ROC metrics|cutoff-by-cutoff metrics/i.test(statsResults?.textContent || ''));
 
     const controls = document.getElementById('rocStatsControls');
-    const rocControlSelects = Array.from(controls.querySelectorAll('select'));
-    expect(rocControlSelects.length).toBeGreaterThanOrEqual(2);
-    expect(Array.from(rocControlSelects[0].options).map(option => option.value)).toEqual(expect.arrayContaining(['delong', 'bootstrap']));
+    const singlePMethod = controls.querySelector('#rocSinglePMethod');
+    expect(Array.from(singlePMethod.options).map(option => option.value)).toEqual(expect.arrayContaining(['off', 'auto', 'exact', 'asymptotic']));
+    const rocDiffMethod = controls.querySelector('#rocDiffMethod');
+    expect(Array.from(rocDiffMethod.options).map(option => option.value)).toEqual(expect.arrayContaining(['delong', 'bootstrap']));
     expect(statsResults?.textContent || '').toMatch(/ROC metrics|cutoff-by-cutoff metrics/i);
     expect(statsResults?.textContent || '').toContain('Reporting and reproducibility');
     expectReportHostAtBottom('rocStatsReportHost');
@@ -389,8 +414,8 @@ describe('UI statistical presentation branches', () => {
     window.Components?.roc?.draw?.();
     await waitFor(() => /Precision.?Recall metrics|Average Precision/i.test(document.getElementById('rocStatsResults')?.textContent || ''));
 
-    const prControlSelects = Array.from(document.getElementById('rocStatsControls').querySelectorAll('select'));
-    expect(Array.from(prControlSelects[0].options).map(option => option.value)).toEqual(expect.arrayContaining(['bootstrap', 'permutation']));
+    const prDiffMethod = document.querySelector('#rocDiffMethod');
+    expect(Array.from(prDiffMethod.options).map(option => option.value)).toEqual(expect.arrayContaining(['bootstrap', 'permutation']));
     expect(document.getElementById('rocStatsResults')?.textContent || '').toMatch(/Precision.?Recall metrics|Average Precision/i);
   }, 30000);
 
@@ -418,6 +443,10 @@ describe('UI statistical presentation branches', () => {
     await flushAsyncWork(20);
 
     window.Components?.survival?.draw?.();
+    await flushAsyncWork(20);
+    expect(document.getElementById('survivalComputeStats').disabled).toBe(false);
+    expect(document.getElementById('survivalStatsStatus')?.textContent || '').toMatch(/Calculate statistics/i);
+    document.getElementById('survivalComputeStats').click();
     await waitFor(() => /Survival Curve Comparisons|Pairwise Log-rank/i.test(
       document.getElementById('survivalStatsLogRank')?.textContent || ''
     ), { timeout: 15000 });
@@ -437,10 +466,13 @@ describe('UI statistical presentation branches', () => {
     expectReportHostAtBottom('survivalStatsReportHost');
     const survivalFieldset = document.getElementById('survivalStatsLogRank')?.parentElement;
     const survivalChildren = Array.from(survivalFieldset?.children || []);
-    expect(survivalChildren.indexOf(document.getElementById('survivalStatsLogRank')))
-      .toBeLessThan(survivalChildren.indexOf(document.getElementById('survivalStatsHazardRatios')));
-    expect(survivalChildren.indexOf(document.getElementById('survivalStatsCox')))
-      .toBeLessThan(survivalChildren.indexOf(document.getElementById('survivalStatsSummary')));
+    const summaryIndex = survivalChildren.indexOf(document.getElementById('survivalStatsSummary'));
+    const logRankIndex = survivalChildren.indexOf(document.getElementById('survivalStatsLogRank'));
+    const hazardRatiosIndex = survivalChildren.indexOf(document.getElementById('survivalStatsHazardRatios'));
+    const coxIndex = survivalChildren.indexOf(document.getElementById('survivalStatsCox'));
+    expect(summaryIndex).toBeLessThan(logRankIndex);
+    expect(logRankIndex).toBeLessThan(hazardRatiosIndex);
+    expect(hazardRatiosIndex).toBeLessThan(coxIndex);
     expect(survivalChildren.at(-1)).toBe(document.getElementById('survivalStatsReportHost'));
   }, 40000);
 

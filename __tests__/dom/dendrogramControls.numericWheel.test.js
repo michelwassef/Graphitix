@@ -1,7 +1,11 @@
 describe('dendrogramControls numeric wheel editing', () => {
+  let activeTabId;
+
   beforeEach(() => {
     jest.useFakeTimers();
     document.body.innerHTML = '';
+    activeTabId = 'tab-a';
+    window.Main = { session: { getActiveTab: () => activeTabId ? { id: activeTabId } : null } };
     delete window.Shared.dendrogramControls;
     jest.resetModules();
     require('../../js/shared/workspaceToolbarAccess.js');
@@ -28,6 +32,7 @@ describe('dendrogramControls numeric wheel editing', () => {
     document.body.appendChild(host);
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.dataset.workspaceTabId = 'tab-a';
     const line = document.createElementNS(svg.namespaceURI, 'line');
     svg.appendChild(line);
     document.body.appendChild(svg);
@@ -43,6 +48,9 @@ describe('dendrogramControls numeric wheel editing', () => {
     });
 
     line.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const panel = host.querySelector('.dendrogram-controls-panel');
+    expect(panel.hidden).toBe(false);
+    expect(panel.style.display).toBe('');
     const input = host.querySelector('.dendrogram-controls-panel input[type="number"]');
     expect(input).toBeTruthy();
 
@@ -75,6 +83,7 @@ describe('dendrogramControls numeric wheel editing', () => {
     document.body.appendChild(host);
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.dataset.workspaceTabId = 'tab-a';
     const line = document.createElementNS(svg.namespaceURI, 'line');
     svg.appendChild(line);
     document.body.appendChild(svg);
@@ -111,5 +120,40 @@ describe('dendrogramControls numeric wheel editing', () => {
     expect(recorded[1].label).toBe('dendrogram:heatmap:horizontal:thickness');
     expect(recorded[1].from).toBe(1);
     expect(recorded[1].to).toBe(2);
+  });
+
+  test('ignores inactive dendrogram clicks and closes the owner panel on deactivation', () => {
+    const host = document.createElement('div');
+    host.className = 'font-toolbar-host';
+    host.dataset.fontToolbarScope = 'heatmap';
+    document.body.appendChild(host);
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.dataset.workspaceTabId = 'tab-a';
+    const branch = document.createElementNS(svg.namespaceURI, 'line');
+    svg.appendChild(branch);
+    document.body.appendChild(svg);
+
+    window.Shared.dendrogramControls.registerDendrogramElement(branch, {
+      orientation: 'vertical',
+      scopeId: 'heatmap',
+      getThickness: () => 1,
+      getColor: () => '#333333',
+      onThicknessChange: () => {},
+      onColorChange: () => {}
+    });
+
+    activeTabId = 'tab-b';
+    branch.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(document.querySelector('.dendrogram-controls-panel')?.dataset.open).not.toBe('1');
+
+    activeTabId = 'tab-a';
+    branch.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const panel = document.querySelector('.dendrogram-controls-panel');
+    expect(panel?.dataset.open).toBe('1');
+    expect(window.Shared.dendrogramControls.deactivateTab('tab-b', { reason: 'other-owner' })).toBe(false);
+    expect(panel.dataset.open).toBe('1');
+    activeTabId = 'tab-b';
+    expect(window.Shared.dendrogramControls.deactivateTab('tab-a', { reason: 'test-switch' })).toBe(true);
+    expect(panel.dataset.open).toBe('0');
   });
 });

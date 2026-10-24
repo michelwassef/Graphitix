@@ -141,8 +141,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       expect(handle).toBeTruthy();
       expect(handle.classList.contains('hot-col-drag-handle--hidden')).toBe(false);
       expect(handle.classList.contains('hot-col-drag-handle--group-anchor')).toBe(true);
-      expect(handle.getAttribute('aria-hidden')).toBeNull();
-      expect(handle.getAttribute('aria-label')).toBe('Drag to reorder column group');
+      expect(handle.getAttribute('aria-hidden')).toBe('true');
+      expect(handle.getAttribute('aria-label')).toBeNull();
+      expect(handle.getAttribute('title')).toBe('Drag to reorder column group');
       expect(gui.classList.contains('hot-ag-header--group-anchor')).toBe(true);
     }
 
@@ -154,8 +155,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     expect(outsideHandle).toBeTruthy();
     expect(outsideHandle.classList.contains('hot-col-drag-handle--hidden')).toBe(false);
-    expect(outsideHandle.getAttribute('aria-hidden')).toBeNull();
-    expect(outsideHandle.getAttribute('aria-label')).toBe('Drag to reorder columns');
+    expect(outsideHandle.getAttribute('aria-hidden')).toBe('true');
+    expect(outsideHandle.getAttribute('aria-label')).toBeNull();
+    expect(outsideHandle.getAttribute('title')).toBe('Drag to reorder columns');
   });
 
   test('drag handle drag moves a configured column group without preselecting it', async () => {

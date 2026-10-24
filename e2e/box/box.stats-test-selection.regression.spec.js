@@ -3,8 +3,200 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { saveWorkspaceArchive, openWorkspaceArchive } = require('../helpers/archiveDriver');
 
 const active = selector => `#boxPage:not([hidden]) ${selector}`;
+
+for(const method of [
+  {postHoc:'dunnettTest',mode:'reference',outlierMode:'none',label:'Dunnett'},
+  {postHoc:'dunnettT3Test',mode:'all',outlierMode:'none',label:'Dunnett T3'},
+  {postHoc:'standard',mode:'all',outlierMode:'routTest',label:'ROUT'}
+]){
+  test(`${method.label} settings and calculated results survive archive reopen`,async({page},testInfo)=>{
+    test.setTimeout(180_000);
+    await openBox(page);
+    await page.evaluate(settings=>{
+      const box=window.Components.box,payload=box.getPayload();
+      payload.data=[['Control','B','C'],...[8,9,10,11,12,9,10,11,10,100].map((value,index)=>[value,index+12,2*index+5])];
+      Object.assign(payload.config.stats,{test:'parametric',paired:false,parametricVariant:'classic',referenceIndex:0,...settings});
+      box.loadFromPayload(payload,{source:'e2e-named-method'});
+    },method);
+    await waitForComponentOwnerReady(page,'box',{requireMountedRoot:true,requireIdle:true});
+    await setConditionCount(page,3);
+    await expect(page.locator(active('#boxStatsPostHoc'))).toHaveValue(method.postHoc);
+    await page.locator(active('#boxComputeStats')).click();
+    await expect(page.locator(active('#boxStatsStatus'))).toContainText('Statistics up to date.',{timeout:60_000});
+    const read=()=>page.evaluate(()=>({report:window.Components.box.__getState().statsLastReport,settings:window.Components.box.getPayload().config.stats,text:document.querySelector('#boxPage:not([hidden]) #statsResults').textContent}));
+    const before=await read();
+    expect(JSON.stringify(before.report)).toContain(method.label);
+    if(method.outlierMode==='routTest'){
+      expect(before.report.methodsText).toContain('10 → 9');
+      expect(before.text).toContain('26.00');
+    }
+    const archive=testInfo.outputPath(`${method.label.replace(/ /g,'-')}.graph`);
+    await saveWorkspaceArchive(page,archive,{scope:'workspace',snapshotKind:'document-snapshot',compression:'STORE'});
+    await openWorkspaceArchive(page,archive,{componentType:'box'});
+    await waitForComponentOwnerReady(page,'box',{requireMountedRoot:true,requireIdle:true});
+    await expect.poll(async()=> (await read()).report).toEqual(before.report);
+    expect((await read()).settings.postHoc).toBe(method.postHoc);
+    expect((await read()).settings.outlierMode).toBe(method.outlierMode);
+    await page.locator(active('#boxComputeStats')).click();
+    await expect(page.locator(active('#boxStatsStatus'))).toContainText('Statistics up to date.',{timeout:60_000});
+    expect((await read()).report).toEqual(before.report);
+    expect((await read()).text).toBe(before.text);
+  });
+}
+
+test('Friedman requested calibration and tied exact results survive archive reopen', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  await openBox(page);
+  await page.evaluate(() => {
+    const box = window.Components.box;
+    const payload = box.getPayload();
+    payload.data = [['A', 'B', 'C'], [1, 1, 2], [1, 2, 2], [1, 1, 3], [1, 2, 3]];
+    Object.assign(payload.config.stats, { test: 'nonparametric', paired: true, mode: 'all', postHoc: 'standard', resamplingMode: 'exact' });
+    box.loadFromPayload(payload, { source: 'e2e-friedman-calibration' });
+  });
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await setConditionCount(page, 3);
+  const before = await computeAndRead(page, 'friedman');
+  expect(before.reportText).toContain('Friedman exact permutation distribution');
+  expect(before.reportText).toContain('ties retained');
+  const filePath = testInfo.outputPath('friedman-calibration.graph');
+  await saveWorkspaceArchive(page, filePath, { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE' });
+  await openWorkspaceArchive(page, filePath, { componentType: 'box' });
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await expect(page.locator(active('#statsResults'))).toHaveText(before.resultsText);
+  expect((await computeAndRead(page, 'friedman')).reportText).toBe(before.reportText);
+  await page.evaluate(() => {
+    const box = window.Components.box;
+    const payload = box.getPayload();
+    payload.config.stats.resamplingMode = 'monte-carlo';
+    box.loadFromPayload(payload, { source: 'e2e-friedman-monte-carlo' });
+  });
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  expect((await computeAndRead(page, 'friedman')).reportText).toContain('Friedman Monte Carlo calibration');
+});
+
+test('paired rank-biserial effect preserves corrected decimal ranks after archive reopen', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  await openBox(page);
+  await page.evaluate(() => window.Components.box.__getState().hot.loadData([
+    ['A', 'B'], [0.5, 0.525], [null, 100], [0.825, 0.775], [0.375, 0.325], [0.5, 0.55]
+  ], { source: 'e2e-paired-rank-effect', recordUndo: false }));
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await selectControl(page, '#boxStatsFamily', 'nonparametric');
+  await selectControl(page, '#boxStatsDesign', 'paired');
+  await setConditionCount(page, 2);
+  await selectControl(page, '#boxStatsTestChoice', 'wilcoxonSignedRank');
+  const before = await computeAndRead(page, 'wilcoxonSignedRank');
+  expect(before.resultsText).toMatch(/Rank-biserial/);
+  expect(before.resultsText).toContain('Effect (Rank-biserial r)0.200');
+  const filePath = testInfo.outputPath('paired-rank-effect.graph');
+  await saveWorkspaceArchive(page, filePath, { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE' });
+  await openWorkspaceArchive(page, filePath, { componentType: 'box' });
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await expect(page.locator(active('#statsResults'))).toContainText('Rank-biserial');
+  await expect(page.locator(active('#statsResults'))).toHaveText(before.resultsText);
+  const after = await computeAndRead(page, 'wilcoxonSignedRank');
+  expect(after.resultsText).toBe(before.resultsText);
+});
+
+test('control Sidak reports and nonexcluding MAD flags survive archive reopen', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  await openBox(page);
+  await page.evaluate(() => {
+    const box = window.Components.box;
+    const payload = box.getPayload();
+    payload.data = [['Control', 'B', 'C'], [10, 20, 4], [11, 21, 8], [12, 25, 9], [13, 22, 11], [14, 23, 14], [1000, 26, 18]];
+    Object.assign(payload.config.stats, { mode: 'reference', referenceIndex: 0, paired: false, test: 'parametric', postHoc: 'dunnett', outlierMode: 'rout', advancedOpen: true });
+    box.loadFromPayload(payload, { source: 'e2e-method-reopen' });
+  });
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await setConditionCount(page, 3);
+  await page.locator(active('#boxComputeStats')).click();
+  await expect(page.locator(active('#boxStatsStatus'))).toContainText('Statistics up to date.', { timeout: 40_000 });
+  const read = () => page.evaluate(() => ({
+    report: window.Components.box.__getState().statsLastReport,
+    settings: window.Components.box.getPayload().config.stats,
+    text: document.querySelector('#boxPage:not([hidden]) #boxStatsReportHost').textContent
+  }));
+  const before = await read();
+  expect(before.text).toMatch(/Sidak/);
+  expect(before.text).not.toMatch(/Dunnett/);
+  expect(before.text).toMatch(/all observations.*retained/i);
+  expect(before.report.analysisSpec.outlierMode).toBe('rout');
+  const filePath = testInfo.outputPath('control-flags.graph');
+  await saveWorkspaceArchive(page, filePath, { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE' });
+  await openWorkspaceArchive(page, filePath, { componentType: 'box' });
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await expect.poll(async () => (await read()).report).toEqual(before.report);
+  expect((await read()).settings.outlierMode).toBe('rout');
+  expect((await read()).settings.postHoc).toBe('dunnett');
+  await page.locator(active('#boxComputeStats')).click();
+  await expect(page.locator(active('#boxStatsStatus'))).toContainText('Statistics up to date.');
+  expect((await read()).report).toEqual(before.report);
+});
+
+test('paired missing-row calculations retain source subjects after archive reopen', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  await openBox(page);
+  await page.evaluate(() => {
+    window.Components.box.__getState().hot.loadData([
+      ['A', 'B'], [10, 9], [null, 20], [30, null], [40, 37], [50, 46]
+    ], { source: 'e2e-paired-missing-rows', recordUndo: false });
+  });
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await selectControl(page, '#boxStatsFamily', 'parametric');
+  await selectControl(page, '#boxStatsDesign', 'paired');
+  await setConditionCount(page, 2);
+  await selectControl(page, '#boxStatsTestChoice', 'classic');
+  await computeAndRead(page, 'pairedT');
+  const read = () => page.evaluate(() => ({
+    annotations: window.Components.box.__getState().statsLastAnnotationModel,
+    report: window.Components.box.__getState().statsLastReport,
+    activeTabId: window.Main.session.getActiveTab().id,
+    text: document.querySelector('#boxPage:not([hidden]) #statsResults').textContent
+  }));
+  const before = await read();
+  expect(before.text).toContain('3.0237');
+  expect(JSON.stringify(before.annotations)).toContain('0.094178');
+  const filePath = testInfo.outputPath('paired-missing.graph');
+  await saveWorkspaceArchive(page, filePath, { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE' });
+  await openWorkspaceArchive(page, filePath, { componentType: 'box' });
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await expect.poll(async () => (await read()).report?.analysisSpec?.analysisId).toBe('pairedT');
+  const reopened = await read();
+  expect(reopened.report).toEqual(before.report);
+  expect(reopened.annotations).toEqual(before.annotations);
+  await computeAndRead(page, 'pairedT');
+  expect((await read()).report).toEqual(before.report);
+  const recalculated = await read();
+  expect(recalculated.annotations.pairs).toEqual(before.annotations.pairs);
+  expect(recalculated.annotations.signature).toBe(before.annotations.signature);
+  expect(recalculated.annotations.tabId).toBe(recalculated.activeTabId);
+});
+
+test('repeated-measures and Friedman calculations use complete source subjects', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openBox(page);
+  await page.evaluate(() => window.Components.box.__getState().hot.loadData([
+    ['A', 'B', 'C'], [10, 9, 11], [null, 20, 21], [30, null, 32], [40, 37, 42], [50, 46, 48]
+  ], { source: 'e2e-repeated-missing-rows', recordUndo: false }));
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true });
+  await selectControl(page, '#boxStatsFamily', 'parametric');
+  await selectControl(page, '#boxStatsDesign', 'paired');
+  await setConditionCount(page, 3);
+  await selectControl(page, '#boxStatsTestChoice', 'classic');
+  const repeated = await computeAndRead(page, 'repeatedMeasuresAnova');
+  expect(repeated.resultsText).toContain('5.0345');
+  expect(repeated.reportText).toMatch(/3.*subjects|subjects.*3|3.*paired|paired.*3/);
+  await selectControl(page, '#boxStatsFamily', 'nonparametric');
+  await selectControl(page, '#boxStatsTestChoice', 'friedman');
+  const friedman = await computeAndRead(page, 'friedman');
+  expect(friedman.reportText).toContain('Friedman');
+  expect(friedman.resultsText).toContain('4.6667');
+});
 
 async function openBox(page) {
   await installLocalCdnOverrides(page);
@@ -82,6 +274,10 @@ async function assertSelection(page, { family, design, groups, choice, expectedI
   expect(result.statsLastRunVersion).toBe(result.statsContextVersion);
   expect(result.testChoice).toBe(choice);
   expect(`${result.resultsText} ${result.reportText}`).toContain(expectedText);
+  if(family === 'parametric' && design === 'unpaired' && groups >= 3 && choice === 'welch'){
+    expect(result.reportText).toMatch(/Games[-–—]?Howell/i);
+  }
+  return result;
 }
 
 test('every Box test dropdown choice executes its exact analysis without fallback', async ({ page }) => {

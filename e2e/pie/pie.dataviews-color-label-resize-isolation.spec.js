@@ -376,6 +376,17 @@ test('Pie DataViews, colors, labels, and finalized resize stay isolated across s
       const svgText = document.querySelector('#piePage:not([hidden]) #pieSvg')?.textContent || '';
       return !!title && svgText.includes(title);
     }, null, { timeout: 60_000 });
+    const plot = page.locator('#piePage:not([hidden]) #piePlot');
+    const trace = page.locator('#piePage:not([hidden]) #pieSvg [data-pie-trace="1"]');
+    await expect(plot).toHaveAttribute('role', 'group');
+    await expect(plot).toHaveAttribute('tabindex', '0');
+    await expect(trace.first()).toBeVisible();
+    await plot.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#piePage:not([hidden]) #pieSvg [data-pie-trace="1"]:focus')).toHaveCount(1);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.font-toolbar-host[data-font-toolbar-scope="pie"]').last()).toBeVisible();
+    await page.evaluate(() => window.Shared?.hideAllFormatControls?.({ force: true }));
     const snapshot = await snapshotPie(page);
     reopened.push(snapshot);
   }

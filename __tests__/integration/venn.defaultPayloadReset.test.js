@@ -46,6 +46,7 @@ describe('Venn empty payload defaults', () => {
     expect(payload?.style?.opacity).toBe('0.75');
     expect(payload?.config).toEqual({
       caseSensitive: false,
+      showPlotStats: false,
       goUseAllBackground: false,
       goCategories: { biologicalProcess: true, molecularFunction: true, cellularComponent: true },
       stringNetworkType: 'full',
@@ -60,6 +61,7 @@ describe('Venn empty payload defaults', () => {
     const payload = venn.createEmptyPayload();
     payload.config = {
       caseSensitive: true,
+      showPlotStats: false,
       goUseAllBackground: true,
       goCategories: { biologicalProcess: false, molecularFunction: true, cellularComponent: false },
       stringNetworkType: 'physical',

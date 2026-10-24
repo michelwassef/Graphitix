@@ -10,6 +10,25 @@
   }
 
   const ICON_PATHS = Object.freeze({
+    help: {
+      viewBox: '0 0 24 24',
+      elements: [
+        {
+          tag: 'circle',
+          attrs: { cx: '12', cy: '12', r: '9', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }
+        },
+        {
+          tag: 'path',
+          attrs: {
+            d: 'M9.8 9a2.25 2.25 0 1 1 3.82 1.61c-.86.83-1.62 1.2-1.62 2.64M12 16.8h.01',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-linecap': 'round',
+            'stroke-width': '2'
+          }
+        }
+      ]
+    },
     open: {
       viewBox: '0 0 24 24',
       elements: [
@@ -183,10 +202,12 @@
   let undoSubscriptionCleanup = null;
   let menuHandlersBound = false;
   let transformHandlersBound = false;
+  let replicateHandlersBound = false;
   let sectionTabHandlersBound = false;
   let generalFallbackHandlersBound = false;
   let numericWheelHandlersBound = false;
   let activeNumericWheelGesture = null;
+  let activeTabOwnedNumericDragFinish = null;
   const numericInputMirrorTargets = new WeakMap();
   const contextObservers = new WeakMap();
   const TOOLBAR_HOST_VARIANT_PREFIX = 'font-toolbar-host--';
@@ -383,13 +404,13 @@
     }
     const ownerTabId = gesture.ownerTabId || null;
     if(!ownerTabId){
-      return true;
+      return false;
     }
     try{
       const activeTabId = String(global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
-      return !activeTabId || activeTabId === ownerTabId;
+      return !!activeTabId && activeTabId === ownerTabId;
     }catch(_err){
-      return true;
+      return false;
     }
   }
 
@@ -523,16 +544,20 @@
     }, TOOLBAR_NUMERIC_WHEEL_COMMIT_DELAY_MS);
   }
 
-  function ensureNumericWheelGesture(input){
-    if(activeNumericWheelGesture?.input === input){
+  function ensureNumericWheelGesture(input, ownerTabId){
+    if(activeNumericWheelGesture?.input === input
+      && activeNumericWheelGesture.ownerTabId === ownerTabId){
       return activeNumericWheelGesture;
     }
     if(activeNumericWheelGesture){
-      finishNumericWheelGesture({ reason: 'control-switch' });
+      finishNumericWheelGesture({
+        commit: activeNumericWheelGesture.input !== input,
+        reason: activeNumericWheelGesture.input === input ? 'stale-owner' : 'control-switch'
+      });
     }
     activeNumericWheelGesture = {
       input,
-      ownerTabId: resolveNumericWheelOwnerTabId(input),
+      ownerTabId,
       phase: 'active',
       changed: false,
       pendingInput: false,
@@ -559,8 +584,10 @@
 
   function handleNumericWheelEvent(event, input){
     if(!isNumericWheelEventEligible(event, input)){ return false; }
+    const ownerTabId = resolveNumericWheelOwnerTabId(input);
+    if(!ownerTabId || !numericWheelOwnerStillCurrent({ input, ownerTabId })){ return false; }
     event.preventDefault?.();
-    const gesture = ensureNumericWheelGesture(input);
+    const gesture = ensureNumericWheelGesture(input, ownerTabId);
     // Any new wheel activity invalidates the previous idle deadline. A changed
     // value arms the next deadline only after its RAF-coalesced live projection
     // has finished, so redraw cost cannot split one physical wheel burst.
@@ -589,6 +616,103 @@
     return () => {
       surface.removeEventListener('wheel', onWheel, { passive: false });
     };
+  }
+
+  function bindTabOwnedNumericDrag(surface, input, options = {}){
+    const resolveOwner = typeof options.resolveOwner === 'function'
+      ? options.resolveOwner
+      : () => null;
+    const calculateValue = typeof options.calculateValue === 'function'
+      ? options.calculateValue
+      : null;
+    if(!surface || !input || typeof surface.addEventListener !== 'function' || !calculateValue){
+      return () => false;
+    }
+    let gesture = null;
+
+    const readOwner = () => {
+      const owner = resolveOwner();
+      const tabId = String(owner?.tabId || '').trim();
+      return tabId && owner?.token ? { tabId, token: owner.token } : null;
+    };
+    const ownerIsCurrent = current => {
+      if(!current || input.isConnected === false){ return false; }
+      const owner = readOwner();
+      const activeTabId = String(global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
+      return owner?.tabId === current.ownerTabId
+        && owner.token === current.ownerToken
+        && activeTabId === current.ownerTabId;
+    };
+    const detachPointerListeners = () => {
+      global.removeEventListener('mousemove', onMove);
+      global.removeEventListener('mouseup', onUp);
+    };
+    const finish = (finishOptions = {}) => {
+      const current = gesture;
+      if(!current){ return false; }
+      const requestedOwner = String(finishOptions.ownerTabId || '').trim();
+      if(requestedOwner && requestedOwner !== current.ownerTabId){ return false; }
+      const mayCommit = finishOptions.commit !== false && ownerIsCurrent(current);
+      gesture = null;
+      detachPointerListeners();
+      const committed = mayCommit && current.changed
+        ? dispatchNumericWheelEvent(input, 'change')
+        : false;
+      dispatchNumericWheelEnd({ input, ownerTabId: current.ownerTabId, changed: current.changed }, {
+        committed,
+        reason: finishOptions.reason || (committed ? 'pointer-up' : 'cancelled')
+      });
+      if(activeTabOwnedNumericDragFinish === finish){
+        activeTabOwnedNumericDragFinish = null;
+      }
+      return committed;
+    };
+    const onMove = event => {
+      const current = gesture;
+      if(!current){ return; }
+      if(!ownerIsCurrent(current)){
+        finish({ commit: false, reason: 'stale-owner' });
+        return;
+      }
+      if(!calculateValue){ return; }
+      const nextValue = Number(calculateValue({
+        input,
+        startValue: current.startValue,
+        deltaX: Number(event.clientX) - current.startX,
+        step: fallbackNumericWheelStep(input)
+      }));
+      if(!Number.isFinite(nextValue)){ return; }
+      const nextText = String(nextValue);
+      if(input.value === nextText){ return; }
+      input.value = nextText;
+      current.changed = true;
+      dispatchNumericWheelEvent(input, 'input');
+      if(gesture === current && !ownerIsCurrent(current)){
+        finish({ commit: false, reason: 'stale-owner' });
+      }
+    };
+    const onUp = () => finish({ commit: true, reason: 'pointer-up' });
+    const onDown = event => {
+      if(!event?.altKey || event.button !== 0){ return; }
+      const owner = readOwner();
+      const activeTabId = String(global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
+      if(!owner || owner.tabId !== activeTabId || input.isConnected === false){ return; }
+      activeTabOwnedNumericDragFinish?.({ commit: true, reason: 'replaced' });
+      event.preventDefault?.();
+      gesture = {
+        ownerTabId: owner.tabId,
+        ownerToken: owner.token,
+        startX: Number(event.clientX) || 0,
+        startValue: Number(input.value) || 0,
+        changed: false
+      };
+      options.onStart?.(event, owner);
+      activeTabOwnedNumericDragFinish = finish;
+      global.addEventListener('mousemove', onMove);
+      global.addEventListener('mouseup', onUp);
+    };
+    surface.addEventListener('mousedown', onDown);
+    return finish;
   }
 
   function bindNumericWheelEnd(input, callback){
@@ -823,6 +947,18 @@
     host.style.display = 'none';
     anchor.insertAdjacentElement('afterend', host);
     logDebug('toolbar host created', { scopeId: key });
+    return host;
+  }
+
+  // Providers declare complete panels, never remove another provider's fields.
+  // Replacement is the default; combined toolbars explicitly retain their panels.
+  function mountToolbarPanels(host, panels, options = {}){
+    if(options.appendToHost === true && options.clearHost !== true){
+      panels.forEach(panel => host.appendChild(panel));
+    }else{
+      host.replaceChildren(...panels);
+    }
+    refreshToolbarOverflow(host);
     return host;
   }
 
@@ -1139,7 +1275,7 @@
 
     const title = ownerDoc.createElement('div');
     title.className = 'shared-color-picker__section-title';
-    title.textContent = String(config.title || 'Line width');
+    title.textContent = String(config.title || 'Thickness');
     section.appendChild(title);
 
     const row = ownerDoc.createElement('div');
@@ -1158,7 +1294,7 @@
     const rawValue = canonicalInput.value || String(config.value ?? '0');
     const formattedValue = formatPxDisplayValue(rawValue, step);
     input.value = formattedValue || String(rawValue);
-    input.setAttribute('aria-label', String(config.ariaLabel || config.title || 'Line width'));
+    input.setAttribute('aria-label', String(config.ariaLabel || config.title || 'Thickness'));
 
     const mirrorCleanup = bindNumericInputMirror(input, canonicalInput);
     field.appendChild(input);
@@ -1205,7 +1341,7 @@
     const patternOptions = Array.isArray(config.options) && config.options.length
       ? config.options
       : [
-          { value: 'solid', label: config.solidLabel || 'Continuous' },
+          { value: 'solid', label: config.solidLabel || 'Solid' },
           { value: 'dashed', label: 'Dashed' },
           { value: 'dotted', label: 'Dotted' }
         ];
@@ -1246,6 +1382,7 @@
     if(config.id){ button.id = config.id; }
     const ariaLabel = config.ariaLabel || config.label || null;
     if(ariaLabel){ button.setAttribute('aria-label', ariaLabel); }
+    if(config.ariaHasPopup){ button.setAttribute('aria-haspopup', String(config.ariaHasPopup)); }
     const importTooltip = config.icon === 'import' ? getTableImportTooltip() : null;
     const tooltip = config.tooltip;
     if(config.title || tooltip || importTooltip){ button.title = config.title || tooltip || importTooltip; }
@@ -1301,7 +1438,7 @@
     const trigger = createButton(triggerConfig);
     if(trigger){
       trigger.dataset.menuId = menuId;
-      trigger.setAttribute('aria-haspopup', 'true');
+      trigger.setAttribute('aria-haspopup', 'menu');
       trigger.setAttribute('aria-expanded', 'false');
       trigger.setAttribute('data-menu-id', menuId);
       wrapper.appendChild(trigger);
@@ -1316,6 +1453,7 @@
       option.type = 'button';
       option.className = 'workspace-toolbar__menu-item';
       option.setAttribute('role', 'menuitem');
+      option.tabIndex = -1;
       if(item.id){ option.id = item.id; }
       if(item.label){ option.textContent = item.label; }
       if(item.title){ option.title = item.title; }
@@ -1378,25 +1516,63 @@
     return trigger.closest(MENU_WRAPPER_SELECTOR);
   }
 
-  function closeMenu(wrapper){
+  function getMenuItems(wrapper){
+    return wrapper ? Array.from(wrapper.querySelectorAll('.workspace-toolbar__menu-item:not([disabled])')) : [];
+  }
+
+  function focusMenuItem(wrapper, requestedIndex){
+    const items = getMenuItems(wrapper);
+    if(!items.length){ return false; }
+    const rawIndex = Number.isFinite(Number(requestedIndex)) ? Number(requestedIndex) : 0;
+    const index = (rawIndex % items.length + items.length) % items.length;
+    const item = items[index];
+    if(!item){ return false; }
+    try{
+      item.focus({ preventScroll: true });
+    }catch(_err){
+      item.focus();
+    }
+    return doc?.activeElement === item;
+  }
+
+  function closeMenu(wrapper, options = {}){
     if(!wrapper){ return; }
     const list = wrapper.querySelector('.workspace-toolbar__menu-list');
     clearToolbarFloatingPopup(list);
     wrapper.classList.remove(MENU_OPEN_CLASS);
     const trigger = wrapper.querySelector(MENU_TRIGGER_SELECTOR);
     if(trigger){ trigger.setAttribute('aria-expanded', 'false'); }
+    if(options.restoreFocus && trigger){
+      try{
+        trigger.focus({ preventScroll: true });
+      }catch(_err){
+        trigger.focus();
+      }
+    }
   }
 
-  function closeAllMenus(except){
+  function closeAllMenus(except, options = {}){
     if(!doc){ return; }
     doc.querySelectorAll(`${MENU_WRAPPER_SELECTOR}.${MENU_OPEN_CLASS}`).forEach(wrapper => {
       if(wrapper !== except){
-        closeMenu(wrapper);
+        closeMenu(wrapper, options);
       }
     });
   }
 
-  function openMenu(trigger){
+  function closeTransientUiForRoot(root){
+    if(!root?.querySelectorAll){ return 0; }
+    const selector = `${MENU_WRAPPER_SELECTOR}.${MENU_OPEN_CLASS}`;
+    const openMenus = [];
+    if(root.matches?.(selector)){
+      openMenus.push(root);
+    }
+    root.querySelectorAll(selector).forEach(wrapper => openMenus.push(wrapper));
+    openMenus.forEach(wrapper => closeMenu(wrapper));
+    return openMenus.length;
+  }
+
+  function openMenu(trigger, options = {}){
     if(!trigger){ return; }
     const wrapper = getMenuWrapper(trigger);
     if(!wrapper){ return; }
@@ -1410,6 +1586,11 @@
         offset: 6,
         minWidth: 180
       });
+    }
+    if(options.focus !== false){
+      const items = getMenuItems(wrapper);
+      const focusIndex = options.focus === 'last' ? items.length - 1 : 0;
+      focusMenuItem(wrapper, focusIndex);
     }
   }
 
@@ -1445,13 +1626,39 @@
   function handleToolbarMenuKeydown(event){
     if(!doc){ return; }
     if(event.key === 'Escape'){
-      closeAllMenus();
+      const wrapper = event.target.closest?.(`${MENU_WRAPPER_SELECTOR}.${MENU_OPEN_CLASS}`) || null;
+      if(wrapper){
+        event.preventDefault();
+        closeMenu(wrapper, { restoreFocus: true });
+      }else{
+        closeAllMenus();
+      }
       return;
     }
     const trigger = event.target.closest('.workspace-toolbar__button--menu');
-    if(trigger && (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown')){
+    if(trigger && (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown' || event.key === 'ArrowUp')){
       event.preventDefault();
-      openMenu(trigger);
+      openMenu(trigger, { focus: event.key === 'ArrowUp' ? 'last' : 'first' });
+      return;
+    }
+    const menuItem = event.target.closest('.workspace-toolbar__menu-item');
+    const wrapper = menuItem?.closest?.(`${MENU_WRAPPER_SELECTOR}.${MENU_OPEN_CLASS}`) || null;
+    if(menuItem && wrapper){
+      const items = getMenuItems(wrapper);
+      const currentIndex = items.indexOf(menuItem);
+      if(event.key === 'ArrowDown'){
+        event.preventDefault();
+        focusMenuItem(wrapper, currentIndex + 1);
+      }else if(event.key === 'ArrowUp'){
+        event.preventDefault();
+        focusMenuItem(wrapper, currentIndex - 1);
+      }else if(event.key === 'Home'){
+        event.preventDefault();
+        focusMenuItem(wrapper, 0);
+      }else if(event.key === 'End'){
+        event.preventDefault();
+        focusMenuItem(wrapper, items.length - 1);
+      }
     }
     if(event.key === 'Tab'){
       global.setTimeout?.(() => {
@@ -2358,6 +2565,66 @@
     refreshToolbarOverflow(toolbar);
   }
 
+  function syncReplicateMode(select){
+    const controls = select?.closest?.('[data-replicates-controls]');
+    if(!controls){ return; }
+    controls.querySelectorAll('[data-replicate-value]').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.dataset.replicateValue === select.value));
+      button.disabled = select.disabled || !!Array.from(select.options).find(option => option.value === button.dataset.replicateValue)?.disabled;
+    });
+  }
+
+  function mountReplicateControls(container, toolbar){
+    const panel = toolbar.querySelector('.workspace-toolbar__panel--replicates');
+    const controls = container.querySelector('[data-replicates-controls]');
+    if(!panel || !controls){ return; }
+    const select = controls.querySelector('[data-replicate-select]');
+    // The native select is the existing component event/value adapter, hidden
+    // from keyboard and accessibility navigation. Both UIs are projections of
+    // the owning session; programmatic projection calls syncReplicateMode.
+    // Move the original nodes so session bindings and grouped inputs stay intact.
+    if(!controls.querySelector('[data-replicate-value]')){
+      const segments = doc.createElement('div');
+      segments.className = 'workspace-toolbar__replicate-segments';
+      segments.setAttribute('role', 'group');
+      segments.setAttribute('aria-label', 'Replicate mode');
+      Array.from(select.options).forEach(option => {
+        const button = doc.createElement('button');
+        button.type = 'button';
+        button.className = 'workspace-toolbar__replicate-mode';
+        button.dataset.replicateValue = option.value;
+        button.textContent = option.value === 'grouped' ? 'Grouped' : option.value === '3d' ? '3D' : 'Single';
+        button.title = option.textContent;
+        // Only the backing select change is a durable user edit. The button
+        // click must not trigger a second payload capture through dirty tracking.
+        button.dataset.sessionIgnoreDirty = '1';
+        segments.appendChild(button);
+      });
+      controls.insertBefore(segments, select);
+    }
+    panel.appendChild(controls);
+    syncReplicateMode(select);
+  }
+
+  function ensureReplicateHandlers(){
+    if(replicateHandlersBound || !doc){ return; }
+    doc.addEventListener('click', event => {
+      const button = event.target?.closest?.('button[data-replicate-value]');
+      if(!button || button.disabled){ return; }
+      const select = button.closest('[data-replicates-controls]')?.querySelector('[data-replicate-select]');
+      if(!select || select.disabled || select.value === button.dataset.replicateValue){ return; }
+      select.value = button.dataset.replicateValue;
+      select.dispatchEvent(new global.Event('change', { bubbles: true }));
+      syncReplicateMode(select);
+    });
+    doc.addEventListener('change', event => {
+      if(event.target?.matches?.('[data-replicate-select]')){
+        syncReplicateMode(event.target);
+      }
+    });
+    replicateHandlersBound = true;
+  }
+
   function createButtonsSection(section){
     if(!doc){ return null; }
     const sectionEl = doc.createElement('div');
@@ -2410,6 +2677,15 @@
       if(button){ targetRow.appendChild(button); }
     });
     if(transformPanel){
+      if(section.replicates){
+        const replicates = createSubPanel({
+          title: 'Replicates',
+          panelClass: 'workspace-toolbar__panel--replicates',
+          role: 'group',
+          ariaLabel: 'Replicates'
+        });
+        sectionEl.appendChild(replicates.panel);
+      }
       const customDropdown = createTransformCustomDropdown(section);
       if(customDropdown){
         transformPanel.panel.appendChild(customDropdown);
@@ -2661,11 +2937,13 @@
     }
     ensureMenuHandlers();
     ensureTransformHandlers();
+    ensureReplicateHandlers();
     ensureSectionTabHandlers();
     ensureGeneralFallbackHandlers();
     ensureNumericWheelHandlers();
     const toolbar = buildToolbar(config);
     if(!toolbar){ return; }
+    mountReplicateControls(container, toolbar);
     if(placeholder){
       placeholder.replaceWith(toolbar);
     } else {
@@ -2721,12 +2999,15 @@
   workspaceToolbar.register = registerToolbar;
   workspaceToolbar.renderAll = renderAllToolbars;
   workspaceToolbar.renderForElement = renderToolbarForElement;
+  workspaceToolbar.closeTransientUiForRoot = closeTransientUiForRoot;
   workspaceToolbar.resolveHost = resolveToolbarHost;
   workspaceToolbar.showHost = showToolbarHost;
+  workspaceToolbar.mountPanels = mountToolbarPanels;
   workspaceToolbar.hideHost = hideToolbarHost;
   workspaceToolbar.setDockActiveState = setDockActiveState;
   workspaceToolbar.clearHostSizing = clearToolbarHostSizing;
   workspaceToolbar.createSubPanel = createSubPanel;
+  workspaceToolbar.syncReplicateMode = syncReplicateMode;
   workspaceToolbar.createLabeledField = createLabeledField;
   workspaceToolbar.createBorderStyleControl = createBorderStyleControl;
   workspaceToolbar.createTransparencyControl = createTransparencyControl;
@@ -2734,6 +3015,14 @@
   workspaceToolbar.attachColorPickerNumericSection = attachColorPickerNumericSection;
   workspaceToolbar.handleNumericWheelEvent = handleNumericWheelEvent;
   workspaceToolbar.bindNumericWheelProxy = bindNumericWheelProxy;
+  workspaceToolbar.bindTabOwnedNumericDrag = bindTabOwnedNumericDrag;
+  workspaceToolbar.finishTabOwnedNumericDrag = function finishTabOwnedNumericDrag(ownerTabId, options = {}){
+    if(typeof activeTabOwnedNumericDragFinish !== 'function'){ return false; }
+    return activeTabOwnedNumericDragFinish({
+      ...options,
+      ownerTabId: String(ownerTabId || '').trim()
+    });
+  };
   workspaceToolbar.bindNumericWheelEnd = bindNumericWheelEnd;
   workspaceToolbar.bindNumericInputMirror = bindNumericInputMirror;
   workspaceToolbar.flushNumericWheelGesture = finishNumericWheelGesture;
@@ -2891,6 +3180,21 @@
         })
       ]
     });
+    const helpSection = (key) => ({
+      id: `${key}-help`,
+      type: 'buttons',
+      tabLabel: 'Help',
+      caption: 'Getting started, answers, and feedback',
+      ariaLabel: 'Help and feedback',
+      buttons: [
+        button(`helpAbout${capitalize(key)}`, 'Help & About', 'help', {
+          ariaLabel: 'Open Help and About',
+          ariaHasPopup: 'dialog',
+          title: 'Open Help and About',
+          dataset: { helpOpen: 'true' }
+        })
+      ]
+    });
     const dock = (scopeId) => ({
       type: 'dock',
       caption: 'Format',
@@ -2899,13 +3203,14 @@
       hostId: `${scopeId}FontHost`,
       hint: DEFAULT_HINT
     });
-    const dataTransformsSection = (key) => ({
+    const dataTransformsSection = (key, replicates = false) => ({
       type: 'buttons',
       tabLabel: 'Data',
       caption: 'Data transformation',
       ariaLabel: 'Input data transforms',
       transformSection: true,
       transformKey: key,
+      replicates,
       buttons: [
         {
           type: 'checkbox',
@@ -3039,7 +3344,7 @@
             ]
           },
           history('box'),
-          dataTransformsSection('box'),
+          dataTransformsSection('box', true),
           dock('box'),
           buildMatchStylesSection()
         ]
@@ -3060,7 +3365,7 @@
             ]
           },
           history('scatter'),
-          dataTransformsSection('scatter'),
+          dataTransformsSection('scatter', true),
           dock('scatter'),
           buildMatchStylesSection()
         ]
@@ -3081,7 +3386,7 @@
             ]
           },
           history('pca'),
-          dataTransformsSection('pca'),
+          dataTransformsSection('pca', true),
           dock('pca'),
           buildMatchStylesSection()
         ]
@@ -3102,7 +3407,7 @@
             ]
           },
           history('line'),
-          dataTransformsSection('line'),
+          dataTransformsSection('line', true),
           dock('line'),
           buildMatchStylesSection()
         ]
@@ -3233,7 +3538,10 @@
     };
 
     Object.keys(TOOLBAR_DATA).forEach(key => {
-      registerToolbar(key, TOOLBAR_DATA[key]);
+      const config = TOOLBAR_DATA[key];
+      registerToolbar(key, Object.assign({}, config, {
+        sections: [...(config.sections || []), helpSection(key)]
+      }));
     });
 
     renderAllToolbars();

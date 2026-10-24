@@ -248,6 +248,16 @@ test('recovered surface scale drag and 3D rotation remain live and stable', asyn
   await clickExpectedExampleButton(page, 'surfaceLoadExample');
   await waitForSurfaceDraw(page);
 
+  const axisTitle = page.locator('#surfacePage:not([hidden]) #surfaceSvg [data-axis-label][data-axis-key="y"]');
+  const originalTitle = await axisTitle.textContent();
+  await axisTitle.dblclick();
+  const editor = page.locator('.inline-edit-input').last();
+  await expect(editor).toBeVisible();
+  await editor.fill(`${originalTitle}\nRecovered axis`);
+  await page.mouse.click(3, 3);
+  await expect(editor).toBeHidden();
+  await waitForSurfaceDraw(page);
+
   await seedRecoverySnapshot(page);
   const accepted = await reloadAndAcceptRecovery(page);
   expect(accepted).toBe(true);
@@ -260,12 +270,33 @@ test('recovered surface scale drag and 3D rotation remain live and stable', asyn
   expect(before.rotationControlsAttached).toBe('true');
   expect(before.hasRotationControl).toBe(true);
   expectBBoxInsideViewBox(before);
+  const recoveredTicks = page.locator('#surfacePage:not([hidden]) #surfaceSvg [data-axis-tick-label][data-axis-key="y"]');
+  await expect(recoveredTicks.first()).toBeVisible();
+  await expect(recoveredTicks.last()).toBeVisible();
+  const recoveredTitleAnchor = await axisTitle.evaluate(node => ({
+    x: Number(node.getAttribute('x')),
+    anchorX: Number(node.getAttribute('data-title-anchor-x')),
+    lines: node.querySelectorAll('tspan[data-title-line="1"]').length
+  }));
+  expect(recoveredTitleAnchor.lines).toBe(2);
+  expect(recoveredTitleAnchor.anchorX).toBeCloseTo(recoveredTitleAnchor.x, 4);
 
   const legendBefore = await readSurfaceLegendState(page);
   await dragSurfaceLegend(page);
   const legendAfter = await readSurfaceLegendState(page);
   expect(legendAfter.transform).not.toBe(legendBefore.transform);
   expect(legendAfter.position).toBeTruthy();
+  await page.evaluate(() => {
+    const tabId = window.Main.session.workspaceState.activeTabId;
+    window.Components.surface.draw({ tabId, reason: 'e2e-recovered-legend-layout', force: true });
+  });
+  await waitForSurfaceDraw(page);
+  const legendRedrawn = await readSurfaceLegendState(page);
+  const translation = transform => transform.match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/gi).map(Number);
+  const draggedPosition = translation(legendAfter.transform);
+  const redrawnPosition = translation(legendRedrawn.transform);
+  expect(redrawnPosition[0]).toBeCloseTo(draggedPosition[0], 2);
+  expect(redrawnPosition[1]).toBeCloseTo(draggedPosition[1], 2);
 
   await dragSurface(page);
   await waitForSurfaceRotationSettled(page);

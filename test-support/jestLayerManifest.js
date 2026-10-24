@@ -4,6 +4,9 @@
 // application DOM, index.html, or integration vendor stubs.  Keep this list
 // reviewable: a test enters the Node layer only after it passes there.
 const NODE_UNIT_TESTS = Object.freeze([
+  '__tests__/unit/stats.advisorPolicies.test.js',
+  '__tests__/unit/hist.advisor.test.js',
+  '__tests__/unit/stats.twoSampleKolmogorovSmirnov.test.js',
   '__tests__/unit/box.advisor.test.js',
   '__tests__/unit/box.assumptions.test.js',
   '__tests__/unit/box.axisAutoScale.test.js',
@@ -100,6 +103,8 @@ const DOM_UNIT_TESTS = Object.freeze([
   '__tests__/dom/main.components.ensureComponent.test.js',
   '__tests__/dom/domControls.defaultPayloads.test.js',
   '__tests__/dom/domControls.renderCacheActivation.test.js',
+  '__tests__/dom/workspacePresentation.test.js',
+  '__tests__/dom/workspacePreparation.test.js',
   '__tests__/dom/domControls.payloadSizingOwnership.test.js',
   '__tests__/dom/fontControls.colorParsing.test.js',
   '__tests__/dom/fontControls.debugLogging.test.js',
@@ -168,6 +173,7 @@ const DOM_UNIT_TESTS = Object.freeze([
   '__tests__/dom/graphArchive.renderCacheSerialization.test.js',
   '__tests__/dom/tabSwitch.reuseCache.test.js',
   '__tests__/dom/documentState.recoveryThrottle.test.js',
+  '__tests__/dom/documentState.canonicalJournalTabCoalescing.test.js',
   '__tests__/dom/sessionActions.saveLazyBuild.test.js',
   '__tests__/dom/sessionActions.restoreParity.test.js',
   '__tests__/dom/session.assignTabPayload.assignment-guards.test.js',
@@ -225,7 +231,6 @@ const DOM_UNIT_TEST_SET = new Set(DOM_UNIT_TESTS);
 const ARCHITECTURE_TESTS = Object.freeze([
   '__tests__/architecture/audit.remaining-issues.contract.test.js',
   '__tests__/architecture/axis-major-tick-length.contract.test.js',
-  '__tests__/architecture/axis-toolbar-layout.contract.test.js',
   '__tests__/architecture/graph.exportControlsAlignment.contract.test.js',
   '__tests__/architecture/box.architectureOwnership.contract.test.js',
   '__tests__/architecture/box.frameCommit.contract.test.js',
@@ -264,6 +269,7 @@ const ARCHITECTURE_TESTS = Object.freeze([
 const ARCHITECTURE_TEST_SET = new Set(ARCHITECTURE_TESTS);
 
 const STATISTICAL_ORACLE_TESTS = Object.freeze([
+  '__tests__/statistical-oracle/stats.namedMethods.test.js',
   '__tests__/statistical-oracle/stats.differential.python.test.js',
   '__tests__/statistical-oracle/stats.component.differential.matrix.test.js',
   '__tests__/statistical-oracle/stats.component.differential.edges.test.js',

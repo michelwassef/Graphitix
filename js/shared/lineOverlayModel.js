@@ -253,27 +253,19 @@
 
   function getLineOverlayToolbarLabels(scopeKey){
     const parsed = parseLineOverlayToolbarScope(scopeKey);
-    if(parsed.mode === 'global'){
+    if(parsed.mode === 'global' || parsed.overlayKey === 'trend'){
       return {
-        colorLabel: 'Color',
+        colorLabel: 'Style',
         thicknessLabel: 'Thickness',
-        patternLabel: 'Line pattern',
+        patternLabel: 'Pattern',
         transparencyLabel: 'Transparency'
-      };
-    }
-    if(parsed.overlayKey === 'trend'){
-      return {
-        colorLabel: 'Line',
-        thicknessLabel: 'Line width',
-        patternLabel: 'Line pattern',
-        transparencyLabel: 'Line transparency'
       };
     }
     return {
       colorLabel: 'Fill',
       thicknessLabel: 'Border thickness',
-      patternLabel: 'Line pattern',
-      transparencyLabel: 'Fill transparency'
+      patternLabel: 'Pattern',
+      transparencyLabel: 'Transparency'
     };
   }
 

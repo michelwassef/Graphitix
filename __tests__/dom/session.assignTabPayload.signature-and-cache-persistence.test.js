@@ -45,6 +45,35 @@ describe('session.assignTabPayload: signature and cache persistence', () => {
     expect(parsed.data).toEqual(matrix);
   });
 
+  test('archive matrix-signature metadata survives a payload clone', () => {
+    const matrix = [['', 'X'], ['p1', 1]];
+    Object.defineProperty(matrix, '__graphitixMatrixSignature', {
+      value: 'hot-matrix:session-test:r3:rows2:cols2',
+      configurable: true,
+      enumerable: false,
+      writable: true
+    });
+    const payload = {
+      type: 'scatter',
+      data: matrix,
+      dataViews: { views: [{ id: 'raw', data: matrix }] },
+      config: {}
+    };
+    const cloned = session.clonePayload(payload);
+    expect(cloned.data.__graphitixMatrixSignature).toBeUndefined();
+    expect(cloned.dataViews.views[0].data.__graphitixMatrixSignature).toBeUndefined();
+
+    const signatures = session.capturePayloadMatrixSignatures(payload);
+    expect(signatures).toEqual(expect.arrayContaining([
+      { path: ['data'], signature: 'hot-matrix:session-test:r3:rows2:cols2' },
+      { path: ['dataViews', 'views', 0, 'data'], signature: 'hot-matrix:session-test:r3:rows2:cols2' }
+    ]));
+    session.restorePayloadMatrixSignatures(cloned, signatures);
+    expect(cloned.data.__graphitixMatrixSignature).toBe(matrix.__graphitixMatrixSignature);
+    expect(cloned.dataViews.views[0].data.__graphitixMatrixSignature).toBe(matrix.__graphitixMatrixSignature);
+    expect(session.serializePayloadSignature(cloned)).toBe(session.serializePayloadSignature(payload));
+  });
+
   test('assignTabPayload invalidates render cache when payload provenance changes', () => {
     const tab = createTabWithPayload();
     tab.renderCache = {
@@ -130,7 +159,7 @@ describe('session.assignTabPayload: signature and cache persistence', () => {
     const captureRenderCache = jest.fn(meta => ({
       plot: { count: 1, owner: meta.tabId },
       __graphitixRenderCache: {
-        version: 2,
+        version: window.Shared.renderCacheSchema.SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: meta.tabId,

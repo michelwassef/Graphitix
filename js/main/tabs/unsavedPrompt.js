@@ -44,7 +44,12 @@
       if (!dom.unsavedPrompt) {
         return;
       }
-      dom.unsavedPrompt.setAttribute('hidden', 'hidden');
+      const modal = window.Shared?.modalLifecycle;
+      if (modal?.isOpen?.(dom.unsavedPrompt)) {
+        modal.close(dom.unsavedPrompt);
+      } else {
+        dom.unsavedPrompt.setAttribute('hidden', 'hidden');
+      }
       delete dom.unsavedPrompt.dataset.tabId;
       console.debug('Debug: unsaved prompt hidden');
     }
@@ -68,7 +73,6 @@
         return;
       }
       setUnsavedPromptBusy(true);
-      hideUnsavedPrompt();
       const restoreTarget = pending.previousActiveId && pending.previousActiveId !== tab.id
         ? pending.previousActiveId
         : null;
@@ -90,20 +94,39 @@
         if (sessionActions && typeof sessionActions.saveWorkspaceArchiveWithScope === 'function' && tabsApi && typeof tabsApi.getSessionActionsContext === 'function') {
           console.debug('Debug: unsaved prompt invoking archive save', { tabId: tab.id, type: tab.type });
           const saveContext = tabsApi.getSessionActionsContext();
+          const targetTabId = String(workspaceState.sessionFileTabId || '').trim();
+          const hasExistingFileTarget = workspaceState.sessionFileTargetKind === 'existing'
+            || (workspaceState.sessionFileTargetKind !== 'new'
+              && !!(workspaceState.sessionFileHandle || workspaceState.sessionFileName
+                || workspaceState.sessionFilePath || workspaceState.sessionFileScope));
+          const isExistingWorkspaceFile = hasExistingFileTarget
+            && workspaceState.sessionFileScope === 'workspace';
+          const isExistingTabFile = hasExistingFileTarget
+            && workspaceState.sessionFileScope === 'tab'
+            && (targetTabId === tab.id || (!targetTabId
+              && workspaceState.tabs.filter(item => item && !item.isWelcome && item.type).length === 1));
+          const saveOptions = isExistingWorkspaceFile
+            ? { scope: 'workspace' }
+            : (isExistingTabFile
+              ? { scope: 'tab', targetTabId: tab.id }
+              : { scope: 'tab', targetTabId: tab.id, forcePicker: true, rememberFile: false });
           const saveResult = await sessionActions.saveWorkspaceArchiveWithScope(saveContext, {
-            scope: 'tab',
-            targetTabId: tab.id,
+            ...saveOptions,
             reason: 'unsaved-tab-save'
           });
+          if (workspaceState.pendingClosePrompt !== pending || getTabById(pending.tabId) !== tab) {
+            console.debug('Debug: unsaved prompt save completion ignored after owner changed', { tabId: pending.tabId });
+            return;
+          }
           if (!saveResult || (saveResult.status !== 'saved' && saveResult.status !== 'downloaded')) {
-            workspaceState.pendingClosePrompt = pending;
-            showUnsavedPrompt(tab, { wasActive: true, reason: 'save-cancelled', previousActiveId: pending.previousActiveId });
             return;
           }
         } else {
           console.warn('Unsaved prompt save unavailable: missing sessionActions archive save', { tabId: tab.id, type: tab.type });
-          workspaceState.pendingClosePrompt = pending;
-          showUnsavedPrompt(tab, { wasActive: true, reason: 'no-save-handler', previousActiveId: pending.previousActiveId });
+          return;
+        }
+        if (workspaceState.pendingClosePrompt !== pending || getTabById(pending.tabId) !== tab) {
+          console.debug('Debug: unsaved prompt save completion ignored after owner changed', { tabId: pending.tabId });
           return;
         }
         session.persistActiveTabState(tab, withSessionContext({
@@ -111,16 +134,33 @@
           origin: 'lifecycle',
           snapshotKind: 'lifecycle-checkpoint'
         }));
-        workspaceState.pendingClosePrompt = null;
         console.debug('Debug: unsaved prompt save complete', { tabId: tab.id });
-        closeTab(tab.id, { force: true, skipPrompt: true, skipPersist: true, reason: 'unsaved-save' });
+        closeTab(tab.id, {
+          force: true,
+          skipPrompt: true,
+          skipPersist: true,
+          reason: 'unsaved-save',
+          unsavedPromptSave: pending
+        });
+        if (workspaceState.sessionFileScope === 'tab'
+          && workspaceState.sessionFileTabId === tab.id
+          && !getTabById(tab.id)) {
+          workspaceState.sessionFileHandle = null;
+          workspaceState.sessionFileName = '';
+          workspaceState.sessionFilePath = '';
+          workspaceState.sessionFileScope = null;
+          workspaceState.sessionFileTabId = null;
+          workspaceState.sessionFileTargetKind = 'new';
+        }
         if (restoreTarget && getTabById(restoreTarget)) {
           activateTab(restoreTarget, { reason: 'restore-after-unsaved-save', skipPersist: true });
         }
       } catch (err) {
-        console.error('unsaved prompt save error', { tabId: tab.id, err });
-        workspaceState.pendingClosePrompt = pending;
-        showUnsavedPrompt(tab, { wasActive: true, reason: 'save-error', previousActiveId: pending.previousActiveId });
+        if (workspaceState.pendingClosePrompt === pending && getTabById(pending.tabId) === tab) {
+          console.error('unsaved prompt save error', { tabId: tab.id, err });
+        } else {
+          console.debug('Debug: unsaved prompt save error ignored after owner changed', { tabId: pending.tabId });
+        }
       } finally {
         setUnsavedPromptBusy(false);
       }
@@ -139,9 +179,6 @@
       workspaceState.pendingClosePrompt = null;
       hideUnsavedPrompt();
       console.debug('Debug: unsaved prompt discard confirmed', { tabId: pending.tabId });
-      if (window.Main?.documentState && typeof window.Main.documentState.clearRecoverySnapshot === 'function') {
-        void window.Main.documentState.clearRecoverySnapshot('unsaved-tab-discard');
-      }
       closeTab(pending.tabId, { force: true, skipPrompt: true, skipPersist: true, reason: 'unsaved-discard' });
     }
 
@@ -183,6 +220,10 @@
         console.debug('Debug: showUnsavedPrompt skipped', { reason: 'missing-tab' });
         return;
       }
+      if (unsavedPromptBusy) {
+        console.debug('Debug: showUnsavedPrompt skipped', { reason: 'save-pending', tabId: tab.id });
+        return;
+      }
       const tabId = tab.id;
       const previousActiveId = meta.previousActiveId !== undefined
         ? meta.previousActiveId
@@ -203,9 +244,6 @@
         const proceed = window.confirm ? window.confirm(confirmMessage) : true;
         console.debug('Debug: unsaved prompt fallback confirm', { tabId, proceed });
         if (proceed) {
-          if (window.Main?.documentState && typeof window.Main.documentState.clearRecoverySnapshot === 'function') {
-            void window.Main.documentState.clearRecoverySnapshot('unsaved-tab-discard-fallback');
-          }
           closeTab(tabId, { force: true, skipPrompt: true, skipPersist: true, reason: 'fallback-confirm' });
         } else {
           workspaceState.pendingClosePrompt = null;
@@ -219,8 +257,17 @@
         dom.unsavedMessage.textContent = 'This tab has unsaved data. Save to keep your work, close without saving to discard it, or cancel to return to the workspace.';
       }
       dom.unsavedPrompt.dataset.tabId = tabId;
-      dom.unsavedPrompt.removeAttribute('hidden');
-      dom.unsavedPrompt.focus?.();
+      const modal = window.Shared?.modalLifecycle;
+      if (modal?.open) {
+        modal.open(dom.unsavedPrompt, {
+          initialFocus: () => dom.unsavedSave,
+          returnFocus: document.activeElement,
+          onEscape: handleUnsavedCancel
+        });
+      } else {
+        dom.unsavedPrompt.removeAttribute('hidden');
+        dom.unsavedPrompt.focus?.();
+      }
       console.debug('Debug: unsaved prompt displayed', promptState);
     }
 
@@ -228,6 +275,7 @@
       showUnsavedPrompt,
       hideUnsavedPrompt,
       bindUnsavedPromptHandlers,
+      isBusy: () => unsavedPromptBusy,
       handleUnsavedSave,
       handleUnsavedDiscard,
       handleUnsavedCancel,

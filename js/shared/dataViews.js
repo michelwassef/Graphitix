@@ -13,6 +13,7 @@
   const VERSION = 3;
   const DEFAULT_MAX_VIEWS = 12;
   const tableProjectionDepth = new WeakMap();
+  let nextExportMenuId = 1;
 
   function debugLog(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -472,10 +473,19 @@
         return;
       }
       const tabs = mounted.tabs;
+      const doc = tabs.ownerDocument || global.document;
+      const focusedControl = tabs.contains(doc.activeElement)
+        ? doc.activeElement.closest('.data-view-tabs__tab, .data-view-tabs__save, .data-view-tabs__close')
+        : null;
+      const focusedViewId = String(focusedControl?.dataset?.viewId || '');
+      const focusedControlClass = focusedControl?.classList?.contains('data-view-tabs__tab')
+        ? 'data-view-tabs__tab'
+        : (focusedControl?.classList?.contains('data-view-tabs__save')
+          ? 'data-view-tabs__save'
+          : (focusedControl?.classList?.contains('data-view-tabs__close') ? 'data-view-tabs__close' : ''));
       while(tabs.firstChild){
         tabs.removeChild(tabs.firstChild);
       }
-      const doc = tabs.ownerDocument || global.document;
       views.forEach(view => {
         const item = doc.createElement('div');
         item.className = 'data-view-tabs__item';
@@ -490,14 +500,8 @@
           tab.classList.add('data-view-tabs__tab--active');
         }
         tab.dataset.viewId = view.id;
-        tab.setAttribute('role', 'tab');
-        tab.setAttribute('aria-selected', view.id === activeViewId ? 'true' : 'false');
+        tab.setAttribute('aria-pressed', view.id === activeViewId ? 'true' : 'false');
         tab.textContent = view.title;
-        if(view.summary?.transform){
-          tab.title = `${view.title} (${view.summary.transform})`;
-        }else{
-          tab.title = view.title;
-        }
         item.appendChild(tab);
 
         const save = doc.createElement('button');
@@ -506,6 +510,8 @@
         save.dataset.viewId = view.id;
         save.setAttribute('aria-label', `Save ${view.title}`);
         save.setAttribute('title', `Save ${view.title}`);
+        save.setAttribute('aria-haspopup', 'menu');
+        save.setAttribute('aria-expanded', 'false');
         save.textContent = '\u{1F4BE}';
         item.appendChild(save);
 
@@ -515,11 +521,24 @@
           close.className = 'data-view-tabs__close';
           close.dataset.viewId = view.id;
           close.setAttribute('aria-label', `Close ${view.title}`);
-          close.textContent = '\u00D7';
+          const closeIcon = doc.createElement('span');
+          closeIcon.className = 'data-view-tabs__close-icon';
+          closeIcon.setAttribute('aria-hidden', 'true');
+          closeIcon.textContent = '\u00D7';
+          close.appendChild(closeIcon);
           item.appendChild(close);
         }
         tabs.appendChild(item);
       });
+
+      if(focusedControl){
+        const matchingControl = Array.from(tabs.querySelectorAll(`.${focusedControlClass}[data-view-id]`))
+          .find(control => control.dataset.viewId === focusedViewId);
+        const activeViewTab = Array.from(tabs.querySelectorAll('.data-view-tabs__tab[data-view-id]'))
+          .find(tab => tab.dataset.viewId === activeViewId);
+        const focusTarget = matchingControl || activeViewTab || tabs.querySelector('.data-view-tabs__tab');
+        focusTarget?.focus({ preventScroll: true });
+      }
     }
 
     function pruneToMaxViews(){
@@ -582,12 +601,13 @@
       const doc = wrapper.ownerDocument || global.document;
       const tabs = doc.createElement('div');
       tabs.className = 'data-view-tabs';
-      tabs.setAttribute('role', 'tablist');
+      tabs.setAttribute('role', 'group');
       tabs.setAttribute('aria-label', 'Input data views');
       tabs.dataset.componentKey = componentKey || '';
 
       const exportMenu = doc.createElement('div');
       exportMenu.className = 'data-view-tabs__export-menu';
+      exportMenu.id = `dataViewExportMenu-${nextExportMenuId++}`;
       exportMenu.setAttribute('hidden', 'hidden');
       exportMenu.setAttribute('role', 'menu');
       exportMenu.innerHTML = ''
@@ -598,13 +618,23 @@
         + '<button type="button" class="data-view-tabs__export-item" data-format="xlsx" role="menuitem">XLSX</button>';
 
       let exportMenuViewId = null;
+      const exportMenuKeyboard = Shared.menuKeyboard?.attach(exportMenu, {
+        onClose: () => {
+          exportMenuViewId = null;
+        }
+      }) || null;
 
-      const hideExportMenu = () => {
-        if(exportMenu.hasAttribute('hidden')){
-          return;
+      const hideExportMenu = (options = {}) => {
+        if(exportMenuKeyboard){
+          exportMenuKeyboard.close({
+            reason: options.reason || 'close',
+            restoreFocus: options.restoreFocus === true
+          });
+          return true;
         }
         exportMenu.setAttribute('hidden', 'hidden');
         exportMenuViewId = null;
+        return true;
       };
 
       const showExportMenu = (button, viewId) => {
@@ -627,6 +657,7 @@
         }
         exportMenu.style.left = `${Math.round(Math.max(0, left))}px`;
         exportMenu.style.top = `${Math.round(Math.max(0, top))}px`;
+        exportMenuKeyboard?.open(button);
       };
 
       const saveBlobAs = async (blob, fileName, contextLabel, acceptMime, acceptExt) => {
@@ -712,12 +743,12 @@
         if(tabs.contains(event.target) && event.target.closest('.data-view-tabs__save')){
           return;
         }
-        hideExportMenu();
+        hideExportMenu({ reason: 'outside-click' });
       };
 
       const keydownHandler = event => {
         if(event.key === 'Escape'){
-          hideExportMenu();
+          hideExportMenu({ reason: 'action', restoreFocus: true });
         }
       };
 
@@ -726,7 +757,7 @@
         if(exportItem){
           const format = exportItem.dataset.format || '';
           const targetViewId = exportMenuViewId;
-          hideExportMenu();
+          hideExportMenu({ reason: 'action', restoreFocus: true });
           if(targetViewId){
             exportViewData(targetViewId, format).catch(err => {
               if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -747,7 +778,7 @@
           const viewId = saveButton.dataset.viewId || '';
           if(viewId){
             if(exportMenuViewId === viewId && !exportMenu.hasAttribute('hidden')){
-              hideExportMenu();
+              hideExportMenu({ reason: 'trigger-toggle' });
             }else{
               showExportMenu(saveButton, viewId);
             }
@@ -796,6 +827,8 @@
         tableContainer,
         tabs,
         exportMenu,
+        exportMenuKeyboard,
+        closeExportMenu: hideExportMenu,
         clickHandler,
         pointerDownHandler,
         keydownHandler
@@ -808,7 +841,7 @@
       if(!mounted){
         return;
       }
-      const { wrapper, tableContainer, tabs, exportMenu, clickHandler, pointerDownHandler, keydownHandler } = mounted;
+      const { wrapper, tableContainer, tabs, exportMenu, exportMenuKeyboard, clickHandler, pointerDownHandler, keydownHandler } = mounted;
       if(tabs && clickHandler){
         tabs.removeEventListener('click', clickHandler);
       }
@@ -822,6 +855,7 @@
       if(doc && keydownHandler){
         doc.removeEventListener('keydown', keydownHandler);
       }
+      exportMenuKeyboard?.destroy?.();
       if(tabs && tabs.parentNode){
         tabs.parentNode.removeChild(tabs);
       }
@@ -1274,6 +1308,13 @@
 
     manager.mount = mount;
     manager.unmount = unmount;
+    manager.closeTransientUi = options => {
+      if(!mounted?.exportMenu || mounted.exportMenu.hasAttribute('hidden')){
+        return false;
+      }
+      mounted.closeExportMenu?.(options || { reason: 'owner-deactivated' });
+      return true;
+    };
     manager.initialize = initialize;
     manager.ensureRawView = ensureRawView;
     manager.activateView = activateView;
@@ -1325,6 +1366,23 @@
   }
 
   dataViews.createManager = createManager;
+  dataViews.closeTransientUiForRoot = function closeTransientUiForRoot(root, options = {}){
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return 0;
+    }
+    const hosts = Array.from(root.querySelectorAll('.data-view-host'));
+    if(root.matches?.('.data-view-host')){
+      hosts.unshift(root);
+    }
+    let closed = 0;
+    for(let i = 0; i < hosts.length; i += 1){
+      const manager = hosts[i]?.__dataViewsOwner || null;
+      if(manager?.closeTransientUi?.(options)){
+        closed += 1;
+      }
+    }
+    return closed;
+  };
   dataViews.applyViewToTable = applyViewToTable;
   dataViews.isTableProjectionActive = isTableProjectionActive;
   dataViews.resolveRawDataForPersistence = function resolveRawDataForPersistence(serializedDataViews, fallbackData){

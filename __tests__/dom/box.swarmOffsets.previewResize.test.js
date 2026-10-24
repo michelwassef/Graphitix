@@ -3,11 +3,34 @@ const { createBoxSwarmTestContext } = require('../../test-support/boxSwarmSuite'
 describe('Box swarm offsets — preview and resize', () => {
   const suite = createBoxSwarmTestContext();
 
+  function createInactiveBoxTab(id, fragment){
+    const svg = fragment.querySelector('svg');
+    svg?.setAttribute('id', 'boxSvg');
+    svg?.setAttribute('data-box-tab-id', id);
+    const metadata = window.Shared.renderCacheSchema.createMetadata({
+      component: 'box',
+      tabId: id,
+      complete: true,
+      extra: { symbolGeometryVersion: window.Shared.symbolGeometry.RENDER_GEOMETRY_VERSION }
+    });
+    return {
+      id,
+      renderCache: {
+        cache: {
+          plot: { fragment },
+          __graphitixRenderCache: metadata
+        }
+      }
+    };
+  }
+
   test('box preview svg returns the active owner plot source', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     document.body.innerHTML = '<div id="boxPlot"></div>';
     const plot = document.getElementById('boxPlot');
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('id', 'boxSvg');
+    svg.setAttribute('data-box-tab-id', 'workspace-test');
     svg.setAttribute('width', '100%');
     svg.setAttribute('height', '100%');
     svg.setAttribute('data-box-base-width', '480');
@@ -115,6 +138,8 @@ describe('Box swarm offsets — preview and resize', () => {
     document.body.innerHTML = '<div id="boxPlot"></div>';
     const plot = document.getElementById('boxPlot');
     const staleSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    staleSvg.setAttribute('id', 'boxSvg');
+    staleSvg.setAttribute('data-box-tab-id', 'workspace-test');
     staleSvg.setAttribute('aria-hidden', 'true');
     staleSvg.setAttribute('data-box-pending-render', '1');
     staleSvg.style.opacity = '0';
@@ -136,6 +161,8 @@ describe('Box swarm offsets — preview and resize', () => {
     plot.appendChild(staleSvg);
 
     const liveSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    liveSvg.setAttribute('id', 'boxSvg');
+    liveSvg.setAttribute('data-box-tab-id', 'workspace-test');
     const liveGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     liveGroup.setAttribute('data-export-layer', 'box-points');
     liveGroup.setAttribute('data-trace', '0');
@@ -200,14 +227,7 @@ describe('Box swarm offsets — preview and resize', () => {
     };
     svg.appendChild(group);
     frag.appendChild(svg);
-    const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-style-test',
-      renderCache: {
-        cache: {
-          plot: { fragment: frag }
-        }
-      }
-    });
+    const previewSvg = window.Components.box.getPreviewSvg(createInactiveBoxTab('workspace-preview-style-test', frag));
     expect(previewSvg).toBe(svg);
     expect(previewSvg.querySelector('[data-point-proxy="1"]')).toBe(proxy);
   });
@@ -258,14 +278,7 @@ describe('Box swarm offsets — preview and resize', () => {
     };
     svg.appendChild(group);
     frag.appendChild(svg);
-    const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-canvas-density-style-test',
-      renderCache: {
-        cache: {
-          plot: { fragment: frag }
-        }
-      }
-    });
+    const previewSvg = window.Components.box.getPreviewSvg(createInactiveBoxTab('workspace-preview-canvas-density-style-test', frag));
     expect(previewSvg).toBe(svg);
     expect(previewSvg.querySelector('foreignObject')).toBe(foreignObject);
     expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
@@ -312,14 +325,7 @@ describe('Box swarm offsets — preview and resize', () => {
     };
     svg.appendChild(group);
     frag.appendChild(svg);
-    const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-canvas-density-stale-export-style-test',
-      renderCache: {
-        cache: {
-          plot: { fragment: frag }
-        }
-      }
-    });
+    const previewSvg = window.Components.box.getPreviewSvg(createInactiveBoxTab('workspace-preview-canvas-density-stale-export-style-test', frag));
     expect(previewSvg).toBe(svg);
     expect(staleExportPath.style.display).toBe('none');
     expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
@@ -360,14 +366,7 @@ describe('Box swarm offsets — preview and resize', () => {
     };
     svg.appendChild(group);
     frag.appendChild(svg);
-    const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-canvas-density-zero-border-test',
-      renderCache: {
-        cache: {
-          plot: { fragment: frag }
-        }
-      }
-    });
+    const previewSvg = window.Components.box.getPreviewSvg(createInactiveBoxTab('workspace-preview-canvas-density-zero-border-test', frag));
     expect(previewSvg).toBe(svg);
     expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
     expect(group.getAttribute('data-point-stroke-width')).toBe('0');
@@ -413,14 +412,7 @@ describe('Box swarm offsets — preview and resize', () => {
     };
     svg.appendChild(group);
     frag.appendChild(svg);
-    const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-canvas-density-group-attrs-priority-test',
-      renderCache: {
-        cache: {
-          plot: { fragment: frag }
-        }
-      }
-    });
+    const previewSvg = window.Components.box.getPreviewSvg(createInactiveBoxTab('workspace-preview-canvas-density-group-attrs-priority-test', frag));
     expect(previewSvg).toBe(svg);
     expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
     expect(group.getAttribute('data-point-stroke-width')).toBe('0');

@@ -30,6 +30,85 @@ describe('Component statistical edge cases and randomized checks', () => {
     expect(result.p).toBe(0);
   });
 
+  testWithOracle('shared Spearman inference matches an independent exact tied-rank permutation reference', () => {
+    const x = [1, 1, 2, 3, 3, 4];
+    const y = [1, 2, 1, 3, 4, 4];
+    const reference = indexOracleResults(runPythonOracle([{
+      id: 'spearman-tied-exact',
+      operation: 'spearman_permutation_reference',
+      payload: { x, y }
+    }])).get('spearman-tied-exact')?.result;
+    const shared = global.Shared.stats.spearmanPermutationTest(x, y);
+    const line = lineHooks.computeLineCorrelationStats('spearman', x, y, global.jStat);
+    const scatter = scatterHooks.computeScatterCorrelationStats('spearman', x, y);
+    expect(reference).toMatchObject({ available: true, hasTies: true });
+    expect(shared).toMatchObject({ available: true, exact: true, hasTies: true });
+    expectClose(shared.rho, reference.r, 'shared tied Spearman rho', { abs: 1e-12, rel: 1e-10 });
+    expectClose(shared.pValue, reference.p, 'shared tied Spearman exact p', { abs: 1e-12, rel: 1e-10 });
+    expectClose(line.p, reference.p, 'Line tied Spearman exact p', { abs: 1e-12, rel: 1e-10 });
+    expectClose(scatter.p, reference.p, 'Scatter tied Spearman exact p', { abs: 1e-12, rel: 1e-10 });
+    expect(line.pMethod).toContain('exact permutation');
+    expect(scatter.pMethod).toContain('exact permutation');
+  });
+
+  test('randomized Spearman inference is repeatable and reports a work-limited result', () => {
+    const x = Array.from({ length: 20 }, (_, index) => index % 4);
+    const y = [3, 0, 2, 1, 1, 3, 0, 2, 2, 0, 3, 1, 0, 2, 1, 3, 1, 0, 2, 3];
+    const first = global.Shared.stats.spearmanPermutationTest(x, y);
+    const second = global.Shared.stats.spearmanPermutationTest(x, y);
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({ available: true, exact: false, hasTies: true, resamples: 9999 });
+    expect(first.pValue).toBeGreaterThan(0);
+    expect(first.pValue).toBeLessThanOrEqual(1);
+    const limited = global.Shared.stats.spearmanPermutationTest(x, y, {
+      pairCount: 10,
+      maxPermutationWork: 100000
+    });
+    expect(limited.available).toBe(false);
+    expect(limited.method).toContain('work limit');
+  });
+
+  testWithOracle('Heatmap correlation inference matches the independent oracle for Pearson and tied Spearman pairs', () => {
+    require('../../js/components/heatmap.js');
+    const heatmapHooks = global.Components.heatmap.__testHooks;
+    const pearsonX = [1, 2, 3, 4, 5, 6, NaN, 8];
+    const pearsonY = [1.5, 2, 4.5, 3, 6, 5, 7, 8];
+    const spearmanX = [1, 1, 2, 3, 3, 4];
+    const spearmanY = [1, 2, 1, 3, 4, 4];
+    const oracle = indexOracleResults(runPythonOracle([
+      { id: 'heatmap-pearson', operation: 'correlation', payload: { method: 'pearson', x: pearsonX, y: pearsonY } },
+      { id: 'heatmap-spearman-tied', operation: 'correlation', payload: { method: 'spearman', x: spearmanX, y: spearmanY } }
+    ]));
+    const pearson = heatmapHooks.calculateCorrelationEntry(pearsonX, pearsonY, 'pearson', true, { pairCount: 1 });
+    const spearman = heatmapHooks.calculateCorrelationEntry(spearmanX, spearmanY, 'spearman', true, { pairCount: 1 });
+    const pearsonReference = oracle.get('heatmap-pearson')?.result;
+    const spearmanReference = oracle.get('heatmap-spearman-tied')?.result;
+
+    expect(pearsonReference?.available).toBe(true);
+    expect(spearmanReference).toMatchObject({ available: true, method: 'spearman' });
+    expect(pearson.count).toBe(pearsonReference.n);
+    expectClose(pearson.corr, pearsonReference.r, 'Heatmap Pearson coefficient', { abs: 1e-10, rel: 1e-8 });
+    expectClose(pearson.pValue, pearsonReference.p, 'Heatmap Pearson p-value', { abs: 1e-9, rel: 1e-7 });
+    expect(spearman.count).toBe(spearmanReference.n);
+    expect(spearman.pMethod).toContain('exact permutation');
+    expectClose(spearman.corr, spearmanReference.r, 'Heatmap tied Spearman coefficient', { abs: 1e-12, rel: 1e-10 });
+    expectClose(spearman.pValue, spearmanReference.p, 'Heatmap tied Spearman p-value', { abs: 1e-12, rel: 1e-10 });
+  });
+
+  testWithOracle('large-sample Spearman inference follows the documented asymptotic path', () => {
+    const x = Array.from({ length: 600 }, (_, index) => index % 17);
+    const y = x.map((value, index) => (value * 3 + (index % 5)) % 19);
+    const reference = indexOracleResults(runPythonOracle([{
+      id: 'spearman-large',
+      operation: 'correlation',
+      payload: { method: 'spearman', x, y }
+    }])).get('spearman-large')?.result;
+    const actual = global.Shared.stats.spearmanPermutationTest(x, y);
+    expect(actual.method).toContain('n > 500');
+    expectClose(actual.rho, reference.r, 'large Spearman rho', { abs: 1e-12, rel: 1e-10 });
+    expectClose(actual.pValue, reference.p, 'large Spearman asymptotic p', { abs: 1e-10, rel: 1e-8 });
+  });
+
   test('invalid count inputs do not produce a p-value from implicit zeros', () => {
     expect(pieHooks.computeChiSquare([null, 10], [5, 5]).available).toBe(false);
     expect(pieHooks.computeGofStats(['', 10], [5, 5]).ok).toBe(false);
@@ -42,7 +121,9 @@ describe('Component statistical edge cases and randomized checks', () => {
     const summaryValues = [1.2, 2.1, 2.4, 3.8, 4.1, 5.0, 5.6];
     const skewedValues = [0.42, 0.58, 0.77, 1.1, 1.55, 2.4, 3.9, 6.1];
     const ksA = [0.2, 0.5, 0.9, 1.1, 1.4, 1.8, 2.0, 2.3];
-    const ksB = [0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9];
+    // The SciPy exact null assumes continuous, tie-free samples; tied samples
+    // use Graphitix's separate tie-preserving permutation calibration.
+    const ksB = [0.1, 0.25, 0.35, 0.4, 0.6, 0.7, 0.8, 0.85];
 
     const cases = [
       { id: 'hist-summary', operation: 'hist_descriptive_summary', payload: { values: summaryValues } },
@@ -252,7 +333,9 @@ describe('Component statistical edge cases and randomized checks', () => {
         const ref = oracle.get(id)?.result;
         expect(ref).toBeTruthy();
         expectClose(js[id].r, ref.r, `${id}.r`, { abs: 1e-8, rel: 1e-6 });
-        expectClose(js[id].p, ref.p, `${id}.p`, { abs: 1e-4, rel: 1e-3 });
+        expect(js[id].p).toBeGreaterThanOrEqual(1 / 10000);
+        expect(js[id].p).toBeLessThanOrEqual(1);
+        expect(js[id].pMethod).toContain('random permutation');
       }
       {
         const id = `rnd-roc-${i}`;

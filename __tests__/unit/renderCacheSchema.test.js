@@ -1,4 +1,5 @@
 const COMPONENT_TYPES = ['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'];
+const CURRENT_SCHEMA_VERSION = 3;
 
 describe('Shared.renderCacheSchema', () => {
   let schema;
@@ -8,16 +9,17 @@ describe('Shared.renderCacheSchema', () => {
     delete window.Shared;
     require('../../js/shared/renderCacheSchema.js');
     schema = window.Shared.renderCacheSchema;
+    expect(schema.SCHEMA_VERSION).toBe(CURRENT_SCHEMA_VERSION);
   });
 
   afterEach(() => {
     delete window.Shared;
   });
 
-  test('accepts exact version-2 owner/component provenance', () => {
+  test('accepts current owner/component provenance', () => {
     const cache = {
       __graphitixRenderCache: {
-        version: 2,
+        version: CURRENT_SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: 'workspace-1',
@@ -32,6 +34,26 @@ describe('Shared.renderCacheSchema', () => {
       requireVersion: true,
       requireComplete: true
     })).toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  test('rejects version-2 caches after the restore-interaction contract changes', () => {
+    const legacyCache = {
+      __graphitixRenderCache: {
+        version: 2,
+        component: 'box',
+        type: 'box',
+        tabId: 'workspace-1',
+        complete: true
+      }
+    };
+
+    expect(schema.validate(legacyCache, {
+      tabId: 'workspace-1',
+      component: 'box'
+    }, {
+      requireVersion: true,
+      requireComplete: true
+    })).toEqual(expect.objectContaining({ ok: false, errors: expect.arrayContaining(['version-mismatch']) }));
   });
 
   test.each(COMPONENT_TYPES)('accepts exact provenance for the %s component cache', component => {
@@ -56,7 +78,7 @@ describe('Shared.renderCacheSchema', () => {
     ['owner alias conflict', {
       tabId: 'workspace-2',
       __graphitixRenderCache: {
-        version: 2,
+        version: CURRENT_SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: 'workspace-1',
@@ -65,7 +87,7 @@ describe('Shared.renderCacheSchema', () => {
     }, 'owner-alias-conflict'],
     ['component alias conflict', {
       __graphitixRenderCache: {
-        version: 2,
+        version: CURRENT_SCHEMA_VERSION,
         component: 'box',
         type: 'scatter',
         tabId: 'workspace-1',
@@ -94,7 +116,7 @@ describe('Shared.renderCacheSchema', () => {
     }, 'missing-metadata'],
     ['missing owner', {
       __graphitixRenderCache: {
-        version: 2,
+        version: CURRENT_SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         complete: true
@@ -102,14 +124,14 @@ describe('Shared.renderCacheSchema', () => {
     }, 'owner-missing'],
     ['missing component', {
       __graphitixRenderCache: {
-        version: 2,
+        version: CURRENT_SCHEMA_VERSION,
         tabId: 'workspace-1',
         complete: true
       }
     }, 'component-missing'],
     ['incomplete cache', {
       __graphitixRenderCache: {
-        version: 2,
+        version: CURRENT_SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: 'workspace-1',
@@ -148,7 +170,7 @@ describe('Shared.renderCacheSchema', () => {
 
     const corrupt = {
       __graphitixRenderCache: {
-        version: 2,
+        version: schema.SCHEMA_VERSION,
         component,
         type: component === 'box' ? 'scatter' : 'box',
         tabId: `workspace-${component}`,
@@ -166,7 +188,7 @@ describe('Shared.renderCacheSchema', () => {
   test('rejects a corrupt cache without trusting enumerable aliases', () => {
     const cache = Object.create(null);
     cache.__graphitixRenderCache = Object.create(null);
-    cache.__graphitixRenderCache.version = 2;
+    cache.__graphitixRenderCache.version = schema.SCHEMA_VERSION;
     cache.__graphitixRenderCache.component = 'box';
     cache.__graphitixRenderCache.type = 'scatter';
     cache.__graphitixRenderCache.tabId = 'workspace-1';
@@ -206,7 +228,7 @@ describe('Shared.renderCacheSchema', () => {
     const cache = {
       plot: { count: 1 },
       __graphitixRenderCache: {
-        version: 2,
+        version: schema.SCHEMA_VERSION,
         component: 'box',
         type: 'box',
         tabId: 'workspace-1',
@@ -224,7 +246,7 @@ describe('Shared.renderCacheSchema', () => {
     expect(cache).toEqual(before);
     expect(normalized).not.toBe(cache);
     expect(normalized.__graphitixRenderCache).toEqual(expect.objectContaining({
-      version: 2,
+      version: schema.SCHEMA_VERSION,
       component: 'box',
       type: 'box',
       tabId: 'workspace-1',
@@ -240,7 +262,7 @@ describe('Shared.renderCacheSchema', () => {
     const cache = {
       plot: { count: 1 },
       __graphitixRenderCache: {
-        version: 2,
+        version: schema.SCHEMA_VERSION,
         component: 'scatter',
         type: 'scatter',
         tabId: 'workspace-other',
@@ -258,7 +280,7 @@ describe('Shared.renderCacheSchema', () => {
     expect(cache).toEqual(before);
     expect(rollback).not.toBe(cache);
     expect(rollback.__graphitixRenderCache).toEqual(expect.objectContaining({
-      version: 2,
+      version: schema.SCHEMA_VERSION,
       component: 'box',
       type: 'box',
       tabId: 'workspace-1',

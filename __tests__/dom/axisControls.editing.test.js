@@ -1,5 +1,17 @@
 // Shared axis-control wheel gestures should coalesce into undoable edits.
 
+let previousMain;
+let previousComponents;
+beforeEach(() => {
+  previousMain = window.Main;
+  previousComponents = window.Components;
+  window.Main = { session: { getActiveTab: () => ({ id: 'tab-a' }) } };
+});
+afterEach(() => {
+  window.Main = previousMain;
+  window.Components = previousComponents;
+});
+
 describe('axisControls — generic numeric wheel editing', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -445,13 +457,22 @@ describe('axisControls — axis length wheel gesture', () => {
     expect(recorded[0].to).toEqual({ width: 400, height: 405 });
   });
 
-  test('fallback refinement is latest-wins and stale scheduled passes cannot overwrite a newer request', () => {
+  test.each([0.5, 1, 1.5])('canonical fallback editing at %s zoom is latest-wins and reports measured results', async zoom => {
     jest.resetModules();
     delete window.Shared;
     require('../../js/shared/workspaceToolbarAccess.js');
     require('../../js/shared/workspaceToolbar.js');
     require('../../js/shared/axisControls.js');
 
+    const readiness = [];
+    window.Components = {
+      hist: {
+        awaitReadyForSnapshot: jest.fn()
+          .mockImplementationOnce(() => new Promise(resolve => readiness.push(resolve)))
+          .mockImplementationOnce(() => new Promise(resolve => readiness.push(resolve)))
+          .mockResolvedValue({ ok: true })
+      }
+    };
     const shared = window.Shared;
     const runtimeBuckets = new Map();
     const sharedControlStores = new Map();
@@ -494,16 +515,16 @@ describe('axisControls — axis length wheel gesture', () => {
     box.className = 'svgbox';
     // The fallback axis-length editor is available only on a real shared resizable
     // box. Mirror that production contract instead of exercising a disabled input.
-    box.__sharedResizableBoxApi = {};
+    box.__sharedResizableBoxApi = { getZoomLevel: () => zoom };
     let boxHeight = 120;
     let measuredAxisHeight = 90;
     box.getBoundingClientRect = () => ({
-      width: 400,
-      height: boxHeight,
+      width: 400 * zoom,
+      height: boxHeight * zoom,
       left: 0,
       top: 0,
-      right: 400,
-      bottom: boxHeight
+      right: 400 * zoom,
+      bottom: boxHeight * zoom
     });
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const axis = document.createElementNS(svg.namespaceURI, 'line');
@@ -513,11 +534,11 @@ describe('axisControls — axis length wheel gesture', () => {
     axis.setAttribute('y2', '100');
     axis.getBoundingClientRect = () => ({
       width: 1,
-      height: measuredAxisHeight,
+      height: measuredAxisHeight * zoom,
       left: 0,
       top: 0,
       right: 1,
-      bottom: measuredAxisHeight
+      bottom: measuredAxisHeight * zoom
     });
     svg.appendChild(axis);
     box.appendChild(svg);
@@ -576,13 +597,14 @@ describe('axisControls — axis length wheel gesture', () => {
     applied.length = 0;
     boxHeight = 120;
     measuredAxisHeight = 90;
-    delete box.dataset.axisDesiredLengthY;
-    delete box.dataset.axisDesiredLengthYTs;
 
     input.value = '110';
     input.dispatchEvent(new Event('change', { bubbles: true }));
     const firstRequestHeight = applied.at(-1).height;
     expect(firstRequestHeight).toBe(140);
+    expect(Number(input.value)).toBe(90);
+    jest.advanceTimersByTime(100);
+    expect(readiness).toHaveLength(1);
 
     // The first render has not published its final axis geometry yet. A newer
     // request arrives while the first correction chain is still pending.
@@ -593,7 +615,11 @@ describe('axisControls — axis length wheel gesture', () => {
     expect(secondRequestHeight).toBe(155);
     expect(secondRequestHeight).toBeGreaterThan(firstRequestHeight);
 
-    jest.advanceTimersByTime(1000);
+    jest.advanceTimersByTime(100);
+    expect(readiness).toHaveLength(2);
+    readiness[0]({ ok: true });
+    readiness[1]({ ok: true });
+    await jest.advanceTimersByTimeAsync(1000);
 
     const immediateRequests = applied.filter(item => item.reason === 'axis-length-input');
     expect(immediateRequests).toHaveLength(2);

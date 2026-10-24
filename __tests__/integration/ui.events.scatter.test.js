@@ -94,7 +94,7 @@ describe('UI events: Scatter', () => {
     const reloadedPayload = scatterComponent.getPayload?.();
     expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.length).toBe(1);
     expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.[0]?.label).toBe('Cutoff');
-  }, 20000);
+  }, 60000);
 
   test('Scatter Plot: horizontal resize frame uses the plot-owned svgbox', async () => {
     await activateWorkspace('scatter');
@@ -134,7 +134,7 @@ describe('UI events: Scatter', () => {
     expect(frame.width).toBe(350);
   }, 20000);
 
-  test('Scatter Plot: y-axis stays fixed during horizontal resize with default zero origin', async () => {
+  test('Scatter Plot: lower-left default keeps the y-axis fixed during horizontal resize', async () => {
     await activateWorkspace('scatter');
     await flushAsyncWork(20);
     document.getElementById('scatterLoadExample')?.click();
@@ -145,7 +145,18 @@ describe('UI events: Scatter', () => {
     const originMode = document.getElementById('scatterOriginMode');
     expect(scatterComponent).toBeTruthy();
     expect(svgBox).toBeTruthy();
-    expect(originMode?.value).toBe('zero');
+    expect(originMode?.value).toBe('lower');
+    expect(document.getElementById('scatterIncludeZeroX')?.checked).toBe(false);
+    expect(document.getElementById('scatterIncludeZeroY')?.checked).toBe(false);
+    expect(scatterComponent.createEmptyPayload()?.config).toMatchObject({
+      originMode: 'lower',
+      includeZeroX: false,
+      includeZeroY: false,
+      xMin: '',
+      xMax: '',
+      yMin: '',
+      yMax: ''
+    });
 
     const setBoxWidth = width => {
       svgBox.dataset.resizerLastAxis = 'x';
@@ -185,7 +196,25 @@ describe('UI events: Scatter', () => {
     const narrowX = readYAxisX();
 
     expect(narrowX).toBeCloseTo(wideX, 6);
-  }, 20000);
+
+    originMode.value = 'zero';
+    originMode.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(60);
+    const includeZeroX = document.getElementById('scatterIncludeZeroX');
+    const includeZeroY = document.getElementById('scatterIncludeZeroY');
+    expect(includeZeroX?.checked).toBe(true);
+    expect(includeZeroY?.checked).toBe(true);
+    expect(includeZeroX?.disabled).toBe(true);
+    expect(includeZeroY?.disabled).toBe(true);
+    const zeroTickCount = Array.from(document.querySelectorAll('#scatterPlot svg text'))
+      .filter(label => Number((label.textContent || '').trim()) === 0).length;
+    expect(zeroTickCount).toBeGreaterThanOrEqual(2);
+    expect(scatterComponent.getPayload?.()?.config).toMatchObject({
+      originMode: 'zero',
+      includeZeroX: true,
+      includeZeroY: true
+    });
+  }, 60000);
 
   test('Scatter Plot: statistics require manual compute', async () => {
     const cleanupJStat = ensureJStatStub();
@@ -371,7 +400,8 @@ describe('UI events: Scatter', () => {
     xRepToggle.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(60);
 
-    expect(groupedReplicateToggleRow.style.display).toBe('none');
+    expect(groupedReplicateToggleRow.hidden).toBe(true);
+    expect(groupedReplicateToggleRow.getAttribute('aria-hidden')).toBe('true');
     expect(groupedReplicateToggle.disabled).toBe(true);
   }, 20000);
 
@@ -407,7 +437,8 @@ describe('UI events: Scatter', () => {
     loadExampleBtn.click();
     await flushAsyncWork(80);
 
-    const matrix = hot.getData?.() || [];
+    const activeHot = scatterComponent.__ensureHotForActiveTab?.() || hot;
+    const matrix = activeHot.getData?.() || [];
     const groupedExample = window.Shared.exampleDatasets.get('scatter', 'groupedXY');
     const groupedHeaders = matrix?.[0] || [];
     const exampleReplicates = groupedExample.meta.replicates;

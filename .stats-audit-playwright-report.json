@@ -1,0 +1,172 @@
+{
+  "config": {
+    "configFile": "C:\\Users\\Michel\\Graphitix\\playwright.config.js",
+    "rootDir": "C:/Users/Michel/Graphitix/e2e",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "C:\\Users\\Michel\\Graphitix\\e2e\\globalSetup.js",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/Michel/Graphitix/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/Michel/Graphitix/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/Michel/Graphitix/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "C:/Users/Michel/Graphitix/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.60.0",
+    "workers": 1,
+    "webServer": {
+      "command": "node scripts/e2e-server.cjs --port 4173",
+      "url": "http://127.0.0.1:4173/index.html",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "stats\\stats.advisor-reviewed-plans.spec.js",
+      "file": "stats/stats.advisor-reviewed-plans.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Box nested repeated-measures advice computes and survives archive reopen",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 3158,
+                  "error": {
+                    "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:4173/index.html\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:4173/index.html\", waiting until \"domcontentloaded\"\u001b[22m\n",
+                    "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:4173/index.html\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:4173/index.html\", waiting until \"domcontentloaded\"\u001b[22m\n\n    at open (C:\\Users\\Michel\\Graphitix\\e2e\\stats\\stats.advisor-reviewed-plans.spec.js:19:14)\n    at C:\\Users\\Michel\\Graphitix\\e2e\\stats\\stats.advisor-reviewed-plans.spec.js:185:3",
+                    "location": {
+                      "file": "C:\\Users\\Michel\\Graphitix\\e2e\\stats\\stats.advisor-reviewed-plans.spec.js",
+                      "column": 14,
+                      "line": 19
+                    },
+                    "snippet": "  17 | async function open(page, type) {\n  18 |   await installLocalCdnOverrides(page);\n> 19 |   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });\n     |              ^\n  20 |   await openComponentFromWelcome(page, { type, pageId: `${type}Page` }, { first: true, loadExample: true });\n  21 |   await waitForComponentOwnerReady(page, type, { requireIdle: true });\n  22 | }"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Users\\Michel\\Graphitix\\e2e\\stats\\stats.advisor-reviewed-plans.spec.js",
+                        "column": 14,
+                        "line": 19
+                      },
+                      "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:4173/index.html\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:4173/index.html\", waiting until \"domcontentloaded\"\u001b[22m\n\n\n  17 | async function open(page, type) {\n  18 |   await installLocalCdnOverrides(page);\n> 19 |   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });\n     |              ^\n  20 |   await openComponentFromWelcome(page, { type, pageId: `${type}Page` }, { first: true, loadExample: true });\n  21 |   await waitForComponentOwnerReady(page, type, { requireIdle: true });\n  22 | }\n    at open (C:\\Users\\Michel\\Graphitix\\e2e\\stats\\stats.advisor-reviewed-plans.spec.js:19:14)\n    at C:\\Users\\Michel\\Graphitix\\e2e\\stats\\stats.advisor-reviewed-plans.spec.js:185:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-24T16:05:46.896Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Users\\Michel\\Graphitix\\test-results\\stats-stats.advisor-review-8c988-and-survives-archive-reopen-chromium\\test-failed-1.png"
+                    },
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "C:\\Users\\Michel\\Graphitix\\test-results\\stats-stats.advisor-review-8c988-and-survives-archive-reopen-chromium\\video.webm"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\Michel\\Graphitix\\test-results\\stats-stats.advisor-review-8c988-and-survives-archive-reopen-chromium\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Users\\Michel\\Graphitix\\test-results\\stats-stats.advisor-review-8c988-and-survives-archive-reopen-chromium\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Users\\Michel\\Graphitix\\e2e\\stats\\stats.advisor-reviewed-plans.spec.js",
+                    "column": 14,
+                    "line": 19
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "c2b6da8c6a1661488ea1-71d37f004d6924f90ec3",
+          "file": "stats/stats.advisor-reviewed-plans.spec.js",
+          "line": 183,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-24T16:05:40.729Z",
+    "duration": 9776.387999999999,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

@@ -1,0 +1,606 @@
+{
+  "schemaVersion": 3,
+  "reviewed": [
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell :focus-visible, #welcomeScreen :focus-visible, #welcomeExamplesDialog :focus-visible",
+      "property": "outline-color",
+      "value": "Highlight",
+      "reason": "Preserve visible focus and selected states with system colors.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell :is([aria-selected=\"true\"], [aria-pressed=\"true\"], [aria-checked=\"true\"]):not(input[type=\"checkbox\"]):not(input[type=\"radio\"]), #welcomeScreen :is([aria-selected=\"true\"], [aria-pressed=\"true\"], [aria-checked=\"true\"]):not(input[type=\"checkbox\"]):not(input[type=\"radio\"])",
+      "property": "outline-offset",
+      "value": "-2px",
+      "reason": "Preserve visible focus and selected states with system colors.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell :is([aria-selected=\"true\"], [aria-pressed=\"true\"], [aria-checked=\"true\"]):not(input[type=\"checkbox\"]):not(input[type=\"radio\"]), #welcomeScreen :is([aria-selected=\"true\"], [aria-pressed=\"true\"], [aria-checked=\"true\"]):not(input[type=\"checkbox\"]):not(input[type=\"radio\"])",
+      "property": "outline",
+      "value": "2px solid Highlight",
+      "reason": "Preserve visible focus and selected states with system colors.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell .chart-point-navigation-root:focus-visible, #appShell [data-chart-point-keyboard]:focus-visible",
+      "property": "outline-color",
+      "value": "Highlight",
+      "reason": "Preserve visible focus and selected states with system colors.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell .workspace-toolbar__tab[aria-selected=\"true\"]",
+      "property": "background",
+      "value": "Canvas",
+      "reason": "Preserve visible focus and selected states with system colors.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell .workspace-toolbar__tab[aria-selected=\"true\"]",
+      "property": "border-bottom",
+      "value": "2px solid Highlight",
+      "reason": "Preserve visible focus and selected states with system colors.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell .workspace-toolbar__tab[aria-selected=\"true\"]",
+      "property": "border",
+      "value": "0",
+      "reason": "Preserve visible focus and selected states with system colors.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell .workspace-toolbar__tab[aria-selected=\"true\"]",
+      "property": "color",
+      "value": "CanvasText",
+      "reason": "Preserve visible focus and selected states with system colors.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "selector": "*, *::before, *::after",
+      "property": "animation-delay",
+      "value": "0ms",
+      "reason": "Honor reduced-motion preferences over component animations and scrolling.",
+      "evidence": [
+        "A11Y.reduced-motion-scroll-controls",
+        "A11Y.reduced-motion-document-open",
+        "A11Y.reduced-motion-heavy-draw",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "reduced-motion"
+    },
+    {
+      "context": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "selector": "*, *::before, *::after",
+      "property": "animation-duration",
+      "value": "0.01ms",
+      "reason": "Honor reduced-motion preferences over component animations and scrolling.",
+      "evidence": [
+        "A11Y.reduced-motion-scroll-controls",
+        "A11Y.reduced-motion-document-open",
+        "A11Y.reduced-motion-heavy-draw",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "reduced-motion"
+    },
+    {
+      "context": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "selector": "*, *::before, *::after",
+      "property": "animation-iteration-count",
+      "value": "1",
+      "reason": "Honor reduced-motion preferences over component animations and scrolling.",
+      "evidence": [
+        "A11Y.reduced-motion-scroll-controls",
+        "A11Y.reduced-motion-document-open",
+        "A11Y.reduced-motion-heavy-draw",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "reduced-motion"
+    },
+    {
+      "context": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "selector": "*, *::before, *::after",
+      "property": "scroll-behavior",
+      "value": "auto",
+      "reason": "Honor reduced-motion preferences over component animations and scrolling.",
+      "evidence": [
+        "A11Y.reduced-motion-scroll-controls",
+        "A11Y.reduced-motion-document-open",
+        "A11Y.reduced-motion-heavy-draw",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "reduced-motion"
+    },
+    {
+      "context": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "selector": "*, *::before, *::after",
+      "property": "transition-delay",
+      "value": "0ms",
+      "reason": "Honor reduced-motion preferences over component animations and scrolling.",
+      "evidence": [
+        "A11Y.reduced-motion-scroll-controls",
+        "A11Y.reduced-motion-document-open",
+        "A11Y.reduced-motion-heavy-draw",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "reduced-motion"
+    },
+    {
+      "context": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "selector": "*, *::before, *::after",
+      "property": "transition-duration",
+      "value": "0ms",
+      "reason": "Honor reduced-motion preferences over component animations and scrolling.",
+      "evidence": [
+        "A11Y.reduced-motion-scroll-controls",
+        "A11Y.reduced-motion-document-open",
+        "A11Y.reduced-motion-heavy-draw",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "reduced-motion"
+    },
+    {
+      "context": [],
+      "selector": ".svgbox [data-graph-content-viewport=\"true\"]",
+      "property": "min-height",
+      "value": "var(--graph-content-rendered-height,var(--graph-content-viewport-height,0px))",
+      "reason": "Preserve graph-envelope and live-resize geometry against renderer sizing.",
+      "evidence": [
+        "LAYOUT.graph-envelope-containment",
+        "LAYOUT.component-resize-persistence",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "shared-graph-sizing"
+    },
+    {
+      "context": [],
+      "selector": ".svgbox [data-graph-content-viewport=\"true\"]",
+      "property": "min-width",
+      "value": "var(--graph-content-rendered-width,var(--graph-content-viewport-width,0px))",
+      "reason": "Preserve graph-envelope and live-resize geometry against renderer sizing.",
+      "evidence": [
+        "LAYOUT.graph-envelope-containment",
+        "LAYOUT.component-resize-persistence",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "shared-graph-sizing"
+    },
+    {
+      "context": [],
+      "selector": ".svgbox [data-graph-content-viewport=\"true\"]",
+      "property": "overflow",
+      "value": "visible",
+      "reason": "Preserve graph-envelope and live-resize geometry against renderer sizing.",
+      "evidence": [
+        "LAYOUT.graph-envelope-containment",
+        "LAYOUT.component-resize-persistence",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "shared-graph-sizing"
+    },
+    {
+      "context": [],
+      "selector": ".svgbox[data-graph-content-envelope=\"true\"] .resizer-zoom-viewport, .svgbox[data-graph-content-envelope=\"true\"] .resizer-zoom-content",
+      "property": "overflow",
+      "value": "visible",
+      "reason": "Preserve graph-envelope and live-resize geometry against renderer sizing.",
+      "evidence": [
+        "LAYOUT.graph-envelope-containment",
+        "LAYOUT.component-resize-persistence",
+        "LAYOUT.reduced-motion-live-resize"
+      ],
+      "owner": "shared-graph-sizing"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "border",
+      "value": "0",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "clip",
+      "value": "rect(0,0,0,0)",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "height",
+      "value": "1px",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "margin",
+      "value": "-1px",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "overflow",
+      "value": "hidden",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "padding",
+      "value": "0",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "position",
+      "value": "absolute",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "white-space",
+      "value": "nowrap",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": ".visually-hidden",
+      "property": "width",
+      "value": "1px",
+      "reason": "Keep accessible text available to assistive technology while clipping visual output.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-accessible-text"
+    },
+    {
+      "context": [],
+      "selector": "[hidden]",
+      "property": "display",
+      "value": "none",
+      "reason": "Keep the semantic hidden state authoritative over component display rules.",
+      "evidence": [
+        "A11Y.shared-css-hidden-utilities"
+      ],
+      "owner": "shared-visibility"
+    },
+    {
+      "context": [],
+      "selector": "#appShell :focus-visible, #welcomeScreen :focus-visible, #welcomeExamplesDialog :focus-visible",
+      "property": "outline-offset",
+      "value": "var(--ui-focus-offset)",
+      "reason": "Keep keyboard focus visible against component and vendor control rules.",
+      "evidence": [
+        "A11Y.pointer-focus-modality"
+      ],
+      "owner": "shared-keyboard-focus"
+    },
+    {
+      "context": [],
+      "selector": "#appShell :focus-visible, #welcomeScreen :focus-visible, #welcomeExamplesDialog :focus-visible",
+      "property": "outline",
+      "value": "var(--ui-focus-outline)",
+      "reason": "Keep keyboard focus visible against component and vendor control rules.",
+      "evidence": [
+        "A11Y.pointer-focus-modality"
+      ],
+      "owner": "shared-keyboard-focus"
+    },
+    {
+      "context": [],
+      "selector": "#appShell :focus:not(:focus-visible)",
+      "property": "box-shadow",
+      "value": "none",
+      "reason": "Keep keyboard focus visible against component and vendor control rules.",
+      "evidence": [
+        "A11Y.pointer-focus-modality"
+      ],
+      "owner": "focus-modality"
+    },
+    {
+      "context": [],
+      "selector": "#appShell :focus:not(:focus-visible)",
+      "property": "outline",
+      "value": "none",
+      "reason": "Keep keyboard focus visible against component and vendor control rules.",
+      "evidence": [
+        "A11Y.pointer-focus-modality"
+      ],
+      "owner": "focus-modality"
+    },
+    {
+      "context": [],
+      "selector": "#appShell .ag-theme-balham .ag-cell.ag-cell-inline-editing.hot-cell-edit-overflow",
+      "property": "border-right-color",
+      "value": "transparent",
+      "reason": "Suppress the duplicate active-range edge over AG Grid's inline border style.",
+      "evidence": [
+        "OWN.ag-grid-edit-overflow"
+      ],
+      "owner": "ag-grid-editing"
+    },
+    {
+      "context": [],
+      "selector": "#appShell select option:checked, #appShell select option:hover",
+      "property": "background",
+      "value": "var(--ui-menu-item-hover-bg)",
+      "reason": "Keep checked and hovered native menu options aligned with the application theme.",
+      "evidence": [
+        "A11Y.customizable-select-behavior"
+      ],
+      "owner": "native-select"
+    },
+    {
+      "context": [],
+      "selector": "#appShell select option:checked, #appShell select option:hover",
+      "property": "color",
+      "value": "var(--gt-ink)",
+      "reason": "Keep checked and hovered native menu options aligned with the application theme.",
+      "evidence": [
+        "A11Y.customizable-select-behavior"
+      ],
+      "owner": "native-select"
+    },
+    {
+      "context": [],
+      "selector": "#welcomeScreen .graph-card__action:focus-visible, #welcomeScreen .welcome-carousel__button:focus-visible, #welcomeScreen .welcome-picker__option:focus-visible, #welcomeScreen .welcome-hero__search-input:focus-visible, #welcomeScreen .welcome-drop-zone:focus-visible, #welcomeScreen .welcome-link-button:focus-visible, #welcomeScreen .welcome-example-card:focus-visible, #welcomeExamplesDialog .welcome-example-card:focus-visible, #welcomeExamplesDialog .welcome-dialog__close:focus-visible",
+      "property": "outline-offset",
+      "value": "2px",
+      "reason": "Keep keyboard focus visible on Welcome controls and its example dialog.",
+      "evidence": [
+        "A11Y.pointer-focus-modality",
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "welcome-focus"
+    },
+    {
+      "context": [],
+      "selector": "#welcomeScreen .graph-card__action:focus-visible, #welcomeScreen .welcome-carousel__button:focus-visible, #welcomeScreen .welcome-picker__option:focus-visible, #welcomeScreen .welcome-hero__search-input:focus-visible, #welcomeScreen .welcome-drop-zone:focus-visible, #welcomeScreen .welcome-link-button:focus-visible, #welcomeScreen .welcome-example-card:focus-visible, #welcomeExamplesDialog .welcome-example-card:focus-visible, #welcomeExamplesDialog .welcome-dialog__close:focus-visible",
+      "property": "outline",
+      "value": "2px solid var(--gt-accent)",
+      "reason": "Keep keyboard focus visible on Welcome controls and its example dialog.",
+      "evidence": [
+        "A11Y.pointer-focus-modality",
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "welcome-focus"
+    },
+    {
+      "context": [],
+      "selector": "html[data-ui-input-modality=\"pointer\"] #appShell :focus, html[data-ui-input-modality=\"pointer\"] #welcomeScreen :focus, html[data-ui-input-modality=\"pointer\"] #welcomeExamplesDialog :focus, html[data-ui-input-modality=\"pointer\"] body :focus, html[data-ui-input-modality=\"pointer\"] .shared-color-picker :focus",
+      "property": "box-shadow",
+      "value": "none",
+      "reason": "Suppress pointer rings despite browser focus heuristics and vendor focus shadows.",
+      "evidence": [
+        "A11Y.pointer-focus-modality"
+      ],
+      "owner": "focus-modality"
+    },
+    {
+      "context": [],
+      "selector": "html[data-ui-input-modality=\"pointer\"] #appShell :focus, html[data-ui-input-modality=\"pointer\"] #welcomeScreen :focus, html[data-ui-input-modality=\"pointer\"] #welcomeExamplesDialog :focus, html[data-ui-input-modality=\"pointer\"] body :focus, html[data-ui-input-modality=\"pointer\"] .shared-color-picker :focus",
+      "property": "outline",
+      "value": "none",
+      "reason": "Suppress pointer rings despite browser focus heuristics and vendor focus shadows.",
+      "evidence": [
+        "A11Y.pointer-focus-modality"
+      ],
+      "owner": "focus-modality"
+    },
+    {
+      "context": [],
+      "selector": "html[data-ui-input-modality=\"pointer\"] #appShell .ag-checkbox-input-wrapper:focus-within, html[data-ui-input-modality=\"pointer\"] #appShell .shared-color-picker__shape-option:focus-within, html[data-ui-input-modality=\"pointer\"] #welcomeScreen .shared-color-picker__shape-option:focus-within, html[data-ui-input-modality=\"pointer\"] #welcomeExamplesDialog .shared-color-picker__shape-option:focus-within, html[data-ui-input-modality=\"pointer\"] .shared-color-picker .shared-color-picker__shape-option:focus-within, html[data-ui-input-modality=\"pointer\"] #appShell .font-controls-panel__combo:focus-within",
+      "property": "box-shadow",
+      "value": "none",
+      "reason": "Suppress pointer rings despite browser focus heuristics and vendor focus shadows.",
+      "evidence": [
+        "A11Y.pointer-focus-modality"
+      ],
+      "owner": "focus-modality"
+    },
+    {
+      "context": [],
+      "selector": "html[data-ui-input-modality=\"pointer\"] #appShell .ag-checkbox-input-wrapper:focus-within, html[data-ui-input-modality=\"pointer\"] #appShell .shared-color-picker__shape-option:focus-within, html[data-ui-input-modality=\"pointer\"] #welcomeScreen .shared-color-picker__shape-option:focus-within, html[data-ui-input-modality=\"pointer\"] #welcomeExamplesDialog .shared-color-picker__shape-option:focus-within, html[data-ui-input-modality=\"pointer\"] .shared-color-picker .shared-color-picker__shape-option:focus-within, html[data-ui-input-modality=\"pointer\"] #appShell .font-controls-panel__combo:focus-within",
+      "property": "outline",
+      "value": "none",
+      "reason": "Suppress pointer rings despite browser focus heuristics and vendor focus shadows.",
+      "evidence": [
+        "A11Y.pointer-focus-modality"
+      ],
+      "owner": "focus-modality"
+    },
+    {
+      "context": [],
+      "selector": "#appShell .ag-theme-balham .ag-header, #appShell .ag-theme-balham .ag-header-viewport, #appShell .ag-theme-balham .ag-header-container",
+      "property": "height",
+      "value": "var(--graphitix-ag-header-row-height)",
+      "reason": "Preserve the fixed compact header height against AG Grid inline sizing, including its separator.",
+      "evidence": [
+        "LAYOUT.ag-grid-fixed-compact-layout"
+      ],
+      "owner": "ag-grid-header-geometry"
+    },
+    {
+      "context": [],
+      "selector": "#appShell .ag-theme-balham .ag-header, #appShell .ag-theme-balham .ag-header-viewport, #appShell .ag-theme-balham .ag-header-container",
+      "property": "min-height",
+      "value": "var(--graphitix-ag-header-row-height)",
+      "reason": "Preserve the fixed compact header height against AG Grid inline sizing, including its separator.",
+      "evidence": [
+        "LAYOUT.ag-grid-fixed-compact-layout"
+      ],
+      "owner": "ag-grid-header-geometry"
+    },
+    {
+      "context": [],
+      "selector": "#appShell .ag-theme-balham .ag-cell:focus-visible",
+      "property": "outline",
+      "value": "none",
+      "reason": "Suppress AG Grid duplicate focus rings while preserving the shared visible keyboard indicator.",
+      "evidence": [
+        "A11Y.shared-grid-keyboard-entry"
+      ],
+      "owner": "ag-grid-focus"
+    },
+    {
+      "context": [],
+      "selector": "#appShell .ag-theme-balham .ag-cell:focus-visible",
+      "property": "outline-offset",
+      "value": "0",
+      "reason": "Align the grid focus treatment with its single shared keyboard indicator.",
+      "evidence": [
+        "A11Y.shared-grid-keyboard-entry"
+      ],
+      "owner": "ag-grid-focus"
+    },
+    {
+      "context": [],
+      "selector": "#appShell .ag-theme-balham .ag-cell.ag-cell-inline-editing.hot-selected-cell:not(.hot-selected-anchor):not(.hot-selected-range-fill)",
+      "property": "background",
+      "value": "var(--gt-accent-soft)",
+      "reason": "Keep the selected edit range visible above AG Grid active-cell background rules.",
+      "evidence": [
+        "OWN.ag-grid-edit-overflow",
+        "OWN.ag-grid-keyboard-selection"
+      ],
+      "owner": "ag-grid-selection"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#appShell .ag-theme-balham .hot-selection-outline-edge",
+      "property": "background",
+      "value": "Highlight",
+      "reason": "Keep the grid range outline visible when forced colors replace theme paints.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues"
+      ],
+      "owner": "forced-colors"
+    },
+    {
+      "context": [],
+      "selector": ".help-center__links",
+      "property": "margin-top",
+      "value": "20px",
+      "reason": "Preserve separation between Help content and its navigation links.",
+      "evidence": [
+        "A11Y.help-center"
+      ],
+      "owner": "help-center"
+    },
+    {
+      "context": [
+        "@media (forced-colors: active)"
+      ],
+      "selector": "#welcomeHelpAboutButton:focus-visible, #helpAboutDialog :focus-visible",
+      "property": "outline-color",
+      "value": "Highlight",
+      "reason": "Keep Help controls visibly focused with the system highlight color.",
+      "evidence": [
+        "A11Y.forced-colors-state-cues",
+        "A11Y.help-center"
+      ],
+      "owner": "forced-colors"
+    }
+  ]
+}

@@ -96,6 +96,29 @@ test('toolbar overflow keeps General and Data controls in one scrollable owner r
   });
   expect(dataSectionGeometry.flexWrap).toBe('nowrap');
   expect(dataSectionGeometry.sectionHeight).toBeLessThanOrEqual(dataSectionGeometry.toolbarHeight + 1);
+  // Protect spacing and containment, not the chosen font, shade, or pixel size.
+  const multiple = page.locator(LINE_TOOLBAR).getByLabel('Multiple', { exact: true });
+  for (const checked of [false, true]) {
+    await multiple.setChecked(checked);
+    const geometry = await page.locator(`${LINE_TOOLBAR} .workspace-toolbar__panel--transform`).evaluate(panel => {
+      const options = panel.querySelector('.workspace-toolbar__transform-row--options').getBoundingClientRect();
+      const selection = panel.querySelector('.workspace-toolbar__transform-row--selection').getBoundingClientRect();
+      const caption = panel.querySelector('.workspace-toolbar__panel-title').getBoundingClientRect();
+      const ribbon = panel.closest('.workspace-toolbar__content').getBoundingClientRect();
+      return {
+        gap: selection.top - options.bottom,
+        panelHeight: panel.getBoundingClientRect().height,
+        ribbonHeight: ribbon.height,
+        selectionBottom: selection.bottom,
+        captionBottom: caption.bottom,
+        ribbonBottom: ribbon.bottom
+      };
+    });
+    expect(geometry.gap).toBeGreaterThan(0);
+    expect(geometry.panelHeight).toBeLessThanOrEqual(geometry.ribbonHeight + 1);
+    expect(geometry.selectionBottom).toBeLessThanOrEqual(geometry.ribbonBottom + 1);
+    expect(geometry.captionBottom).toBeLessThanOrEqual(geometry.ribbonBottom + 1);
+  }
   expect(issues.critical).toEqual([]);
 });
 
@@ -103,8 +126,9 @@ test('format overflow reveals hidden panels and toolbar menus escape clipping', 
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
+  await page.setViewportSize({ width: 320, height: 400 });
   await openLineExample(page);
-  await constrainLineToolbar(page, 560);
+  await constrainLineToolbar(page, 280);
 
   await page.evaluate(() => {
     const path = document.querySelector('#linePlot path[data-series]');
@@ -126,6 +150,27 @@ test('format overflow reveals hidden panels and toolbar menus escape clipping', 
   });
 
   const formatState = await activeRailState(page);
+  const banners = await page.locator(`${LINE_TOOLBAR} .workspace-toolbar__panel`).evaluateAll(panels => panels
+    .filter(panel => panel.getBoundingClientRect().width > 0)
+    .map(panel => {
+      const rect = panel.getBoundingClientRect();
+      const title = panel.querySelector('.workspace-toolbar__panel-title');
+      const titleRect = title.getBoundingClientRect();
+      const contentBottom = Math.max(...Array.from(panel.children)
+        .filter(child => child !== title).map(child => child.getBoundingClientRect().bottom));
+      return {
+        height: rect.height,
+        containerHeight: panel.closest('.workspace-toolbar__content').getBoundingClientRect().height,
+        bottomGap: rect.bottom - titleRect.bottom,
+        contentGap: titleRect.top - contentBottom,
+      };
+    }));
+  expect(banners.length).toBeGreaterThan(0);
+  for (const banner of banners) {
+    expect(banner.height).toBeLessThanOrEqual(banner.containerHeight + 1);
+    expect(banner.bottomGap).toBeGreaterThanOrEqual(-0.5);
+    expect(banner.contentGap).toBeGreaterThanOrEqual(-0.5);
+  }
   expect(formatState.overflow).toBe('1');
   expect(formatState.scrollLeft).toBeLessThanOrEqual(1);
   expect(formatState.nextVisible).toBe(true);
@@ -167,21 +212,37 @@ test('format overflow reveals hidden panels and toolbar menus escape clipping', 
     const viewport = node.closest('[data-toolbar-overflow-viewport="1"]')?.getBoundingClientRect() || null;
     return {
       position: getComputedStyle(node).position,
+      inlinePosition: node.style.position,
       left: rect.left,
       right: rect.right,
       top: rect.top,
       bottom: rect.bottom,
+      margin: getComputedStyle(node).margin,
       viewportTop: viewport?.top ?? null,
       viewportBottom: viewport?.bottom ?? null,
+      zIndex: getComputedStyle(node).zIndex,
+      floatingLayer: getComputedStyle(document.documentElement).getPropertyValue('--ui-layer-floating-overlay').trim(),
       windowWidth: window.innerWidth,
       windowHeight: window.innerHeight
     };
   });
   expect(popupGeometry.position).toBe('fixed');
+  expect(popupGeometry.inlinePosition).toBe('fixed');
+  expect(popupGeometry.margin).toBe('0px');
   expect(popupGeometry.left).toBeGreaterThanOrEqual(0);
   expect(popupGeometry.right).toBeLessThanOrEqual(popupGeometry.windowWidth + 1);
+  expect(popupGeometry.top).toBeGreaterThanOrEqual(0);
   expect(popupGeometry.bottom).toBeLessThanOrEqual(popupGeometry.windowHeight + 1);
   expect(popupGeometry.bottom).toBeGreaterThan(popupGeometry.viewportBottom);
+  expect(popupGeometry.zIndex).toBe(popupGeometry.floatingLayer);
+
+  await page.locator(`${LINE_TOOLBAR} .workspace-toolbar__tab`, { hasText: 'Data' }).click();
+  const customTransformTrigger = page.locator(`${LINE_TOOLBAR} [data-transform-option="custom"]`);
+  await customTransformTrigger.scrollIntoViewIfNeeded();
+  await customTransformTrigger.click();
+  const transformPopup = page.locator(`${LINE_TOOLBAR} .workspace-toolbar__transform-custom-dropdown[data-open="1"]`);
+  await expect(transformPopup).toBeVisible();
+  await expect.poll(() => transformPopup.evaluate(node => getComputedStyle(node).margin)).toBe('0px');
   expect(issues.critical).toEqual([]);
 });
 

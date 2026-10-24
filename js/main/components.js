@@ -667,7 +667,22 @@
     return normalized;
   }
 
+  function isEnsureOwnerCurrent(name, options) {
+    const meta = options?.ensureOptions;
+    const tabId = meta?.tabId || meta?.tab?.id;
+    if (!tabId) return true;
+    const state = Main.session?.workspaceState;
+    if (state?.activeTabId && state.activeTabId !== tabId) return false;
+    if (meta.tab && state?.tabs && !state.tabs.includes(meta.tab)) return false;
+    if (meta.workspaceActivationToken !== undefined
+      && Main.domControls?.isActivationCurrent?.(meta.workspaceActivationToken) === false) return false;
+    const rootOwner = meta.root?.getAttribute?.('data-workspace-tab-id');
+    if (rootOwner && rootOwner !== tabId) return false;
+    return !meta.type || meta.type === name;
+  }
+
   function ensureComponent(name, options = {}) {
+    if (!isEnsureOwnerCurrent(name, options)) return resolveComponentFromGlobal(name);
     const component = installComponentLifecycleDefaults(name, resolveComponentFromGlobal(name));
     if (component && WORKSPACES?.[name]) {
       publishLifecycleCapabilities(name, WORKSPACES[name], component);
@@ -699,6 +714,9 @@
     }
 
     return loadComponentBundle(name, options).then(() => {
+      // Bundle loading is asynchronous. Recheck before invoking setup, not merely
+      // after it has already rebound controls, table managers and active mirrors.
+      if (!isEnsureOwnerCurrent(name, options)) return resolveComponentFromGlobal(name);
       const loadedComponent = installComponentLifecycleDefaults(name, resolveComponentFromGlobal(name));
       if (loadedComponent && WORKSPACES?.[name]) {
         publishLifecycleCapabilities(name, WORKSPACES[name], loadedComponent);
@@ -1000,9 +1018,7 @@
       draw: meta => window.Components?.venn?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.venn?.getThumbnailSvg?.(tab) || window.Components?.venn?.getPreviewSvg?.(tab),
       hasRenderedGraph: meta => window.Components?.venn?.hasRenderedGraph?.(meta),
-      getPayload: (meta) => window.Components?.venn?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.venn?.loadFromPayload?.(payload, options),
+      getPayload: (meta) => window.Components?.venn?.getPayload?.(meta || {}),      loadFromPayload: (payload, options) => window.Components?.venn?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.venn?.createEmptyPayload?.(),
       captureRenderCache: meta => window.Components?.venn?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.venn?.canRestoreRenderCache?.(cache, meta),
@@ -1019,9 +1035,7 @@
       ensure: options => ensureWorkspaceComponent('box', options),
       draw: meta => window.Components?.box?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.box?.getThumbnailSvg?.(tab) || window.Components?.box?.getPreviewSvg?.(tab),
-      getPayload: (meta) => window.Components?.box?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.box?.loadFromPayload?.(payload, options),
+      getPayload: (meta) => window.Components?.box?.getPayload?.(meta || {}),      loadFromPayload: (payload, options) => window.Components?.box?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.box?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.box?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.box?.activateTab?.(tab, meta),
@@ -1044,9 +1058,7 @@
       ensure: options => ensureWorkspaceComponent('scatter', options),
       draw: meta => window.Components?.scatter?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.scatter?.getPreviewSvg?.(tab) || window.Components?.scatter?.getThumbnailSvg?.(tab),
-      getPayload: (meta) => window.Components?.scatter?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.scatter?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.scatter?.loadFromPayload?.(payload, options),
+      getPayload: (meta) => window.Components?.scatter?.getPayload?.(meta || {}),      loadFromPayload: (payload, options) => window.Components?.scatter?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.scatter?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.scatter?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.scatter?.activateTab?.(tab, meta),
@@ -1070,9 +1082,7 @@
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('pca', tab),
       hasRenderedGraph: meta => window.Components?.pca?.hasRenderedGraph?.(meta),
       getPayload: (meta) => window.Components?.pca?.getPayload?.(meta || {}),
-      getColorSchemeContext: (meta) => window.Components?.pca?.getColorSchemeContext?.(meta || {}),
-      loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.pca?.loadFromPayload?.(payload, options),
+      getColorSchemeContext: (meta) => window.Components?.pca?.getColorSchemeContext?.(meta || {}),      loadFromPayload: (payload, options) => window.Components?.pca?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.pca?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.pca?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.pca?.activateTab?.(tab, meta),
@@ -1095,8 +1105,7 @@
       getPreviewSvg: tab => window.Components?.line?.getPreviewSvg?.(tab) || window.Components?.line?.getThumbnailSvg?.(tab) || resolveWorkspacePreviewSvg('line', tab),
       hasRenderedGraph: createPrimaryGraphPublicationValidator('line', ['#linePlot'], ['#lineSvg [data-series]', 'canvas']),
       getPayload: (meta) => window.Components?.line?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.line?.loadFromPayload?.(payload, options),
+      getColorSchemePayload: meta => window.Components?.line?.getColorSchemePayload?.(meta || {}) || null,      loadFromPayload: (payload, options) => window.Components?.line?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.line?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.line?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.line?.activateTab?.(tab, meta),
@@ -1118,7 +1127,6 @@
       draw: meta => window.Components?.heatmap?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.heatmap?.getPreviewSvg?.(tab) || resolveWorkspacePreviewSvg('heatmap', tab),
       getPayload: (meta) => window.Components?.heatmap?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.heatmap?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.heatmap?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.heatmap?.createEmptyPayload?.(),
@@ -1150,9 +1158,7 @@
       draw: meta => scheduleDrawSurface(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('surface', tab),
       hasRenderedGraph: createPrimaryGraphPublicationValidator('surface', ['#surfaceSvg'], ['.surface-face', '.surface-point']),
-      getPayload: (meta) => window.Components?.surface?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.surface?.loadFromPayload?.(payload, options),
+      getPayload: (meta) => window.Components?.surface?.getPayload?.(meta || {}),      loadFromPayload: (payload, options) => window.Components?.surface?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.surface?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.surface?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.surface?.captureRenderCache?.(meta),
@@ -1174,8 +1180,7 @@
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('roc', tab),
       hasRenderedGraph: meta => window.Components?.roc?.hasRenderedGraph?.(meta),
       getPayload: (meta) => window.Components?.roc?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.roc?.loadFromPayload?.(payload, options),
+      getColorSchemePayload: meta => window.Components?.roc?.getColorSchemePayload?.(meta || {}) || null,      loadFromPayload: (payload, options) => window.Components?.roc?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.roc?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.roc?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.roc?.captureRenderCache?.(meta),
@@ -1196,9 +1201,7 @@
       draw: meta => scheduleDrawSurvival(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('survival', tab),
       hasRenderedGraph: createPrimaryGraphPublicationValidator('survival', ['#survivalPlot'], ['#survivalSvg path[data-group]']),
-      getPayload: (meta) => window.Components?.survival?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.survival?.loadFromPayload?.(payload, options),
+      getPayload: (meta) => window.Components?.survival?.getPayload?.(meta || {}),      loadFromPayload: (payload, options) => window.Components?.survival?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.survival?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.survival?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.survival?.captureRenderCache?.(meta),
@@ -1219,9 +1222,7 @@
       draw: meta => scheduleDrawHist(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('hist', tab),
       hasRenderedGraph: createPrimaryGraphPublicationValidator('hist', ['#histPlot'], ['#histSvg [data-hist-bar="1"]']),
-      getPayload: (meta) => window.Components?.hist?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.hist?.loadFromPayload?.(payload, options),
+      getPayload: (meta) => window.Components?.hist?.getPayload?.(meta || {}),      loadFromPayload: (payload, options) => window.Components?.hist?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.hist?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.hist?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.hist?.captureRenderCache?.(meta),
@@ -1242,9 +1243,7 @@
       draw: meta => scheduleDrawPie(meta || {}),
       getPreviewSvg: tab => window.Components?.pie?.getThumbnailSvg?.(tab) || window.Components?.pie?.getPreviewSvg?.(tab) || resolveWorkspacePreviewSvg('pie', tab),
       hasRenderedGraph: createPrimaryGraphPublicationValidator('pie', ['#piePlot'], ['#pieSvg [data-pie-trace="1"]']),
-      getPayload: (meta) => window.Components?.pie?.getPayload?.(meta || {}),
-      loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
-      loadFromPayload: (payload, options) => window.Components?.pie?.loadFromPayload?.(payload, options),
+      getPayload: (meta) => window.Components?.pie?.getPayload?.(meta || {}),      loadFromPayload: (payload, options) => window.Components?.pie?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.pie?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.pie?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.pie?.captureRenderCache?.(meta),

@@ -14,11 +14,9 @@
   const BASE_FONT_SIZE_PX = 16;
   const X_AXIS_ROTATION_OPTICAL_PADDING_EM = 1 / 3;
   const BASE_FONT_SIZE_PT = Number((BASE_FONT_SIZE_PX / PT_TO_PX).toFixed(2));
-  // New graphs use an 80% frame relative to the established one-third viewport
-  // baseline. Content such as legends remains an outward viewport extension.
-  const DEFAULT_GRAPH_SIZE_SCALE = 0.8;
-  const MIN_DEFAULT_SIZE = 256;
-  const FALLBACK_VIEWPORT_WIDTH = 960;
+  // Figure dimensions are independent of the viewing window.
+  const DEFAULT_WIDTH = 360;
+  const DEFAULT_HEIGHT = 360;
   const COLOR_SWATCH_SIZE = 20;
   function debugLog(message, payload){
     try{
@@ -126,35 +124,6 @@
   }
   chartStyle.buildOpenRectPath = buildOpenRectPath;
 
-  function computeDefaultGraphSize(reason){
-    const doc = global.document || null;
-    const winWidth = Number(global.innerWidth) || 0;
-    const docElWidth = doc?.documentElement?.clientWidth || 0;
-    const bodyWidth = doc?.body?.clientWidth || 0;
-    let reference = Math.max(winWidth, docElWidth, bodyWidth);
-    if(!Number.isFinite(reference) || reference <= 0){
-      reference = FALLBACK_VIEWPORT_WIDTH;
-    }
-    const normalized = Math.max(
-      MIN_DEFAULT_SIZE,
-      Math.round((reference / 3) * DEFAULT_GRAPH_SIZE_SCALE)
-    );
-    const payload = {
-      reason: reason || 'initial',
-      winWidth,
-      docElWidth,
-      bodyWidth,
-      reference,
-      scale: DEFAULT_GRAPH_SIZE_SCALE,
-      normalized
-    };
-    debugLog('Debug: chartStyle.computeDefaultGraphSize', payload); // Debug: default graph dimension computation
-    return { width: normalized, height: normalized };
-  }
-
-  const initialGraphSize = computeDefaultGraphSize('initial');
-  let DEFAULT_WIDTH = initialGraphSize.width;
-  let DEFAULT_HEIGHT = initialGraphSize.height;
   const RESIZE_MIN_SCALE = 0.3;
   const RESIZE_MAX_SCALE = 3;
   const DEFAULT_ASPECT_RATIO = 1;
@@ -401,7 +370,6 @@
   chartStyle.PT_TO_PX = PT_TO_PX;
   chartStyle.BASE_FONT_SIZE_PT = BASE_FONT_SIZE_PT;
   chartStyle.BASE_FONT_SIZE_PX = BASE_FONT_SIZE_PX;
-  chartStyle.DEFAULT_GRAPH_SIZE_SCALE = DEFAULT_GRAPH_SIZE_SCALE;
   chartStyle.DEFAULT_WIDTH = DEFAULT_WIDTH;
   chartStyle.DEFAULT_HEIGHT = DEFAULT_HEIGHT;
   chartStyle.RESIZE_MIN_SCALE = RESIZE_MIN_SCALE;
@@ -409,49 +377,21 @@
   chartStyle.DEFAULT_ASPECT_RATIO = DEFAULT_ASPECT_RATIO;
   chartStyle.DEFAULT_ASPECT_LOCKED = DEFAULT_ASPECT_LOCKED;
 
-  function refreshDefaultGraphSize(context){
-    const updated = computeDefaultGraphSize(context || 'refresh');
-    DEFAULT_WIDTH = updated.width;
-    DEFAULT_HEIGHT = updated.height;
-    chartStyle.DEFAULT_WIDTH = DEFAULT_WIDTH;
-    chartStyle.DEFAULT_HEIGHT = DEFAULT_HEIGHT;
-    debugLog('Debug: chartStyle.refreshDefaultGraphSize', { context, updated }); // Debug: default size refresh
-    return updated;
-  }
+  chartStyle.getDefaultGraphSize = function getDefaultGraphSize(){
+    return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+  };
 
-  chartStyle.getDefaultGraphSize = function getDefaultGraphSize(options){
-    const context = options?.context || 'cached';
-    const refresh = options?.refresh === true;
-    if(refresh){
-      const refreshed = refreshDefaultGraphSize(context);
-      debugLog('Debug: chartStyle.getDefaultGraphSize refresh result', { context, refreshed }); // Debug: refresh branch trace
-      return { width: refreshed.width, height: refreshed.height };
-    }
-    const current = { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
-    debugLog('Debug: chartStyle.getDefaultGraphSize cached result', { context, current }); // Debug: cached branch trace
-    return current;
+  // Reserve a common third of the browser width for the figure, with breathing
+  // room. Component panels and content envelopes must not change default zoom.
+  chartStyle.getDefaultGraphViewScale = function getDefaultGraphViewScale(){
+    return Math.min(1, global.innerWidth * 0.8 / 3 / DEFAULT_WIDTH,
+      global.innerHeight * 0.8 / DEFAULT_HEIGHT);
   };
 
   chartStyle.getSquareGraphSizing = function getSquareGraphSizing(options){
     const context = options?.context || 'default';
-    const refresh = options?.refresh === true;
-    const baseSize = chartStyle.getDefaultGraphSize({ context, refresh });
-    let width = Number(baseSize?.width);
-    let height = Number(baseSize?.height);
-    if(!Number.isFinite(width) || width <= 0){
-      width = DEFAULT_WIDTH;
-    }
-    if(!Number.isFinite(height) || height <= 0){
-      height = DEFAULT_HEIGHT;
-    }
-    if(!Number.isFinite(width) || width <= 0){
-      const fallback = computeDefaultGraphSize(`fallback-${context}`);
-      width = fallback.width;
-      height = fallback.height;
-    }
-    if(!Number.isFinite(height) || height <= 0){
-      height = width;
-    }
+    const width = DEFAULT_WIDTH;
+    const height = DEFAULT_HEIGHT;
     const rawMinScale = Number(options?.minScale);
     const rawMaxScale = Number(options?.maxScale);
     const minScale = clampScale(Number.isFinite(rawMinScale) ? rawMinScale : RESIZE_MIN_SCALE);
@@ -473,7 +413,6 @@
     };
     debugLog('Debug: chartStyle.getSquareGraphSizing', {
       context,
-      refresh,
       minScale,
       maxScale: effectiveMaxScale,
       sizing
@@ -781,6 +720,8 @@
         }); // Debug: base initialization for control
       }
     }
+    // Dimensions normally describe the displayed frame. Callers supplying an
+    // already-unzoomed drawable frame pass zoomScale: 1 to avoid scaling twice.
     const explicitZoomScale = Number(opts.zoomScale);
     const datasetZoomScale = Number(dataset?.resizerZoomLevel || dataset?.resizerZoom);
     const zoomScale = Number.isFinite(explicitZoomScale) && explicitZoomScale > 0
@@ -3071,6 +3012,7 @@
       if(!entry){ return; }
       const labelRaw = entry.label ?? entry.name ?? entry.title ?? '';
       const label = labelRaw == null ? '' : String(labelRaw);
+      const labelLines = label.split(/\r\n|\n|\r/);
       const fill = typeof entry.fill === 'string' ? entry.fill : (typeof entry.color === 'string' ? entry.color : defaultFill);
       const stroke = typeof entry.stroke === 'string' ? entry.stroke : (typeof entry.border === 'string' ? entry.border : defaultStroke);
       const strokeWidth = Number.isFinite(entry.strokeWidth) ? Number(entry.strokeWidth) : defaultStrokeWidth;
@@ -3081,7 +3023,7 @@
       const swatch = entry.swatch && typeof entry.swatch === 'object'
         ? entry.swatch
         : null;
-      normalizedEntries.push({ label, fill, stroke, strokeWidth, sourceIndex: index, key, editable, seriesIndex, swatch, raw: entry });
+      normalizedEntries.push({ label, labelLines, fill, stroke, strokeWidth, sourceIndex: index, key, editable, seriesIndex, swatch, raw: entry });
     });
     const fontSize = Math.max(4, Number(opts.fontSize) || 12);
     const rowGap = Number.isFinite(opts.rowGap) ? Number(opts.rowGap) : Math.max(4, Math.round(fontSize * 0.3));
@@ -3101,18 +3043,28 @@
     const fontForMeasure = chartStyle.makeFont(fontSize);
     let maxLabelWidth = 0;
     normalizedEntries.forEach(entry => {
-      const width = chartStyle.measureText(entry.label, fontForMeasure);
+      const lineWidths = entry.labelLines
+        .map(line => chartStyle.measureText(line, fontForMeasure))
+        .filter(Number.isFinite);
+      const width = Math.max(0, ...lineWidths);
       entry.labelWidth = Number.isFinite(width) ? width : 0;
       if(Number.isFinite(width) && width > maxLabelWidth){
         maxLabelWidth = width;
       }
     });
     // Keep row spacing large enough for either text or swatch content to avoid overlap at small fonts.
-    const rowContentHeight = Math.max(fontSize, swatchHeight);
+    const maxLabelLineCount = normalizedEntries.reduce((count, entry) => Math.max(count, entry.labelLines.length), 1);
+    const labelLineSpacing = fontSize * 1.2;
+    const rowContentHeight = Math.max(
+      fontSize + ((maxLabelLineCount - 1) * labelLineSpacing),
+      swatchHeight
+    );
     const rowHeight = rowContentHeight + rowGap;
     const baselineOffset = Number.isFinite(opts.baselineOffset) ? Number(opts.baselineOffset) : 0;
     const textCenterOffset = rowContentHeight / 2;
-    const swatchOffsetY = (rowContentHeight - swatchHeight) / 2;
+    const swatchOffsetY = opts.swatchAlign === 'first-line'
+      ? (fontSize - swatchHeight) / 2
+      : (rowContentHeight - swatchHeight) / 2;
     const requestedMaxHeight = Number(opts.maxHeight);
     const maxHeight = Number.isFinite(requestedMaxHeight) && requestedMaxHeight > 0
       ? requestedMaxHeight
@@ -3400,11 +3352,22 @@
           group.appendChild(swatch);
           const text = doc.createElementNS(NS, 'text');
           text.setAttribute('x', columnX + swatchWidth + swatchGap);
-          text.setAttribute('y', textCenterY);
+          text.setAttribute('y', textCenterY - ((entry.labelLines.length - 1) * labelLineSpacing / 2));
           text.setAttribute('font-size', fontSize);
           text.setAttribute('fill', textColor);
           text.setAttribute('dominant-baseline', 'middle');
-          text.textContent = entry.label;
+          if(entry.labelLines.length > 1){
+            text.setAttribute('aria-label', entry.label.replace(/\r\n|\n|\r/g, ' '));
+            entry.labelLines.forEach((line, lineIndex) => {
+              const tspan = doc.createElementNS(NS, 'tspan');
+              tspan.setAttribute('x', columnX + swatchWidth + swatchGap);
+              tspan.setAttribute('dy', lineIndex === 0 ? '0' : String(labelLineSpacing));
+              tspan.textContent = line;
+              text.appendChild(tspan);
+            });
+          }else{
+            text.textContent = entry.labelLines[0] || '';
+          }
           if(entry.editable && typeof opts.onSwatchClick === 'function'){
             text.dataset.legendIndex = String(idx);
             if(entry.key){ text.dataset.legendKey = entry.key; }
@@ -3443,6 +3406,7 @@
       swatchWidth: opts.swatchWidth,
       swatchHeight: opts.swatchHeight,
       swatchGap: opts.swatchGap,
+      swatchAlign: opts.swatchAlign,
       rowGap: opts.rowGap,
       minWidth: opts.minWidth,
       maxHeight,
@@ -3529,6 +3493,49 @@
   chartStyle.computeLegendViewport = function computeLegendViewport(options){
     return chartStyle.computeGraphContentViewport(options);
   };
+
+  // Prefer live SVG user-unit bounds; use renderer metadata only when live bounds are unavailable.
+  function measureRenderedLegendBounds(legendNode){
+    if(!legendNode){ return null; }
+    try{
+      if(typeof legendNode.getBBox === 'function'){
+        const bounds = legendNode.getBBox();
+        const x = Number(bounds?.x);
+        const y = Number(bounds?.y);
+        const width = Number(bounds?.width);
+        const height = Number(bounds?.height);
+        if([x, y, width, height].every(Number.isFinite) && width >= 0 && height >= 0
+          && (width > 0 || height > 0)){
+          return { x, y, width, height };
+        }
+      }
+    }catch(err){
+      debugLog('Debug: chartStyle.measureRenderedLegendBounds fallback', {
+        error: err?.message || String(err)
+      });
+    }
+    const bounds = {
+      x: Number(legendNode.dataset?.legendContentX),
+      y: Number(legendNode.dataset?.legendContentY),
+      width: Number(legendNode.dataset?.legendContentWidth),
+      height: Number(legendNode.dataset?.legendContentHeight)
+    };
+    return [bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)
+      && bounds.width >= 0 && bounds.height >= 0 && (bounds.width > 0 || bounds.height > 0)
+      ? bounds
+      : null;
+  }
+
+  function resolveMeasuredLegendReserve(svg, requestedWidth){
+    const reserve = Number(requestedWidth);
+    if(!Number.isFinite(reserve) || reserve <= 0 || !svg?.querySelector){ return Math.max(0, reserve || 0); }
+    const legendNode = svg.querySelector('[data-legend-viewport-content="true"]');
+    const measured = measureRenderedLegendBounds(legendNode);
+    if(!measured){ return reserve; }
+    const declaredRight = Number(legendNode.dataset?.legendContentX) + Number(legendNode.dataset?.legendContentWidth);
+    if(!Number.isFinite(declaredRight)){ return reserve; }
+    return Math.max(0, reserve + measured.x + measured.width - declaredRight);
+  }
 
   chartStyle.stageGraphContentViewport = function stageGraphContentViewport(options){
     const opts = options || {};
@@ -3672,28 +3679,10 @@
     const readLegendTranslateX = legendNode => readLegendTranslate(legendNode, 'x');
     const readLegendTranslateY = legendNode => readLegendTranslate(legendNode, 'y');
     const readLegendContentBounds = legendNode => {
-      try{
-        const bounds = legendNode?.getBBox?.();
-        if(bounds && Number.isFinite(Number(bounds.x)) && Number.isFinite(Number(bounds.y))
-          && Number.isFinite(Number(bounds.width)) && Number.isFinite(Number(bounds.height))
-          && (Number(bounds.width) > 0 || Number(bounds.height) > 0)){
-          return {
-            x: Number(bounds.x),
-            y: Number(bounds.y),
-            width: Number(bounds.width),
-            height: Number(bounds.height)
-          };
-        }
-      }catch(err){}
-      const x = Number(legendNode?.dataset?.legendContentX);
-      const y = Number(legendNode?.dataset?.legendContentY);
-      const width = Number(legendNode?.dataset?.legendContentWidth);
-      const height = Number(legendNode?.dataset?.legendContentHeight);
-      return Number.isFinite(x) && Number.isFinite(y)
-        && Number.isFinite(width) && Number.isFinite(height)
-        && (width > 0 || height > 0)
-        ? { x, y, width, height }
-        : null;
+      // The renderer estimate is useful before fonts are projected. Once the
+      // legend exists, its own SVG bounds reflect the active font and label
+      // styles in stable user units, independent of display zoom.
+      return measureRenderedLegendBounds(legendNode);
     };
     const readLegendCanonicalOrigin = (legendNode, axis = 'x') => {
       const stored = Number(axis === 'y'
@@ -3846,6 +3835,7 @@
     }
     let renderedContentBounds = null;
     const refineContentBoundsFromRenderedSvg = () => {
+      // Canonical layout plans opt out so display-only glyph bounds cannot resize the saved frame.
       if(opts.refineContentBounds === false || !svg || typeof svg.getBBox !== 'function') return false;
       let bounds = null;
       const excludedNodes = Array.from(svg.querySelectorAll?.('g[data-stats-figure-summary="1"]') || [])
@@ -3918,11 +3908,13 @@
       return true;
     };
     const applySvgViewport = () => {
-      if(!svg || opts.applySvgViewport === false) return;
-      const publishedViewport = getPublishedViewport();
-      svg.setAttribute('width', format(publishedViewport.width * (applyRenderedScaleToSvgDimensions ? renderedScaleX : 1)));
-      svg.setAttribute('height', format(publishedViewport.height * (applyRenderedScaleToSvgDimensions ? renderedScaleY : 1)));
-      svg.setAttribute('viewBox', `${format(publishedViewport.minX)} ${format(publishedViewport.minY)} ${format(publishedViewport.width)} ${format(publishedViewport.height)}`);
+      if(!svg) return;
+      if(opts.applySvgViewport !== false){
+        const publishedViewport = getPublishedViewport();
+        svg.setAttribute('width', format(publishedViewport.width * (applyRenderedScaleToSvgDimensions ? renderedScaleX : 1)));
+        svg.setAttribute('height', format(publishedViewport.height * (applyRenderedScaleToSvgDimensions ? renderedScaleY : 1)));
+        svg.setAttribute('viewBox', `${format(publishedViewport.minX)} ${format(publishedViewport.minY)} ${format(publishedViewport.width)} ${format(publishedViewport.height)}`);
+      }
       syncSvgViewportDatasets();
     };
     const settleContentBoundsToRenderedSvg = () => {
@@ -3985,7 +3977,10 @@
           };
           const requestedLegendRail = hasExplicitLegendWidth ? requestedLegendWidth : 0;
           const nonLegendRightRail = Math.max(0, plannedReserves.right - requestedLegendRail);
-          plannedReserves.right = Math.max(plannedReserves.right, legendReserveWidth + nonLegendRightRail);
+          // The Cartesian plan includes the renderer's estimated legend width.
+          // Replace that rail with the measured width while retaining any
+          // separate right-side extension owned by axes, titles, or labels.
+          plannedReserves.right = legendReserveWidth + nonLegendRightRail;
           Object.assign(requestedContentReserves, plannedReserves);
           const baseWidth = Number(cartesianPlan.userFrame.width) || viewport.baseWidth;
           const baseHeight = Number(cartesianPlan.userFrame.height) || viewport.baseHeight;
@@ -4001,7 +3996,7 @@
             contentBounds: {
               minX: Number(plannedEnvelope.minX) || 0,
               minY: Number(plannedEnvelope.minY) || 0,
-              maxX: Number(plannedEnvelope.maxX) || baseWidth,
+              maxX: baseWidth + plannedReserves.right,
               maxY: Number(plannedEnvelope.maxY) || baseHeight
             }
           });
@@ -4022,23 +4017,21 @@
             svgBox.style.removeProperty('--graph-content-extra-right');
             svgBox.style.removeProperty('--graph-content-extra-bottom');
           };
-          if(opts.applySvgBoxEnvelope === false){
-            clearSvgBoxEnvelope();
+          // Content publication and its visible container reserve are one contract.
+          const publishedViewport = getPublishedViewport();
+          const hasExtension = publishedViewport.extensionWidth > 0 || publishedViewport.extensionHeight > 0;
+          if(hasExtension){
+            const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
+            const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+            svgBox.style.setProperty('--graph-content-extra-left', `${format(publishedViewport.leftWidth * renderedScaleX * zoomScale)}px`);
+            svgBox.style.setProperty('--graph-content-extra-top', `${format(publishedViewport.topHeight * renderedScaleY * zoomScale)}px`);
+            svgBox.style.setProperty('--graph-content-extra-right', `${format(publishedViewport.rightWidth * renderedScaleX * zoomScale)}px`);
+            svgBox.style.setProperty('--graph-content-extra-bottom', `${format(publishedViewport.bottomHeight * renderedScaleY * zoomScale)}px`);
+            svgBox.dataset.graphContentEnvelope = 'true';
           }else{
-            const publishedViewport = getPublishedViewport();
-            const hasExtension = publishedViewport.extensionWidth > 0 || publishedViewport.extensionHeight > 0;
-            if(hasExtension){
-              const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
-              const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
-              svgBox.style.setProperty('--graph-content-extra-left', `${format(publishedViewport.leftWidth * renderedScaleX * zoomScale)}px`);
-              svgBox.style.setProperty('--graph-content-extra-top', `${format(publishedViewport.topHeight * renderedScaleY * zoomScale)}px`);
-              svgBox.style.setProperty('--graph-content-extra-right', `${format(publishedViewport.rightWidth * renderedScaleX * zoomScale)}px`);
-              svgBox.style.setProperty('--graph-content-extra-bottom', `${format(publishedViewport.bottomHeight * renderedScaleY * zoomScale)}px`);
-              svgBox.dataset.graphContentEnvelope = 'true';
-            }else{
-              clearSvgBoxEnvelope();
-            }
+            clearSvgBoxEnvelope();
           }
+          Shared.resizer?.syncGraphFramePresentation?.(svgBox);
         }
         return true;
       }
@@ -4073,12 +4066,10 @@
     const baseHeight = resolveDimension(opts.baseHeight ?? safe.baseHeight);
     const canonicalWidth = resolveDimension(opts.canonicalWidth ?? safe.baseWidth, baseWidth);
     const canonicalHeight = resolveDimension(opts.canonicalHeight ?? safe.baseHeight, baseHeight);
-    const legendWidth = Math.max(0, Number(opts.legendWidth) || 0);
+    const legendWidth = resolveMeasuredLegendReserve(opts.svg, opts.legendWidth);
     const titleExtensions = opts.titleExtensions || safe.titleExtensions || {};
     const titleReserveRight = Math.max(0, Number(titleExtensions.right) || 0);
     const titleReserveBottom = Math.max(0, Number(titleExtensions.bottom) || 0);
-    const hasTitleExtension = titleReserveRight > 0 || titleReserveBottom > 0;
-    const applyOuterEnvelope = opts.applyOuterEnvelope !== false;
     const leftWidth = Math.max(0, Number(safe.left) || 0);
     const topHeight = Math.max(0, Number(safe.top) || 0);
     const bottomHeight = Math.max(0, Number(safe.bottom) || 0);
@@ -4106,8 +4097,7 @@
       },
       refineContentBounds: false,
       refineLegendReserve: false,
-      includeCarriedStatsFigureSummary: false,
-      applySvgBoxEnvelope: applyOuterEnvelope || hasTitleExtension
+      includeCarriedStatsFigureSummary: false
     });
     const svg = opts.svg;
     const safeWidth = Math.max(1, maxX - minX);
@@ -4141,8 +4131,8 @@
       svg.dataset.plot3dViewport = 'true';
       svg.dataset.plot3dBaseWidth = String(baseWidth);
       svg.dataset.plot3dBaseHeight = String(baseHeight);
-      svg.dataset.plot3dCanonicalWidth = String(viewportWidth);
-      svg.dataset.plot3dCanonicalHeight = String(viewportHeight);
+      svg.dataset.plot3dCanonicalWidth = String(canonicalWidth);
+      svg.dataset.plot3dCanonicalHeight = String(canonicalHeight);
       svg.dataset.plot3dViewportMinX = String(viewportMinX);
       svg.dataset.plot3dViewportMinY = String(viewportMinY);
       svg.dataset.plot3dViewportMaxX = String(viewportWidth);
@@ -4155,7 +4145,6 @@
       svg.dataset.plot3dSafeViewportMaxY = String(maxY);
       svg.dataset.plot3dSafeViewportWidth = String(safeWidth);
       svg.dataset.plot3dSafeViewportHeight = String(safeHeight);
-      svg.dataset.plot3dOuterEnvelope = applyOuterEnvelope ? 'true' : 'false';
       svg.dataset.plot3dReserveLeft = String(leftWidth);
       svg.dataset.plot3dReserveTop = String(topHeight);
       svg.dataset.plot3dReserveRight = String(Math.max(0, Number(safe.right) || 0));
@@ -4332,7 +4321,6 @@
         canonicalWidth,
         canonicalHeight,
         legendWidth: Number.isFinite(legendWidth) && legendWidth >= 0 ? legendWidth : 0,
-        applyOuterEnvelope: svg.dataset?.plot3dOuterEnvelope !== 'false',
         safeViewport: {
           // New caches store the physical viewport separately from the
           // rotation-safe diagnostic envelope. Older caches used the latter
@@ -4678,6 +4666,34 @@
     const textWidth = Math.max(1, initialPlacement.bbox.maxX - initialPlacement.bbox.minX);
     const labelHeight = Math.max(1, initialPlacement.bbox.maxY - initialPlacement.bbox.minY);
     const anchor = initialPlacement.anchor || 'start';
+    const labelKey = String(entry.labelKey || '').trim();
+    const leaderGap = Math.max(2, Number(options.leaderGap) || 2);
+    const positionMetrics = {
+      labelKey,
+      cx: Number(entry.cx),
+      cy: Number(entry.cy),
+      radius: Math.max(0, Number(entry.radius) || 0),
+      leaderGap,
+      textWidth,
+      labelHeight,
+      anchor,
+      containerLeft,
+      containerRight,
+      containerTop,
+      containerBottom
+    };
+    if(!labelKey || !Object.values(positionMetrics).every(value => typeof value === 'string' || Number.isFinite(value))){
+      return false;
+    }
+    if(textNode.dataset){
+      textNode.dataset.pointLabelKey = labelKey;
+      textNode.dataset.pointLabelDragMetrics = JSON.stringify(positionMetrics);
+    }
+    if(leaderNode.dataset){
+      leaderNode.dataset.pointLabelLeaderKey = labelKey;
+    }else{
+      leaderNode.setAttribute('data-point-label-leader-key', labelKey);
+    }
     let currentPlacement = initialPlacement;
     const applyLeader = placement => {
       const start = placement?.leaderPoints?.[0];
@@ -4715,6 +4731,8 @@
     }
     applyLeader(initialPlacement);
     Shared.enableLabelDrag(textNode, svg, {
+      owner: options.owner || options.session || null,
+      tabId: options.tabId || options.session?.tabId || null,
       normalizeDuringDrag: true,
       recordUndo: true,
       normalizePosition(position){
@@ -4742,6 +4760,85 @@
       }
     });
     return true;
+  };
+
+  labelLayout.rehydratePointLabelDrags = function rehydratePointLabelDrags(svg, options = {}){
+    if(!svg){ return false; }
+    const labels = Array.from(svg.querySelectorAll?.("g[data-layer='point-labels'] text[data-point-label-key]") || []);
+    if(!labels.length){ return true; }
+    if(typeof options.onPositionChange !== 'function'){
+      return false;
+    }
+    const leadersByKey = new Map(Array.from(
+      svg.querySelectorAll?.("g[data-layer='point-labels'] line[data-point-label-leader-key]") || []
+    ).map(leader => [String(leader.dataset?.pointLabelLeaderKey || ''), leader]));
+    return labels.every(textNode => {
+      let metrics;
+      try{
+        metrics = JSON.parse(textNode.dataset?.pointLabelDragMetrics || 'null');
+      }catch(_err){
+        metrics = null;
+      }
+      const labelKey = String(textNode.dataset?.pointLabelKey || '').trim();
+      const leaderNode = leadersByKey.get(labelKey);
+      const x = Number(textNode.getAttribute('x'));
+      const y = Number(textNode.getAttribute('y'));
+      const leaderPoints = leaderNode ? [
+        { x: Number(leaderNode.getAttribute('x1')), y: Number(leaderNode.getAttribute('y1')) },
+        { x: Number(leaderNode.getAttribute('x2')), y: Number(leaderNode.getAttribute('y2')) }
+      ] : [];
+      if(!labelKey || metrics?.labelKey !== labelKey || !leaderNode
+        || !Number.isFinite(x) || !Number.isFinite(y)
+        || leaderPoints.length !== 2
+        || !leaderPoints.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+        || ![
+          metrics.cx, metrics.cy, metrics.radius, metrics.leaderGap,
+          metrics.textWidth, metrics.labelHeight, metrics.containerLeft,
+          metrics.containerRight, metrics.containerTop, metrics.containerBottom
+        ].every(value => Number.isFinite(Number(value)))
+        || Number(metrics.containerRight) <= Number(metrics.containerLeft)
+        || Number(metrics.containerBottom) <= Number(metrics.containerTop)){
+        return false;
+      }
+      const anchor = metrics.anchor === 'end' || metrics.anchor === 'middle'
+        ? metrics.anchor
+        : 'start';
+      const textWidth = Math.max(1, Number(metrics.textWidth));
+      const labelHeight = Math.max(1, Number(metrics.labelHeight));
+      const minX = anchor === 'start' ? x : (anchor === 'end' ? x - textWidth : x - textWidth * 0.5);
+      const bbox = {
+        minX,
+        maxX: minX + textWidth,
+        minY: y - labelHeight * 0.5,
+        maxY: y + labelHeight * 0.5
+      };
+      return labelLayout.enablePointLabelDrag({
+        textNode,
+        leaderNode,
+        svg,
+        owner: options.owner || null,
+        tabId: options.tabId || options.owner?.tabId || null,
+        entry: {
+          labelKey,
+          cx: Number(metrics.cx),
+          cy: Number(metrics.cy),
+          radius: Math.max(0, Number(metrics.radius))
+        },
+        placement: {
+          textX: x,
+          textY: y,
+          anchor,
+          bbox,
+          leaderPoints
+        },
+        leaderGap: Number(metrics.leaderGap),
+        containerLeft: Number(metrics.containerLeft),
+        containerRight: Number(metrics.containerRight),
+        containerTop: Number(metrics.containerTop),
+        containerBottom: Number(metrics.containerBottom),
+        onPositionChange: position => options.onPositionChange(labelKey, position, textNode)
+      });
+    });
   };
 
   labelLayout.computeConvexHull2d = function computeConvexHull2d(points){

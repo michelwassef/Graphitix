@@ -197,8 +197,8 @@ async function readGeometry(page, pageId) {
       xAxis,
       yAxis,
       axisRatio: xAxis / yAxis,
-      checked: !!svgBox.querySelector('.resizer-aspect-checkbox')?.checked,
-      disabled: !!svgBox.querySelector('.resizer-aspect-checkbox')?.disabled,
+      checked: !!window.Shared.resizer.getGraphControlsHost({ svgBox }).querySelector('.resizer-aspect-checkbox')?.checked,
+      disabled: !!window.Shared.resizer.getGraphControlsHost({ svgBox }).querySelector('.resizer-aspect-checkbox')?.disabled,
       locked: svgBox.dataset.resizerAspectLocked,
       // Migrated 2D charts publish the Lock target from the committed
       // Cartesian plot transaction. Explicitly excluded/legacy renderers keep
@@ -256,7 +256,8 @@ async function waitForStableGeometry(page, pageId, options = {}) {
 async function setLock(page, pageId, checked) {
   await page.evaluate(({ pageId, checked }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
-    const checkbox = root?.querySelector?.('.svgbox .resizer-aspect-checkbox');
+    const svgBox = root?.querySelector?.('.svgbox');
+    const checkbox = window.Shared.resizer.getGraphControlsHost({ svgBox })?.querySelector('.resizer-aspect-checkbox');
     if(!checkbox || checkbox.disabled) throw new Error('User-toggleable Lock ratio control unavailable');
     if(checkbox.checked !== checked){
       checkbox.checked = checked;

@@ -3,6 +3,12 @@
   const Shared = global.Shared = global.Shared || {};
   const namespace = Shared.componentLifecycle = Shared.componentLifecycle || {};
 
+  namespace.DRAW_OUTCOME = namespace.DRAW_OUTCOME || Object.freeze({
+    COMPLETE: 'complete',
+    CANCELLED: 'cancelled',
+    SKIPPED: 'skipped'
+  });
+
   const DEFAULT_SNAPSHOT_TIMEOUT_MS = 1800;
   const DEFAULT_SETTLE_FRAMES = 2;
   const GRAPH_EDIT_LISTENER_REGISTRY_KEY = typeof Symbol === 'function' && typeof Symbol.for === 'function'
@@ -426,6 +432,22 @@
     return String(value || '').trim();
   }
 
+  function resolveRegisteredWorkspaceTabId(owner, componentKey = ''){
+    const ownerTabId = normalizeLifecycleTabId(owner?.id || '');
+    const ownerType = normalizeLifecycleTabId(owner?.type || '');
+    const key = normalizeLifecycleTabId(componentKey);
+    if(!ownerTabId || !key || ownerType !== key){
+      return '';
+    }
+    const tabs = global.Main?.session?.workspaceState?.tabs;
+    const registeredTab = Array.isArray(tabs)
+      ? tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === ownerTabId)
+      : null;
+    return registeredTab && normalizeLifecycleTabId(registeredTab.type || '') === key
+      ? ownerTabId
+      : '';
+  }
+
   function resolveExplicitLifecycleOwnerTabId(owner = null, componentKey = '', options = {}){
     const key = normalizeLifecycleTabId(componentKey || options?.component?.__componentKey || '');
     const componentField = key ? `__${key}TabId` : '';
@@ -435,6 +457,7 @@
       scalarOwner
       || objectOwner?.tabId
       || objectOwner?.session?.tabId
+      || resolveRegisteredWorkspaceTabId(objectOwner, key)
       || (componentField ? objectOwner?.[componentField] : '')
       || objectOwner?.__workspaceTabId
       || objectOwner?.__graphitixTabId
@@ -1593,6 +1616,7 @@
     const doc = node.ownerDocument || global.document;
     const fragment = doc?.createDocumentFragment?.() || null;
     if(!fragment){ return null; }
+    const transientResizerSelector = '.resizer-options-control[open], .resizer-axeslength-control[open]';
     let count = 0;
     for(const child of Array.from(node.childNodes || [])){
       if(child?.nodeType === 1 && child.getAttribute?.('data-graph-frame-publication') === 'staged'){
@@ -1602,6 +1626,10 @@
       if(!clone){
         return null;
       }
+      if(clone.matches?.(transientResizerSelector)){
+        clone.removeAttribute('open');
+      }
+      clone.querySelectorAll?.(transientResizerSelector).forEach(control => control.removeAttribute('open'));
       let snapshotNode = clone;
       if(options.copyCanvasBitmaps === true){
         const childTagName = String(child.tagName || '').toLowerCase();
@@ -2149,20 +2177,28 @@
 
   function validateRehydratedSvgInteractions(svg){
     if(!svg || typeof svg.querySelectorAll !== 'function'){
-      return { ok: false, axis: { total: 0, bound: 0 }, inline: { total: 0, bound: 0 } };
+      return { ok: false, axis: { total: 0, bound: 0 }, inline: { total: 0, bound: 0 }, labels: { total: 0, bound: 0 } };
     }
     const axisNodes = Array.from(svg.querySelectorAll('[data-axis-control="1"]'))
       .filter(node => node?.dataset?.axisHitTarget !== '1');
     const inlineNodes = Array.from(svg.querySelectorAll('[data-inline-editable="1"]'));
+    const labelNodes = Array.from(svg.querySelectorAll(
+      '[data-keyboard-movable="label"][data-font-role="graphTitle"], [data-keyboard-movable="label"][data-label-drag-position-key], g[data-layer="point-labels"] text[data-point-label-key]'
+    ));
+    const ownerRoot = svg.closest?.('[data-workspace-tab-id],[data-tab-id]') || null;
+    const ownerTabId = String(ownerRoot?.dataset?.workspaceTabId || ownerRoot?.dataset?.tabId || '').trim();
     const axisBound = axisNodes.filter(node => (
       Shared.axisControls?.isAxisElementBound?.(node) === true
       || !!node?.__graphitixAxisControlBinding?.handler
     )).length;
     const inlineBound = inlineNodes.filter(node => !!node?.__graphitixInlineEditBinding?.dblclick).length;
+    const labelsBound = labelNodes.filter(node => node?.__graphitixLabelDragBinding?.svg === svg
+      && (!ownerTabId || node.__graphitixLabelDragBinding?.tabId === ownerTabId)).length;
     return {
-      ok: axisBound === axisNodes.length && inlineBound === inlineNodes.length,
+      ok: axisBound === axisNodes.length && inlineBound === inlineNodes.length && labelsBound === labelNodes.length,
       axis: { total: axisNodes.length, bound: axisBound },
-      inline: { total: inlineNodes.length, bound: inlineBound }
+      inline: { total: inlineNodes.length, bound: inlineBound },
+      labels: { total: labelNodes.length, bound: labelsBound }
     };
   }
 
@@ -3941,11 +3977,12 @@
       let handle = null;
       const clearPending = () => {
         const pending = pendingByTab.get(tabId);
-        if(pending && (handle == null || pending.handle === handle)){
-          pendingByTab.delete(tabId);
-          pending.scheduled = false;
+        if(!pending || (handle != null && pending.handle !== handle)){
+          return null;
         }
-        return pending || null;
+        pendingByTab.delete(tabId);
+        pending.scheduled = false;
+        return pending;
       };
       handle = scope.requestAnimationFrame({ ...meta, tabId }, () => {
         const pending = clearPending();
@@ -4683,10 +4720,7 @@
       return component.__internalStateBridge;
     }
     const targets = normalizeInternalTargets(options);
-    const stateModel = component.__stateModel || namespace.getDescriptor?.(componentKey)?.stateModel || namespace.createStateModel(componentKey, {
-      payload: () => ({}), runtime: () => ({}), ui: () => ({}), layout: () => ({}), cache: () => ({}), async: () => ({})
-    });
-    component.__stateModel = component.__stateModel || stateModel;
+    const runtimeOwner = namespace.createRuntimeOwner(componentKey);
 
     function resolveSnapshotOwnerTabId(snapshot, meta = {}){
       const direct = snapshot?.tabId || snapshot?.workspaceTabId || null;
@@ -4695,21 +4729,46 @@
     }
 
     function snapshotMatchesTargetTab(snapshot, meta = {}){
-      if(meta.allowCrossTabInternalStateApply === true){
-        return true;
-      }
       const ownerTabId = resolveSnapshotOwnerTabId(snapshot, meta);
       const targetTabId = requireExplicitTabId(meta, 'internal-state-target', componentKey);
       if(!targetTabId){
         return false;
       }
-      return !(ownerTabId && targetTabId && ownerTabId !== targetTabId);
+      return !(ownerTabId && ownerTabId !== targetTabId)
+        && (!snapshot?.componentKey || snapshot.componentKey === componentKey);
     }
 
-    function capture(meta = {}){
+    function canProject(tabId){
+      return namespace.canOwnerUseLiveProjection(componentKey, { tabId }, {
+        component,
+        session: { tabId }
+      });
+    }
+
+    // The owning lifecycle snapshot is the authority for compatibility state.
+    // Module targets are only live projections and cannot serve inactive owners.
+    function readStoredInternalState(meta){
+      const stored = runtimeOwner.get(meta)?.__internalState || null;
+      return stored && snapshotMatchesTargetTab(stored, meta) ? stored : null;
+    }
+
+    function storeInternalState(snapshot, meta){
+      return runtimeOwner.capture({
+        ...(runtimeOwner.get(meta) || {}),
+        __internalState: snapshot
+      }, meta);
+    }
+
+    function capture(meta = {}, retained = null){
       const tabId = requireExplicitTabId(meta, 'capture-internal-state', componentKey);
       if(!tabId){
         return null;
+      }
+      if(!canProject(tabId)){
+        const stored = retained && snapshotMatchesTargetTab(retained, meta)
+          ? retained
+          : readStoredInternalState(meta);
+        return stored ? cloneForLifecycle(stored) : null;
       }
       const snapshot = {
         version: 2,
@@ -4733,7 +4792,7 @@
           warn('Debug: internal state capture target failed', { componentKey, tabId, target: target.key, err: err?.message || String(err) });
         }
       });
-      try{ stateModel.merge(meta.tab || meta.tabId || null, 'runtime', { internalState: snapshot }, { ...(meta || {}), tabId }); }catch(_err){}
+      storeInternalState(snapshot, { ...meta, tabId });
       debug('Debug: internal state bridge captured', { componentKey, tabId, targetCount: Object.keys(snapshot.targets).length, reason: snapshot.reason });
       return snapshot;
     }
@@ -4756,6 +4815,10 @@
         });
         return false;
       }
+      storeInternalState(incoming, { ...meta, tabId });
+      if(!canProject(tabId)){
+        return true;
+      }
       let applied = 0;
       targets.forEach(target => {
         const targetSnapshot = incoming.targets[target.key];
@@ -4776,9 +4839,6 @@
           warn('Debug: internal state apply target failed', { componentKey, tabId, target: target.key, err: err?.message || String(err) });
         }
       });
-      if(applied){
-        try{ stateModel.merge(meta.tab || meta.tabId || null, 'runtime', { internalState: incoming }, { ...(meta || {}), tabId }); }catch(_err){}
-      }
       debug('Debug: internal state bridge applied', { componentKey, tabId, applied, reason: meta.reason || 'apply-internal-state' });
       return applied > 0;
     }
@@ -4791,16 +4851,28 @@
       if(!tabId){
         return null;
       }
-      const base = typeof originalCaptureRuntime === 'function' ? (originalCaptureRuntime.call(component, { ...(meta || {}), tabId, componentKey }) || {}) : {};
-      const internalState = capture({ ...(meta || {}), tabId, componentKey });
-      return { ...base, tabId: base?.tabId || tabId || null, __internalState: internalState };
+      const nextMeta = { ...meta, tabId, componentKey };
+      const retained = readStoredInternalState(nextMeta);
+      const finalize = base => {
+        if(!base || typeof base !== 'object'){
+          return base;
+        }
+        const internalState = capture(nextMeta, retained || base.__internalState);
+        const snapshot = { ...base, tabId, __internalState: internalState };
+        return runtimeOwner.capture(snapshot, nextMeta) || snapshot;
+      };
+      const base = typeof originalCaptureRuntime === 'function' ? originalCaptureRuntime.call(component, nextMeta) : {};
+      return base && typeof base.then === 'function' ? base.then(finalize) : finalize(base);
     };
     component.applyRuntimeState = function bridgedApplyRuntimeState(snapshot, meta = {}){
       const tabId = requireExplicitTabId(meta, 'apply-runtime-state', componentKey);
       if(!tabId){
         return false;
       }
-      if(snapshot && typeof snapshot === 'object' && !snapshotMatchesTargetTab(snapshot, { ...(meta || {}), tabId })){
+      if(snapshot && typeof snapshot === 'object' && (
+        !snapshotMatchesTargetTab(snapshot, { ...(meta || {}), tabId })
+        || (snapshot.__internalState && !snapshotMatchesTargetTab(snapshot.__internalState, { ...meta, tabId }))
+      )){
         warn('Debug: bridged runtime apply rejected for wrong tab', {
           componentKey,
           tabId,
@@ -4811,8 +4883,13 @@
       }
       const nextMeta = { ...(meta || {}), tabId, componentKey };
       const result = typeof originalApplyRuntime === 'function' ? originalApplyRuntime.call(component, snapshot, nextMeta) : false;
-      apply(snapshot, nextMeta);
-      return result;
+      const finalize = value => {
+        if(value !== false){
+          apply(snapshot, nextMeta);
+        }
+        return value;
+      };
+      return result && typeof result.then === 'function' ? result.then(finalize) : finalize(result);
     };
     component.deactivateTab = function bridgedDeactivateTab(tab, meta = {}){
       const tabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
@@ -4823,7 +4900,7 @@
       capture({ ...(meta || {}), tab, tabId, componentKey, reason: meta?.reason || 'deactivate-internal-state' });
       return result;
     };
-    const bridge = { componentKey, targets, capture, apply, stateModel };
+    const bridge = { componentKey, targets, capture, apply };
     component.__internalStateBridge = bridge;
     debug('Debug: internal state bridge installed', { componentKey, targetCount: targets.length });
     return bridge;

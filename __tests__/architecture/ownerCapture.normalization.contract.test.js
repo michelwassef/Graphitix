@@ -91,7 +91,7 @@ describe('owner-first capture and refresh normalization', () => {
     const captureSnapshot = extractFunction(source, 'captureBoxRuntimeSnapshot');
     const captureRuntime = extractFunction(source, 'captureRuntimeState');
     expect(captureSnapshot).toContain("resolveOwnerCaptureContext?.('box'");
-    expect(captureSnapshot).toContain('const ownerSession = ensureBoxSessionOwnershipShape(session || getActiveBoxSessionForState())');
+    expect(captureSnapshot).toContain('const ownerSession = (session || getActiveBoxSessionForState())');
     expect(captureSnapshot).toContain('const significanceResultsState = captureLive');
     expect(captureSnapshot).toContain('cloneSimple(ownedRecord?.geometry?.flipTransition');
     expect(captureRuntime).toContain('const ownerSession = effectiveMeta.tabId');
@@ -142,15 +142,29 @@ describe('live projection ownership normalization', () => {
     });
   });
 
-  test('activation-target authority is separate and limited to components with hydration scheduler suppression', () => {
+  test('activation-target checks guard hydration scheduler suppression and Box direct draws', () => {
     const expected = ['hist', 'pie', 'roc', 'survival', 'surface'];
     expected.forEach(component => {
       const source = read(`js/components/${component}.js`);
       expect(source).toContain(`isOwnerActivationTarget?.('${component}'`);
       expect(source).toContain('const canMuteActiveScheduler =');
     });
-    ['box', 'scatter', 'line', 'pca', 'heatmap', 'venn'].forEach(component => {
-      expect(read(`js/components/${component}.js`)).not.toContain(`isOwnerActivationTarget?.('${component}'`);
+    const box = read('js/components/box.js');
+    expect(box).toContain("|| Shared.componentLifecycle?.isOwnerActivationTarget?.('box', drawSession, { component: box }) !== true");
+    expect(box).toContain("String(drawSession.tabId || '') !== activeTabId");
+    ['line', 'pca', 'heatmap', 'venn'].forEach(component => {
+      const restore = extractFunction(read(`js/components/${component}.js`), 'applyRuntimeState');
+      expect(restore).not.toBeNull();
+      expect(restore).not.toContain(`isOwnerActivationTarget?.('${component}'`);
+    });
+    // Scatter's payload hydration rejects inactive owners before binding. Runtime
+    // restore still requires the already mounted owner before live projection.
+    const scatter = read('js/components/scatter.js');
+    ['applyRuntimeState', 'applyScatterOwnedRuntimeSlicesFromSnapshot'].forEach(name => {
+      const restore = extractFunction(scatter, name);
+      expect(restore).not.toBeNull();
+      expect(restore).not.toContain("isOwnerActivationTarget?.('scatter'");
+      expect(restore).toContain('isScatterSessionActiveForModuleState(');
     });
   });
 

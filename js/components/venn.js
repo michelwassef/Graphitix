@@ -182,10 +182,6 @@
   venn.__installed = true;
   venn.ready = false;
 
-  const fileIO = Shared.fileIO = Shared.fileIO || {};
-  if (!fileIO.saveGraphFile) {
-    debug('Debug: venn component awaiting Shared.fileIO helpers');
-  }
 
   const debugLog = (label, payload) => {
     debug(`Debug: venn ${label}`, payload || {});
@@ -234,10 +230,10 @@
     { value: 'A', label: `${DEFAULT_VENN_LABEL_MAP.A} only` },
     { value: 'B', label: `${DEFAULT_VENN_LABEL_MAP.B} only` },
     { value: 'C', label: `${DEFAULT_VENN_LABEL_MAP.C} only` },
-    { value: 'AB', label: `${DEFAULT_VENN_LABEL_MAP.A}∩${DEFAULT_VENN_LABEL_MAP.B} only` },
-    { value: 'AC', label: `${DEFAULT_VENN_LABEL_MAP.A}∩${DEFAULT_VENN_LABEL_MAP.C} only` },
-    { value: 'BC', label: `${DEFAULT_VENN_LABEL_MAP.B}∩${DEFAULT_VENN_LABEL_MAP.C} only` },
-    { value: 'ABC', label: `${DEFAULT_VENN_LABEL_MAP.A}∩${DEFAULT_VENN_LABEL_MAP.B}∩${DEFAULT_VENN_LABEL_MAP.C}` }
+    { value: 'AB', label: `${DEFAULT_VENN_LABEL_MAP.A} ∩ ${DEFAULT_VENN_LABEL_MAP.B} only` },
+    { value: 'AC', label: `${DEFAULT_VENN_LABEL_MAP.A} ∩ ${DEFAULT_VENN_LABEL_MAP.C} only` },
+    { value: 'BC', label: `${DEFAULT_VENN_LABEL_MAP.B} ∩ ${DEFAULT_VENN_LABEL_MAP.C} only` },
+    { value: 'ABC', label: `${DEFAULT_VENN_LABEL_MAP.A} ∩ ${DEFAULT_VENN_LABEL_MAP.B} ∩ ${DEFAULT_VENN_LABEL_MAP.C}` }
   ];
   const VENN_COUNT_KEYS = ['nA', 'nB', 'nC', 'nAB', 'nAC', 'nBC', 'nABC'];
   const VENN_LEGACY_TABLE_COLUMNS = Object.freeze([
@@ -410,10 +406,48 @@
   function markVennSignificanceResultsStale(){
     state.analysis.lastSignificance = null;
     state.analysis.significancePanelModel = null;
+    syncVennPlotStatsControlAvailability();
     if(state.ui.significanceResults){
       state.ui.significanceResults.textContent = 'Significance level changed. Recalculate overlap enrichment statistics.';
     }
+    if(state.ui.statsStatus){ state.ui.statsStatus.textContent = 'Settings changed. Calculate statistics to update the results.'; }
     captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-significance-level-change' });
+    requestScheduledDraw('venn-significance-stale', null, { renderImpact: 'paint' });
+  }
+
+  function hasCurrentVennSignificance(){
+    const significance = state.analysis.lastSignificance;
+    const counts = state.analysis.lastCounts;
+    const total = Number(state.ui.totalGenesInput?.value);
+    const alpha = getVennStatsAlpha();
+    return !!significance
+      && !!counts
+      && significance.countsSignature === makeCountsSignature(counts)
+      && Number(significance.total) === total
+      && Number(significance.alpha) === Number(alpha);
+  }
+
+  function syncVennPlotStatsControlAvailability(){
+    const input = state.ui.showPlotStats;
+    if(input){
+      input.disabled = !hasCurrentVennSignificance();
+    }
+    const totalText = String(state.ui.totalGenesInput?.value || '').trim();
+    const total = Number(totalText);
+    const canCalculate = totalText !== '' && Number.isSafeInteger(total) && total > 0;
+    const calculateButton = state.ui.calcSignificanceBtn;
+    if(calculateButton){
+      calculateButton.disabled = !canCalculate;
+      calculateButton.title = canCalculate ? '' : 'Enter the size of the reference gene universe first.';
+    }
+    const status = state.ui.statsStatus;
+    if(status){
+      if(!canCalculate){
+        status.textContent = 'Enter the reference-universe size to calculate overlap statistics.';
+      }else if(status.textContent.includes('reference-universe size')){
+        status.textContent = 'Ready to calculate overlap statistics.';
+      }
+    }
   }
 
   function ensureVennStatsInferenceControls(){
@@ -559,7 +593,8 @@
     if (!svgBox) {
       return null;
     }
-    const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+    const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const checkbox = controlsHost.querySelector('.resizer-aspect-checkbox');
     if (checkbox && isOwnedByActiveTab(checkbox)) {
       vennLockRatioInput = checkbox;
       return checkbox;
@@ -806,8 +841,8 @@
     }
   }
 
-  function clearVennPendingDrawState(session = null, reason = 'venn-draw-pending-clear') {
-    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+  function clearVennPendingDrawState(session, reason = 'venn-draw-pending-clear') {
+    const owner = ensureVennSessionOwnershipShape(session);
     if (!owner) {
       return false;
     }
@@ -825,6 +860,14 @@
       });
     }
     return hadPending;
+  }
+
+  function bumpVennDrawGeneration(session = null){
+    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+    if(!owner){ return 0; }
+    owner.timers.drawGeneration = (Number(owner.timers.drawGeneration) || 0) + 1;
+    owner.updatedAt = Date.now();
+    return owner.timers.drawGeneration;
   }
 
   function collectVennPayloadGenes(payload) {
@@ -1206,7 +1249,6 @@
 
   /**
    * @typedef {Object} VennStatePersistence
-   * @property {FileSystemFileHandle|null} fileHandle - Handle to the currently opened `.graph` file.
    * @property {string} fileName - Friendly name to use when saving state to disk.
    */
 
@@ -1239,6 +1281,7 @@
         analysisTabGo: null,
         analysisTabString: null,
         plotType: null,
+        showPlotStats: null,
         setLimitWarning: null,
         upset: {
           sort: null,
@@ -1268,6 +1311,7 @@
         speciesSelect: null,
         totalGenesInput: null,
         significanceResults: null,
+        statsStatus: null,
         calcSignificanceBtn: null,
         goCategoryChecks: [],
         goOptsBtn: null,
@@ -1350,7 +1394,6 @@
         }
       },
       persistence: {
-        fileHandle: null,
         fileName: 'venn.graph',
       },
       titleText: DEFAULT_VENN_TITLE,
@@ -1428,7 +1471,6 @@
       lastSignificance: cloneSimple(snapshot.lastSignificance) || null,
       regionSelectValue: snapshot.regionSelectValue || '',
       fileName: snapshot.fileName || 'venn.graph',
-      fileHandle: snapshot.fileHandle || null
     };
   }
 
@@ -1447,7 +1489,6 @@
       : {};
     return {
       persistence: {
-        fileHandle: persistence.fileHandle || null,
         fileName: persistence.fileName || 'venn.graph'
       },
       analysis: {
@@ -1717,6 +1758,7 @@
       analysisTabGo: null,
       analysisTabString: null,
       plotType: null,
+      showPlotStats: null,
       setLimitWarning: null,
       upset: null,
       goResults: null,
@@ -1730,6 +1772,7 @@
       tooltip: null,
       speciesSelect: null,
       totalGenesInput: null,
+      numericModeDetails: null,
       significanceResults: null,
       calcSignificanceBtn: null,
       goCategoryChecks: [],
@@ -1749,10 +1792,6 @@
       stringOverlayStatus: null,
       analysisResults: null,
       useNumericBtn: null,
-      openVennGraphBtn: null,
-      saveVennGraphBtn: null,
-      saveAsVennBtn: null,
-      vennGraphFileInput: null,
       sampleBtn: null,
       tablePanel: null,
       graphPanel: null,
@@ -1802,13 +1841,13 @@
       timers: {
         scheduleDraw: null,
         pendingDrawOptions: null,
+        drawGeneration: 0,
         pendingSpeciesDetection: null
       },
       workers: new Map(),
       managers: {
         hot: null,
         layout: null,
-        fileHandle: null
       },
       notes: createDefaultVennNotesState(source.notes || durableSource.notes || {}),
       createdAt: Date.now(),
@@ -1889,12 +1928,12 @@
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
+    if(!Number.isFinite(Number(session.timers.drawGeneration))){ session.timers.drawGeneration = 0; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingSpeciesDetection')){ session.timers.pendingSpeciesDetection = null; }
     session.workers = session.workers instanceof Map ? session.workers : new Map();
     session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
-    if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
     vennSessionShapeGuard(session);
     return session;
   }
@@ -2049,28 +2088,6 @@
     }) === true;
   }
 
-  function setVennFileHandleForSession(handle, session = null){
-    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
-    if(owner){
-      owner.managers.fileHandle = handle || null;
-    }
-    if(!owner || isVennSessionActiveForModuleState(owner)){
-      state.persistence.fileHandle = handle || null;
-    }
-  }
-
-  function setVennFileNameForSession(name, session = null){
-    const normalized = (typeof name === 'string' && name.trim()) ? name.trim() : 'venn.graph';
-    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
-    if(owner){
-      owner.state.fileName = normalized;
-    }
-    if(!owner || isVennSessionActiveForModuleState(owner)){
-      state.persistence.fileName = normalized;
-    }
-  }
-
-
   function getVennDeactivationTabId(tab, meta = {}){
     return normalizeVennSessionTabId((tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null, meta);
   }
@@ -2155,10 +2172,6 @@
       stringOverlayStatus: state.ui.stringOverlayStatus || null,
       analysisResults: state.ui.analysisResults || null,
       useNumericBtn: state.ui.useNumericBtn || null,
-      openVennGraphBtn: state.ui.openVennGraphBtn || null,
-      saveVennGraphBtn: state.ui.saveVennGraphBtn || null,
-      saveAsVennBtn: state.ui.saveAsVennBtn || null,
-      vennGraphFileInput: state.ui.vennGraphFileInput || null,
       sampleBtn: state.ui.sampleBtn || null,
       tablePanel: state.ui.tablePanel || state.ui.layout?.elements?.tablePanel || null,
       graphPanel: state.ui.graphPanel || state.ui.layout?.elements?.graphPanel || null,
@@ -2201,7 +2214,6 @@
     }
     if(sessionIsActive){
       bindVennLayoutManagerForSession(shaped);
-      shaped.managers.fileHandle = state.persistence.fileHandle ?? null;
       shaped.timers.scheduleDraw = state.ui.scheduleDraw || shaped.timers.scheduleDraw || null;
       shaped.timers.pendingSpeciesDetection = state.analysis.speciesDetection?.pendingTimeoutId || null;
     }
@@ -2316,6 +2328,7 @@
     }
     const scheduleOptions = sanitizeVennScheduleOptions(options || {}, shaped);
     if(!isVennSessionActiveForModuleState(shaped)){
+      bumpVennDrawGeneration(shaped);
       shaped.timers.pendingDrawOptions = scheduleOptions;
       shaped.state.drawPending = true;
       shaped.updatedAt = Date.now();
@@ -2327,6 +2340,7 @@
     if(typeof scheduler !== 'function'){
       return false;
     }
+    bumpVennDrawGeneration(shaped);
     shaped.timers.scheduleDraw = scheduler;
     shaped.timers.pendingDrawOptions = scheduleOptions;
     shaped.state.drawPending = true;
@@ -2337,6 +2351,7 @@
     const scheduled = scheduler(scheduleOptions);
     if (scheduled == null || scheduled === false) {
       clearVennPendingDrawState(shaped, 'venn-draw-schedule-rejected');
+      vennOverlayController?.resolve({ reason: 'schedule-rejected', status: 'cancelled', tabId: shaped.tabId || null });
       return false;
     }
     return true;
@@ -2489,7 +2504,7 @@
     }else if(state.ui.stringNetwork && state.analysis.stringPerformed){
       state.ui.stringNetwork.innerHTML = '';
       if(state.ui.stringNetworkExport){
-        state.ui.stringNetworkExport.style.display = 'none';
+        state.ui.stringNetworkExport.hidden = true;
       }
     }
     if(Array.isArray(state.analysis.lastStringEnrichment)){
@@ -2514,9 +2529,6 @@
       if(durable.snapshot?.payload && state.ui.inputs){
         applyVennSnapshot({
           ...durable.snapshot,
-          fileHandle: Object.prototype.hasOwnProperty.call(shaped.managers || {}, 'fileHandle')
-            ? shaped.managers.fileHandle
-            : (durable.snapshot.fileHandle ?? null)
         });
       }else if(durable.runtime){
         applyVennRuntimeStateSnapshot(durable.runtime, shaped);
@@ -2524,9 +2536,6 @@
       applyVennResultsStateToActive(shaped.results || {}, shaped);
     });
     state.persistence.fileName = durable.fileName || durable.snapshot?.fileName || state.persistence.fileName || 'venn.graph';
-    state.persistence.fileHandle = Object.prototype.hasOwnProperty.call(shaped.managers || {}, 'fileHandle')
-      ? shaped.managers.fileHandle
-      : (durable.snapshot?.fileHandle ?? durable.runtime?.persistence?.fileHandle ?? null);
     state.titleText = durable.titleText || state.titleText || DEFAULT_VENN_TITLE;
     state.axisTitleOverrides = normalizeVennAxisTitleOverrides(durable.axisTitleOverrides);
     state.labelPositions = cloneSimple(durable.labelPositions) || state.labelPositions || { title: null };
@@ -2606,9 +2615,6 @@
       lastSignificance: record.analysis?.lastSignificance,
       significancePanelModel: record.analysis?.significancePanelModel
     });
-    if(record.persistence && Object.prototype.hasOwnProperty.call(record.persistence, 'fileHandle')){
-      session.managers.fileHandle = record.persistence.fileHandle ?? null;
-    }
     session.updatedAt = Date.now();
     return session;
   }
@@ -2673,7 +2679,7 @@
       }
     }
     const uiScheme = String(state.ui?.activeColorScheme || '').trim().toLowerCase();
-    return uiScheme || 'scientific';
+    return uiScheme || 'normal';
   }
 
   function isVennDarkScheme() {
@@ -2685,7 +2691,7 @@
     if (!stage) return;
     const dark = isVennDarkScheme();
     const backgroundColor = dark ? '#000000' : '#ffffff';
-    stage.setAttribute('data-color-scheme', dark ? 'dark' : 'scientific');
+    stage.setAttribute('data-color-scheme', getVennSchemeId());
     if (state.ui?.svgBox?.style) {
       if (dark) {
         state.ui.svgBox.style.backgroundColor = backgroundColor;
@@ -2713,6 +2719,7 @@
   function createDefaultVennStyleState(){
     return {
       plotType: normalizePlotType(DEFAULT_PLOT_TYPE),
+      colorScheme: Shared.colorSchemes?.getDefaultSchemeId?.('venn') || 'normal',
       colorA: '#0000ff',
       colorB: '#ff0000',
       colorC: '#00aa00',
@@ -2967,7 +2974,7 @@
     const style = normalized.style && typeof normalized.style === 'object' ? normalized.style : {};
     normalized.style = {
       plotType: normalizePlotType(style.plotType || defaultStyle.plotType),
-      colorScheme: String(style.colorScheme || state.ui?.activeColorScheme || '').trim().toLowerCase() || 'scientific',
+      colorScheme: String(style.colorScheme || state.ui?.activeColorScheme || '').trim().toLowerCase() || 'normal',
       colorA: style.colorA ?? defaultStyle.colorA,
       colorB: style.colorB ?? defaultStyle.colorB,
       colorC: style.colorC ?? defaultStyle.colorC,
@@ -3062,7 +3069,6 @@
       lastSignificance: analysis.lastSignificance || previousSnapshot.lastSignificance || null,
       regionSelectValue: analysis.regionSelectValue || previousSnapshot.regionSelectValue || '',
       fileName: session.state?.fileName || previousSnapshot.fileName || 'venn.graph',
-      fileHandle: session.managers?.fileHandle || previousSnapshot.fileHandle || null
     });
     session.state = createDefaultVennDurableState({
       ...(session.state || {}),
@@ -3152,7 +3158,6 @@
       lastSignificance: state.analysis.lastSignificance ? { ...state.analysis.lastSignificance } : null,
       regionSelectValue: state.ui.regionSelect ? state.ui.regionSelect.value || '' : '',
       fileName: state.persistence.fileName || 'venn.graph',
-      fileHandle: state.persistence.fileHandle || null
     };
     return snapshot;
   }
@@ -3193,7 +3198,7 @@
       ...rawStyle,
       upset: { ...defaultStyle.upset, ...(rawStyle.upset || {}) }
     };
-    state.ui.activeColorScheme = String(style.colorScheme || '').trim().toLowerCase() || 'scientific';
+    state.ui.activeColorScheme = String(style.colorScheme || '').trim().toLowerCase() || 'normal';
     const plotType = normalizePlotType(style.plotType || DEFAULT_PLOT_TYPE);
     syncPlotMode(plotType, { updateTitle: false, restoreAspectLock: true });
     importFontStyles('venn', style.fontStyles || null);
@@ -3249,7 +3254,6 @@
       }
     }
     state.persistence.fileName = snapshot.fileName || state.persistence.fileName;
-    state.persistence.fileHandle = snapshot.fileHandle || null;
     refreshDiagram({ renderImpact: 'structural', reason: 'venn-snapshot-restore' });
     if(state.ui.regionSelect){
       const targetValue = snapshot.regionSelectValue || '';
@@ -3298,6 +3302,32 @@
     return next;
   }
 
+  function persistVennSpeciesDetectionEntry(owner, cacheKey, entry){
+    const tabId = String(owner?.tabId || owner?.session?.tabId || '').trim();
+    if(!tabId || !owner?.session || !isVennCallbackOwnerCurrent(owner)){
+      return false;
+    }
+    const session = getVennSession(tabId, {
+      tabId,
+      reason: 'venn-species-cache-owner-write'
+    }, { create: false });
+    if(session !== owner.session){
+      return false;
+    }
+    const runtime = cloneVennRuntimeSnapshot(session.state?.runtime);
+    if(!runtime){
+      return false;
+    }
+    const cacheEntries = restoreMapEntries(runtime.analysis.speciesDetection.cacheEntries);
+    cacheEntries.set(cacheKey, cloneSimple(entry) || entry);
+    runtime.analysis.speciesDetection.cacheEntries = cloneMapEntries(cacheEntries);
+    rememberVennOwnedRuntimeRecord(tabId, runtime, {
+      tabId,
+      reason: 'venn-species-cache-owner-write'
+    });
+    return true;
+  }
+
 
 
 
@@ -3308,7 +3338,6 @@
 
   function resetVennRuntimeState(){
     cancelPendingSpeciesDetection('runtime-reset', { abortActive: true, resetIndicator: false });
-    state.persistence.fileHandle = null;
     state.persistence.fileName = 'venn.graph';
     clearVennDerivedCaches('runtime-reset');
     state.analysis.significanceCache = null;
@@ -3330,7 +3359,6 @@
     const detection = getSpeciesDetectionState();
     return {
       persistence: {
-        fileHandle: state.persistence.fileHandle || null,
         fileName: state.persistence.fileName || 'venn.graph'
       },
       analysis: {
@@ -3363,7 +3391,6 @@
     const ui = next.ui && typeof next.ui === 'object'
       ? next.ui
       : {};
-    state.persistence.fileHandle = persistence.fileHandle || null;
     state.persistence.fileName = persistence.fileName || 'venn.graph';
     clearVennDerivedCaches('runtime-apply');
     state.analysis.significanceCache = analysis.significanceCache ? cloneSimple(analysis.significanceCache) : null;
@@ -3527,7 +3554,6 @@
     if(normalizeValue(a.significanceHtml) !== normalizeValue(b.significanceHtml)) return false;
     if(normalizeValue(a.regionSelectValue) !== normalizeValue(b.regionSelectValue)) return false;
     if(normalizeValue(a.fileName) !== normalizeValue(b.fileName)) return false;
-    if(a.fileHandle !== b.fileHandle) return false;
     const sigA = a.lastSignificance || null;
     const sigB = b.lastSignificance || null;
     if(sigA || sigB){
@@ -4974,6 +5000,7 @@
         rawSize,
         width: effectiveWidth,
         height: effectiveHeight,
+        zoomScale: 1,
         defaultWidth,
         defaultHeight,
         svgBox,
@@ -5910,7 +5937,7 @@
   }
 
   function enableVennTextDrag(el, options = {}) {
-    const stage = state.ui.stage;
+    const stage = options.stage || el?.ownerSVGElement || state.ui.stage;
     if (!el || !stage || typeof Shared.enableLabelDrag !== 'function') return;
     const key = String(options.key || el.dataset?.fontKey || '').trim();
     const owner = getVennCallbackOwner({ target: el, reason: `venn-label-drag-bind:${key || 'label'}` });
@@ -6425,7 +6452,7 @@
     }
     try{
       const guess = allGenes.length
-        ? await guessSpecies(allGenes, { cache: detection.cache, cacheKey })
+        ? await guessSpecies(allGenes, { cache: detection.cache, cacheKey, owner: speciesOwner })
         : null;
       if(!isVennAnalysisRequestCurrent(speciesOwner, requestKind)){
         debugLog('venn analysis organism ignored stale completion', {
@@ -6805,7 +6832,7 @@
       ownerSession.updatedAt = Date.now();
     }
     state.ui.regionList.innerHTML = arr.length ? arr.map(x => `<div class="gene-item">${x}<span class="gene-link" data-gene="${x}">&#128279;</span></div>`).join('') : '(empty)';
-    if (state.ui.copyRegionBtn) { state.ui.copyRegionBtn.style.display = arr.length ? 'block' : 'none'; }
+    if (state.ui.copyRegionBtn) { state.ui.copyRegionBtn.hidden = arr.length === 0; }
     debug('Debug: venn populateRegion rendered list', {
       code,
       geneCount: arr.length,
@@ -6839,10 +6866,23 @@
     if (labelA) labelA.textContent = labels.A;
     if (labelB) labelB.textContent = labels.B;
     if (labelC) labelC.textContent = labels.C;
-    if (labelAB) labelAB.textContent = labels.A + '∩' + labels.B;
-    if (labelAC) labelAC.textContent = labels.A + '∩' + labels.C;
-    if (labelBC) labelBC.textContent = labels.B + '∩' + labels.C;
-    if (labelABC) labelABC.textContent = labels.A + '∩' + labels.B + '∩' + labels.C;
+    if (labelAB) labelAB.textContent = `${labels.A} ∩ ${labels.B}`;
+    if (labelAC) labelAC.textContent = `${labels.A} ∩ ${labels.C}`;
+    if (labelBC) labelBC.textContent = `${labels.B} ∩ ${labels.C}`;
+    if (labelABC) labelABC.textContent = `${labels.A} ∩ ${labels.B} ∩ ${labels.C}`;
+    const numericLabels = {
+      vennNumericLabelAB: `${labels.A} ∩ ${labels.B}`,
+      vennNumericLabelAC: `${labels.A} ∩ ${labels.C}`,
+      vennNumericLabelBC: `${labels.B} ∩ ${labels.C}`,
+      vennNumericLabelABC: `${labels.A} ∩ ${labels.B} ∩ ${labels.C}`,
+      vennNumericCountLabelA: `Count for ${labels.A}`,
+      vennNumericCountLabelB: `Count for ${labels.B}`,
+      vennNumericCountLabelC: `Count for ${labels.C}`
+    };
+    Object.entries(numericLabels).forEach(([id, value]) => {
+      const element = getVennNodeById(id);
+      if (element) element.textContent = value;
+    });
   }
 
   function updateRegionSelect(labels, countsOverride) {
@@ -6852,10 +6892,10 @@
       A: labels.A + ' only',
       B: labels.B + ' only',
       C: labels.C + ' only',
-      AB: labels.A + '∩' + labels.B + ' only',
-      AC: labels.A + '∩' + labels.C + ' only',
-      BC: labels.B + '∩' + labels.C + ' only',
-      ABC: labels.A + '∩' + labels.B + '∩' + labels.C
+      AB: `${labels.A} ∩ ${labels.B} only`,
+      AC: `${labels.A} ∩ ${labels.C} only`,
+      BC: `${labels.B} ∩ ${labels.C} only`,
+      ABC: `${labels.A} ∩ ${labels.B} ∩ ${labels.C}`
     };
     const counts = countsOverride || state.analysis.lastCounts;
     const requiredSets = {
@@ -6889,7 +6929,7 @@
       if (!firstVisibleValue) {
         state.ui.regionSelect.value = '';
         if (state.ui.regionList) state.ui.regionList.textContent = '(empty)';
-        if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
+        if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.hidden = true;
         debug('Debug: venn regionSelect empty after update', { counts }); // Debug: region select no visible options
       } else if (!previousValueVisible) {
         state.ui.regionSelect.value = firstVisibleValue;
@@ -6936,7 +6976,7 @@
     syncStringOverlayControls();
     state.analysis.goPerformed = false;
     state.analysis.stringPerformed = false;
-    if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+    if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = true;
     if(!isProjectingVennSession()){
       clearVennSessionAnalysisResults('venn-analysis-clear', preserveStringOverlay ? { stringOverlay: preservedStringOverlay } : {});
     }
@@ -6958,7 +6998,7 @@
 
   function setGoChartExportVisible(visible) {
     if (state.ui.goChartExport) {
-      state.ui.goChartExport.style.display = visible ? 'flex' : 'none';
+      state.ui.goChartExport.hidden = !visible;
     }
   }
 
@@ -8181,7 +8221,7 @@
     state.ui.stringNetwork.innerHTML = '';
     if (!svgMarkup) {
       state.ui.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
-      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = true;
       return;
     }
     const wrapper = document.createElement('div');
@@ -8189,7 +8229,7 @@
     const svgEl = wrapper.querySelector('svg');
     if (!svgEl) {
       state.ui.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
-      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = true;
       return;
     }
     const scopeAttr = 'data-string-network-scope';
@@ -8231,7 +8271,7 @@
     readStringNetworkBaseViewport(svgEl);
     applyStringOverlayToSvg(svgEl);
     state.ui.stringNetwork.appendChild(svgEl);
-    if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'flex';
+    if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = false;
     scheduleStringNetworkViewport(svgEl, 'venn-string-network-viewport');
     debug('Debug: venn string network sizing applied', {
       viewBox: svgEl.getAttribute('viewBox') || null,
@@ -8739,13 +8779,13 @@
     };
 
     const requests = [
-      { name: `${labels.A}∩${labels.B}`, successes: counts.nA, draws: counts.nB, observed: counts.AB + counts.ABC }
+      { name: `${labels.A} ∩ ${labels.B}`, successes: counts.nA, draws: counts.nB, observed: counts.AB + counts.ABC }
     ];
     if (validation.setCount === 3) {
       requests.push(
-        { name: `${labels.A}∩${labels.C}`, successes: counts.nA, draws: counts.nC, observed: counts.AC + counts.ABC },
-        { name: `${labels.B}∩${labels.C}`, successes: counts.nB, draws: counts.nC, observed: counts.BC + counts.ABC },
-        { name: `${labels.A}∩${labels.B}∩${labels.C}`, successes: counts.AB + counts.ABC, draws: counts.nC, observed: counts.ABC }
+        { name: `${labels.A} ∩ ${labels.C}`, successes: counts.nA, draws: counts.nC, observed: counts.AC + counts.ABC },
+        { name: `${labels.B} ∩ ${labels.C}`, successes: counts.nB, draws: counts.nC, observed: counts.BC + counts.ABC },
+        { name: `${labels.A} ∩ ${labels.B} ∩ ${labels.C}`, successes: counts.AB + counts.ABC, draws: counts.nC, observed: counts.ABC }
       );
     }
     const results = requests.map(request => ({
@@ -8803,7 +8843,6 @@
       overlap: entry.name,
       rawPValue: probabilityDisplayFromLog(entry.rawLogPValue),
       adjustedPValue: probabilityDisplayFromLog(entry.adjustedLogPValue),
-      significant: entry.significant ? 'yes' : 'no'
     }));
     return { valid: true, reason: null, validation, total, counts, results, rows, alpha, cache: significanceCache };
   }
@@ -8850,22 +8889,32 @@
     };
   }
 
-  function calculateSignificance() {
+  function calculateSignificance(ownerSession = null) {
+    const owner = ensureVennSessionOwnershipShape(ownerSession || getActiveVennSessionForState());
+    if(!owner || !isVennSessionActiveForModuleState(owner)){
+      return false;
+    }
     if (!state.analysis.lastCounts || !state.ui.significanceResults) {
       if (state.ui.significanceResults) state.ui.significanceResults.textContent = 'Draw a Venn diagram first.';
-      return;
+      return false;
     }
     ensureInputs();
+    const totalText = String(state.ui.totalGenesInput?.value || '').trim();
+    const universeTotal = Number(totalText);
+    if(!totalText || !Number.isSafeInteger(universeTotal) || universeTotal <= 0){
+      if(state.ui.significanceResults){ state.ui.significanceResults.textContent = 'Enter the reference-universe size to calculate overlap statistics.'; }
+      return false;
+    }
     const labels = getCurrentVennLabelMap();
     const significance = computeVennSignificanceResults(
       state.analysis.lastCounts,
-      Number(state.ui.totalGenesInput.value),
+      universeTotal,
       labels,
       { cache: getSignificanceCache(), statsHelpers: Shared.stats || {}, alpha: getVennStatsAlpha() }
     );
     if (!significance.valid) {
       state.ui.significanceResults.textContent = significance.reason;
-      return;
+      return false;
     }
     const { validation, total, counts, results, alpha } = significance;
     const alphaLabel = Shared.statsInference?.formatLevel?.(alpha) || String(alpha);
@@ -8883,7 +8932,6 @@
           { key: 'overlap', label: 'Overlap', align: 'left' },
           { key: 'rawPValue', label: 'Raw p-value', align: 'right' },
           { key: 'adjustedPValue', label: 'Holm-adjusted p-value', align: 'right' },
-          { key: 'significant', label: 'Significant', align: 'center' }
         ],
         rows,
         caption: 'Overlap enrichment significance (hypergeometric test)',
@@ -8894,9 +8942,30 @@
         options: { fileName: 'venn-significance', contextLabel: 'venn-significance' }
       });
     } else {
-      state.ui.significanceResults.innerHTML = '<table><caption>Overlap enrichment significance (hypergeometric test)</caption><tr><th>Overlap</th><th>Raw p-value</th><th>Holm-adjusted p-value</th><th>Significant</th></tr>'
-        + rows.map(row => `<tr><td>${row.overlap}</td><td>${probabilityDisplayFromLog(results.find(entry => entry.name === row.overlap)?.rawLogPValue)}</td><td>${probabilityDisplayFromLog(results.find(entry => entry.name === row.overlap)?.adjustedLogPValue)}</td><td>${row.significant}</td></tr>`).join('')
-        + `</table><p class="stats-footnote">Family-wise significance level: Holm-adjusted p ≤ ${alphaLabel} across the displayed overlap family.<br>Test: One-sided hypergeometric overlap enrichment.</p>`;
+      const table = document.createElement('table');
+      table.className = 'stats-table stats-table--fallback';
+      const caption = table.createCaption();
+      caption.textContent = 'Overlap enrichment significance (hypergeometric test)';
+      const head = table.createTHead().insertRow();
+      ['Overlap', 'Raw p-value', 'Holm-adjusted p-value'].forEach(label => {
+        const cell = document.createElement('th');
+        cell.textContent = label;
+        head.appendChild(cell);
+      });
+      const body = table.createTBody();
+      rows.forEach(row => {
+        const result = results.find(entry => entry.name === row.overlap);
+        const cells = [row.overlap, probabilityDisplayFromLog(result?.rawLogPValue), probabilityDisplayFromLog(result?.adjustedLogPValue)];
+        const tableRow = body.insertRow();
+        cells.forEach(value => {
+          const cell = tableRow.insertCell();
+          cell.textContent = String(value ?? '');
+        });
+      });
+      const note = document.createElement('p');
+      note.className = 'stats-table-footnotes';
+      note.textContent = `Family-wise significance level: Holm-adjusted p ≤ ${alphaLabel} across the displayed overlap family. Test: One-sided hypergeometric overlap enrichment.`;
+      state.ui.significanceResults.append(table, note);
     }
     if (Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function') {
       const best = results.reduce((current, entry) => (!current || entry.adjustedLogPValue < current.adjustedLogPValue ? entry : current), null);
@@ -8904,7 +8973,7 @@
         methodsText: `Venn overlap enrichment was tested with one-sided upper-tail hypergeometric tests using a user-specified universe size of ${total}. Set sizes and overlap counts came from the currently drawn ${validation.setCount === 3 ? 'three-set' : 'two-set'} Venn diagram. The displayed family was adjusted with Holm's method and interpreted at family-wise α = ${alphaLabel} (Holm-adjusted p ≤ ${alphaLabel}).`,
         resultsText: [
           `${results.length} overlap enrichment test${results.length === 1 ? ' was' : 's were'} evaluated.`,
-          best ? `Smallest Holm-adjusted p-value: ${best.name}, ${formatProbabilityExpressionFromLog(best.adjustedLogPValue, 'adjusted p')}.` : null
+          best ? `Overlap ${best.name} had the smallest Holm-adjusted p-value (${formatProbabilityExpressionFromLog(best.adjustedLogPValue, 'p')}).` : null
         ].filter(Boolean).join(' '),
         figureSummary: buildVennFigureSummary(significance),
         analysisSpec: {
@@ -8954,18 +9023,25 @@
         significant: entry.significant
       }))
     };
-    const significanceSession = ensureVennSessionOwnershipShape(projectedVennSession || getActiveVennSessionForState());
+    syncVennPlotStatsControlAvailability();
+    const significanceSession = owner;
     captureVennSignificancePanelModel(null, significanceSession);
     captureVennSessionStateFromActive(significanceSession, { reason: 'venn-significance-calculated' });
+    requestScheduledDraw('venn-significance-calculated', null, { renderImpact: 'paint' });
     debugLog('calculateSignificance complete', { total, overlaps: results.length, countsSignature });
+    return true;
   }
 
   async function guessSpecies(genes, options = {}) {
     const detection = getSpeciesDetectionState();
-    const { signal, cache = detection?.cache, cacheKey } = options || {};
+    const { signal, cache = detection?.cache, cacheKey, owner } = options || {};
     const geneList = Array.isArray(genes) ? genes : [];
     if (cache && cacheKey && cache.has(cacheKey)) {
       const cached = cache.get(cacheKey);
+      persistVennSpeciesDetectionEntry(owner, cacheKey, cached || {
+        guess: null,
+        geneCount: geneList.length
+      });
       debug('Debug: venn guessSpecies cache hit', { cacheKey, geneCount: geneList.length }); // Debug: guess cache hit
       return cached?.guess ?? null;
     }
@@ -9017,7 +9093,9 @@
     const [best, bestScore] = Object.entries(counts).reduce((m, e) => e[1] > m[1] ? e : m, ['', 0]);
     const guess = total === 0 || (bestScore / (total || 1)) < 0.6 ? null : best;
     if (cache && cacheKey && !cache.has(cacheKey)) {
-      cache.set(cacheKey, { guess, geneCount: geneList.length });
+      const entry = { guess, geneCount: geneList.length };
+      cache.set(cacheKey, entry);
+      persistVennSpeciesDetectionEntry(owner, cacheKey, entry);
       debug('Debug: venn guessSpecies cache stored', { cacheKey, guess }); // Debug: guess cache store
     }
     return guess;
@@ -9100,7 +9178,12 @@
         setSpeciesIndicator(null);
       }
       try {
-        const guess = await guessSpecies(genes, { signal: controller.signal, cache: detection.cache, cacheKey });
+        const guess = await guessSpecies(genes, {
+          signal: controller.signal,
+          cache: detection.cache,
+          cacheKey,
+          owner
+        });
         const entry = detection.cache.get(cacheKey) || { guess, geneCount: genes.length };
         if (!detection.cache.has(cacheKey)) {
           detection.cache.set(cacheKey, entry);
@@ -9229,6 +9312,7 @@
   function createDefaultVennControlConfig(){
     return {
       caseSensitive: false,
+      showPlotStats: false,
       goUseAllBackground: false,
       goCategories: { biologicalProcess: true, molecularFunction: true, cellularComponent: true },
       stringNetworkType: 'full',
@@ -9245,6 +9329,7 @@
     const stringSources = checkedValues('.stringSource');
     return {
       caseSensitive: !!state.ui.inputs?.caseSensitive?.checked,
+      showPlotStats: !!state.ui.showPlotStats?.checked,
       goUseAllBackground: !!state.ui.goUseAllBackground?.checked,
       goCategories: {
         biologicalProcess: goCategories.has('GO:BP'),
@@ -9266,6 +9351,7 @@
     config.goCategories = { ...createDefaultVennControlConfig().goCategories, ...(config.goCategories || {}) };
     config.stringSources = { ...createDefaultVennControlConfig().stringSources, ...(config.stringSources || {}) };
     if(state.ui.inputs?.caseSensitive) state.ui.inputs.caseSensitive.checked = !!config.caseSensitive;
+    if(state.ui.showPlotStats) state.ui.showPlotStats.checked = !!config.showPlotStats;
     if(state.ui.goUseAllBackground) state.ui.goUseAllBackground.checked = !!config.goUseAllBackground;
     const goKeys = { 'GO:BP': 'biologicalProcess', 'GO:MF': 'molecularFunction', 'GO:CC': 'cellularComponent' };
     state.ui.goCategoryChecks.forEach(input => { input.checked = !!config.goCategories[goKeys[input.value]]; });
@@ -9422,7 +9508,7 @@
         if (isVennAnalysisOwnerActive(owner)) {
           if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
           if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>No genes for analysis</i>';
-          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = true;
         }
         return;
       }
@@ -9431,7 +9517,7 @@
         if (isVennAnalysisOwnerActive(owner)) {
           if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
           if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Please select a species before running STRING analysis.</div>';
-          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = true;
         }
         return;
       }
@@ -9448,7 +9534,7 @@
           state.analysis.lastStringSVG = null;
           if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>STRING services unavailable.</div>';
           if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>STRING services unavailable.</div>';
-          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = true;
         }
         return;
       }
@@ -9461,7 +9547,7 @@
       if (isVennAnalysisOwnerActive(owner)) {
         if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<i>Loading STRING network...</i>';
         if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>Running STRING enrichment...</i>';
-        if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+        if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = true;
         state.analysis.stringPerformed = true;
         state.analysis.activeResultsTab = activeResultsTab;
         updateAnalysisResultsVisibility();
@@ -9514,7 +9600,7 @@
           state.analysis.lastStringSVG = null;
           state.analysis.lastStringEnrichment = null;
           if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
-          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.hidden = true;
           updateAnalysisResultsVisibility();
         }
       }
@@ -9952,7 +10038,7 @@
     return { width: box.width, height: box.height };
   }
 
-  function fitAndDraw(d, style, labels, counts) {
+  function fitAndDraw(d, style, labels, counts, drawOptions = {}) {
     const metrics = configureStage(style);
     if (!metrics) return;
     const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, fontFamily, textColor } = metrics;
@@ -9989,7 +10075,9 @@
         textColor
       )
     ]));
-    const layoutOwner = getVennProjectionSession({ reason: 'venn-diagram-layout' });
+    const layoutOwner = drawOptions?.tabId
+      ? getVennSession(drawOptions.tabId, { tabId: drawOptions.tabId, reason: 'venn-diagram-layout' }, { create: false })
+      : getVennProjectionSession({ reason: 'venn-diagram-layout' });
     const diagramLayout = resolveVennDiagramLayoutForSession(layoutOwner, {
       stageWidth,
       stageHeight: stageHeight + titleAdditionalExtent,
@@ -10025,16 +10113,7 @@
         'stroke-width': strokeWidth,
         'data-venn-trace-id': c.id
       });
-      circle.setAttribute('cursor', 'pointer');
-      circle.addEventListener('click', (event) => {
-        if (event && typeof event.stopPropagation === 'function') {
-          event.stopPropagation();
-        }
-        showVennTraceSymbolToolbar(circle, {
-          traceId: c.id,
-          fallback: fallbackStyle
-        });
-      });
+      bindVennTraceFormatInteraction(circle, stage, drawOptions?.tabId || getVennProjectionTabId(), fallbackStyle);
     }
     function addText(txt, x, y, regionCode, meta) {
       const t = makeEl('text', {
@@ -11066,6 +11145,7 @@
         'stroke-width': clampNumber(intersectionStyle.borderWidth, barBorderWidth, 0),
         'data-upset-trace-kind': 'intersectionBars',
         'data-upset-trace-id': entry.code,
+        'data-upset-keyboard-mark': 'true',
         cursor: canSelectEntry ? 'pointer' : 'default'
       });
       const barTitle = document.createElementNS(NS, 'title');
@@ -11073,44 +11153,12 @@
       barTitle.textContent = `${entryLabel}: ${formatCount(entry.size)}`;
       bar.appendChild(barTitle);
       if (!resizePreview) {
-        if (canSelectEntry) {
-          bar.addEventListener('click', (event) => {
-            if (event && typeof event.stopPropagation === 'function') {
-              event.stopPropagation();
-            }
-            if (state.ui.regionSelect) {
-              state.ui.regionSelect.value = entry.code;
-              populateRegion(entry.code);
-              syncActiveVennPayload('venn-upset-select');
-            }
-            showUpSetTraceSymbolToolbar(bar, {
-              kind: 'intersectionBars',
-              traceId: entry.code,
-              fallback: {
-                fill: settings.barColor,
-                borderColor: barBorderColor,
-                borderWidth: barBorderWidth,
-                opacity: style.opacity
-              }
-            });
-          });
-        } else {
-          bar.addEventListener('click', (event) => {
-            if (event && typeof event.stopPropagation === 'function') {
-              event.stopPropagation();
-            }
-            showUpSetTraceSymbolToolbar(bar, {
-              kind: 'intersectionBars',
-              traceId: entry.code,
-              fallback: {
-                fill: settings.barColor,
-                borderColor: barBorderColor,
-                borderWidth: barBorderWidth,
-                opacity: style.opacity
-              }
-            });
-          });
-        }
+        bindUpSetTraceFormatInteraction(bar, stage, drawOptions?.tabId || ownerSession?.tabId, {
+          fill: settings.barColor,
+          borderColor: barBorderColor,
+          borderWidth: barBorderWidth,
+          opacity: style.opacity
+        });
       }
       if (settings.showCounts) {
         const valueText = makeEl('text', {
@@ -11170,29 +11218,16 @@
           opacity: clampNumber(matrixStyle.opacity, activeMarkOpacity, 0, 1),
           cursor: 'pointer',
           'data-upset-trace-kind': 'matrix',
-          'data-upset-trace-id': entry.code
+          'data-upset-trace-id': entry.code,
+          'data-upset-keyboard-mark': 'true'
         });
         if (!resizePreview) {
-          activeGroup.addEventListener('click', (event) => {
-            if (event && typeof event.stopPropagation === 'function') {
-              event.stopPropagation();
-            }
-            if (canSelectEntry && state.ui.regionSelect) {
-              state.ui.regionSelect.value = entry.code;
-              populateRegion(entry.code);
-              syncActiveVennPayload('venn-upset-select');
-            }
-            showUpSetTraceSymbolToolbar(activeGroup, {
-              kind: 'matrix',
-              traceId: entry.code,
-              fallback: {
-                fill: activeColor,
-                borderColor: activeColor,
-                borderWidth: 0,
-                opacity: activeMarkOpacity,
-                size: settings.dotSize
-              }
-            });
+          bindUpSetTraceFormatInteraction(activeGroup, stage, drawOptions?.tabId || ownerSession?.tabId, {
+            fill: activeColor,
+            borderColor: activeColor,
+            borderWidth: 0,
+            opacity: activeMarkOpacity,
+            size: settings.dotSize
           });
         }
 
@@ -11278,23 +11313,15 @@
         'stroke-width': clampNumber(setBarStyle.borderWidth, barBorderWidth, 0),
         cursor: 'pointer',
         'data-upset-trace-kind': 'setBars',
-        'data-upset-trace-id': set.key
+        'data-upset-trace-id': set.key,
+        'data-upset-keyboard-mark': 'true'
       });
       if (!resizePreview) {
-        setBar.addEventListener('click', (event) => {
-          if (event && typeof event.stopPropagation === 'function') {
-            event.stopPropagation();
-          }
-          showUpSetTraceSymbolToolbar(setBar, {
-            kind: 'setBars',
-            traceId: set.key,
-            fallback: {
-              fill: barFill,
-              borderColor: barBorderColor,
-              borderWidth: barBorderWidth,
-              opacity: style.opacity
-            }
-          });
+        bindUpSetTraceFormatInteraction(setBar, stage, drawOptions?.tabId || ownerSession?.tabId, {
+          fill: barFill,
+          borderColor: barBorderColor,
+          borderWidth: barBorderWidth,
+          opacity: style.opacity
         });
       }
       if (settings.showSetCounts) {
@@ -11467,6 +11494,66 @@
     }
   }
 
+  function renderVennPlotStats(drawOptions = {}, counts = state.analysis.lastCounts){
+    const tabId = String(drawOptions?.tabId || getVennProjectionTabId() || '').trim();
+    const owner = tabId
+      ? getVennSession(tabId, { tabId, reason: 'venn-plot-stats-render' }, { create: false })
+      : null;
+    const stage = state.ui.stage;
+    if(!owner || !stage || !isVennSessionActiveForModuleState(owner)){
+      return null;
+    }
+    const payload = owner.state?.snapshot?.payload || null;
+    const significance = owner.results?.lastSignificance || null;
+    const currentTotal = Number(payload?.analysis?.totalGenes ?? owner.state?.snapshot?.totalGenes ?? significance?.total);
+    const currentAlpha = getVennStatsAlpha();
+    if(payload?.config?.showPlotStats !== true
+      || !significance
+      || significance.countsSignature !== makeCountsSignature(counts)
+      || Number(significance.total) !== currentTotal
+      || Number(significance.alpha) !== Number(currentAlpha)){
+      return null;
+    }
+    const results = Array.isArray(significance.results) ? significance.results : [];
+    const overlapCodes = results.length === 1
+      ? ['A∩B']
+      : ['A∩B', 'A∩C', 'B∩C', 'A∩B∩C'];
+    const lines = results.map((result, index) => (
+      `${overlapCodes[index] || result.name}: Holm p ${probabilityDisplayFromLog(result.adjustedLogPValue)}`
+    ));
+    const metrics = resolveVennStageDimensions(stage);
+    const frame = { originX: 0, originY: 0, width: metrics.width, height: metrics.height };
+    const baseFont = resolveFontInfo(state.ui.inputs?.fontsize?.value || 12);
+    const fontMetrics = chartStyle.resolveStatsAnnotationFontMetrics(baseFont.scaledPx || baseFont.px || 12, {
+      styles: exportFontStyles('venn')
+    });
+    const fontSize = fontMetrics.fontSizePx;
+    const savedPositions = normalizeVennLabelPositions(owner.state?.labelPositions || payload?.style?.labelPositions);
+    const position = chartStyle.resolveStatsAnnotationPosition(
+      savedPositions.stats,
+      { x: 8, y: fontSize + 8 },
+      frame
+    );
+    return chartStyle.renderStatsAnnotation(stage, {
+      lines,
+      x: position.x,
+      y: position.y,
+      textAnchor: 'start',
+      fontSize,
+      fontSpec: fontMetrics.fontSpec,
+      fill: stage.getAttribute('color') || chartStyle.TEXT_COLOR,
+      fontScopeId: 'venn',
+      tabId,
+      dataAttributes: { 'venn-plot-stats': '1' },
+      onDragEnd: next => {
+        runVennOwnedCallback(owner, activeOwner => {
+          const saved = chartStyle.captureStatsAnnotationPosition(next, frame);
+          patchVennLabelPosition(activeOwner.session, 'stats', saved, { reason: 'venn-plot-stats-position' });
+        }, { target: stage, reason: 'venn-plot-stats-position' });
+      }
+    });
+  }
+
   function drawFromLists(drawOptions = {}) {
     drawOptions = sanitizeVennScheduleOptions(drawOptions || {}, getActiveVennSessionForState());
     const resizePreview = drawOptions?.resizePhase === 'move';
@@ -11489,6 +11576,7 @@
       AB: regions.AB.size, AC: regions.AC.size, BC: regions.BC.size, ABC: regions.ABC.size
     };
     state.analysis.lastCounts = counts;
+    syncVennPlotStatsControlAvailability();
     if (!resizePreview) {
       const countsSignature = makeCountsSignature(counts);
       const lastSig = state.analysis.lastSignificance;
@@ -11497,6 +11585,7 @@
         if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
         state.analysis.lastSignificance = null;
         state.analysis.significancePanelModel = null;
+        if(state.ui.statsStatus){ state.ui.statsStatus.textContent = 'Data changed. Calculate statistics to update overlap results.'; }
         debugLog('significance invalidated after list draw', { countsSignature, hadPrevious: !!lastSig });
       } else {
         debugLog('significance preserved after list draw', { countsSignature });
@@ -11552,8 +11641,9 @@
       state.analysis.lastUpSetIntersections = null;
       const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
       const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
-      fitAndDraw(L, style, labels, counts);
+      fitAndDraw(L, style, labels, counts, drawOptions);
     }
+    renderVennPlotStats(drawOptions, counts);
     if (!resizePreview) {
       if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
       scheduleSpeciesRecognition('draw-from-lists');
@@ -11593,6 +11683,7 @@
     };
     state.analysis.lastDrawMode = 'numeric';
     state.analysis.lastCounts = counts;
+    syncVennPlotStatsControlAvailability();
     if (!resizePreview) {
       const countsSignature = makeCountsSignature(counts);
       const lastSig = state.analysis.lastSignificance;
@@ -11601,6 +11692,7 @@
         if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
         state.analysis.lastSignificance = null;
         state.analysis.significancePanelModel = null;
+        if(state.ui.statsStatus){ state.ui.statsStatus.textContent = 'Data changed. Calculate statistics to update overlap results.'; }
         debugLog('significance invalidated after numeric draw', { countsSignature, hadPrevious: !!lastSig });
       } else {
         debugLog('significance preserved after numeric draw', { countsSignature });
@@ -11654,8 +11746,9 @@
       state.analysis.lastUpSetRegionMap = null;
       state.analysis.lastUpSetIntersections = null;
       const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
-      fitAndDraw(L, style, labels, counts);
+      fitAndDraw(L, style, labels, counts, drawOptions);
     }
+    renderVennPlotStats(drawOptions, counts);
     if (!resizePreview) {
       if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
       cancelPendingSpeciesDetection('draw-from-numeric', { abortActive: true, resetIndicator: true });
@@ -11738,7 +11831,19 @@
   });
 
   async function refreshDiagram(drawOptions = {}) {
-    drawOptions = sanitizeVennScheduleOptions(drawOptions || {}, getActiveVennSessionForState());
+    const requestedTabId = String(drawOptions?.tabId || '').trim();
+    const ownerSession = requestedTabId
+      ? getVennSession(requestedTabId, { tabId: requestedTabId, reason: 'venn-refresh-owner' }, { create: false })
+      : getActiveVennSessionForState();
+    const ownerTabId = String(ownerSession?.tabId || '').trim();
+    const rootTabId = getVennRootTabId(state.ui.root);
+    if(!ownerSession
+      || !ownerTabId
+      || !isVennSessionActiveForModuleState(ownerSession)
+      || (rootTabId && rootTabId !== ownerTabId)){
+      return false;
+    }
+    drawOptions = sanitizeVennScheduleOptions(drawOptions || {}, ownerSession);
     const resizePreview = drawOptions?.resizePhase === 'move';
     bindVennSessionForTab(getVennProjectionTabId() || null, { reason: 'venn-refresh-bind', root: state.ui.root || null }, { apply: false });
     const inputs = state.ui.inputs;
@@ -11790,7 +11895,7 @@
         clearSVG();
         renderVennEmptyPlotNotice();
         if (state.ui.regionList) state.ui.regionList.innerHTML = '';
-        if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
+        if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.hidden = true;
         state.analysis.lastRegions = null;
         state.analysis.lastUpSetRegionMap = null;
         state.analysis.lastUpSetIntersections = null;
@@ -11883,9 +11988,11 @@
       return false;
     }
     state.ui.svgBox = svgBox;
-    const hasTray = !!svgBox.querySelector?.('.resizer-control-tray');
-    const hasOptions = !!svgBox.querySelector?.('.resizer-options-control');
-    const hasZoom = !!svgBox.querySelector?.('.resizer-zoom-control');
+    const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const hasTray = !!Shared.resizer?.getGraphControlTray?.({ svgBox })
+      || !!svgBox.querySelector?.('.resizer-control-tray');
+    const hasOptions = !!controlsHost.querySelector?.('.resizer-options-control');
+    const hasZoom = !!controlsHost.querySelector?.('.resizer-zoom-control');
     if(hasTray && hasOptions && hasZoom){
       return true;
     }
@@ -11895,6 +12002,7 @@
       allowUnlimitedWidth: true,
       allowUnlimitedHeight: true,
       debugLabel: 'venn',
+      controlsHost,
       ...createVennResizableBoxOptions()
     });
     syncVennAspectControls(reason);
@@ -11904,9 +12012,11 @@
       hadOptions: hasOptions,
       hadZoom: hasZoom
     });
-    return !!svgBox.querySelector?.('.resizer-control-tray')
-      && !!svgBox.querySelector?.('.resizer-options-control')
-      && !!svgBox.querySelector?.('.resizer-zoom-control');
+    const finalTray = Shared.resizer?.getGraphControlTray?.({ svgBox, controlsHost })
+      || svgBox.querySelector?.('.resizer-control-tray');
+    return !!finalTray
+      && !!controlsHost.querySelector?.('.resizer-options-control')
+      && !!controlsHost.querySelector?.('.resizer-zoom-control');
   }
 
   function initLayout(root, options = {}) {
@@ -12188,81 +12298,39 @@
     return nextPayload;
   };
 
-  venn.save = async function () {
-    const payload = getVennGraphPayload();
-    if (!payload) return;
-    debug('Debug: saveVennFile invoked', { hasHandle: !!state.persistence.fileHandle });
-    if (!fileIO || typeof fileIO.saveGraphFile !== 'function') {
-      console.error('saveVennFile missing fileIO.saveGraphFile');
-      return;
+  venn.save = () => global.Main?.fileActions?.save?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+
+  venn.saveAs = () => global.Main?.fileActions?.saveAs?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+
+  const vennTableUiHooks = Shared.hot?.makeTableUiStateHooks?.(() => state.ui.hot || null, 'venn');
+  venn.captureUiState = function captureVennUiState(meta = {}) {
+    const tabId = normalizeVennSessionTabId(meta?.tab || meta?.tabId || null, meta);
+    const rootTabId = getVennRootTabId(state.ui.root);
+    if (tabId && (!canCaptureLiveVennPayloadForTab(tabId) || (rootTabId && rootTabId !== tabId))) {
+      const stored = getVennWorkspaceTab(tabId)?.uiState?.component || null;
+      return stored ? (cloneSimple(stored) || null) : null;
     }
-    const operationSession = projectedVennSession;
-    const result = await fileIO.saveGraphFile({
-      context: 'venn',
-      owner: { component: 'venn', tabId: operationSession?.tabId || getVennProjectionTabId() || null },
-      fileHandle: state.persistence.fileHandle,
-      payload,
-      fileName: state.persistence.fileName,
-      downloadFileName: state.persistence.fileName,
-      setFileHandle: handle => setVennFileHandleForSession(handle, operationSession),
-      setFileName: name => setVennFileNameForSession(name, operationSession)
-    });
-    captureVennSessionStateFromActive(operationSession, { reason: 'venn-save-complete' });
-    debug('Debug: venn.save result', result);
+    const tableState = vennTableUiHooks?.capture?.(meta) || null;
+    return {
+      ...(tableState || {}),
+      numericModeOpen: state.ui.numericModeDetails?.open === true
+    };
+  };
+  venn.applyUiState = function applyVennUiState(uiState = {}, meta = {}) {
+    const savedUiState = uiState && typeof uiState === 'object' ? uiState : {};
+    const tabId = normalizeVennSessionTabId(meta?.tab || meta?.tabId || null, meta);
+    const rootTabId = getVennRootTabId(state.ui.root);
+    if (tabId && (!canCaptureLiveVennPayloadForTab(tabId) || (rootTabId && rootTabId !== tabId))) {
+      return false;
+    }
+    if (state.ui.numericModeDetails) {
+      state.ui.numericModeDetails.open = savedUiState.numericModeOpen === true;
+    }
+    const tableApplied = vennTableUiHooks?.apply?.(savedUiState, { ...meta, tabId }) === true;
+    return tableApplied || !!state.ui.numericModeDetails;
   };
 
-  venn.saveAs = async function () {
-    const payload = getVennGraphPayload();
-    if (!payload) return;
-    debug('Debug: saveAsVennFile invoked', { currentName: state.persistence.fileName });
-    if (!fileIO || typeof fileIO.saveGraphFileAs !== 'function') {
-      console.error('saveAsVennFile missing fileIO.saveGraphFileAs');
-      return;
-    }
-    const operationSession = projectedVennSession;
-    const result = await fileIO.saveGraphFileAs({
-      context: 'venn',
-      owner: { component: 'venn', tabId: operationSession?.tabId || getVennProjectionTabId() || null },
-      payload,
-      fileName: state.persistence.fileName,
-      downloadFileName: state.persistence.fileName,
-      setFileHandle: handle => setVennFileHandleForSession(handle, operationSession),
-      setFileName: name => setVennFileNameForSession(name, operationSession)
-    });
-    captureVennSessionStateFromActive(operationSession, { reason: 'venn-save-as-complete' });
-    debug('Debug: venn.saveAs result', result);
-  };
-
-  venn.open = async function () {
-    debug('Debug: venn open invoked');
-    if (!fileIO || typeof fileIO.openGraphFile !== 'function') {
-      console.error('openVennFile missing fileIO.openGraphFile');
-      return;
-    }
-    const previous = captureVennSnapshot();
-    const operationSession = projectedVennSession;
-    const operationTabId = String(operationSession?.tabId || getVennProjectionTabId() || '').trim() || null;
-    const result = await fileIO.openGraphFile({
-      context: 'venn',
-      owner: { component: 'venn', tabId: operationTabId },
-      setFileHandle: handle => setVennFileHandleForSession(handle, operationSession),
-      setFileName: name => setVennFileNameForSession(name, operationSession),
-      loadFromFile: (file, operation) => venn.loadFromFile(file, {
-        undo: { previous },
-        session: operationSession,
-        operation,
-        tabId: operationTabId
-      }),
-      triggerInput: () => {
-        const input = getVennNodeById('vennGraphFile');
-        if (input) {
-          input.value = '';
-          input.click();
-        }
-      }
-    });
-    debug('Debug: venn.open result', result);
-  };
+  venn.open = () => global.Main?.fileActions?.open?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
 
   function applyVennPayload(obj, meta = {}){
     if(!obj || typeof obj !== 'object'){
@@ -12328,7 +12396,7 @@
     const s = normalizedPayload.style && typeof normalizedPayload.style === 'object'
       ? { ...defaultStyle, ...normalizedPayload.style }
       : defaultStyle;
-    state.ui.activeColorScheme = String(s.colorScheme || '').trim().toLowerCase() || 'scientific';
+    state.ui.activeColorScheme = String(s.colorScheme || '').trim().toLowerCase() || 'normal';
     const notesConfig = (obj.notes && typeof obj.notes === 'object')
       ? obj.notes
       : (s.notes && typeof s.notes === 'object' ? s.notes : null);
@@ -12447,60 +12515,11 @@
       const next = captureVennSnapshot();
       recordVennChange(meta.undoLabel || 'venn:load-file', undoPrevious, next);
     }
+    syncVennPlotStatsControlAvailability();
     captureVennSessionStateFromActive(hydratedSession || projectedVennSession, { reason: meta?.source ? `venn-payload-${meta.source}` : 'venn-payload-apply' });
     debugLog('Debug: venn payload applied', { source: meta.source || 'unknown' });
     return true;
   }
-
-  venn.loadFromFile = function (file, options = {}) {
-    const operationSession = options.session || projectedVennSession;
-    const ownerTabId = String(options?.tabId || options?.operation?.tabId || operationSession?.tabId || '').trim() || null;
-    const ownerIsActive = !ownerTabId || String(getVennProjectionTabId() || '') === ownerTabId;
-    const undoPrevious = options?.undo?.previous || (ownerIsActive ? captureVennSnapshot() : null);
-    const operation = fileIO?.createGraphOpenOperation?.({
-      context: 'venn',
-      owner: { component: 'venn', tabId: ownerTabId },
-      operation: options?.operation
-    }) || options?.operation || null;
-    const applyPayload = obj => {
-      if(typeof fileIO?.routeGraphOpenPayload === 'function'){
-        const routed = fileIO.routeGraphOpenPayload({
-          context: 'venn',
-          component: 'venn',
-          operation,
-          owner: { component: 'venn', tabId: ownerTabId },
-          payload: obj,
-          apply: value => applyVennPayload(value, {
-            source: 'file',
-            tabId: ownerTabId,
-            undoPrevious,
-            recordUndo: true,
-            undoLabel: 'venn:load-file'
-          }),
-          reason: 'venn-graph-file-open'
-        });
-        return routed?.value === true;
-      }
-      const fallbackOwnerIsCurrent = !ownerTabId || String(getVennProjectionTabId() || '') === ownerTabId;
-      return fallbackOwnerIsCurrent && applyVennPayload(obj, {
-        source: 'file',
-        tabId: ownerTabId,
-        undoPrevious,
-        recordUndo: true,
-        undoLabel: 'venn:load-file'
-      });
-    };
-    const reader = new FileReader();
-    reader.onload = e => {
-      try {
-        const obj = JSON.parse(e.target.result);
-        if(!applyPayload(obj)){
-          console.warn('venn payload rejected from file', { hasType: !!obj?.type });
-        }
-      } catch (err) { console.error('loadVennGraph error', err); }
-    };
-    reader.readAsText(file);
-  };
 
   venn.loadFromPayload = function loadVennFromPayload(payload, options = {}){
     const undoPrevious = options?.undo?.previous;
@@ -12594,6 +12613,46 @@
     };
   }
 
+  function createLabelCommitHandler(id) {
+    return function labelCommitHandler(event) {
+      const labelIndex = { labelA: 0, labelB: 1, labelC: 2 }[id];
+      const target = event?.currentTarget || state.ui.inputs?.[id];
+      const hot = state.ui.hot;
+      if (!Number.isInteger(labelIndex) || !target || !hot || typeof hot.setDataAtCell !== 'function') {
+        return;
+      }
+      const label = getNormalizedVennLabel(target.value, labelIndex);
+      target.value = label;
+      const matrix = hot.getData?.() || [];
+      if (getNormalizedVennLabel(matrix[0]?.[labelIndex], labelIndex) !== label) {
+        hot.setDataAtCell([[0, labelIndex, label]], 'venn-set-name-input');
+      }
+      persistActiveVennUserChange(`venn-label-${id}-commit`);
+    };
+  }
+
+  function handleNumericModeToggle(event) {
+    const details = event?.currentTarget || state.ui.numericModeDetails;
+    const rootTabId = getVennRootTabId(state.ui.root);
+    if (details !== state.ui.numericModeDetails
+      || (rootTabId && !canCaptureLiveVennPayloadForTab(rootTabId))) {
+      return;
+    }
+    const activeTabId = getVennActiveTabId();
+    const tab = activeTabId ? getVennWorkspaceTab(activeTabId) : null;
+    const session = global.Main?.session;
+    if (!tab || tab.type !== 'venn' || typeof session?.markTabUserModified !== 'function') {
+      return;
+    }
+    const reason = 'venn-numeric-mode-toggle';
+    session.markTabUserModified(tab, reason, {
+      affectsPayload: false,
+      captureCanonical: false,
+      origin: 'user'
+    });
+    session.persistActiveTabState?.(tab, { reason, origin: 'lifecycle' });
+  }
+
   function handleCaseSensitiveChange(event) {
     requestScheduledDraw('case-sensitive-toggle', 'lists', { renderImpact: 'analysis' });
     persistActiveVennUserChange('venn-case-sensitive-change');
@@ -12645,6 +12704,42 @@
     commitVennUndo(target, 'venn:plot-type');
   }
 
+  function handleVennShowPlotStatsChange(event){
+    const target = event?.currentTarget || event?.target || state.ui.showPlotStats;
+    const owner = getVennCallbackOwner({ event, target, reason: 'venn-show-plot-stats-change' });
+    runVennOwnedCallback(owner, activeOwner => {
+      persistActiveVennUserChange('venn-show-plot-stats-change');
+      scheduleVennDrawForSession(activeOwner.session, {
+        reason: 'venn-show-plot-stats-change',
+        renderImpact: 'paint'
+      });
+      commitVennUndo(target, 'venn:show-plot-stats');
+    }, { event, target, reason: 'venn-show-plot-stats-change' });
+  }
+
+  function handleVennTotalGenesInput(event){
+    const target = event?.currentTarget || event?.target || state.ui.totalGenesInput;
+    const owner = getVennCallbackOwner({ event, target, reason: 'venn-universe-size-change' });
+    runVennOwnedCallback(owner, activeOwner => {
+      const hadSignificance = !!state.analysis.lastSignificance;
+      syncVennPlotStatsControlAvailability();
+      const totalText = String(target?.value || '').trim();
+      const total = Number(totalText);
+      if(hadSignificance && !hasCurrentVennSignificance()){
+        if(totalText && Number.isSafeInteger(total) && total > 0 && state.ui.statsStatus){
+          state.ui.statsStatus.textContent = 'Settings changed. Calculate statistics to update the results.';
+        }
+        persistActiveVennUserChange('venn-universe-size-change');
+        if(state.ui.stage?.querySelector?.('[data-venn-plot-stats="1"]')){
+          scheduleVennDrawForSession(activeOwner.session, {
+            reason: 'venn-universe-size-change',
+            renderImpact: 'paint'
+          });
+        }
+      }
+    }, { event, target, reason: 'venn-universe-size-change' });
+  }
+
   function handleUpSetControlChange(event) {
     const target = event?.currentTarget || null;
     const id = String(target?.id || '');
@@ -12685,8 +12780,19 @@
     syncActiveVennPayload('venn-region-select');
   }
 
-  function handleSpeciesSelectChange() {
-    captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-species-select-change' });
+  function handleSpeciesSelectChange(event) {
+    const owner = getVennCallbackOwner({
+      event,
+      target: event?.currentTarget || state.ui.speciesSelect,
+      reason: 'venn-species-select-change'
+    });
+    if(owner.tabId){
+      cancelPendingSpeciesDetection('manual-species-selection', {
+        abortActive: true,
+        tabId: owner.tabId
+      });
+    }
+    captureVennSessionStateFromActive(owner.session || projectedVennSession, { reason: 'venn-species-select-change' });
     syncActiveVennPayload('venn-species-select');
     debug('Debug: venn handleSpeciesSelectChange', { value: state.ui.speciesSelect?.value || '' });
   }
@@ -12704,13 +12810,33 @@
     debug('Debug: venn handleCopyRegionClick', { length: text.length }); // Debug: copy region length
   }
 
-  function createToggleHandler(targetEl, label) {
+  function createToggleHandler(targetEl, triggerEl, label) {
     return function toggleHandler() {
       if(!targetEl){ return; }
-      const hidden = global.getComputedStyle?.(targetEl).display === 'none';
-      targetEl.style.display = hidden ? 'block' : 'none';
-      debug('Debug: venn toggleHandler', { label, show: hidden }); // Debug: toggle state change
+      targetEl.hidden = !targetEl.hidden;
+      triggerEl?.setAttribute?.('aria-expanded', targetEl.hidden ? 'false' : 'true');
+      debug('Debug: venn toggleHandler', { label, show: !targetEl.hidden }); // Debug: toggle state change
     };
+  }
+
+  function closeVennAnalysisOptionPanels(tab, meta = {}){
+    const tabId = getVennDeactivationTabId(tab, meta);
+    if(!tabId){
+      return false;
+    }
+    const root = resolveVennRoot(tabId);
+    if(!root || String(getVennRootTabId(root) || '') !== String(tabId)){
+      return false;
+    }
+    [['goOptions', 'goOptsBtn'], ['stringOptions', 'stringOptsBtn']].forEach(([panelId, triggerId]) => {
+      const panel = root.querySelector(`#${panelId}`);
+      const trigger = root.querySelector(`#${triggerId}`);
+      if(panel){
+        panel.hidden = true;
+      }
+      trigger?.setAttribute?.('aria-expanded', 'false');
+    });
+    return true;
   }
 
   function createListInputHandler(key) {
@@ -12920,9 +13046,18 @@
     });
   }
 
-  function handleCalcSignificanceClick() {
-    debug('Debug: venn significance click');
-    calculateSignificance();
+  function handleCalcSignificanceClick(event) {
+    const owner = getVennCallbackOwner({ event, target: event?.currentTarget || event?.target || null, reason: 'venn-calculate-statistics' });
+    runVennOwnedCallback(owner, activeOwner => {
+      debug('Debug: venn significance click');
+      if(state.ui.statsStatus){ state.ui.statsStatus.textContent = 'Calculating statistics…'; }
+      const completed = calculateSignificance(activeOwner.session);
+      if(state.ui.statsStatus){
+        state.ui.statsStatus.textContent = completed
+          ? 'Statistics calculated for the current data and settings.'
+          : (state.ui.significanceResults?.textContent || 'Statistics could not be calculated.');
+      }
+    }, { event, target: event?.currentTarget || event?.target || null, reason: 'venn-calculate-statistics' });
   }
 
   async function handleGoButtonClick(event, callbackOwner = null) {
@@ -13001,28 +13136,6 @@
     debug('Debug: venn handleUseNumericClick'); // Debug: numeric draw invocation
   }
 
-  function handleGraphFileChange(e) {
-    const f = e.target.files?.[0] || null;
-    if (f) {
-      const owner = getVennCallbackOwner({
-        event: e,
-        target: e?.currentTarget || e?.target || null,
-        reason: 'venn-graph-file-input'
-      });
-      const operationSession = owner?.session || projectedVennSession;
-      const operationTabId = owner?.tabId || operationSession?.tabId || null;
-      const previous = isVennCallbackOwnerActive(owner) ? captureVennSnapshot() : null;
-      setVennFileNameForSession(f.name, operationSession);
-      setVennFileHandleForSession(null, operationSession);
-      venn.loadFromFile(f, {
-        undo: previous ? { previous } : null,
-        session: operationSession,
-        tabId: operationTabId
-      });
-      debug('Debug: venn handleGraphFileChange', { fileName: f.name, tabId: operationTabId || null }); // Debug: graph file change
-    }
-  }
-
   function handleSampleClick() {
     const previous = captureVennSnapshot();
     const exampleRecord = Shared.exampleDatasets?.get?.('venn');
@@ -13046,6 +13159,7 @@
     refreshDiagram({ renderImpact: 'structural', reason: 'venn-sample-data' });
     scheduleSpeciesRecognition('sample-data');
     captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-sample-data' });
+    Shared.colorSchemes?.applyToActiveTab?.('venn', Shared.colorSchemes?.getDefaultSchemeId?.('venn') || 'normal');
     const next = captureVennSnapshot();
     recordVennChange('venn:sample-data', previous, next);
     debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
@@ -13095,6 +13209,7 @@
     };
     const createVennTableInstance = targetContainer => Shared.hot.createStandardTable(targetContainer, { rows: VENN_DEFAULT_ROWS, cols: 3 }, scheduleVennTableDraw, {
       debugLabel: 'venn',
+      ariaLabel: 'Venn input data table',
       data,
       pinFirstRow: true
     });
@@ -13132,9 +13247,12 @@
       { elements: inputs.borderColor, type: 'input', handler: handleBorderColorInput, label: 'border-color' },
       { elements: inputs.borderWidth, type: 'input', handler: handleBorderWidthInput, label: 'border-width' },
       { elements: inputs.caseSensitive, type: 'change', handler: handleCaseSensitiveChange, label: 'case-sensitive' },
+      { elements: state.ui.numericModeDetails, type: 'toggle', handler: handleNumericModeToggle, label: 'numeric-mode-toggle' },
       { elements: [state.ui.goUseAllBackground, ...state.ui.goCategoryChecks], type: 'change', handler: handleAnalysisOptionChange, label: 'go-options' },
       { elements: Array.from(resolveVennRoot()?.querySelectorAll?.('input[name="stringNetworkType"], input[name="stringEdgeMeaning"], .stringSource') || []), type: 'change', handler: handleAnalysisOptionChange, label: 'string-options' },
       { elements: state.ui.plotType, type: 'change', handler: handlePlotTypeChange, label: 'plot-type' },
+      { elements: state.ui.showPlotStats, type: 'change', handler: handleVennShowPlotStatsChange, label: 'show-plot-stats' },
+      { elements: state.ui.totalGenesInput, type: 'input', handler: handleVennTotalGenesInput, label: 'total-genes-input' },
       { elements: state.ui.upset?.sort, type: 'change', handler: handleUpSetControlChange, label: 'upset-sort' },
       { elements: state.ui.upset?.max, type: 'input', handler: handleUpSetControlChange, label: 'upset-max' },
       { elements: state.ui.upset?.showEmpty, type: 'change', handler: handleUpSetControlChange, label: 'upset-show-empty' },
@@ -13161,10 +13279,6 @@
       { elements: state.ui.goResults, type: 'click', handler: handleGoResultsClick, label: 'go-results' },
       { elements: state.ui.calcSignificanceBtn, type: 'click', handler: handleCalcSignificanceClick, label: 'significance' },
       { elements: state.ui.useNumericBtn, type: 'click', handler: handleUseNumericClick, label: 'use-numeric' },
-      { elements: state.ui.openVennGraphBtn, type: 'click', handler: venn.open, label: 'open-venn' },
-      { elements: state.ui.saveVennGraphBtn, type: 'click', handler: venn.save, label: 'save-venn' },
-      { elements: state.ui.saveAsVennBtn, type: 'click', handler: venn.saveAs, label: 'saveas-venn' },
-      { elements: state.ui.vennGraphFileInput, type: 'change', handler: handleGraphFileChange, label: 'graph-file' },
       { elements: state.ui.sampleBtn, type: 'click', handler: handleSampleClick, label: 'sample' }
     ];
     bindEventHandlers(eventBindings);
@@ -13193,6 +13307,7 @@
     attachUndoLifecycle(inputs.colorC, 'venn:colorC');
     attachUndoLifecycle(inputs.caseSensitive, 'venn:case-sensitive');
     attachUndoLifecycle(state.ui.plotType, 'venn:plot-type');
+    attachUndoLifecycle(state.ui.showPlotStats, 'venn:show-plot-stats');
     attachUndoLifecycle(state.ui.stringOverlayEnabled, 'venn:string-overlay-enabled');
     attachUndoLifecycle(state.ui.stringOverlayThreshold, 'venn:string-overlay-threshold');
     attachUndoLifecycle(state.ui.stringOverlayMode, 'venn:string-overlay-mode');
@@ -13216,6 +13331,7 @@
 
     ['labelA', 'labelB', 'labelC'].forEach(id => {
       bindEventHandlers([{ elements: inputs[id], type: 'input', handler: createLabelInputHandler(id), label: `${id}-input` }]);
+      bindEventHandlers([{ elements: inputs[id], type: 'change', handler: createLabelCommitHandler(id), label: `${id}-commit` }]);
     });
 
     ['A', 'B', 'C'].forEach(key => {
@@ -13227,10 +13343,10 @@
     });
 
     if (state.ui.goOptsBtn && state.ui.goOptions) {
-      bindEventHandlers([{ elements: state.ui.goOptsBtn, type: 'click', handler: createToggleHandler(state.ui.goOptions, 'go-options'), label: 'go-options-toggle' }]);
+      bindEventHandlers([{ elements: state.ui.goOptsBtn, type: 'click', handler: createToggleHandler(state.ui.goOptions, state.ui.goOptsBtn, 'go-options'), label: 'go-options-toggle' }]);
     }
     if (state.ui.stringOptsBtn && state.ui.stringOptions) {
-      bindEventHandlers([{ elements: state.ui.stringOptsBtn, type: 'click', handler: createToggleHandler(state.ui.stringOptions, 'string-options'), label: 'string-options-toggle' }]);
+      bindEventHandlers([{ elements: state.ui.stringOptsBtn, type: 'click', handler: createToggleHandler(state.ui.stringOptions, state.ui.stringOptsBtn, 'string-options'), label: 'string-options-toggle' }]);
     }
 
     if (state.ui.copyRegionBtn && !navigator.clipboard) {
@@ -13377,6 +13493,7 @@
         nABC: $root('#nABC')
       }
     };
+    state.ui.numericModeDetails = $root('#vennNumericMode');
     state.ui.countsUI = {
       A: $root('#countA'),
       B: $root('#countB'),
@@ -13393,9 +13510,11 @@
     state.ui.detectSpeciesBtn = $root('#detectSpeciesBtn');
     state.ui.stringBtn = $root('#stringBtn');
     state.ui.analysisResultsTabs = $root('#analysisResultsTabs');
+    Shared.tabListKeyboard.attach(state.ui.analysisResultsTabs);
     state.ui.analysisTabGo = $root('#analysisTabGo');
     state.ui.analysisTabString = $root('#analysisTabString');
     state.ui.plotType = $root('#vennPlotType');
+    state.ui.showPlotStats = $root('#vennShowPlotStats');
     state.ui.setLimitWarning = $root('#vennSetLimitWarning');
     state.ui.upset = {
       sort: $root('#upsetSort'),
@@ -13427,6 +13546,7 @@
     state.ui.totalGenesInput = $root('#totalGenes');
     state.ui.calcSignificanceBtn = $root('#calcSignificance');
     state.ui.significanceResults = $root('#significanceResults');
+    state.ui.statsStatus = $root('#vennStatsStatus');
     ensureVennStatsInferenceControls();
     state.ui.goCategoryChecks = Array.from(root?.querySelectorAll?.('.goCategory') || []);
     state.ui.goOptsBtn = $root('#goOptsBtn');
@@ -13445,10 +13565,6 @@
     state.ui.stringOverlayStatus = $root('#stringOverlayStatus');
     syncStringOverlayControls();
     state.ui.useNumericBtn = $root('#useNumeric');
-    state.ui.openVennGraphBtn = $root('#openVennGraph');
-    state.ui.saveVennGraphBtn = $root('#saveVennGraph');
-    state.ui.saveAsVennBtn = $root('#saveAsVenn');
-    state.ui.vennGraphFileInput = $root('#vennGraphFile');
     state.ui.sampleBtn = $root('#sample');
     [state.ui.regionSelect, state.ui.speciesSelect, state.ui.plotType, state.ui.upset?.sort]
       .filter(Boolean)
@@ -13617,9 +13733,12 @@
         : getActiveVennSessionForState();
       const normalizedOptions = sanitizeVennScheduleOptions(drawOptions || {}, ownerSession);
       const drawTabId = normalizeVennSessionTabId(normalizedOptions?.tabId || getVennProjectionTabId() || null, normalizedOptions || {});
+      const drawGeneration = Number(ownerSession?.timers?.drawGeneration) || 0;
       let status = 'complete';
       try{
-        return await refreshDiagram(normalizedOptions);
+        const result = await refreshDiagram(normalizedOptions);
+        if(result === false){ status = 'cancelled'; }
+        return result;
       }catch(error){
         status = 'error';
         throw error;
@@ -13627,8 +13746,11 @@
         const owner = drawTabId
           ? getVennSession(drawTabId, { tabId: drawTabId, reason: 'venn-draw-complete' }, { create: false })
           : getActiveVennSessionForState();
-        clearVennPendingDrawState(owner, 'venn-draw-complete');
-        vennOverlayController?.resolve({ reason: 'complete', tabId: drawTabId || getVennProjectionTabId() || null });
+        const isLatestDraw = !owner || Number(owner.timers?.drawGeneration) === drawGeneration;
+        if(isLatestDraw){
+          clearVennPendingDrawState(owner, 'venn-draw-complete');
+          vennOverlayController?.resolve({ reason: status, status, tabId: drawTabId || getVennProjectionTabId() || null });
+        }
         Shared.componentLifecycle?.emitLifecycleEvent?.({
           componentKey: 'venn',
           tabId: drawTabId || getVennProjectionTabId() || null,
@@ -13822,6 +13944,12 @@
 
   function syncVennActivationState(meta = {}){
     const activatedSession = bindVennSessionForTab(meta?.tab || meta?.tabId || getVennProjectionTabId() || null, { ...(meta || {}), root: resolveVennRoot(meta?.tab || meta?.tabId || null) || state.ui.root || null, reason: meta.reason || 'venn-activate-session' }, { apply: true });
+    const activeTabUiState = activatedSession
+      ? getVennWorkspaceTab(activatedSession.tabId)?.uiState?.component || null
+      : null;
+    if(state.ui.numericModeDetails){
+      state.ui.numericModeDetails.open = activeTabUiState?.numericModeOpen === true;
+    }
     if(typeof state.ui.syncPanels === 'function'){
       state.ui.syncPanels({ skipSchedule: true });
       debugLog('tab activated panel sync', {
@@ -13830,6 +13958,7 @@
       });
     }
     ensureVennSvgBoxControls('tab-activation');
+    syncVennPlotStatsControlAvailability();
     syncVennAspectControls('tab-activation', { restoreSavedPreference: true });
     syncVennSetLimitWarning();
     scheduleActiveVennDraw({ renderImpact: 'structural', reason: meta.reason || 'venn-activate-tab' });
@@ -13899,7 +14028,9 @@
     component: venn,
     componentKey: 'venn',
     cancel: (_tab, meta = {}) => {
+      closeVennAnalysisOptionPanels(_tab, meta);
       const owner = captureVennSessionForDeactivation(_tab, meta);
+      bumpVennDrawGeneration(owner);
       cancelVennAnalysisAutoRefresh(owner, meta.reason || 'deactivate-tab');
       clearVennPendingDrawState(owner, meta.reason || 'deactivate-tab');
       cancelPendingSpeciesDetection(meta.reason || 'deactivate-tab', {
@@ -13910,6 +14041,7 @@
     }
   }) || function deactivateTab(_tab, meta = {}){
     const owner = captureVennSessionForDeactivation(_tab, meta);
+    bumpVennDrawGeneration(owner);
     cancelVennAnalysisAutoRefresh(owner, meta.reason || 'deactivate-tab');
     clearVennPendingDrawState(owner, meta.reason || 'deactivate-tab');
     cancelPendingSpeciesDetection(meta.reason || 'deactivate-tab', {
@@ -13927,6 +14059,7 @@
     const tabId = normalizeVennSessionTabId(_tab || meta?.tabId || null, meta);
     if(tabId){
       const owner = getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'dispose-tab' }, { create: false });
+      bumpVennDrawGeneration(owner);
       cancelVennAnalysisAutoRefresh(owner, meta.reason || 'dispose-tab');
       clearVennPendingDrawState(owner, meta.reason || 'dispose-tab');
       cancelPendingSpeciesDetection(meta.reason || 'dispose-tab', {
@@ -14209,20 +14342,61 @@
     }) || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
 
-  function bindVennTraceFormatInteraction(node){
-    if(!node || node.__graphitixVennTraceFormatBound === true){ return false; }
+  function registerVennChartKeyboardMark(stage, node, ownerTabId = null){
+    if(!stage || !node){ return false; }
+    const resolvedOwnerTabId = ownerTabId
+      || stage.dataset?.tabId
+      || stage.dataset?.workspaceTabId
+      || getVennProjectionTabId();
+    Shared.chartPointKeyboard?.attach(stage, {
+      componentKey: 'venn',
+      componentLabel: 'Venn and UpSet',
+      instructions: 'Arrow keys move between interactive graph marks. Enter opens mark formatting.',
+      pointSelector: '[data-venn-trace-id], [data-upset-keyboard-mark="true"]',
+      ownerTabId: resolvedOwnerTabId,
+      getCurrentOwnerTabId: getVennProjectionTabId,
+      describePoint: data => {
+        const kind = data?.kind === 'venn'
+          ? 'Venn set'
+          : data?.kind === 'intersectionBars'
+            ? 'UpSet intersection bar'
+            : data?.kind === 'setBars'
+              ? 'UpSet set-size bar'
+              : 'UpSet intersection matrix mark';
+        return `${kind}${data?.traceId ? ` ${data.traceId}` : ''}`;
+      }
+    });
+    const traceId = node.getAttribute?.('data-venn-trace-id')
+      || node.getAttribute?.('data-upset-trace-id')
+      || '';
+    const kind = node.getAttribute?.('data-venn-trace-id') != null
+      ? 'venn'
+      : node.getAttribute?.('data-upset-trace-kind') || 'matrix';
+    return Shared.chartPointKeyboard?.registerPoint(stage, node, { kind, traceId }) === true;
+  }
+
+  function bindVennTraceFormatInteraction(node, stage = null, ownerTabId = null, fallback = null){
+    if(!node){ return false; }
+    const plotRoot = stage || node.closest?.('#stage') || getVennNodeById('stage', ownerTabId);
+    registerVennChartKeyboardMark(plotRoot, node, ownerTabId);
+    if(node.__graphitixVennTraceFormatBound === true){ return false; }
     node.setAttribute?.('cursor', 'pointer');
     node.addEventListener('click', event => {
       try{ event.stopPropagation(); }catch(_err){}
       const traceId = node.getAttribute?.('data-venn-trace-id') || null;
-      showVennTraceSymbolToolbar(node, { traceId });
+      showVennTraceSymbolToolbar(node, { traceId, fallback });
     });
     node.__graphitixVennTraceFormatBound = true;
     return true;
   }
 
-  function bindUpSetTraceFormatInteraction(node){
-    if(!node || node.__graphitixUpSetTraceFormatBound === true){ return false; }
+  function bindUpSetTraceFormatInteraction(node, stage = null, ownerTabId = null, fallback = null){
+    if(!node){ return false; }
+    const plotRoot = stage || node.closest?.('#stage') || getVennNodeById('stage', ownerTabId);
+    if(node.getAttribute?.('data-upset-keyboard-mark') === 'true'){
+      registerVennChartKeyboardMark(plotRoot, node, ownerTabId);
+    }
+    if(node.__graphitixUpSetTraceFormatBound === true){ return false; }
     node.setAttribute?.('cursor', 'pointer');
     node.addEventListener('click', event => {
       try{ event.stopPropagation(); }catch(_err){}
@@ -14236,7 +14410,7 @@
           syncActiveVennPayload('venn-upset-select');
         }
       }
-      showUpSetTraceSymbolToolbar(node, { kind, traceId });
+      showUpSetTraceSymbolToolbar(node, { kind, traceId, fallback });
     });
     node.__graphitixUpSetTraceFormatBound = true;
     return true;
@@ -14249,9 +14423,23 @@
     if(!owner || !stage){ return false; }
     const axesReady = axisControls?.rehydrateAxisElements?.(stage, axis => createUpSetAxisControlConfig(axis, owner)) !== false;
     const textReady = rehydrateVennInlineTextInteractions(stage, owner);
-    stage.querySelectorAll?.('[data-venn-trace-id]').forEach(bindVennTraceFormatInteraction);
-    stage.querySelectorAll?.('[data-upset-trace-kind][data-upset-trace-id]').forEach(bindUpSetTraceFormatInteraction);
-    return axesReady && textReady;
+    const labelDragReady = Array.from(stage.querySelectorAll?.('[data-keyboard-movable="label"]') || []).every(node => {
+      enableVennTextDrag(node, {
+        stage,
+        key: node.dataset?.fontKey || node.getAttribute?.('data-font-key') || ''
+      });
+      return node.__graphitixLabelDragBinding?.svg === stage;
+    });
+    stage.querySelectorAll?.('[data-venn-trace-id]').forEach(node => bindVennTraceFormatInteraction(node, stage, owner.tabId));
+    stage.querySelectorAll?.('[data-upset-trace-kind][data-upset-trace-id]').forEach(node => {
+      const kind = node.getAttribute?.('data-upset-trace-kind');
+      const localName = String(node.localName || node.tagName || '').toLowerCase();
+      const isKeyboardMark = ((kind === 'intersectionBars' || kind === 'setBars') && localName === 'rect')
+        || (kind === 'matrix' && localName === 'g');
+      if(isKeyboardMark){ node.setAttribute('data-upset-keyboard-mark', 'true'); }
+      bindUpSetTraceFormatInteraction(node, stage, owner.tabId);
+    });
+    return axesReady && textReady && labelDragReady;
   };
 
   venn.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
@@ -14379,6 +14567,7 @@
     const owner = tabId
       ? getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'venn-draw-cancel' }, { create: false })
       : getActiveVennSessionForState();
+    bumpVennDrawGeneration(owner);
     try{ venn.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'venn-draw-cancel'); }catch(_err){}
     cancelVennAnalysisAutoRefresh(owner, meta?.reason || 'venn-draw-cancel');
     clearVennPendingDrawState(owner, meta?.reason || 'venn-draw-cancel');

@@ -546,6 +546,8 @@
     const precision = Number.isInteger(opts.precision) ? opts.precision : 3;
     const stats = {
       removedDataAttrs: 0,
+      removedChartPointKeyboardAttrs: 0,
+      removedChartPointNavigationAttrs: 0,
       removedCursorStyles: 0,
       removedCursorAttrs: 0,
       removedFillOpacityOnes: 0,
@@ -636,6 +638,37 @@
 
     // Remove data-* attributes
     const all = svgNode.querySelectorAll('*');
+    const chartPointKeyboardNodes = svgNode.querySelectorAll('[data-chart-point-keyboard="true"]');
+    for(let i = 0; i < chartPointKeyboardNodes.length; i += 1){
+      const node = chartPointKeyboardNodes[i];
+      ['tabindex', 'role', 'aria-label'].forEach(name => {
+        if(node.hasAttribute(name)){
+          node.removeAttribute(name);
+          stats.removedChartPointKeyboardAttrs += 1;
+        }
+      });
+    }
+    const chartPointNavigationRoots = Array.from(svgNode.querySelectorAll('.chart-point-navigation-root'));
+    if(svgNode.matches?.('.chart-point-navigation-root')){
+      chartPointNavigationRoots.unshift(svgNode);
+    }
+    for(let i = 0; i < chartPointNavigationRoots.length; i += 1){
+      const node = chartPointNavigationRoots[i];
+      const isHeatmapHitLayer = node.getAttribute?.('data-heatmap-cell-hit-layer') === '1';
+      Array.from(node.attributes || []).forEach(attribute => {
+        const name = String(attribute?.name || '').toLowerCase();
+        const isKeyboardOnly = name === 'tabindex'
+          || name === 'aria-description'
+          || name === 'aria-keyshortcuts';
+        const isHitLayerSemantics = isHeatmapHitLayer
+          && (name === 'role' || name.startsWith('aria-'));
+        if(!isKeyboardOnly && !isHitLayerSemantics){
+          return;
+        }
+        node.removeAttribute(attribute.name);
+        stats.removedChartPointNavigationAttrs += 1;
+      });
+    }
     for (let i = 0; i < all.length; i += 1) {
       const node = all[i];
       if (!node || !node.getAttribute) continue;
@@ -3685,57 +3718,30 @@
     };
   }
 
-  function ensureDarkBackgroundRectForExport(svgNode, counters) {
-    if (!svgNode || typeof svgNode.getAttribute !== 'function') {
-      return false;
-    }
-    const schemeId = String(svgNode.getAttribute('data-color-scheme') || '').trim().toLowerCase();
-    if (schemeId !== 'dark') {
-      return false;
-    }
-    const viewport = parseExportViewport(svgNode);
-    if (!(Number.isFinite(viewport.width) && viewport.width > 0 && Number.isFinite(viewport.height) && viewport.height > 0)) {
-      return false;
-    }
-    const bgColor = String(svgNode.getAttribute('data-color-scheme-bg-color') || '#000000').trim() || '#000000';
-    let bgRect = svgNode.querySelector ? svgNode.querySelector('[data-color-scheme-background="1"]') : null;
-    if (!bgRect && svgNode.ownerDocument && typeof svgNode.ownerDocument.createElementNS === 'function') {
-      bgRect = svgNode.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      bgRect.setAttribute('data-color-scheme-background', '1');
-      bgRect.setAttribute('data-export-injected-background', '1');
-      bgRect.setAttribute('pointer-events', 'none');
-      let reference = null;
-      const children = Array.from(svgNode.childNodes || []);
-      for (let i = 0; i < children.length; i += 1) {
-        const child = children[i];
-        if (!child || child.nodeType !== 1 || child === bgRect) continue;
-        const tag = String(child.nodeName || '').toLowerCase();
-        if (tag === 'defs' || tag === 'style' || tag === 'title' || tag === 'desc' || tag === 'metadata') {
-          continue;
-        }
-        reference = child;
-        break;
-      }
-      if (reference) {
-        svgNode.insertBefore(bgRect, reference);
-      } else {
-        svgNode.insertBefore(bgRect, svgNode.firstChild || null);
-      }
-      if (counters) {
-        counters.darkBackgroundInjected = (counters.darkBackgroundInjected || 0) + 1;
-      }
-    }
-    if (!bgRect) {
-      return false;
-    }
-    bgRect.setAttribute('x', String(viewport.x));
-    bgRect.setAttribute('y', String(viewport.y));
-    bgRect.setAttribute('width', String(viewport.width));
-    bgRect.setAttribute('height', String(viewport.height));
-    bgRect.setAttribute('fill', bgColor);
-    return true;
+  function applySvgStringBackground(xml, options) {
+    const svg = parseSvgDocument(xml);
+    if (!svg) return xml;
+    applyExportBackground(svg, { ...options, transparentBackground: options.transparentBackground === true });
+    groupNodeForPaste(svg);
+    return new global.XMLSerializer().serializeToString(svg);
   }
 
+  function applyExportBackground(svg, options) {
+    svg.querySelectorAll('[data-color-scheme-background="1"], [data-export-injected-background="1"]').forEach(node => node.remove());
+    svg.style.removeProperty('background');
+    svg.style.removeProperty('background-color');
+    if (options.transparentBackground) return;
+    const viewport = parseExportViewport(svg);
+    const rect = svg.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('data-export-injected-background', '1');
+    rect.setAttribute('x', String(viewport.x));
+    rect.setAttribute('y', String(viewport.y));
+    rect.setAttribute('width', String(viewport.width));
+    rect.setAttribute('height', String(viewport.height));
+    rect.setAttribute('fill', options.backgroundColor || svg.getAttribute('data-color-scheme-bg-color')
+      || (svg.getAttribute('data-color-scheme') === 'dark' ? '#000000' : '#ffffff'));
+    svg.insertBefore(rect, svg.firstChild);
+  }
 
   function formatExportNumber(value, precision = 6) {
     if (!Number.isFinite(value)) return '0';
@@ -3887,7 +3893,6 @@
       gridOverlaysRemoved: 0,
       editHighlightsRemoved: 0,
       hiddenBoundaryLabelsRemoved: 0,
-      darkBackgroundInjected: 0,
       scatterOptimization: null
     };
     try {
@@ -3929,7 +3934,11 @@
       counters.gridOverlaysRemoved = removeGridControlOverlays(svgNode);
       counters.editHighlightsRemoved = removeEditHighlightArtifacts(svgNode);
       counters.hiddenBoundaryLabelsRemoved = removeHiddenBoundaryLabelsForExport(svgNode);
-      ensureDarkBackgroundRectForExport(svgNode, counters);
+      if (typeof options.transparentBackground === 'boolean') {
+        applyExportBackground(svgNode, { transparentBackground: true });
+      } else if (svgNode.getAttribute('data-color-scheme') === 'dark') {
+        applyExportBackground(svgNode, { transparentBackground: false });
+      }
 
       // Apply scatter point optimization for large datasets
       counters.scatterOptimization = optimizeScatterPoints(svgNode, { contextLabel });
@@ -4353,6 +4362,7 @@
       return { grouped: false, moved: 0, group: topGroups[0] };
     }
 
+    nonMeta.filter(node => node.getAttribute('id') === 'export-group').forEach(node => node.removeAttribute('id'));
     const g = svgEl.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('id', 'export-group');
 
@@ -4438,7 +4448,7 @@
       const runPrepare = node => {
         try {
           hydrateCanvasBitmapsInClone(svgEl, node);
-          prepStats = prepareSvgForExport(node, contextLabel, { displayDimensions }) || null;
+          prepStats = prepareSvgForExport(node, contextLabel, { ...options, displayDimensions }) || null;
           const grp = groupNodeForPaste(node, { enabled: Shared?.exporter?.GROUP_FOR_PASTE ?? true });
           let exportViewBox = null;
           if (shouldExpandExportViewBox(node)) {
@@ -4463,6 +4473,11 @@
                 authority: applied.ownerFrame?.authority || null
               });
             }
+          }
+          if (typeof options.transparentBackground === 'boolean') {
+            applyExportBackground(node, options);
+            // Include the viewport background without inheriting inner projection transforms.
+            groupNodeForPaste(node);
           }
           logDebug('svgToXml group-for-paste', { contextLabel, grouped: grp.grouped, moved: grp.moved });
         } catch (prepErr) {
@@ -6317,29 +6332,6 @@
     };
   }
 
-  function createPlaceholderOption(action) {
-    const option = doc.createElement('option');
-    option.value = '';
-    option.textContent = action?.label || 'Export';
-    option.selected = true;
-    option.disabled = true;
-    option.hidden = true;
-    return option;
-  }
-
-  function createFormatOption(format) {
-    const option = doc.createElement('option');
-    option.value = format.key;
-    option.textContent = format.label;
-    if (format.disabled) {
-      option.disabled = true;
-      if (format.disabledReason) {
-        option.title = format.disabledReason;
-      }
-    }
-    return option;
-  }
-
   function isFirefoxBrowser() {
     const ua = String(global.navigator?.userAgent || '');
     return /\bFirefox\//i.test(ua);
@@ -6359,93 +6351,129 @@
     return 'SVG copy is not supported in Firefox. Use Download > SVG, or copy in Chrome.';
   }
 
-  function resetExportSelect(select) {
-    if (!select) return;
-    select.value = '';
-    const controls = global.Shared?.formControls;
-    if (controls && typeof controls.autoSizeSelect === 'function') {
-      controls.autoSizeSelect(select);
-    }
+  // The workspace owns this shared export preference; controls are projections.
+  function resolveExportTab(host) {
+    const tab = global.Main?.session?.getActiveTab?.();
+    const root = host?.closest('[data-workspace-tab-id], [data-tab-id]');
+    const owner = root?.getAttribute('data-workspace-tab-id') || root?.getAttribute('data-tab-id');
+    return tab && !tab.isWelcome && (!owner || owner === String(tab.id)) ? tab : null;
   }
 
-  function createExportSelect(container, action, contextLabel) {
-    if (!doc?.createElement || !action || !Array.isArray(action.formats)) return null;
-
+  function createExportMenu(container, action, contextLabel, backgroundOptions) {
     const wrapper = doc.createElement('div');
     wrapper.className = 'export-select-wrapper';
-    wrapper.dataset.actionKey = action.key || '';
+    wrapper.dataset.actionKey = action.key;
+    // Export actions do not edit the graph; the preference setter tracks its own change.
+    wrapper.dataset.sessionIgnoreDirty = '1';
     wrapper.dataset.contextLabel = contextLabel || '';
-
-    const select = doc.createElement('select');
-    select.className = 'export-select';
-    if (action?.key === 'download') {
-      select.classList.add('export-select--compact-download');
-    } else if (action?.key === 'copy') {
-      select.classList.add('export-select--compact-copy');
-    }
-    select.setAttribute('aria-label', action.label || 'Export');
-    select.dataset.minSelectWidth = action.minWidth !== undefined ? String(action.minWidth) : '96';
-    select.appendChild(createPlaceholderOption(action));
-
-    const formats = action.formats
-      .filter(format => format && format.key && typeof format.handler === 'function')
-      .map(format => {
-        const disabledReason = getSvgCopyDisabledReason(action, format);
-        return disabledReason ? { ...format, disabled: true, disabledReason } : format;
+    const trigger = doc.createElement('button');
+    trigger.type = 'button';
+    trigger.className = `export-select export-select--compact-${action.key}`;
+    trigger.textContent = action.label;
+    trigger.setAttribute('aria-haspopup', 'menu');
+    trigger.setAttribute('aria-expanded', 'false');
+    const menu = doc.createElement('div');
+    menu.className = 'export-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', action.label);
+    menu.setAttribute('popover', 'auto');
+    menu.hidden = true;
+    const close = () => keyboard.close({ restoreFocus: true });
+    const keyboard = Shared.menuKeyboard.attach(menu, {
+      onClose: () => menu.hidePopover?.()
+    });
+    let ownerTab = null;
+    action.formats.forEach(format => {
+      const item = doc.createElement('button');
+      item.type = 'button';
+      item.className = 'export-menu__item';
+      item.setAttribute('role', 'menuitem');
+      item.dataset.format = format.key;
+      item.textContent = format.label;
+      const reason = getSvgCopyDisabledReason(action, format) || format.disabledReason;
+      item.disabled = !!format.disabled || !!reason;
+      if (reason) item.title = reason;
+      item.addEventListener('click', async () => {
+        if (ownerTab && resolveExportTab(container) !== ownerTab) { close(); return; }
+        // Capture before any picker/clipboard await, never read another tab's choice.
+        const transparentBackground = ownerTab?.uiState?.export?.transparentBackground === true;
+        const tabId = ownerTab?.id || null;
+        close();
+        try {
+          await format.handler({ transparentBackground, tabId });
+        } catch (err) {
+          console.error('exporter option handler error', err);
+        }
       });
-    const firstDisabledReason = formats.find(format => format.disabledReason)?.disabledReason || '';
-    if (firstDisabledReason) {
-      select.title = firstDisabledReason;
+      menu.appendChild(item);
+    });
+    let checkbox = null;
+    if (backgroundOptions) {
+      const separator = doc.createElement('div');
+      separator.className = 'export-menu__separator';
+      separator.setAttribute('role', 'separator');
+      checkbox = doc.createElement('button');
+      checkbox.type = 'button';
+      checkbox.className = 'export-menu__item export-menu__background';
+      checkbox.setAttribute('role', 'menuitemcheckbox');
+      checkbox.setAttribute('aria-checked', 'false');
+      checkbox.title = 'Applies to PNG and SVG exports.';
+      const mark = doc.createElement('span');
+      mark.className = 'export-menu__check';
+      mark.setAttribute('aria-hidden', 'true');
+      checkbox.append(mark, doc.createTextNode('Transparent background'));
+      checkbox.addEventListener('click', () => {
+        if (!ownerTab || resolveExportTab(container) !== ownerTab) return;
+        const checked = ownerTab.uiState?.export?.transparentBackground !== true;
+        global.Main.session.setExportOptions(ownerTab.id, { transparentBackground: checked });
+        checkbox.setAttribute('aria-checked', String(checked));
+      });
+      menu.append(separator, checkbox);
     }
-    formats.forEach(format => {
-      select.appendChild(createFormatOption(format));
+    trigger.addEventListener('click', () => {
+      if (!menu.hidden) { close(); return; }
+      ownerTab = resolveExportTab(container);
+      menu.dataset.exportOwnerTabId = ownerTab?.id || '';
+      if (checkbox) checkbox.setAttribute('aria-checked', String(ownerTab?.uiState?.export?.transparentBackground === true));
+      menu.hidden = false;
+      menu.showPopover?.();
+      keyboard.open(trigger);
+      const rect = trigger.getBoundingClientRect();
+      const height = menu.getBoundingClientRect().height;
+      const top = rect.bottom + height + 4 > global.innerHeight && rect.top >= height + 4
+        ? rect.top - height - 4
+        : rect.bottom + 4;
+      Shared.menuPosition.placeAtPagePoint(menu, rect.left, top);
     });
-
-    select.disabled = formats.length === 0;
-    select.addEventListener('change', () => {
-      const selectedKey = select.value;
-      const format = formats.find(entry => entry.key === selectedKey);
-      resetExportSelect(select);
-      if (!format) {
-        return;
-      }
-      if (format.disabled) {
-        warn('export option disabled', { contextLabel, action: action.key, format: format.key, reason: format.disabledReason || null });
-        return;
-      }
-      logDebug('optionSelected', { contextLabel, action: action.key, format: format.key });
-      Promise.resolve()
-        .then(() => format.handler())
-        .catch(err => console.error('exporter option handler error', err));
+    trigger.addEventListener('keydown', event => {
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      event.preventDefault();
+      if (menu.hidden) trigger.click();
+      keyboard.open(trigger, { focus: event.key === 'ArrowUp' ? 'last' : 'first' });
     });
-
-    wrapper.appendChild(select);
+    menu.addEventListener('toggle', event => {
+      if (event.newState === 'closed') keyboard.close();
+    });
+    wrapper.append(trigger, menu);
     container.appendChild(wrapper);
-
-    const controls = global.Shared?.formControls;
-    if (controls && typeof controls.attachSelectAutoSize === 'function') {
-      controls.attachSelectAutoSize(select, { label: `export-${action.key || 'action'}` });
-    } else if (controls && typeof controls.autoSizeSelect === 'function') {
-      controls.autoSizeSelect(select);
-    }
-
-    return { wrapper, select, contextLabel, actionKey: action.key };
   }
 
-  function mountControls({ container, actions, contextLabel }) {
-    const host = resolveElement(container);
-    if (!host) {
-      logDebug('mountControls skipped', { contextLabel, reason: 'no host' });
-      return;
-    }
-    host.innerHTML = '';
-    host.classList.add('export-control-host');
-    const controls = [];
-    actions.forEach(action => {
-      const control = createExportSelect(host, action, contextLabel);
-      if (control) controls.push(control);
+  exporter.closeMenusForTab = function closeMenusForTab(tabId) {
+    doc.querySelectorAll('.export-menu[data-export-owner-tab-id]').forEach(menu => {
+      if (menu.dataset.exportOwnerTabId === String(tabId)) Shared.menuKeyboard.attach(menu).close();
     });
-    logDebug('mountControls complete', { contextLabel, controls: controls.length });
+  };
+
+  function mountControls({ container, actions, contextLabel, backgroundOptions = false }) {
+    const host = resolveElement(container);
+    if (!host) return;
+    host.replaceChildren();
+    host.classList.add('export-control-host');
+    actions.forEach(action => createExportMenu(host, action, contextLabel, backgroundOptions));
+  }
+
+  function isExportOwnerActive(options) {
+    return !options.tabId || global.Main?.session?.getActiveTab?.()?.id === options.tabId;
   }
 
   function createSvgActions(config) {
@@ -6502,12 +6530,14 @@
         return resolveSvg();
       }
     };
-    async function handle(mode, format, preparedTarget) {
+    async function handle(mode, format, exportOptions = {}, preparedTarget) {
+      const imageProjectionOptions = { ...projectionOptions, transparentBackground: exportOptions.transparentBackground === true, backgroundColor: resolveBackground() };
       const downloadTarget = mode === 'download'
         ? (preparedTarget || await requestDownloadTarget(fileName, format, `${contextLabel}-${format}`))
         : null;
       if (downloadTarget?.cancelled) return;
       const resolveRequiredSvg = resolver => {
+        if (!isExportOwnerActive(exportOptions)) return null;
         const svgEl = resolver();
         if (!svgEl) {
           logDebug('svgActions missing element', { contextLabel, format, mode });
@@ -6516,9 +6546,9 @@
         return svgEl;
       };
       if (format === 'png') {
-        const backgroundColor = resolveBackground();
+        const backgroundColor = exportOptions.transparentBackground ? 'transparent' : resolveBackground();
         const pngOptions = {
-          ...projectionOptions,
+          ...imageProjectionOptions,
           contextLabel: `${contextLabel}-png`,
           fallbackWidth,
           fallbackHeight,
@@ -6540,7 +6570,7 @@
             if (!svgEl) {
               throw new Error('SVG element is unavailable.');
             }
-            const xml = svgToXml(svgEl, `${contextLabel}-png`, projectionOptions);
+            const xml = svgToXml(svgEl, `${contextLabel}-png`, imageProjectionOptions);
             if (!xml) {
               throw new Error('PNG export produced no SVG source.');
             }
@@ -6558,7 +6588,7 @@
         const buildPayload = () => {
           const svgEl = resolveRequiredSvg(resolveSvg);
           if (!svgEl) return null;
-          const xml = svgToXml(svgEl, `${contextLabel}-svg`, projectionOptions);
+          const xml = svgToXml(svgEl, `${contextLabel}-svg`, imageProjectionOptions);
           if (!xml) return null;
           const payload = buildSvgExportPayload(xml, {
             fileName: `${fileName}.svg`,
@@ -6594,7 +6624,7 @@
           const svgEl = resolveRequiredSvg(resolveHybridSvg);
           if (!svgEl) return null;
           return buildHybridSvgExportPayload(svgEl, {
-            ...projectionOptions,
+            ...imageProjectionOptions,
             ...hybridConfig,
             baseFileName: hybridConfig.baseFileName || fileName,
             contextLabel: `${contextLabel}-hybrid`
@@ -6610,7 +6640,7 @@
         const payload = await payloadPromise;
         if (!payload) {
           warn('svgActions hybrid payload missing', { contextLabel });
-          return handle(mode, 'svg', downloadTarget);
+          return handle(mode, 'svg', exportOptions, downloadTarget);
         }
         if (mode === 'download') {
           await saveBlobToTarget(payload.svgBlob, downloadTarget, `${contextLabel}-hybrid`);
@@ -6708,21 +6738,21 @@
         key: 'download',
         label: 'Download',
         formats: [
-          { key: 'png', label: 'PNG', handler: () => handle('download', 'png') },
-          { key: 'svg', label: 'SVG', handler: () => handle('download', 'svg') },
-          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: () => handle('download', 'svg-hybrid') }] : []),
-          { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') },
-          { key: 'pdf', label: 'PDF', handler: () => handle('download', 'pdf') },
-          { key: 'tiff', label: 'TIFF', handler: () => handle('download', 'tiff') }
+          { key: 'png', label: 'PNG', handler: options => handle('download', 'png', options) },
+          { key: 'svg', label: 'SVG', handler: options => handle('download', 'svg', options) },
+          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: options => handle('download', 'svg-hybrid', options) }] : []),
+          { key: 'emf', label: 'EMF', handler: options => handle('download', 'emf', options) },
+          { key: 'pdf', label: 'PDF', handler: options => handle('download', 'pdf', options) },
+          { key: 'tiff', label: 'TIFF', handler: options => handle('download', 'tiff', options) }
         ]
       },
       {
         key: 'copy',
         label: 'Copy',
         formats: [
-          { key: 'png', label: 'PNG', handler: () => handle('copy', 'png') },
-          { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') },
-          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: () => handle('copy', 'svg-hybrid') }] : [])
+          { key: 'png', label: 'PNG', handler: options => handle('copy', 'png', options) },
+          { key: 'svg', label: 'SVG', handler: options => handle('copy', 'svg', options) },
+          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: options => handle('copy', 'svg-hybrid', options) }] : [])
         ]
       }
     ];
@@ -6981,9 +7011,10 @@
         return null;
       }
     };
-    const resolveProjectedSvg = async () => {
+    const resolveProjectedSvg = async (exportOptions = {}) => {
+      if (!isExportOwnerActive(exportOptions)) return null;
       const raw = await resolveRawSvgString();
-      if (!raw) return null;
+      if (!raw || !isExportOwnerActive(exportOptions)) return null;
       const [dims, ownerFrame, sourceSvg] = await Promise.all([
         resolveDims(),
         resolveOwnerFrame(),
@@ -7005,7 +7036,9 @@
         componentName: config.componentName || null
       });
       return {
-        xml: projected.xml || raw,
+        xml: typeof exportOptions.transparentBackground === 'boolean'
+          ? applySvgStringBackground(projected.xml || raw, { ...exportOptions, backgroundColor: resolveBackground() })
+          : projected.xml || raw,
         width: projected.width > 0 ? projected.width : Number(dims.width),
         height: projected.height > 0 ? projected.height : Number(dims.height),
         ownerFrame: explicitOwner
@@ -7022,16 +7055,16 @@
       dpiX,
       dpiY,
       pngScale,
-      backgroundColor: resolveBackground() || '#ffffff'
+      backgroundColor: suffix === 'png' ? 'transparent' : resolveBackground() || '#ffffff'
     });
 
-    async function handle(mode, format) {
+    async function handle(mode, format, exportOptions = {}) {
       const downloadTarget = mode === 'download'
         ? await requestDownloadTarget(fileName, format, `${contextLabel}-${format}`)
         : null;
       if (downloadTarget?.cancelled) return;
       if (format === 'png' && mode === 'copy') {
-        const payloadPromise = resolveProjectedSvg().then(projected => {
+        const payloadPromise = resolveProjectedSvg(exportOptions).then(projected => {
           if (!projected?.xml) return null;
           return buildPngClipboardPayloadFromSvgString(projected.xml, {
             ...buildFormatOptions(projected, 'png'),
@@ -7045,7 +7078,7 @@
         return;
       }
 
-      const projected = await resolveProjectedSvg();
+      const projected = await resolveProjectedSvg(format === 'png' || format === 'svg' ? exportOptions : {});
       if (!projected?.xml) return;
       if (format === 'png') {
         const pngOptions = buildFormatOptions(projected, 'png');
@@ -7125,22 +7158,20 @@
       {
         key: 'download',
         label: 'Download',
-        minWidth: 0,
         formats: [
-          { key: 'png', label: 'PNG', handler: () => handle('download', 'png') },
-          { key: 'svg', label: 'SVG', handler: () => handle('download', 'svg') },
-          { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') },
-          { key: 'pdf', label: 'PDF', handler: () => handle('download', 'pdf') },
-          { key: 'tiff', label: 'TIFF', handler: () => handle('download', 'tiff') }
+          { key: 'png', label: 'PNG', handler: options => handle('download', 'png', options) },
+          { key: 'svg', label: 'SVG', handler: options => handle('download', 'svg', options) },
+          { key: 'emf', label: 'EMF', handler: options => handle('download', 'emf', options) },
+          { key: 'pdf', label: 'PDF', handler: options => handle('download', 'pdf', options) },
+          { key: 'tiff', label: 'TIFF', handler: options => handle('download', 'tiff', options) }
         ]
       },
       {
         key: 'copy',
         label: 'Copy',
-        minWidth: 0,
         formats: [
-          { key: 'png', label: 'PNG', handler: () => handle('copy', 'png') },
-          { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') }
+          { key: 'png', label: 'PNG', handler: options => handle('copy', 'png', options) },
+          { key: 'svg', label: 'SVG', handler: options => handle('copy', 'svg', options) }
         ]
       }
     ];
@@ -7168,7 +7199,7 @@
       svgBox: config.svgBox,
       componentName: config.componentName
     });
-    mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'svg-export' });
+    mountControls({ container: config.container, actions, backgroundOptions: true, contextLabel: config.contextLabel || config.fileName || 'svg-export' });
   };
 
   exporter.mountCanvasControls = function mountCanvasControls(config) {
@@ -7215,7 +7246,7 @@
         }
       });
     }
-    mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'svg-string' });
+    mountControls({ container: config.container, actions, backgroundOptions: true, contextLabel: config.contextLabel || config.fileName || 'svg-string' });
   };
 
   // Expose the default PNG scale constant for external configuration

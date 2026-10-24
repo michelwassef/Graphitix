@@ -2,7 +2,8 @@ const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  importDataFile
+  importDataFile,
+  getActiveWorkspaceTabMeta
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 
@@ -293,7 +294,11 @@ test.describe('Scatter live updates with view-only optimizations', () => {
         renderMode: layer?.getAttribute?.('data-render-mode') || null,
         nodeCount: layer ? layer.querySelectorAll('*').length : 0,
         thresholdDisplay: thresholdControls ? getComputedStyle(thresholdControls).display : null,
+        thresholdHidden: thresholdControls?.hidden ?? null,
+        thresholdInlineDisplay: thresholdControls?.style.display ?? null,
         significantDisplay: significantOptions ? getComputedStyle(significantOptions).display : null,
+        significantHidden: significantOptions?.hidden ?? null,
+        significantInlineDisplay: significantOptions?.style.display ?? null,
         significantChecked: !!significantToggle?.checked,
         significantDisabled: !!significantToggle?.disabled,
         defaultLabelCount: defaultLabels.length
@@ -304,7 +309,11 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     expect(state.nodeCount).toBeLessThan(10);
     expect(state.selectedCount).toBeLessThan(1000);
     expect(state.thresholdDisplay).not.toBe('none');
+    expect(state.thresholdHidden).toBe(false);
+    expect(state.thresholdInlineDisplay).toBe('');
     expect(state.significantDisplay).not.toBe('none');
+    expect(state.significantHidden).toBe(false);
+    expect(state.significantInlineDisplay).toBe('');
     expect(state.significantChecked).toBe(false);
     expect(state.significantDisabled).toBe(false);
     expect(state.defaultLabelCount).toBe(0);
@@ -475,5 +484,108 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     expect(legacy.width).toBe(summary.canvasWidth);
     expect(legacy.height).toBe(summary.canvasHeight);
     expect(legacy.dataUrl).toBe(summary.dataUrl);
+  });
+
+  test('a cancelled canvas frame releases its Scatter draw after switching tabs', async ({ page }) => {
+    test.setTimeout(300000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+    const tabA = (await getActiveWorkspaceTabMeta(page))?.id;
+    expect(tabA).toBeTruthy();
+
+    await page.evaluate(() => {
+      const lifecycle = window.Shared.componentLifecycle;
+      const hold = {
+        originalSchedule: lifecycle.scheduleComponentFrame,
+        originalRequestAnimationFrame: window.requestAnimationFrame,
+        nextId: 1_000_000_000,
+        captureNext: false,
+        captured: null,
+        pending: null
+      };
+      window.__scatterCanvasFrameHold = hold;
+      window.requestAnimationFrame = callback => {
+        if (hold.captureNext) {
+          hold.captureNext = false;
+          const id = ++hold.nextId;
+          hold.pending = { id, callback };
+          return id;
+        }
+        return hold.originalRequestAnimationFrame.call(window, callback);
+      };
+      lifecycle.scheduleComponentFrame = function scheduleComponentFrame(component, key, meta, callback, onStale) {
+        if (key === 'scatter' && meta?.reason === 'scatter-canvas-bucket-frame' && !hold.captured) {
+          hold.captureNext = true;
+          const id = hold.originalSchedule.call(this, component, key, meta, callback, onStale);
+          hold.captured = { tabId: meta.tabId, id };
+          return id;
+        }
+        return hold.originalSchedule.call(this, component, key, meta, callback, onStale);
+      };
+    });
+
+    try {
+      const csvPath = path.resolve(__dirname, '../../__tests__/fixtures/scatter/v1/test-scatter.csv');
+      await importDataFile(page, '#scatterFile', csvPath, { timeout: 180000 });
+      await page.waitForFunction(() => window.__scatterCanvasFrameHold?.captured, null, { timeout: 180000 });
+      const ownerAState = await page.evaluate(tabId => {
+        const session = window.Components.scatter.__testHooks.getSession(tabId);
+        return {
+          frameTabId: window.__scatterCanvasFrameHold.captured.tabId,
+          inProgress: session?.timers?.drawRuntime?.inProgress === true,
+          dirty: session?.cache?.renderRuntime?.dataDirty === true,
+          settledCursor: window.Shared.componentLifecycle.getLifecycleEventCursor()
+        };
+      }, tabA);
+      expect(ownerAState).toMatchObject({ frameTabId: tabA, inProgress: true, dirty: true });
+
+      await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: false });
+      const tabB = (await getActiveWorkspaceTabMeta(page))?.id;
+      expect(tabB).toBeTruthy();
+      expect(tabB).not.toBe(tabA);
+      const ownerBBefore = await page.evaluate(tabId => {
+        const tab = window.Main.session.workspaceState.tabs.find(item => item.id === tabId);
+        const session = window.Components.scatter.__testHooks.getSession(tabId);
+        const root = session?.root || session?.refs?.root || window.Shared.workspaceTabs.getMountedRoot(tab, 'scatter');
+        return {
+          payload: JSON.stringify(tab?.payload || null),
+          table: JSON.stringify(session?.managers?.hot?.getData?.() || []),
+          plot: root?.querySelector('#scatterPlot')?.innerHTML || ''
+        };
+      }, tabB);
+
+      const settledEvent = await page.evaluate(({ tabId, afterCursor }) => (
+        window.Shared.componentLifecycle.waitForLifecycleEvent({
+          componentKey: 'scatter',
+          tabId,
+          action: 'draw-settled',
+          afterCursor,
+          timeoutMs: 8000
+        })
+      ), { tabId: tabA, afterCursor: ownerAState.settledCursor });
+      expect(settledEvent.phase).toBe('cancelled');
+      const ownerBAfter = await page.evaluate(tabId => {
+        const tab = window.Main.session.workspaceState.tabs.find(item => item.id === tabId);
+        const session = window.Components.scatter.__testHooks.getSession(tabId);
+        const root = session?.root || session?.refs?.root || window.Shared.workspaceTabs.getMountedRoot(tab, 'scatter');
+        return {
+          payload: JSON.stringify(tab?.payload || null),
+          table: JSON.stringify(session?.managers?.hot?.getData?.() || []),
+          plot: root?.querySelector('#scatterPlot')?.innerHTML || '',
+          activeTabId: window.Main.session.workspaceState.activeTabId
+        };
+      }, tabB);
+      expect(ownerBAfter).toEqual({ ...ownerBBefore, activeTabId: tabB });
+    } finally {
+      await page.evaluate(() => {
+        const hold = window.__scatterCanvasFrameHold;
+        if (hold) {
+          window.Shared.componentLifecycle.scheduleComponentFrame = hold.originalSchedule;
+          window.requestAnimationFrame = hold.originalRequestAnimationFrame;
+          window.__scatterCanvasFrameHold = null;
+        }
+      });
+    }
   });
 });

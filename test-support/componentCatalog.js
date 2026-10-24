@@ -171,7 +171,7 @@ const COMPONENT_CATALOG = [
       dataViews: true,
       canvas: false,
       threeD: false,
-      worker: false,
+      worker: true,
       externalAsync: false
     }
   },

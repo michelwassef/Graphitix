@@ -54,7 +54,7 @@ describe('Extended statistical coverage', () => {
     boxState.groupedStats = { analysis: 'multipleComparisons', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' };
   });
 
-  test('box post-hoc procedures cover Tukey, Games-Howell, Dunnett, Dunn, and Nemenyi branches', () => {
+  test('box post-hoc procedures cover Tukey, Games-Howell, Pooled t + Sidak versus control, Dunn, and Nemenyi branches', () => {
     const labels = ['Control', 'Treatment A', 'Treatment B'];
     const strongGroups = [
       [1, 2, 3, 4, 5],
@@ -78,12 +78,12 @@ describe('Extended statistical coverage', () => {
     expect(gamesHowell.pairs.every(pair => isFiniteNumber(pair.pAdj) && pair.pAdj <= 1)).toBe(true);
     expect(gamesHowell.pairs.some(pair => pair.pAdj < 0.05)).toBe(true);
 
-    const dunnett = boxHooks.dunnettComparisons(strongGroups, labels, 0, { alpha: 0.05 });
+    const dunnett = boxHooks.controlSidakComparisons(strongGroups, labels, 0, { alpha: 0.05 });
     expect(dunnett.ok).toBe(true);
     expect(dunnett.pairs).toHaveLength(2);
     expect(dunnett.pairs.every(pair => pair.i === 0 && isFiniteNumber(pair.pAdj) && pair.pAdj < 0.05)).toBe(true);
 
-    const dunnettT3 = boxHooks.dunnettComparisons(unequalGroups, labels, 0, { unequalVariances: true, alpha: 0.05 });
+    const dunnettT3 = boxHooks.controlSidakComparisons(unequalGroups, labels, 0, { unequalVariances: true, alpha: 0.05 });
     expect(dunnettT3.ok).toBe(true);
     expect(dunnettT3.pairs).toHaveLength(2);
     expect(dunnettT3.pairs.every(pair => pair.i === 0 && isFiniteNumber(pair.pAdj) && pair.pAdj <= 1)).toBe(true);
@@ -286,6 +286,8 @@ describe('Extended statistical coverage', () => {
     expect(coxModel.available).toBe(true);
     expect(coxModel.coefficients.length).toBe(2);
     expect(coxModel.diagnostics?.iterations).toBeGreaterThan(0);
+    expect(coxModel.diagnostics?.likelihoodConverged).toBe(true);
+    expect(coxModel.diagnostics?.likelihoodRatio).toMatchObject({ available: true });
 
     const hazardRatios = survivalHooks.computeHazardRatios(series, coxModel, { enabled: true });
     expect(hazardRatios.available).toBe(true);
@@ -296,5 +298,86 @@ describe('Extended statistical coverage', () => {
       expect(row.ciLow == null || isFiniteNumber(row.ciLow)).toBe(true);
       expect(row.ciHigh == null || isFiniteNumber(row.ciHigh)).toBe(true);
     });
+  });
+
+  test('Cox likelihood-ratio inference follows partial-likelihood convergence, not coefficient convergence alone', () => {
+    const separatedSummary = {
+      series: [
+        {
+          name: 'Events',
+          records: Array.from({ length: 8 }, (_, index) => ({ time: index + 1, event: true }))
+        },
+        {
+          name: 'No events',
+          records: Array.from({ length: 8 }, (_, index) => ({ time: 10 + index, event: false }))
+        }
+      ],
+      covariateColumns: []
+    };
+
+    const separated = survivalHooks.fitCoxModel(separatedSummary, { enabled: true });
+    expect(separated.available).toBe(true);
+    expect(separated.diagnostics.converged).toBe(false);
+    expect(separated.diagnostics.likelihoodConverged).toBe(true);
+    expect(separated.diagnostics.inferenceAvailable).toBe(false);
+    expect(separated.diagnostics.likelihoodRatio.available).toBe(true);
+    expect(isFiniteNumber(separated.diagnostics.likelihoodRatio.p)).toBe(true);
+
+    const unfinished = survivalHooks.fitCoxModel(separatedSummary, { enabled: true, maxIterations: 1 });
+    expect(unfinished.available).toBe(true);
+    expect(unfinished.diagnostics.likelihoodConverged).toBe(false);
+    expect(unfinished.diagnostics.likelihoodRatio).toMatchObject({
+      available: false,
+      reason: expect.stringContaining('did not stabilize')
+    });
+    expect(Number.isNaN(unfinished.diagnostics.likelihoodRatio.p)).toBe(true);
+    expect(Number.isNaN(unfinished.diagnostics.aic)).toBe(true);
+    expect(Number.isNaN(unfinished.diagnostics.bic)).toBe(true);
+  });
+
+  test('Cox refuses redundant group and covariate predictors', () => {
+    const survivalState = window.Components.survival.__getState();
+    survivalState.covariateSettings = { 4: { enabled: true, type: 'baseline' } };
+    const recordsForGroup = groupValue => Array.from({ length: 12 }, (_, index) => ({
+      time: index + 1,
+      event: index < 10 && index % 2 === 0,
+      extras: [groupValue]
+    }));
+    const model = survivalHooks.fitCoxModel({
+      series: [
+        { name: 'Control', records: recordsForGroup(0) },
+        { name: 'Treatment', records: recordsForGroup(1) }
+      ],
+      covariateColumns: [{ index: 4, header: 'Treatment indicator' }]
+    }, { enabled: true });
+
+    expect(model).toMatchObject({
+      available: false,
+      message: expect.stringMatching(/redundant|not separately identifiable/i)
+    });
+  });
+
+  test('Cox fitted likelihood is invariant to covariate units', () => {
+    const survivalState = window.Components.survival.__getState();
+    survivalState.covariateSettings = { 4: { enabled: true, type: 'baseline' } };
+    const events = new Set([0, 1, 3, 4, 7, 9, 10, 13, 14, 17, 18, 20, 22, 25, 27]);
+    const createSummary = scale => ({
+      series: ['Control', 'Treatment'].map(name => ({
+        name,
+        records: Array.from({ length: 30 }, (_, index) => ({
+          time: index + 1,
+          event: events.has(index),
+          extras: [scale * (((index * 17) % 31) - 15)]
+        }))
+      })),
+      covariateColumns: [{ index: 4, header: 'Score' }]
+    });
+
+    const ordinary = survivalHooks.fitCoxModel(createSummary(1), { enabled: true, maxIterations: 100 });
+    const rescaled = survivalHooks.fitCoxModel(createSummary(0.000001), { enabled: true, maxIterations: 100 });
+    expect(ordinary.diagnostics?.likelihoodConverged).toBe(true);
+    expect(rescaled.diagnostics?.likelihoodConverged).toBe(true);
+    expectClose(rescaled.diagnostics.logLikelihood, ordinary.diagnostics.logLikelihood, 'Cox partial likelihood under covariate rescaling', { abs: 1e-7, rel: 1e-7 });
+    expectClose(rescaled.coefficients[1].beta * 0.000001, ordinary.coefficients[1].beta, 'Cox coefficient under covariate rescaling', { abs: 1e-5, rel: 1e-5 });
   });
 });

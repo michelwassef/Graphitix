@@ -19,11 +19,11 @@ describe('Shared Box statistics model ownership', () => {
   test('post-hoc metadata has one complete shared owner', () => {
     const options = model.listPostHocOptions();
     expect(options.map(option => option.value)).toEqual([
-      'standard', 'tukey', 'gamesHowell', 'tamhaneT2',
-      'dunn', 'nemenyi', 'dunnett', 'dunnettT3'
+      'auto', 'standard', 'anovaPooled', 'tukey', 'gamesHowell', 'tamhaneT2',
+      'dunn', 'nemenyi', 'dunnettTest', 'dunnettT3Test', 'dunnett', 'dunnettT3'
     ]);
-    expect(model.getPostHocSummary('tamhaneT2', { groupCount: 3 })).toMatch(/Tamhane/i);
-    expect(model.getPostHocSummary('nemenyi', { groupCount: 3 })).toMatch(/Nemenyi/i);
+    expect(model.getPostHocSummary('tamhaneT2', { groupCount: 3, test: 'parametric', variant: 'welch' })).toMatch(/Tamhane/i);
+    expect(model.getPostHocSummary('nemenyi', { groupCount: 3, test: 'nonparametric', paired: true })).toMatch(/Nemenyi/i);
   });
 
   test('Tamhane T2 and Nemenyi are real model branches, not UI-only options', () => {
@@ -48,6 +48,8 @@ describe('Shared Box statistics model ownership', () => {
     expect(tamhane.postHoc).toBe('tamhaneT2');
     expect(tamhane.pairs).toHaveLength(3);
     expect(tamhane.pairs.every(pair => pair.method === 'tamhaneT2' && Number.isFinite(pair.adjP))).toBe(true);
+    expect(tamhane).not.toHaveProperty('overallRangeMax');
+    expect(tamhane.pairs.every(pair => !Object.prototype.hasOwnProperty.call(pair, 'rangeMax'))).toBe(true);
 
     const nemenyi = model.computeBoxStatsModel({
       mode: 'single',
@@ -73,7 +75,7 @@ describe('Shared Box statistics model ownership', () => {
     expect(nemenyi.pairs.every(pair => pair.method === 'nemenyi' && Number.isFinite(pair.adjP))).toBe(true);
   });
 
-  test('simultaneous post-hoc intervals and structured p-values use the inferential alpha that produced them', () => {
+  test('simultaneous post-hoc intervals use the requested CI level independently of inferential alpha', () => {
     const comparisonInference = {
       criterion: 'alpha',
       level: 0.01,
@@ -107,7 +109,7 @@ describe('Shared Box statistics model ownership', () => {
     expect(result.ok).toBe(true);
     const comparisons = result.tables.find(table => table.caption === 'Pairwise comparisons');
     expect(comparisons).toBeTruthy();
-    expect(comparisons.columns.find(column => column.key === 'ci')?.label).toBe('99% simultaneous CI');
+    expect(comparisons.columns.find(column => column.key === 'ci')?.label).toBe('95% simultaneous CI');
     expect(comparisons.columns.find(column => column.key === 'padj')?.inference).toEqual(comparisonInference);
     expect(comparisons.rows[0].padj).toEqual(expect.objectContaining({
       type: 'pValue',

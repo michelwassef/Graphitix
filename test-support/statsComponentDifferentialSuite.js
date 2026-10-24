@@ -171,9 +171,7 @@ function loadStatsHooks() {
     window.Shared = global.Shared;
     window.Components = global.Components;
   }
-require('../js/vendor.js');
-require('../js/shared/stats.js');
-require('../js/shared/regression.js');
+require('./componentTestBootstrap').loadSharedProductionModules();
 require('../js/components/box.js');
 require('../js/components/hist.js');
 require('../js/components/pie.js');

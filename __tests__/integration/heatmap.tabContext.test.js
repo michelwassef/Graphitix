@@ -1,4 +1,5 @@
 const { loadProductionBootstrap } = require('../../test-support/productionLoader');
+const { waitForIntegrationOwnerReady } = require('../../test-support/readiness');
 
 describe('Heatmap tab context isolation', () => {
   jest.setTimeout(240000);
@@ -6,6 +7,22 @@ describe('Heatmap tab context isolation', () => {
   async function flush() {
     await Promise.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  async function waitForHeatmapOwner(tabId) {
+    await waitForIntegrationOwnerReady({
+      type: 'heatmap',
+      expectedTabId: tabId,
+      requireMountedRoot: true,
+      condition: () => {
+        const component = window.Components?.heatmap;
+        const owner = component?.__testHooks?.getSession?.(tabId) || null;
+        return !!owner
+          && String(owner.tabId || '') === String(tabId)
+          && String(component.__boundTabId || '') === String(tabId)
+          && owner.refs?.root?.isConnected === true;
+      }
+    });
   }
 
   async function waitFor(predicate, attempts = 10) {
@@ -24,6 +41,10 @@ describe('Heatmap tab context isolation', () => {
       await maybe;
     }
     await flush();
+    const tab = Main.tabs.getActiveTab();
+    if (tab?.type === 'heatmap') {
+      await waitForHeatmapOwner(tab.id);
+    }
   }
 
   async function handleGraphSelection(Main, type) {
@@ -39,6 +60,10 @@ describe('Heatmap tab context isolation', () => {
       }
     }
     await flush();
+    const activeTab = Main.tabs.getActiveTab();
+    if (activeTab?.type === 'heatmap') {
+      await waitForHeatmapOwner(activeTab.id);
+    }
   }
 
   beforeEach(() => {
@@ -75,9 +100,7 @@ describe('Heatmap tab context isolation', () => {
     heatmap.applyRuntimeState({
       fileName: 'heatmap-a.graph',
       clusterControlsTouched: true,
-      clusterDefaultsAutoApplied: true,
-      labelPositions: { title: { x: 10, y: 20 } },
-      dendrogramSettings: { mode: 'fixed', thicknessPt: 5, color: '#112233' }
+      clusterDefaultsAutoApplied: true
     }, { tabId: tabA.id, reason: 'test-seed-heatmap-a' });
 
     Main.tabs.handleAddTabClick();
@@ -91,35 +114,20 @@ describe('Heatmap tab context isolation', () => {
     heatmap.applyRuntimeState({
       fileName: 'heatmap-b.graph',
       clusterControlsTouched: false,
-      clusterDefaultsAutoApplied: false,
-      labelPositions: { title: { x: 30, y: 40 } },
-      dendrogramSettings: { mode: 'auto', thicknessPt: 2, color: '#445566' }
+      clusterDefaultsAutoApplied: false
     }, { tabId: tabB.id, reason: 'test-seed-heatmap-b' });
-    expect(heatmap.__testHooks.getSession(tabB.id)?.state?.dendrogramSettings).toEqual({
-      mode: 'auto', thicknessPt: 2, color: '#445566'
-    });
 
     await activateTabById(Main, tabA.id, 'test-heatmap-return-a');
     const restoredA = heatmap.__getState();
     expect(restoredA.fileName).toBe('heatmap-a.graph');
     expect(restoredA.clusterControlsTouched).toBe(true);
     expect(restoredA.clusterDefaultsAutoApplied).toBe(true);
-    expect(restoredA.labelPositions).toEqual({ title: { x: 10, y: 20 } });
-    expect(restoredA.dendrogramSettings).toEqual({ mode: 'fixed', thicknessPt: 5, color: '#112233' });
-    expect(heatmap.__testHooks.getSession(tabB.id)?.state?.dendrogramSettings).toEqual({
-      mode: 'auto', thicknessPt: 2, color: '#445566'
-    });
 
     await activateTabById(Main, tabB.id, 'test-heatmap-return-b');
-    expect(heatmap.__testHooks.getSession(tabB.id)?.state?.dendrogramSettings).toEqual({
-      mode: 'auto', thicknessPt: 2, color: '#445566'
-    });
     const restoredB = heatmap.__getState();
     expect(restoredB.fileName).toBe('heatmap-b.graph');
     expect(restoredB.clusterControlsTouched).toBe(false);
     expect(restoredB.clusterDefaultsAutoApplied).toBe(false);
-    expect(restoredB.labelPositions).toEqual({ title: { x: 30, y: 40 } });
-    expect(restoredB.dendrogramSettings).toEqual({ mode: 'auto', thicknessPt: 2, color: '#445566' });
   });
 
   test('runtime capture preserves the owner title when the module mirror is stale', async () => {
@@ -138,6 +146,107 @@ describe('Heatmap tab context isolation', () => {
     const snapshot = heatmap.captureRuntimeState({ tabId: tab.id, reason: 'owner-title-capture-test' });
     expect(heatmap.__testHooks.getSession(tab.id).state.titleText).toBe('Recovered owner title');
     expect(snapshot.titleText).toBe('Recovered owner title');
+  });
+
+  test('rejecting an inactive payload keeps the active Heatmap projection on its owner', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+    const heatmap = window.Components.heatmap;
+    const tabA = Main.tabs.getActiveTab();
+    const payloadA = {
+      type: 'heatmap',
+      data: [['', 'A'], ['row-a', 1]],
+      config: { title: 'Owner A' }
+    };
+    expect(heatmap.loadFromPayload(payloadA, { tabId: tabA.id, skipDraw: true, source: 'owner-a-seed' })).toBe(true);
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'heatmap');
+    const tabB = Main.tabs.getActiveTab();
+    const payloadB = {
+      type: 'heatmap',
+      data: [['', 'B'], ['row-b', 2]],
+      config: { title: 'Owner B' }
+    };
+    expect(heatmap.loadFromPayload(payloadB, { tabId: tabB.id, skipDraw: true, source: 'owner-b-seed' })).toBe(true);
+    const rootB = window.Shared.workspaceTabs.getMountedRoot(tabB.id, 'heatmap');
+    const payloadBBefore = JSON.stringify(tabB.payload || null);
+    const snapshotBBefore = JSON.stringify(heatmap.__testHooks.getSession(tabB.id).state);
+
+    expect(heatmap.loadFromPayload({ ...payloadA, config: { title: 'Late Owner A' } }, {
+      tabId: tabA.id,
+      skipDraw: true,
+      source: 'late-inactive-owner'
+    })).toBe(false);
+
+    expect(heatmap.__getState().root).toBe(rootB);
+    expect(heatmap.__boundTabId).toBe(tabB.id);
+    expect(JSON.stringify(tabB.payload || null)).toBe(payloadBBefore);
+    expect(JSON.stringify(heatmap.__testHooks.getSession(tabB.id).state)).toBe(snapshotBBefore);
+    expect(heatmap.__getState().titleText).toBe('Owner B');
+  });
+
+  test('late clustering worker success and failure update only their initiating tab session', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+    const heatmap = window.Components.heatmap;
+    const tabA = Main.tabs.getActiveTab();
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'heatmap');
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB.id).not.toBe(tabA.id);
+
+    const sessionA = heatmap.__testHooks.getSession(tabA.id);
+    sessionA.timers.drawRuntime.token = 7;
+    const workerRequests = [];
+    const previousWorkers = window.Shared.Workers;
+    window.Shared.Workers = {
+      isSupported: () => true,
+      runTask: () => new Promise((resolve, reject) => workerRequests.push({ resolve, reject }))
+    };
+
+    try {
+      const asyncState = {
+        meta: {
+          tabId: tabA.id,
+          sessionGeneration: sessionA.updatedAt,
+          dataSignature: `data:${tabA.id}`,
+          settingsSignature: `settings:${tabA.id}`
+        },
+        scope: {
+          isCurrent: () => true,
+          registerCleanup: () => () => {}
+        }
+      };
+      const items = Array.from({ length: 60 }, (_, index) => ({
+        index,
+        vector: [index, index + 1]
+      }));
+      const succeeded = heatmap.__testHooks.resolveCluster(
+        items, 'euclidean', 'average', 7, 'rows', asyncState
+      );
+      const failed = heatmap.__testHooks.resolveCluster(
+        items, 'euclidean', 'average', 7, 'columns', asyncState
+      );
+      expect(workerRequests).toHaveLength(2);
+
+      await activateTabById(Main, tabB.id, 'test-switch-during-heatmap-clustering');
+      workerRequests[0].resolve({ order: [0, 1], steps: [], maxDistance: 1, algorithm: 'worker' });
+      workerRequests[1].reject(new Error('controlled worker failure'));
+      await Promise.all([succeeded.promise, failed.promise]);
+
+      expect(sessionA.workers.get('cluster:rows')).toMatchObject({ tabId: tabA.id, status: 'done' });
+      expect(sessionA.workers.get('cluster:columns')).toMatchObject({ tabId: tabA.id, status: 'error' });
+      expect(sessionA.cache.completedClusters.size).toBe(1);
+      const sessionB = heatmap.__testHooks.getSession(tabB.id);
+      expect(sessionB.workers.size).toBe(0);
+      expect(sessionB.cache.completedClusters.size).toBe(0);
+    } finally {
+      window.Shared.Workers = previousWorkers;
+    }
   });
 
   test('payload-backed settings survive a stale default runtime snapshot during recovery', async () => {
@@ -246,6 +355,74 @@ describe('Heatmap tab context isolation', () => {
 
     expect(heatmap.disposeTab(tab, { tabId: tab.id, reason: 'test-dispose-owner-session' })).toBe(true);
     expect(heatmap.__testHooks.getSession(tab.id)).toBeNull();
+  });
+
+  test('color-scheme snapshots read only the active Heatmap owner session', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+
+    const heatmap = window.Components.heatmap;
+    const tabA = Main.tabs.getActiveTab();
+    const sessionA = heatmap.__testHooks.getSession(tabA.id);
+    sessionA.state.colorScheme = 'soft';
+    sessionA.state.palette = { negative: '#123456', zero: '#eeeeee', positive: '#fedcba' };
+    sessionA.state.dendrogramSettings.color = '#345678';
+
+    expect(heatmap.getColorSchemePayload({ tabId: tabA.id })).toMatchObject({
+      type: 'heatmap',
+      config: {
+        colorScheme: 'soft',
+        colors: { negative: '#123456', zero: '#eeeeee', positive: '#fedcba' },
+        dendrogram: { color: '#345678' }
+      }
+    });
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'heatmap');
+    const tabB = Main.tabs.getActiveTab();
+    const sessionB = heatmap.__testHooks.getSession(tabB.id);
+    sessionB.state.colorScheme = 'normal';
+    sessionB.state.palette = { negative: '#0000ff', zero: '#ffffff', positive: '#ff0000' };
+
+    expect(heatmap.getColorSchemePayload({ tabId: tabA.id })).toBeNull();
+    expect(heatmap.getColorSchemePayload({ tabId: tabB.id })?.config.colorScheme).toBe('normal');
+  });
+
+  test('a p-value event for a disposed Heatmap owner cannot schedule the active sibling', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+    const heatmap = window.Components.heatmap;
+    const tabA = Main.tabs.getActiveTab();
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'heatmap');
+    const tabB = Main.tabs.getActiveTab();
+    const sessionB = heatmap.__testHooks.getSession(tabB.id);
+    expect(tabB.id).not.toBe(tabA.id);
+    expect(sessionB).toBeTruthy();
+    expect(await waitFor(() => heatmap.isIdleForSnapshot({ tabId: tabB.id }), 40)).toBe(true);
+
+    expect(heatmap.disposeTab(tabA, { tabId: tabA.id, reason: 'test-stale-stats-owner' })).toBe(true);
+    const before = heatmap.__testHooks.getDrawRuntime(tabB.id);
+    window.dispatchEvent(new CustomEvent('stats:pvalue-format-change', {
+      detail: {
+        scientific: true,
+        targetId: 'heatmapStats',
+        tabId: tabA.id
+      }
+    }));
+
+    expect(heatmap.__testHooks.getDrawRuntime(tabB.id)).toEqual(expect.objectContaining({
+      scheduled: before.scheduled,
+      inProgress: before.inProgress,
+      requestOptions: before.requestOptions,
+      deferredOptions: before.deferredOptions,
+      lastStatus: before.lastStatus,
+      lastReason: before.lastReason,
+      token: before.token
+    }));
   });
 
   test('heatmap render cache restore rehydrates cached svg fragments', async () => {

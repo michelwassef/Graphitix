@@ -16,14 +16,14 @@ describe('PCA lifecycle ownership contract', () => {
       'drawPca',
       'getPcaGraphPayload',
       'applyPcaPayload',
-      'loadPcaGraphFile',
       'getPcaScheduleBase'
     ].forEach(name => {
       expect(source).toMatch(new RegExp(`^  (?:async )?function ${name}\\(`, 'm'));
     });
     [
-      'pca.save = savePcaFile;',
-      'pca.open = openPcaFile;',
+      'pca.save = () => global.Main?.fileActions?.save?.()',
+      'pca.saveAs = () => global.Main?.fileActions?.saveAs?.()',
+      'pca.open = () => global.Main?.fileActions?.open?.()',
       'pca.getPayload = getPcaGraphPayload;',
       'pca.captureRuntimeState =',
       'pca.captureRenderCache =',
@@ -36,7 +36,7 @@ describe('PCA lifecycle ownership contract', () => {
     const setup = extractSetup(source);
     expect(setup).toBeTruthy();
     expect(setup).not.toMatch(/^    pca\.[A-Za-z_$][\w$]*\s*=\s*(?:async\s+)?function/m);
-    expect(setup).not.toMatch(/\b(?:drawPca|getPcaGraphPayload|applyPcaPayload|loadPcaGraphFile)\s*=\s*(?:async\s+)?function/m);
+    expect(setup).not.toMatch(/\b(?:drawPca|getPcaGraphPayload|applyPcaPayload)\s*=\s*(?:async\s+)?function/m);
     expect(setup).toContain('bindPcaSessionForTab');
     expect(setup).toContain('applyPcaSessionStateToActive');
     expect(setup).toContain('Shared?.hot?.createStandardTable');
@@ -60,11 +60,12 @@ describe('PCA lifecycle ownership contract', () => {
     expect(source).toContain('pcaState.pointStyleScopes = normalizePcaPointStyleScopes(state.pointStyleScopes || {}');
   });
 
-  test('file handle and file name are scoped to the owning PCA session', () => {
+  test('document file handles are owned by the workspace session controller', () => {
     const source = pcaSource();
-    expect(source).toContain('owner.managers.fileHandle');
-    expect(source).toContain('owner.state.fileName');
+    expect(source).not.toContain('fileHandle');
     expect(source).not.toMatch(/^\s*(?:const|let|var)\s+pcaFile(?:Handle|Name)\b/m);
+    const sessionActions = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'main', 'sessionActions.js'), 'utf8');
+    expect(sessionActions).toContain('workspaceState.sessionFileHandle');
   });
 
   test('scheduler uses the module-level tab-scoped frame debouncer', () => {
@@ -88,7 +89,7 @@ describe('PCA lifecycle ownership contract', () => {
     expect(source).toContain("reason: 'pca-rotation-frame'");
     expect(source).toContain('const clearPendingRotationFrame = () =>');
     expect(source).toContain('}, clearPendingRotationFrame);');
-    expect(source).toContain('const PCA_3D_ROTATION_MODEL_VERSION = 1;');
+    expect(source).toContain('const PCA_3D_ROTATION_MODEL_VERSION = plot3d.FRAME_LAYOUT_VERSION;');
     expect(source).toContain('function bindPca3dRotationRenderer(session = null, svg = null, modelOverride = null)');
     expect(source).toContain('drawSession.cache.pca3dRotationModel = cloneSimple(pca3dRotationModel) || pca3dRotationModel;');
     expect(source).toContain('rotationModel: rotationModel ? (cloneSimple(rotationModel) || rotationModel) : null');

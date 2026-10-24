@@ -1,3 +1,4 @@
+const { selectReplicateMode, clickExampleButton } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
@@ -71,8 +72,8 @@ test('PCA grouped example uses the equal-axis-length default', async ({ page }) 
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, PCA_COMPONENT, { first: true });
-  await page.locator('#pcaTableFormat').selectOption('grouped');
-  await page.locator('#pcaLoadExample').click();
+  await selectReplicateMode(page, 'pca', 'grouped');
+  await clickExampleButton(page, 'pca');
   await page.waitForFunction(() => {
     const svg = document.querySelector('#pcaPage:not([hidden]) #pcaSvg');
     return svg?.dataset?.pcaEqualAxisLengths === 'true'
@@ -84,6 +85,23 @@ test('PCA grouped example uses the equal-axis-length default', async ({ page }) 
   expect(geometry.equalAxisLengthsChecked).toBe(true);
   expect(Math.abs(geometry.x.span - geometry.y.span)).toBeLessThan(1e-9);
   expect(Math.abs(geometry.x.length - geometry.y.length)).toBeLessThan(1e-8);
+
+  const groupedMetaCell = page.locator(
+    '#pcaPage:not([hidden]) .ag-cell.pca-grouped-meta-row:not(.ag-cell-focus):not(.ag-cell-range-selected):not(.hot-selected-cell):not(.hot-selected-anchor):not(.hot-selected-range-fill)'
+  ).first();
+  await expect(groupedMetaCell).toBeVisible();
+  const groupedMetaStyle = await groupedMetaCell.evaluate(cell => {
+    const tokenProbe = document.createElement('span');
+    tokenProbe.style.backgroundColor = 'var(--gt-surface-muted)';
+    document.body.appendChild(tokenProbe);
+    const expectedBackground = getComputedStyle(tokenProbe).backgroundColor;
+    tokenProbe.remove();
+    return {
+      background: getComputedStyle(cell).backgroundColor,
+      expectedBackground
+    };
+  });
+  expect(groupedMetaStyle.background).toBe(groupedMetaStyle.expectedBackground);
 });
 
 test('PCA 3D uses its renderer-owned canvas without a second content fit', async ({ page }) => {

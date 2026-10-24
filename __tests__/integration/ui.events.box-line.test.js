@@ -98,12 +98,12 @@ describe('UI events: Box and Line', () => {
     expect(matrix.slice(0, 2).flatMap(row => row.slice(expected[0].length)).filter(value => String(value || '').trim())).toEqual([]);
     expect(hot.countCols?.()).toBeGreaterThanOrEqual(10);
     expect(ownerSession?.state?.visual?.grouped?.groups).toEqual([
-      expected[0][0], expected[0][3], 'Group 3', 'Group 4'
+      expected[0][0], expected[0][3]
     ]);
     expect(ownerSession?.state?.visual?.grouped?.conditions).toEqual(expected[1].slice(0, 3));
     const groupedState = box.__getState?.()?.grouped || {};
     expect(groupedState.groups).toEqual([
-      expected[0][0], expected[0][3], 'Group 3', 'Group 4'
+      expected[0][0], expected[0][3]
     ]);
     expect(groupedState.conditions).toEqual(expected[1].slice(0, 3));
   });
@@ -414,7 +414,7 @@ describe('UI events: Box and Line', () => {
 
       expect(statsStatus.textContent).toBe('Statistics up to date.');
       expect(statsButton.disabled).toBe(false);
-      expect(statsButton.textContent).toBe('Recalculate statistics');
+      expect(statsButton.textContent).toBe('Calculate statistics');
       const renderedTable = statsResults.querySelector('table');
       expect(renderedTable).toBeTruthy();
       expect(statsResults.textContent).toContain('Series');
@@ -618,12 +618,49 @@ describe('UI events: Box and Line', () => {
       expect(Number(swatch.getAttribute('width'))).toBeGreaterThan(Number(swatch.getAttribute('height')));
       expect(swatch.getAttribute('fill')).toBeTruthy();
       expect(swatch.getAttribute('stroke')).toBeTruthy();
-      expect(Number(swatch.getAttribute('stroke-width'))).toBeGreaterThan(0);
+      expect(Number(swatch.getAttribute('stroke-width'))).toBe(0);
     });
     const swatchFills = swatches.map(swatch => swatch.getAttribute('fill')).filter(Boolean);
     expect(new Set(swatchFills).size).toBe(2);
 
+    const assertOutlineAgreement = expectedWidths => {
+      const svg = document.querySelector('#boxPlot svg');
+      const keys = Array.from(svg.querySelectorAll('rect[data-legend-key]'));
+      expect(keys).toHaveLength(expectedWidths.length);
+      keys.forEach((key, groupIndex) => {
+        const bodies = Array.from(svg.querySelectorAll(`[data-box-shape="body"][data-group-index="${groupIndex}"]:not([data-summary-line="1"])`));
+        expect(bodies.length).toBeGreaterThan(0);
+        const legendWidth = Number(key.getAttribute('stroke-width'));
+        expect(legendWidth).toBe(expectedWidths[groupIndex]);
+        bodies.forEach(body => expect(Number(body.getAttribute('stroke-width'))).toBe(legendWidth));
+      });
+    };
+    assertOutlineAgreement([0, 0]);
     let payload = boxComponent.getPayload?.();
+    payload.config.shapeGlobalStyle = { ...(payload.config.shapeGlobalStyle || {}), thickness: 2 };
+    boxComponent.loadFromPayload(payload);
+    await awaitBoxReady('ui-events-box-legend-positive-border');
+    assertOutlineAgreement([2, 2]);
+
+    // Different group widths must each be reflected by their own legend key.
+    payload = boxComponent.getPayload?.();
+    document.querySelectorAll('#boxPlot svg [data-box-shape="body"][data-style-trace]:not([data-summary-line="1"])').forEach(body => {
+      const styleIndex = body.getAttribute('data-style-trace');
+      const thickness = Number(body.getAttribute('data-group-index')) === 0 ? 0 : 3;
+      payload.config.shapeStyles = { ...payload.config.shapeStyles, [styleIndex]: { thickness } };
+    });
+    boxComponent.loadFromPayload(payload);
+    await awaitBoxReady('ui-events-box-legend-group-borders');
+    assertOutlineAgreement([0, 3]);
+
+    // Explicitly removing symbol borders must remove the legend borders too.
+    payload = boxComponent.getPayload?.();
+    payload.config.shapeStyles = {};
+    payload.config.shapeGlobalStyle = { ...(payload.config.shapeGlobalStyle || {}), thickness: 0 };
+    boxComponent.loadFromPayload(payload);
+    await awaitBoxReady('ui-events-box-legend-zero-override');
+    assertOutlineAgreement([0, 0]);
+    payload = boxComponent.getPayload?.();
     expect(payload?.config?.showLegend).toBe(true);
     legendToggle.checked = false;
     legendToggle.dispatchEvent(new Event('change', { bubbles: true }));

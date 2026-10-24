@@ -198,6 +198,7 @@ describe('Shared.toolbarOverflow', () => {
     const popup = document.createElement('div');
     popup.style.left = '12px';
     popup.style.maxWidth = '500px';
+    popup.style.zIndex = '7';
     mountNodes(anchor, popup);
 
     anchor.getBoundingClientRect = () => ({
@@ -227,10 +228,12 @@ describe('Shared.toolbarOverflow', () => {
     expect(window.Shared.toolbarOverflow.positionPopup(popup, anchor, {
       align: 'start',
       minWidth: 360,
-      offset: 6
+      offset: 6,
+      zIndex: 64
     })).toBe(true);
     expect(popup.dataset.toolbarFloatingOverlay).toBe('1');
     expect(popup.style.position).toBe('fixed');
+    expect(popup.style.zIndex).toBe('64');
     expect(parseFloat(popup.style.left)).toBeGreaterThanOrEqual(6);
     expect(parseFloat(popup.style.maxWidth)).toBe(408);
     expect(parseFloat(popup.style.minWidth)).toBe(360);
@@ -241,6 +244,95 @@ describe('Shared.toolbarOverflow', () => {
     expect(popup.style.position).toBe('');
     expect(popup.style.left).toBe('12px');
     expect(parseFloat(popup.style.maxWidth)).toBe(500);
+    expect(popup.style.zIndex).toBe('7');
+  });
+
+  test('uses the shared floating-overlay layer token when no z-index override is passed', () => {
+    const token = '--ui-layer-floating-overlay';
+    const previousToken = document.documentElement.style.getPropertyValue(token);
+    document.documentElement.style.setProperty(token, '73');
+
+    const anchor = document.createElement('button');
+    const popup = document.createElement('div');
+    mountNodes(anchor, popup);
+    anchor.getBoundingClientRect = () => ({ left: 20, right: 120, top: 20, bottom: 44, width: 100, height: 24 });
+    popup.getBoundingClientRect = () => ({ left: 0, right: 160, top: 0, bottom: 80, width: 160, height: 80 });
+
+    try {
+      expect(window.Shared.toolbarOverflow.positionPopup(popup, anchor)).toBe(true);
+      expect(popup.style.zIndex).toBe('73');
+      expect(window.Shared.toolbarOverflow.clearPopup(popup)).toBe(true);
+    } finally {
+      if (previousToken) {
+        document.documentElement.style.setProperty(token, previousToken);
+      } else {
+        document.documentElement.style.removeProperty(token);
+      }
+    }
+  });
+
+  test('places a tall popup above its anchor and limits it to available viewport height', () => {
+    const anchor = document.createElement('button');
+    const popup = document.createElement('div');
+    mountNodes(anchor, popup);
+    anchor.getBoundingClientRect = () => ({ left: 20, right: 120, top: 300, bottom: 324, width: 100, height: 24 });
+    popup.getBoundingClientRect = () => ({ left: 0, right: 220, top: 0, bottom: 340, width: 220, height: 340 });
+    defineMetric(popup, 'offsetWidth', 220);
+    defineMetric(popup, 'offsetHeight', 340);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 400 });
+
+    expect(window.Shared.toolbarOverflow.positionPopup(popup, anchor, { offset: 6, maxHeight: 340 })).toBe(true);
+    expect(parseFloat(popup.style.top)).toBe(6);
+    expect(parseFloat(popup.style.maxHeight)).toBe(288);
+    expect(parseFloat(popup.style.top) + parseFloat(popup.style.maxHeight)).toBeLessThanOrEqual(300);
+
+    window.Shared.toolbarOverflow.clearPopup(popup);
+  });
+
+  test('keeps an explicitly bottom-placed popup below its anchor and limits its height there', () => {
+    const anchor = document.createElement('button');
+    const popup = document.createElement('div');
+    mountNodes(anchor, popup);
+    anchor.getBoundingClientRect = () => ({ left: 20, right: 120, top: 300, bottom: 324, width: 100, height: 24 });
+    popup.getBoundingClientRect = () => ({ left: 0, right: 220, top: 0, bottom: 340, width: 220, height: 340 });
+    defineMetric(popup, 'offsetWidth', 220);
+    defineMetric(popup, 'offsetHeight', 340);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 400 });
+
+    expect(window.Shared.toolbarOverflow.positionPopup(popup, anchor, {
+      placement: 'bottom',
+      offset: 6,
+      maxHeight: 340,
+      viewportBottom: 360
+    })).toBe(true);
+    expect(parseFloat(popup.style.top)).toBe(330);
+    expect(parseFloat(popup.style.maxHeight)).toBe(24);
+
+    window.Shared.toolbarOverflow.clearPopup(popup);
+  });
+
+  test('anchor-width placement overrides percentage minimums and restores them on close', () => {
+    const anchor = document.createElement('button');
+    const popup = document.createElement('div');
+    popup.style.minWidth = '100%';
+    mountNodes(anchor, popup);
+    anchor.getBoundingClientRect = () => ({ left: 90, right: 310, top: 80, bottom: 104, width: 220, height: 24 });
+    popup.getBoundingClientRect = () => ({ left: 0, right: 322, top: 0, bottom: 180, width: 322, height: 180 });
+    defineMetric(popup, 'offsetWidth', 322);
+    defineMetric(popup, 'offsetHeight', 180);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 400 });
+
+    expect(window.Shared.toolbarOverflow.positionPopup(popup, anchor, { matchAnchorWidth: true })).toBe(true);
+    expect(popup.style.width).toBe('220px');
+    expect(popup.style.minWidth).toBe('220px');
+    expect(parseFloat(popup.style.left) + 220).toBeLessThanOrEqual(314);
+
+    expect(window.Shared.toolbarOverflow.clearPopup(popup)).toBe(true);
+    expect(popup.style.width).toBe('');
+    expect(popup.style.minWidth).toBe('100%');
   });
 
   test('rejects invalid popup geometry without retaining floating state', () => {

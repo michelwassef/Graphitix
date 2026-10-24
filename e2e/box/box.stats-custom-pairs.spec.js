@@ -14,6 +14,17 @@ async function loadBoxExample(page) {
   await expect(page.locator('#boxStatsScope')).toBeVisible({ timeout: 20_000 });
 }
 
+async function expectPairsImmediatelyFollowComparisonScope(page) {
+  const rowOrder = await page.locator('#statsControls .box-stats-options__column--primary').evaluate(column => {
+    const rows = Array.from(column.querySelectorAll('.box-stats-options__row'));
+    const labelText = row => row.querySelector(':scope > label')?.textContent?.trim() || '';
+    const scopeIndex = rows.findIndex(row => labelText(row) === 'Comparison scope');
+    const pairsIndex = rows.findIndex(row => labelText(row) === 'Pairs');
+    return { scopeIndex, pairsIndex };
+  });
+  expect(rowOrder.pairsIndex).toBe(rowOrder.scopeIndex + 1);
+}
+
 test('box custom pairs calculate on the first click after editing multiple pairs', async ({ page }) => {
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -22,9 +33,10 @@ test('box custom pairs calculate on the first click after editing multiple pairs
   await loadBoxExample(page);
 
   await page.locator('#boxStatsScope').selectOption('custom');
+  await expectPairsImmediatelyFollowComparisonScope(page);
   const pairInput = page
     .locator('#statsControls .box-stats-options__row')
-    .filter({ hasText: 'Pairs:' })
+    .filter({ has: page.locator('label').filter({ hasText: /^Pairs$/ }) })
     .locator('input[type="text"]');
   await expect(pairInput).toBeVisible();
 
@@ -34,7 +46,7 @@ test('box custom pairs calculate on the first click after editing multiple pairs
   await expect(pairwiseProcedure).toBeDisabled();
   await expect(pairwiseProcedure.locator('option:checked')).toHaveText('None');
   await page.locator('#boxComputeStats').click();
-  await expect(page.locator('#boxComputeStats')).toHaveText('Recalculate statistics', { timeout: 30_000 });
+  await expect(page.locator('#boxComputeStats')).toHaveText('Calculate statistics', { timeout: 30_000 });
 
   await pairInput.fill('1-2,3-4');
   await expect(pairwiseProcedure.locator('option:checked')).toHaveText('Manual pairs');
@@ -43,7 +55,7 @@ test('box custom pairs calculate on the first click after editing multiple pairs
   await expect(page.locator('#boxComputeStats')).toHaveText('Calculate statistics');
 
   await page.locator('#boxComputeStats').click();
-  await expect(page.locator('#boxComputeStats')).toHaveText('Recalculate statistics', { timeout: 30_000 });
+  await expect(page.locator('#boxComputeStats')).toHaveText('Calculate statistics', { timeout: 30_000 });
   await page.waitForFunction(() => {
     const state = window.Components?.box?.__getState?.() || null;
     return !!(
@@ -67,9 +79,10 @@ test('box custom pairs retain keyboard focus through recovery render-cache captu
   await loadBoxExample(page);
 
   await page.locator('#boxStatsScope').selectOption('custom');
+  await expectPairsImmediatelyFollowComparisonScope(page);
   const pairInput = page
     .locator('#statsControls .box-stats-options__row')
-    .filter({ hasText: 'Pairs:' })
+    .filter({ has: page.locator('label').filter({ hasText: /^Pairs$/ }) })
     .locator('input[type="text"]');
   await expect(pairInput).toBeVisible();
 

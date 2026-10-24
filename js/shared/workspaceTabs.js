@@ -620,7 +620,40 @@
 
   namespace.ensureActiveDomBindings = function ensureActiveDomBindings(config = {}){
     const componentKey = String(config.componentKey || config.type || '').trim() || '__default__';
-    const tab = resolveTab(config.tabLike || config.tabId || null) || resolveSession()?.getActiveTab?.() || null;
+    const requestedTabLike = config.tabLike || config.tabId || null;
+    const activeTab = resolveSession()?.getActiveTab?.() || null;
+    const tab = requestedTabLike ? resolveTab(requestedTabLike) : activeTab;
+    const tabId = normalizeTabId(tab?.id);
+    const workspaceActiveTabId = normalizeTabId(resolveWorkspaceState()?.activeTabId || '');
+    const sessionActiveTabId = normalizeTabId(activeTab?.id || '');
+    const activeTabId = workspaceActiveTabId || sessionActiveTabId;
+    if(!tabId
+      || !activeTabId
+      || tabId !== activeTabId
+      || (workspaceActiveTabId && sessionActiveTabId && workspaceActiveTabId !== sessionActiveTabId)){
+      debugLog('Debug: workspaceTabs skipped inactive DOM binding', {
+        componentKey,
+        tabId: tabId || null,
+        activeTabId: activeTabId || null,
+        sessionActiveTabId: sessionActiveTabId || null
+      });
+      return {
+        tab,
+        tabId: tabId || null,
+        root: null,
+        currentRoot: null,
+        currentSentinel: null,
+        mountedSentinel: null,
+        rootMismatch: false,
+        sentinelMismatch: false,
+        missingCurrentRoot: false,
+        missingCurrentSentinel: false,
+        missingRequiredTable: false,
+        requiresRebind: false,
+        rebound: false,
+        skippedInactive: true
+      };
+    }
     const mountedRoot = namespace.getMountedRoot(tab, componentKey) || null;
     const currentRoot = typeof config.getCurrentRoot === 'function'
       ? (config.getCurrentRoot() || null)
@@ -1606,10 +1639,47 @@
     if(!tab){
       return false;
     }
+    Shared.cancelSvgPointerGesturesForTab?.(tab.id, meta.reason || 'workspace-deactivated');
+    Shared.workspaceToolbar?.finishTabOwnedNumericDrag?.(tab.id, {
+      commit: true,
+      reason: meta.reason || 'workspace-deactivated'
+    });
+    Shared.hot?.closeContextMenusForTab?.(tab.id, { reason: meta.reason || 'workspace-deactivated' });
+    Shared.closeColorPickerForTab?.(tab.id, 'owner-changed');
+    Shared.exporter?.closeMenusForTab?.(tab.id);
+    Shared.closeColorSchemePopupsForTab?.(tab.id);
+    Shared.axisControls?.deactivateTab?.(tab.id, { reason: meta.reason || 'workspace-deactivated' });
+    Shared.significanceControls?.deactivateTab?.(tab.id, { reason: meta.reason || 'workspace-deactivated' });
+    Shared.additionalLineControls?.deactivateTab?.(tab.id, { reason: meta.reason || 'workspace-deactivated' });
+    Shared.gridControls?.deactivateTab?.(tab.id, { reason: meta.reason || 'workspace-deactivated' });
+    Shared.dendrogramControls?.deactivateTab?.(tab.id, { reason: meta.reason || 'workspace-deactivated' });
+    const ownerRoot = namespace.getMountedRoot(tab, resolvedType);
+    Shared.workspaceToolbar?.closeTransientUiForRoot?.(ownerRoot);
+    Shared.resizer?.closeTransientUiForRoot?.(ownerRoot, {
+      reason: meta.reason || 'workspace-deactivated',
+      tabId: tab.id
+    });
+    Shared.dataViews?.closeTransientUiForRoot?.(ownerRoot, {
+      reason: meta.reason || 'workspace-deactivated',
+      tabId: tab.id
+    });
     try{
       Shared.finalizeInlineTitleEditForTab?.(tab.id, meta.reason || 'deactivate-workspace');
     }catch(err){
       console.error('workspaceTabs title edit finalization error', {
+        tabId: tab.id,
+        type: resolvedType || null,
+        reason: meta.reason || 'deactivate-workspace',
+        err
+      });
+    }
+    try{
+      Shared.fontControls?.deactivateTab?.(tab.id, {
+        tabId: tab.id,
+        reason: meta.reason || 'deactivate-workspace'
+      });
+    }catch(err){
+      console.error('workspaceTabs font controls deactivation error', {
         tabId: tab.id,
         type: resolvedType || null,
         reason: meta.reason || 'deactivate-workspace',
@@ -1670,6 +1740,7 @@
     const tab = resolved.tab;
     const resolvedType = String(meta.type || tab?.type || '').trim();
     const resolvedConfig = resolveWorkspaceConfig(resolvedType, null);
+    const component = resolvedType ? global.Components?.[resolvedType] || null : null;
     if(!tab){
       return false;
     }
@@ -1684,31 +1755,43 @@
         err
       });
     }
+    const cancelAsyncScopes = (target, label) => {
+      if(!target || !tabId){ return; }
+      const scopes = new Set([
+        target.__asyncScope,
+        target.__drawAsyncScope,
+        target.__statsAsyncScope
+      ].filter(scope => scope && typeof scope.cancelAllForTab === 'function'));
+      scopes.forEach(scope => {
+        try{
+          scope.cancelAllForTab(tabId, meta.reason || `${label}-dispose-tab`);
+        }catch(err){
+          console.error('workspaceTabs async scope dispose error', {
+            tabId,
+            type: resolvedType || null,
+            label,
+            err
+          });
+        }
+      });
+    };
+    cancelAsyncScopes(resolvedConfig, 'workspace');
+    cancelAsyncScopes(component, 'component');
+    try{
+      global.Shared?.jobs?.cancelForTab?.(tabId, meta.reason || 'dispose-tab');
+    }catch(err){
+      console.error('workspaceTabs jobs dispose error', {
+        tabId,
+        type: resolvedType || null,
+        err
+      });
+    }
     invokeWorkspaceHook(resolvedConfig, 'disposeTab', [tab, {
       ...meta,
       tabId,
       type: resolvedType || null,
       reason: meta.reason || 'dispose-tab'
     }], meta);
-    const component = resolvedType ? global.Components?.[resolvedType] || null : null;
-    const cancelAsyncScope = (target, label) => {
-      if(!target?.__asyncScope || typeof target.__asyncScope.cancelAllForTab !== 'function' || !tabId){
-        return false;
-      }
-      try{
-        return !!target.__asyncScope.cancelAllForTab(tabId, meta.reason || `${label}-dispose-tab`);
-      }catch(err){
-        console.error('workspaceTabs async scope dispose error', {
-          tabId,
-          type: resolvedType || null,
-          label,
-          err
-        });
-        return false;
-      }
-    };
-    cancelAsyncScope(resolvedConfig, 'workspace');
-    cancelAsyncScope(component, 'component');
     try{
       global.Shared?.hot?.disposeTab?.(tab, {
         type: resolvedType || null,

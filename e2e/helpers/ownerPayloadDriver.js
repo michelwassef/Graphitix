@@ -287,7 +287,20 @@
   function buildParameterVariantPayload(baseline, parameters, valueKey){
     const builder = global.GraphitixMutationAdapters?.buildParameterVariantPayload;
     if(typeof builder !== 'function') throw new Error('GraphitixMutationAdapters unavailable');
-    return builder(baseline, parameters, valueKey);
+    const payload = builder(baseline, parameters, valueKey);
+    const changesHeatmapScheme = payload?.type === 'heatmap'
+      && parameters.some(parameter => Array.isArray(parameter.path)
+        && parameter.path.length === 2
+        && parameter.path[0] === 'config'
+        && parameter.path[1] === 'colorScheme');
+    if(changesHeatmapScheme){
+      const applyToPayload = global.Shared?.colorSchemes?.applyToPayload;
+      if(typeof applyToPayload !== 'function'){
+        throw new Error('Heatmap scheme mutation requires Shared.colorSchemes.applyToPayload');
+      }
+      return applyToPayload('heatmap', payload, payload.config?.colorScheme);
+    }
+    return payload;
   }
 
   function domNodeKey(element, index){
@@ -337,6 +350,18 @@
         values[`${key}.data-parameter-p-value-scientific`] = el.getAttribute('data-parameter-p-value-scientific') === 'true';
       }
     });
+    // Shared color-scheme pickers use a visually hidden native select to back
+    // the visible picker. It can live outside the graph root, so capture it as
+    // an active-UI projection only when this owner is actually active.
+    const activeTabId = String(global.Main?.session?.workspaceState?.activeTabId || '').trim();
+    if(activeTabId && activeTabId === String(tabId || '').trim()){
+      const schemeSelect = Array.from(global.document?.querySelectorAll?.('select[data-color-scheme-select="1"]') || [])
+        .find(element => String(element.dataset?.componentType || '') === String(type || ''));
+      if(schemeSelect){
+        const id = String(schemeSelect.id || '').trim();
+        if(id) values[`active-ui:#${id}.value`] = String(schemeSelect.value ?? '');
+      }
+    }
     const selectedTabGroups = new Set();
     rootControls.concat(externalControls).forEach((el, index) => {
       if(el.getAttribute?.('role') !== 'tab' || el.getAttribute('aria-selected') !== 'true') return;
@@ -744,6 +769,7 @@
       const key = pathKey(path);
       const before = clone(getAtPath(baseline, path));
       const alternative = explicitMutationAlternative(mutation, before);
+      const isColorScheme = /colorScheme$/i.test(String(path[path.length - 1] || ''));
       parameters.push({
         id: String(mutation.id || ''),
         kind: String(mutation.kind || ''),
@@ -760,7 +786,10 @@
         projectionContract: mutation.projectionContract ? clone(mutation.projectionContract) : null,
         requiresDomWitness: mutation.requiresDomWitness !== false,
         controlIndex: null,
-        controlDomKey: null
+        controlDomKey: mutation.controlDomKey
+          || mutation.projectionContract?.domControlKey
+          || (isColorScheme ? `active-ui:#${type}ColorSchemeSelect.value` : null)
+          || null
       });
     });
     return { parameters, classified };
@@ -1043,12 +1072,15 @@
   }
 
   async function preparePayloadTab(type, tab, reason){
-    await activateTab(tab.id, `${reason}-activate`);
-    await awaitOwnerReadyForSnapshot(type, tab.id, `${reason}-ready`);
+    // assignTabPayload updates the archive payload but not every component's
+    // runtime snapshot. Hydrate through the production component contract before
+    // testing a synthetic tab, or activation can combine two different revisions.
+    const requestedPayload = tab?.__parameterRequestedPayload || tab?.payload;
+    await applyPayload(type, tab.id, requestedPayload, `${reason}-hydrate`, { draw: false });
     if(type === 'heatmap' && applyHeatmapDataViewControlVariant(tab)){
       await awaitOwnerReadyForSnapshot(type, tab.id, `${reason}-data-view-ready`);
+      persistOwner(type, tab.id, `${reason}-data-view-persist`);
     }
-    persistOwner(type, tab.id, `${reason}-persist`);
     return tab;
   }
 

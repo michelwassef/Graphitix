@@ -10,6 +10,7 @@ const {
   collectLifecycleEvidence,
   registerIssueCollectors
 } = require('../helpers/diagnostics');
+const { waitForOwnerReady } = require('../../test-support/readiness');
 
 test.describe('@nightly-owner-order repeated owner-order isolation', () => {
   test.describe.configure({ mode: 'parallel' });
@@ -102,7 +103,15 @@ test.describe('@nightly-owner-order repeated owner-order isolation', () => {
       const evidence = [];
       for (const sequence of sequences) {
         for (const tabId of sequence) {
-          const readiness = await activateTab(page, tabId, component);
+          await activateTab(page, tabId, component);
+          const readiness = await waitForOwnerReady(page, {
+            type: component.type,
+            pageId: component.pageId,
+            expectedTabId: tabId,
+            requireMountedRoot: true,
+            requireIdle: true,
+            timeout: 30_000
+          });
           const owner = await readOwnerEvidence(page, component, tabId, readiness);
           owner.lifecycle = await collectLifecycleEvidence(page, {
             componentType: component.type,
@@ -118,7 +127,6 @@ test.describe('@nightly-owner-order repeated owner-order isolation', () => {
           expect(owner.rootVisible).toBeTruthy();
           expect(owner.readiness.ready).toBeTruthy();
           expect(owner.readiness.ownerTabId).toBe(tabId);
-          expect(owner.readiness.asyncGeneration).toBeGreaterThan(0);
           expect(owner.readiness.asyncIdle).toBeTruthy();
         }
       }

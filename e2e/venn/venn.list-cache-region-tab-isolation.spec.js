@@ -22,7 +22,7 @@ async function openVennTab(page, { first = false } = {}) {
   return tabId;
 }
 
-async function activateTabById(page, tabId) {
+async function activateTabById(page, tabId, { requirePublished = true } = {}) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await expect(tab).toBeVisible();
   await tab.click({ force: true });
@@ -37,7 +37,7 @@ async function activateTabById(page, tabId) {
   await waitForComponentOwnerReady(page, 'venn', {
     expectedTabId: tabId,
     requireMountedRoot: true,
-    requirePublished: true,
+    requirePublished,
     requireIdle: true,
     timeout: 30_000
   });
@@ -108,6 +108,8 @@ async function configureVennTab(page, config) {
     const text = document.querySelector('#vennPage:not([hidden]) #significanceResults')?.textContent || '';
     return /hypergeometric|p-value|Overlap/i.test(text);
   }, null, { timeout: 20_000 });
+  await expect(page.locator('#vennPage:not([hidden]) #calcSignificance')).toHaveText('Calculate statistics');
+  await expect(page.locator('#vennPage:not([hidden]) #vennStatsStatus')).toContainText('Statistics calculated');
 }
 
 async function readVennSnapshot(page) {
@@ -175,11 +177,13 @@ test('venn list edits, parsed caches, selected region, and significance stay tab
     species: 'mmusculus'
   };
 
-  await activateTabById(page, firstId);
+  // Both newly created tabs start empty; configuration below publishes each graph.
+  await activateTabById(page, firstId, { requirePublished: false });
   await configureVennTab(page, firstConfig);
   const firstBeforeSwitch = await readVennSnapshot(page);
 
-  await activateTabById(page, secondId);
+  // The newly created second tab is intentionally empty until its inputs are configured.
+  await activateTabById(page, secondId, { requirePublished: false });
   await configureVennTab(page, secondConfig);
   const secondBeforeSwitch = await readVennSnapshot(page);
 
@@ -224,4 +228,92 @@ test('venn list edits, parsed caches, selected region, and significance stay tab
   expect(firstAfterReturn.analysis.hasParsedLists).toBe(true);
   expect(secondAfterReturn.analysis.hasParsedLists).toBe(true);
   expect(issues.critical).toEqual([]);
+});
+
+test('delayed table paste remains owned by its originating Venn tab', async ({ page }) => {
+  test.setTimeout(150_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+
+  const firstId = await openVennTab(page, { first: true });
+  await activateTabById(page, firstId, { requirePublished: false });
+  await page.evaluate(() => {
+    const hot = window.Shared?.hot?.__tabTablePools?.venn?.byTab?.[window.Main?.session?.workspaceState?.activeTabId]?.instance;
+    if (!hot?.selectCell) throw new Error('Venn table instance unavailable');
+    hot.selectCell(1, 0);
+    const tableImport = window.Shared?.tableImport;
+    if (!tableImport?.getClipboardPayloadFromEvent) throw new Error('Clipboard reader unavailable');
+    window.__vennPasteClipboardRestore = tableImport.getClipboardPayloadFromEvent;
+    window.__vennPasteDeferredResolve = null;
+    tableImport.getClipboardPayloadFromEvent = () => new Promise(resolve => {
+      window.__vennPasteDeferredResolve = () => resolve({ text: 'A_LATE_PASTE', delimiter: null, source: 'delayed-test' });
+    });
+    const host = document.querySelector('#vennPage:not([hidden]) #vennHot');
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', 'A_LATE_PASTE');
+    Object.defineProperty(event, 'clipboardData', { value: transfer });
+    host.dispatchEvent(event);
+    if (!event.defaultPrevented) throw new Error('Venn table did not claim the paste event');
+  });
+  await page.waitForFunction(() => typeof window.__vennPasteDeferredResolve === 'function');
+
+  try {
+  const secondId = await openVennTab(page);
+  await activateTabById(page, secondId, { requirePublished: false });
+  await configureVennTab(page, {
+    labels: ['Delta', 'Epsilon', 'Zeta'],
+    A: ['B_INITIAL'],
+    B: [],
+    C: [],
+    region: 'A',
+    totalGenes: 240,
+    species: 'mmusculus'
+  });
+
+    await page.evaluate(() => {
+      window.Shared.tableImport.getClipboardPayloadFromEvent = window.__vennPasteClipboardRestore;
+      const resolve = window.__vennPasteDeferredResolve;
+      window.__vennPasteDeferredResolve = null;
+      resolve?.();
+    });
+    await page.waitForFunction(id => {
+      const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === id);
+      return tab?.payload?.data?.table?.[1]?.[0] === 'A_LATE_PASTE';
+    }, firstId, { timeout: 20_000 });
+
+    const secondPayloadBeforeReturn = await page.evaluate(id =>
+      window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === id)?.payload?.data?.table?.[1]?.[0] || '',
+    secondId);
+    expect(secondPayloadBeforeReturn).toBe('B_INITIAL');
+
+    await activateTabById(page, firstId);
+    const firstAfterReturn = await page.evaluate(id => {
+      const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === id);
+      const hot = window.Shared?.hot?.__tabTablePools?.venn?.byTab?.[id]?.instance;
+      const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id, 'venn');
+      return {
+        payload: tab?.payload?.data?.table?.[1]?.[0] || '',
+        table: hot?.getDataAtCell?.(1, 0) || '',
+        input: root?.querySelector?.('#listA')?.value || ''
+      };
+    }, firstId);
+    expect(firstAfterReturn.payload).toBe('A_LATE_PASTE');
+    expect(firstAfterReturn.table).toBe('A_LATE_PASTE');
+    expect(firstAfterReturn.input).toContain('A_LATE_PASTE');
+    expect(issues.critical).toEqual([]);
+  } finally {
+    await page.evaluate(() => {
+      if (window.__vennPasteClipboardRestore) {
+        window.Shared.tableImport.getClipboardPayloadFromEvent = window.__vennPasteClipboardRestore;
+      }
+      window.__vennPasteDeferredResolve?.();
+      delete window.__vennPasteClipboardRestore;
+      delete window.__vennPasteDeferredResolve;
+    }).catch(error => {
+      if (!page.isClosed()) throw error;
+    });
+  }
 });

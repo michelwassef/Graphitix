@@ -152,10 +152,6 @@
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   line.__installed = true;
   line.ready = false;
-  const fileIO = Shared.fileIO = Shared.fileIO || {};
-  if(!fileIO.saveGraphFile){
-    console.debug('Debug: line component awaiting Shared.fileIO helpers');
-  }
   if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
     console.debug('Debug: line component awaiting Shared.tableImport helpers'); // Debug: table import helper check
   }
@@ -594,7 +590,7 @@
   let lineZLabelText = 'Z';
   let lineLabelColors = {};
   let lineLabelPositions = { title: null, xLabel: null, yLabel: null, legend: null, stats: null };
-  let lineColorSchemeId = 'scientific';
+  let lineColorSchemeId = 'normal';
   let lineTextColor = chartStyle.TEXT_COLOR || '#000000';
   let lineBackgroundColor = '#ffffff';
   let lineLegendControl = null;
@@ -613,7 +609,7 @@
     const fromShared = Shared.colorSchemes?.getDefaultSchemeId?.('line');
     return (typeof fromShared === 'string' && fromShared.trim())
       ? fromShared.trim().toLowerCase()
-      : 'scientific';
+      : 'normal';
   }
 
   function getLineLabelsState(session = null){
@@ -1019,21 +1015,6 @@
     return Array.isArray(grouped.shapes) ? grouped.shapes.slice() : [];
   }
 
-  function patchLineGroupShapeState(session = null, index = 0, shape = '', meta = {}){
-    const safeIndex = Number.isInteger(index) && index >= 0 ? index : 0;
-    const grouped = getLineGroupedState(session);
-    const count = Math.max(Array.isArray(grouped.labels) ? grouped.labels.length : 0, Array.isArray(grouped.shapes) ? grouped.shapes.length : 0, safeIndex + 1);
-    const shapes = new Array(count);
-    for(let i = 0; i < count; i += 1){
-      shapes[i] = sanitizeLineGroupShape(grouped.shapes?.[i], i);
-    }
-    shapes[safeIndex] = sanitizeLineGroupShape(shape, safeIndex);
-    return setLineGroupShapesState(session, shapes, {
-      ...(meta || {}),
-      reason: meta?.reason || 'line-group-shape-patch'
-    });
-  }
-
   function getLineForecastState(session = null){
     const target = resolveLineStateSession(session);
     if(target?.state){
@@ -1085,7 +1066,7 @@
         : resolvedSchemeId);
     const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
     setLineThemeState(session || getLineProjectionSession({ reason: 'line-projection-mutation' }), {
-      colorScheme: schemeId || 'scientific',
+      colorScheme: schemeId || 'normal',
       textColor: normalizeLineThemeColor(
         cfg.textColor,
         resolved?.textColor || (isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000'))
@@ -1433,8 +1414,6 @@
     const numeric = Number(value);
     return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : null;
   }
-    let lineFileHandle = null;
-    let lineFileName = 'line.graph';
     let lineReplicates = LINE_MIN_REPLICATES;
     let lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, LINE_MIN_REPLICATES + 1));
   let lineSeriesGroupLabels = [];
@@ -1442,29 +1421,10 @@
   let lineLastRegressionSummaries = [];
   const lineStatsDefaultPlaceholder = 'Statistics will appear after calculation.';
   const lineStatsEmptyPlaceholder = 'Add data to enable statistics.';
-  function setLineFileHandleForSession(handle, session = null){
+  function getLineFileNameForSession(session = null){
     const owner = ensureLineSessionOwnershipShape(session || getLineActiveSessionForState());
-    if(owner?.managers){
-      owner.managers.fileHandle = handle || null;
-      owner.updatedAt = Date.now();
-    }
-    if(!owner || isLineSessionActive(owner)){
-      lineFileHandle = handle || null;
-    }
-    return handle || null;
-  }
-
-  function setLineFileNameForSession(name, session = null){
-    const nextName = name || 'line.graph';
-    const owner = ensureLineSessionOwnershipShape(session || getLineActiveSessionForState());
-    if(owner?.state){
-      owner.state.fileName = nextName;
-      owner.updatedAt = Date.now();
-    }
-    if(!owner || isLineSessionActive(owner)){
-      lineFileName = nextName;
-    }
-    return nextName;
+    const storedName = owner?.state?.fileName;
+    return (typeof storedName === 'string' && storedName.trim()) ? storedName.trim() : 'line.graph';
   }
 
   function createDefaultLineStatsState(){
@@ -1490,16 +1450,24 @@
   function createDefaultLineAdvisorState(){
     return {
       open:false,
-      activated:false,
+
       answers:{},
-      lastApplied:null,
-      context:null
+      lastApplied:null
     };
   }
   let lineAdvisorState = createDefaultLineAdvisorState();
 
   function resolveLineTabIdFromNode(node){
     return Shared.componentLifecycle?.resolveTabIdFromTarget?.(node) || null;
+  }
+
+  function isLineNodeOwnedByActiveTab(node, activeTabId = getLineProjectionTabId()){
+    if(!node || !node.isConnected){
+      return false;
+    }
+    const currentTabId = String(activeTabId || '').trim();
+    const ownerTabId = String(resolveLineTabIdFromNode(node) || '').trim();
+    return !currentTabId || !ownerTabId || ownerTabId === currentTabId;
   }
 
   function resolveLineOwnedRuntimeTabId(tabLike = null, meta = {}){
@@ -1641,20 +1609,25 @@
 
   function normalizeLineAdvisorState(value){
     const input = value && typeof value === 'object' ? value : {};
-    const contextInput = input.context && typeof input.context === 'object' ? input.context : null;
-    const context = contextInput
-      ? cloneLineRuntimeValue(Object.fromEntries(Object.entries(contextInput).filter(([key]) => key !== 'session')), null)
-      : null;
     return {
       open: !!input.open,
-      activated: !!input.activated,
+
       answers: input.answers && typeof input.answers === 'object' && !Array.isArray(input.answers)
         ? cloneLineRuntimeValue(input.answers, {})
         : {},
       lastApplied: input.lastApplied && typeof input.lastApplied === 'object'
         ? cloneLineRuntimeValue(input.lastApplied, null)
-        : null,
-      context
+        : null
+    };
+  }
+
+  function captureLineAdvisorPayloadState(session = null){
+    const advisor = normalizeLineAdvisorState(getLineAdvisorState(session));
+    return {
+      open: advisor.open,
+
+      answers: advisor.answers,
+      lastApplied: advisor.lastApplied
     };
   }
 
@@ -1723,7 +1696,7 @@
 
   function createDefaultLineThemeState(){
     return {
-      colorScheme: 'scientific',
+      colorScheme: getLineDefaultSchemeId(),
       textColor: chartStyle.TEXT_COLOR || '#000000',
       backgroundColor: '#ffffff'
     };
@@ -1939,7 +1912,8 @@
     lineAxisSettings = record.axisSettings && typeof record.axisSettings === 'object' ? cloneSimple(record.axisSettings) : lineAxisSettings;
     lineGridStyle = record.gridStyle && typeof record.gridStyle === 'object' ? cloneSimple(record.gridStyle) : lineGridStyle;
     lineLastRegressionSummaries = Array.isArray(record.regressionSummaries) ? record.regressionSummaries.slice() : [];
-    lineAdvisorState = normalizeLineAdvisorState(record.advisorState);
+    // Runtime binding projects the already hydrated owner; it must not hydrate again.
+    lineAdvisorState = getLineAdvisorState(record.tabId);
     line.__lineOwnedRuntimeTabId = record.tabId;
     const boundSession = getLineSession(record.tabId, { ...(meta || {}), tabId: record.tabId, reason: 'line-owned-runtime-bound-session' }, { create: true });
     if(boundSession){
@@ -1947,9 +1921,9 @@
       setLineAutoDrawState(record.autoDrawState, boundSession);
       setLineStatsState(record.statsState, boundSession);
       setLineRegressionSummariesState(lineLastRegressionSummaries, boundSession);
-      setLineAdvisorState(record.advisorState, boundSession);
+      lineAdvisorState = getLineAdvisorState(boundSession);
       setLineSessionModeCache(boundSession, record.modeCache);
-      boundSession.state = buildLineCanonicalStateFromGlobals(record.tabId, { ...(meta || {}), tabId: record.tabId }, { readControls: false });
+      updateLineSessionFromProjection(boundSession,buildLineCanonicalStateFromGlobals(record.tabId, { ...(meta || {}), tabId: record.tabId }, { readControls: false }));
       if(projectedLineSession && projectedLineSession.tabId === record.tabId){
         projectedLineSession = boundSession;
       }
@@ -2557,6 +2531,26 @@
     updateLineAxisAdditionalTicks(axis, entries);
   }
 
+  function buildLineAdditionalLineControlConfig(axis, index, ownerSession = null){
+    return additionalLineControls?.createAxisLineConfig?.({
+      scopeId: 'line',
+      tabId: ownerSession?.tabId || null,
+      axis,
+      index,
+      getEntry: (axisName, entryIndex) => getLineAxisAdditionalTicks(axisName)?.[entryIndex],
+      updateEntry: (axisName, entryIndex, entry) => updateLineAxisAdditionalTick(axisName, entryIndex, entry)
+    }) || null;
+  }
+
+  function registerLineAdditionalLineControlElement(axis, index, lineElement, ownerSession = null){
+    const config = buildLineAdditionalLineControlConfig(axis, index, ownerSession);
+    if(!lineElement || !config || typeof additionalLineControls?.registerAdditionalLineElement !== 'function'){
+      return false;
+    }
+    additionalLineControls.registerAdditionalLineElement(lineElement, config);
+    return typeof lineElement.__additionalLineControlHandler === 'function';
+  }
+
   function addLineAxisAdditionalTick(axis){
     if(axis !== 'x' && axis !== 'y'){
       return;
@@ -2637,7 +2631,7 @@
   function getLineAxisColor(session = null){
     const settings = ensureLineAxisSettings(session);
     const rawColor = settings.color || DEFAULT_AXIS_COLOR;
-    const isDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
+    const isDark = (Shared.colorSchemes?.isDarkScheme?.(lineColorSchemeId) ?? (String(lineColorSchemeId || '').toLowerCase() === 'dark'));
     const normalized = String(rawColor || '').trim().toLowerCase();
     if(isDark && (!normalized || normalized === '#000' || normalized === '#000000' || normalized === 'black')){
       return '#e6e6e6';
@@ -2738,28 +2732,22 @@
 
   function getLineLockRatioCheckbox(){
     const activeTabId = String(getLineProjectionTabId() || '').trim();
-    const isOwnedByActiveTab = node => {
-      if(!node || !node.isConnected){
-        return false;
-      }
-      const ownerTabId = String(resolveLineTabIdFromNode(node) || '').trim();
-      return !activeTabId || !ownerTabId || ownerTabId === activeTabId;
-    };
-    if(lineLockRatioInput && isOwnedByActiveTab(lineLockRatioInput)){
+    if(lineLockRatioInput && isLineNodeOwnedByActiveTab(lineLockRatioInput, activeTabId)){
       return lineLockRatioInput;
     }
     lineLockRatioInput = null;
-    let svgBox = (lineSvgBoxRef && isOwnedByActiveTab(lineSvgBoxRef))
+    let svgBox = (lineSvgBoxRef && isLineNodeOwnedByActiveTab(lineSvgBoxRef, activeTabId))
       ? lineSvgBoxRef
-      : ((refs.svgBox && isOwnedByActiveTab(refs.svgBox)) ? refs.svgBox : null);
+      : ((refs.svgBox && isLineNodeOwnedByActiveTab(refs.svgBox, activeTabId)) ? refs.svgBox : null);
     if(!svgBox){
       svgBox = getLineNodeById('lineGraphPanel', activeTabId || null)?.querySelector?.('.svgbox') || null;
     }
-    if(!svgBox || !isOwnedByActiveTab(svgBox)){
+    if(!svgBox || !isLineNodeOwnedByActiveTab(svgBox, activeTabId)){
       return null;
     }
-    const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
-    if(checkbox && isOwnedByActiveTab(checkbox)){
+    const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const checkbox = controlsHost.querySelector('.resizer-aspect-checkbox');
+    if(checkbox && isLineNodeOwnedByActiveTab(checkbox, activeTabId)){
       lineLockRatioInput = checkbox;
       return checkbox;
     }
@@ -2801,9 +2789,10 @@
       if(activeSvgBox){
         refs.svgBox = activeSvgBox;
         lineSvgBoxRef = activeSvgBox;
-        lineEqualAxesInput = activeSvgBox.querySelector('.resizer-axeslength-checkbox--equal-length');
-        lineEqualScaleAxesInput = activeSvgBox.querySelector('.resizer-axeslength-checkbox--equal-scale');
-        lineVarianceAxisScaleInput = activeSvgBox.querySelector('.resizer-axeslength-checkbox--variance');
+        const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox: activeSvgBox }) || activeSvgBox;
+        lineEqualAxesInput = controlsHost.querySelector('.resizer-axeslength-checkbox--equal-length');
+        lineEqualScaleAxesInput = controlsHost.querySelector('.resizer-axeslength-checkbox--equal-scale');
+        lineVarianceAxisScaleInput = controlsHost.querySelector('.resizer-axeslength-checkbox--variance');
       }
       const lockRatioCheckbox = getLineLockRatioCheckbox();
       const ownerTabId = resolveLineTabIdFromNode(lockRatioCheckbox);
@@ -2836,7 +2825,8 @@
       }
       if(lockRatioCheckbox){
         const lockLabel = lockRatioCheckbox.closest('label');
-        const resizerApi = lockRatioCheckbox.closest('.svgbox')?.__sharedResizableBoxApi;
+        const resizerApi = activeSvgBox?.__sharedResizableBoxApi
+          || (isLineNodeOwnedByActiveTab(refs.svgBox, activeTabId) ? refs.svgBox.__sharedResizableBoxApi : null);
         if(enforceLockRatio){
           if(getLineForcedLockRatioPrevious(ownerSession) === null){
             setLineForcedLockRatioPrevious(!!lockRatioCheckbox.checked, ownerSession);
@@ -2898,11 +2888,13 @@
     if(!doc){
       return;
     }
-    let tray = svgBox.querySelector('.resizer-control-tray');
+    let tray = Shared.resizer?.getGraphControlTray?.({ svgBox })
+      || svgBox.querySelector('.resizer-control-tray');
     if(!tray){
       tray = doc.createElement('div');
       tray.className = 'resizer-control-tray';
-      svgBox.appendChild(tray);
+      const host = Shared.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+      host.appendChild(tray);
       lineDebug('Debug: line axes length tray created', { trayChildren: tray.childElementCount });
     }
     let axesControl = tray.querySelector('.resizer-axeslength-control');
@@ -2983,15 +2975,13 @@
       const equalScaleCheckbox = equalScaleItem.querySelector('input[type="checkbox"]');
       if(equalScaleCheckbox){
         lineEqualScaleAxesInput = equalScaleCheckbox;
-        if(equalScaleCheckbox.__lineEqualScaleAxesHandler){
-          equalScaleCheckbox.removeEventListener('change', equalScaleCheckbox.__lineEqualScaleAxesHandler);
-        }
-        const onChange = () => {
+        bindLineControlHandler(equalScaleCheckbox, 'change', 'axes-length-equal-scale', (_event, ownerSession) => {
+          const viewState = getLineViewState(ownerSession);
           const enabled = !!equalScaleCheckbox.checked;
-          const previous = !!getLineViewState().equalScaleAxes;
+          const previous = !!viewState.equalScaleAxes;
           if(enabled){
-            getLineViewState().equalAxes = false;
-            getLineViewState().axesVarianceScaled = false;
+            viewState.equalAxes = false;
+            viewState.axesVarianceScaled = false;
             if(lineEqualAxesInput){
               lineEqualAxesInput.checked = false;
             }
@@ -3000,28 +2990,24 @@
             }
             lineDebug('Debug: line axes length exclusivity enforced', { disabled: 'equal-length/variance', reason: 'equal-scale-toggle' });
           }
-          getLineViewState().equalScaleAxes = enabled;
+          viewState.equalScaleAxes = enabled;
           lineDebug('Debug: line equal scale toggled', { enabled, previous });
           syncLineAspectControls('equal-scale-toggle');
           if(canScheduleActiveLineDraw()){
             scheduleActiveLineDraw({ reason: 'equal-scale-toggle', renderImpact: 'layout' });
           }
-        };
-        equalScaleCheckbox.addEventListener('change', onChange);
-        equalScaleCheckbox.__lineEqualScaleAxesHandler = onChange;
+        });
       }
       const equalLengthCheckbox = equalLengthItem ? equalLengthItem.querySelector('input[type="checkbox"]') : null;
       if(equalLengthCheckbox){
         lineEqualAxesInput = equalLengthCheckbox;
-        if(equalLengthCheckbox.__lineEqualAxesHandler){
-          equalLengthCheckbox.removeEventListener('change', equalLengthCheckbox.__lineEqualAxesHandler);
-        }
-        const onChange = () => {
+        bindLineControlHandler(equalLengthCheckbox, 'change', 'axes-length-equal', (_event, ownerSession) => {
+          const viewState = getLineViewState(ownerSession);
           const enabled = !!equalLengthCheckbox.checked;
-          const previous = !!getLineViewState().equalAxes;
+          const previous = !!viewState.equalAxes;
           if(enabled){
-            getLineViewState().equalScaleAxes = false;
-            getLineViewState().axesVarianceScaled = false;
+            viewState.equalScaleAxes = false;
+            viewState.axesVarianceScaled = false;
             if(lineEqualScaleAxesInput){
               lineEqualScaleAxesInput.checked = false;
             }
@@ -3030,15 +3016,13 @@
             }
             lineDebug('Debug: line axes length exclusivity enforced', { disabled: 'equal-scale/variance', reason: 'equal-length-toggle' });
           }
-          getLineViewState().equalAxes = enabled;
+          viewState.equalAxes = enabled;
           lineDebug('Debug: line equal length toggled', { enabled, previous });
           syncLineAspectControls('equal-length-toggle');
           if(canScheduleActiveLineDraw()){
             scheduleActiveLineDraw({ reason: 'equal-length-toggle', renderImpact: 'layout' });
           }
-        };
-        equalLengthCheckbox.addEventListener('change', onChange);
-        equalLengthCheckbox.__lineEqualAxesHandler = onChange;
+        });
       }
       let varianceItem = menu.querySelector('.resizer-axeslength-item--variance');
       if(!varianceItem){
@@ -3068,15 +3052,13 @@
       const varianceCheckbox = varianceItem ? varianceItem.querySelector('input[type="checkbox"]') : null;
       if(varianceCheckbox){
         lineVarianceAxisScaleInput = varianceCheckbox;
-        if(varianceCheckbox.__lineVarianceAxesHandler){
-          varianceCheckbox.removeEventListener('change', varianceCheckbox.__lineVarianceAxesHandler);
-        }
-        const onChange = () => {
+        bindLineControlHandler(varianceCheckbox, 'change', 'axes-length-variance', (_event, ownerSession) => {
+          const viewState = getLineViewState(ownerSession);
           const enabled = !!varianceCheckbox.checked;
-          const previous = !!getLineViewState().axesVarianceScaled;
+          const previous = !!viewState.axesVarianceScaled;
           if(enabled){
-            getLineViewState().equalAxes = false;
-            getLineViewState().equalScaleAxes = false;
+            viewState.equalAxes = false;
+            viewState.equalScaleAxes = false;
             if(lineEqualAxesInput){
               lineEqualAxesInput.checked = false;
             }
@@ -3085,15 +3067,13 @@
             }
             lineDebug('Debug: line axes length exclusivity enforced', { disabled: 'equal-length/equal-scale', reason: 'variance-axis-toggle' });
           }
-          getLineViewState().axesVarianceScaled = enabled;
+          viewState.axesVarianceScaled = enabled;
           lineDebug('Debug: line variance axis scaling toggled', { enabled, previous });
           syncLineAspectControls('variance-axis-scale');
           if(canScheduleActiveLineDraw()){
             scheduleActiveLineDraw({ reason: 'variance-axis-scale', renderImpact: 'layout' });
           }
-        };
-        varianceCheckbox.addEventListener('change', onChange);
-        varianceCheckbox.__lineVarianceAxesHandler = onChange;
+        });
       }
       if(equalScaleItem && equalScaleItem.parentNode === menu){
         menu.appendChild(equalScaleItem);
@@ -3118,7 +3098,8 @@
     if(!svgBox){
       return;
     }
-    const axesControl = svgBox.querySelector('.resizer-axeslength-control');
+    const controlsHost = Shared.resizer?.getGraphControlsHost?.({ svgBox }) || svgBox;
+    const axesControl = controlsHost.querySelector('.resizer-axeslength-control');
     if(axesControl && axesControl.hasAttribute('open')){
       axesControl.removeAttribute('open');
       lineDebug('Debug: line axes length menu closed', { reason: reason || null });
@@ -3196,8 +3177,12 @@
     statsState.hasResults = false;
     statsState.panelModel = { resultsModel: null, reportModel: null };
     if(statsResults){
-      clearLineStatsReportHost({ ...options, refs: lineRefs });
-      statsResults.textContent = placeholder;
+      if(options.preservePresentation === true){
+        Shared.statsReporting?.markPanelStale?.(statsResults);
+      }else{
+        clearLineStatsReportHost({ ...options, refs: lineRefs });
+        statsResults.textContent = placeholder;
+      }
     }
   }
 
@@ -3264,7 +3249,7 @@
       LINE_MIN_REPLICATES,
       clampLineReplicateCount(options.replicates ?? lineReplicates)
     );
-    const totalSeries = Math.max(0, Math.floor((header.length - 1) / replicates));
+    const totalSeries = Math.max(0, Math.ceil(computeUsedSeriesColumns(data) / replicates));
     const labels = Array.isArray(options.labels)
       ? Array.from({ length: totalSeries }, (_unused, index) => {
           const fallback = `Series ${index + 1}`;
@@ -3648,6 +3633,9 @@
     const clearIntervalsWhenDisabled = clearWhenDisabled && (!!is3d || (!disabled && !trendReady));
     setLineOverlayInputDisabled(controls.showIntervals, disabled || !trendReady, intervalMessage, { clearWhenDisabled: clearIntervalsWhenDisabled });
     setLineOverlayInputDisabled(controls.showPredictionIntervals, disabled || !trendReady, intervalMessage, { clearWhenDisabled: clearIntervalsWhenDisabled });
+    Shared.checkboxDropdown?.sync?.(
+      controls.showTrendLine?.closest?.('#linePage')?.querySelector?.('#lineRegressionOverlayButton')
+    );
     console.debug('Debug: line regression overlay controls synced', {
       statsReady: !!statsReady,
       is3d,
@@ -3690,7 +3678,7 @@
       showIntervals: !!runtimeControls.showIntervals || !!runtimeControls.showPredictionIntervals,
       showDiagnostics: isLineDiagnosticsEnabled()
     };
-    renderLineStatsAdvisor([], advisorOptions);
+    renderLineStatsAdvisor(advisorOptions);
     primeLineStatsContext(null, { session, placeholder: placeholder || lineStatsEmptyPlaceholder });
   }
 
@@ -3733,7 +3721,7 @@
           restoreLineStatsPanelModel(statsState.panelModel, { ...options, session });
         }
         setLineStatsStatus('Statistics up to date.', { ...options, session });
-        updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' }, { ...options, session });
+        updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' }, { ...options, session });
         updateLineRegressionOverlayControlState(true, { ...options, session });
         console.debug('Debug: line stats restored context adopted', {
           savedSignature: pendingRestore.signature || null,
@@ -3744,6 +3732,7 @@
       }
     }
     const changed = signature !== statsState.signature;
+    const preserveStalePresentation = changed && lineStatsPanelHasRenderedResults({ ...options, session });
     let version = statsState.version || 0;
     if(changed){
       version += 1;
@@ -3757,7 +3746,11 @@
     statsState.signature = signature;
     statsState.context = { ...payload, version, signature };
     if(changed){
-      clearLineStatsOutputs(lineStatsDefaultPlaceholder, { ...options, session });
+      clearLineStatsOutputs(lineStatsDefaultPlaceholder, {
+        ...options,
+        session,
+        preservePresentation: preserveStalePresentation
+      });
       setLineStatsStatus('Statistics ready to calculate.', { ...options, session });
       updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' }, { ...options, session });
       updateLineRegressionOverlayControlState(false, { ...options, session });
@@ -3765,7 +3758,7 @@
     }
     if(statsState.lastRunVersion === version && lineStatsResultsAvailable(session, options)){
       setLineStatsStatus('Statistics up to date.', { ...options, session });
-      updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' }, { ...options, session });
+      updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' }, { ...options, session });
       updateLineRegressionOverlayControlState(true, { ...options, session });
     }else if(!statsState.computationPending){
       setLineStatsStatus('Statistics ready to calculate.', { ...options, session });
@@ -3864,7 +3857,7 @@
       statsState.panelModel = panelModel;
       statsState.hasResults = true;
       setLineStatsStatus(options.status || 'Statistics up to date.', { ...options, session });
-      updateLineStatsButtonState({ disabled: false, label: options.buttonLabel || 'Recalculate statistics' }, { ...options, session });
+      updateLineStatsButtonState({ disabled: false, label: options.buttonLabel || 'Calculate statistics' }, { ...options, session });
     }
     return restored;
   }
@@ -3899,8 +3892,11 @@
     return statsState;
   }
 
-  function handleLineStatsComputeClick(){
-    const session = getLineActiveSessionForState();
+  function handleLineStatsComputeClick(_event = null, ownerSession = null){
+    const session = ensureLineSessionOwnershipShape(ownerSession);
+    if(!session){
+      return;
+    }
     const statsState = getLineStatsState(session);
     if(statsState.computationPending){
       return;
@@ -3923,7 +3919,7 @@
     setLineStatsStatus('Calculating statistics…', { session });
     try{
       calculateLineStats(session, { context });
-      renderLineStats(session, { status: 'Statistics up to date.', buttonLabel: 'Recalculate statistics' });
+      renderLineStats(session, { status: 'Statistics up to date.', buttonLabel: 'Calculate statistics' });
       updateLineRegressionOverlayControlState(true);
       if(shouldRedrawLineAfterStatsCompute(session)){
         scheduleLineDrawForSession(session, { reason: 'line-stats-computed-redraw', renderImpact: 'analysis', silentOverlay: true });
@@ -4246,7 +4242,6 @@
     'replicateMode',
     'replicatesContainer',
     'replicatesInput',
-    'groupedList',
     'viewMode',
     'fill',
     'border',
@@ -4264,6 +4259,8 @@
     'showFrame',
     'logX',
     'logY',
+    'includeZeroX',
+    'includeZeroY',
     'xMin',
     'xMax',
     'yMin',
@@ -4271,13 +4268,10 @@
     'originMode',
     'originX',
     'originY',
+    'customOriginFields',
     'loadExample',
     'importBtn',
     'fileInput',
-    'openBtn',
-    'saveBtn',
-    'saveAsBtn',
-    'graphFileInput',
     'hot'
   ]);
 
@@ -4357,6 +4351,23 @@
     });
   }
 
+  function syncLineAxisControlAvailability(){
+    const zeroOrigin = refs.originMode?.value === 'zero';
+    const logX = !!refs.logX?.checked;
+    const logY = !!refs.logY?.checked;
+    if(refs.includeZeroX){
+      if(zeroOrigin && !logX){ refs.includeZeroX.checked = true; }
+      refs.includeZeroX.disabled = logX || zeroOrigin;
+    }
+    if(refs.includeZeroY){
+      if(zeroOrigin && !logY){ refs.includeZeroY.checked = true; }
+      refs.includeZeroY.disabled = logY || zeroOrigin;
+    }
+    if(refs.customOriginFields){
+      refs.customOriginFields.hidden = refs.originMode?.value !== 'custom';
+    }
+  }
+
   const refs = createLineRefsFacade();
 
   function createDefaultLineRuntimeControls(){
@@ -4376,6 +4387,8 @@
       showLegend: true,
       logX: false,
       logY: false,
+      includeZeroX: false,
+      includeZeroY: true,
       showTrendLine: false,
       showIntervals: false,
       showPredictionIntervals: false,
@@ -4385,7 +4398,7 @@
       xMax: '',
       yMin: '',
       yMax: '',
-      originMode: '',
+      originMode: 'lower',
       originX: '',
       originY: '',
       statType: '',
@@ -4398,6 +4411,10 @@
     const defaults = createDefaultLineRuntimeControls();
     const src = source && typeof source === 'object' ? source : {};
     const forecast = src.forecast && typeof src.forecast === 'object' ? src.forecast : {};
+    const requestedOriginMode = String(src.originMode || '');
+    const originMode = ['lower', 'zero', 'custom'].includes(requestedOriginMode)
+      ? requestedOriginMode
+      : defaults.originMode;
     return {
       viewMode: String(src.viewMode != null ? src.viewMode : defaults.viewMode).toLowerCase() === '3d' ? '3d' : '2d',
       tableFormat: String(src.tableFormat || defaults.tableFormat).toLowerCase() === 'grouped' ? 'grouped' : (String(src.tableFormat || '').toLowerCase() === '3d' ? '3d' : 'single'),
@@ -4414,6 +4431,12 @@
       showLegend: src.showLegend !== false,
       logX: !!src.logX,
       logY: !!src.logY,
+      includeZeroX: (originMode === 'zero' && !src.logX) || (Object.prototype.hasOwnProperty.call(src, 'includeZeroX')
+        ? !!src.includeZeroX
+        : (['lower', 'zero', 'custom'].includes(requestedOriginMode) ? false : defaults.includeZeroX)),
+      includeZeroY: (originMode === 'zero' && !src.logY) || (Object.prototype.hasOwnProperty.call(src, 'includeZeroY')
+        ? !!src.includeZeroY
+        : (['lower', 'zero', 'custom'].includes(requestedOriginMode) ? false : defaults.includeZeroY)),
       showTrendLine: !!src.showTrendLine,
       showIntervals: !!src.showIntervals,
       showPredictionIntervals: !!src.showPredictionIntervals,
@@ -4423,7 +4446,7 @@
       xMax: src.xMax != null ? String(src.xMax) : defaults.xMax,
       yMin: src.yMin != null ? String(src.yMin) : defaults.yMin,
       yMax: src.yMax != null ? String(src.yMax) : defaults.yMax,
-      originMode: src.originMode != null ? String(src.originMode) : defaults.originMode,
+      originMode,
       originX: src.originX != null ? String(src.originX) : defaults.originX,
       originY: src.originY != null ? String(src.originY) : defaults.originY,
       statType: src.statType != null ? String(src.statType) : defaults.statType,
@@ -4826,16 +4849,17 @@
     const target = resolveLineStateSession(session);
     if(target?.state){
       const bridgeFallback = isLineSessionActive(target) ? lineAdvisorState : null;
-      target.state.advisorState = normalizeLineAdvisorState(target.state.advisorState || target.state.statsAdvisor || bridgeFallback);
+      if(!target.state.advisorState){
+        target.state.advisorState = normalizeLineAdvisorState(target.state.statsAdvisor || bridgeFallback);
+      }
       return target.state.advisorState;
     }
-    lineAdvisorState = normalizeLineAdvisorState(lineAdvisorState);
     return lineAdvisorState;
   }
 
   function setLineAdvisorState(value, session = null){
-    const next = normalizeLineAdvisorState(value);
     const target = resolveLineStateSession(session);
+    const next = value === target?.state?.advisorState ? value : normalizeLineAdvisorState(value);
     if(target?.state){
       target.state.advisorState = next;
       target.state.statsAdvisor = next;
@@ -5019,9 +5043,7 @@
       state: normalizeLineCanonicalState(initialState || createDefaultLineCanonicalState(normalizedTabId), normalizedTabId),
       refs: createLineRefsSnapshot({ root: root || null }),
       cache: {},
-      listeners: [],
       timers: {},
-      workers: {},
       managers: {
         hot: null,
         dataViews: null,
@@ -5039,9 +5061,7 @@
     }
     session.refs = createLineRefsSnapshot(session.refs);
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
-    session.listeners = Array.isArray(session.listeners) ? session.listeners : [];
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
-    session.workers = session.workers && typeof session.workers === 'object' ? session.workers : {};
     session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
     session.managers.hot = session.managers.hot || session.hot || null;
     session.managers.dataViews = session.managers.dataViews || session.dataViewsManager || null;
@@ -5207,6 +5227,7 @@
       version: 1,
       componentKey: 'line',
       tabId: tabId || '',
+      fileName: 'line.graph',
       notes: { text: '', open: false },
       displayMode: 'line',
       last2d: createDefaultLineLast2dState(),
@@ -5273,6 +5294,7 @@
       componentKey: 'line',
       tabId: stateTabId,
       updatedAt: Date.now(),
+      fileName: typeof input.fileName === 'string' && input.fileName.trim() ? input.fileName.trim() : 'line.graph',
       notes: normalizeLineCanonicalNotes(input.notes),
       displayMode: sanitizeLineDisplayMode(input.displayMode || 'line'),
       last2d: normalizeLineOwnedLast2dState(input.last2d),
@@ -5379,7 +5401,7 @@
     session.componentKey = 'line';
     session.tabId = tabId;
     let refreshedModeCacheFromState = false;
-    if(persistedState && (!session.state || session.state.updatedAt == null || Number(persistedState.updatedAt) > Number(session.state.updatedAt))){
+    if(persistedState && !isLineCanonicalStateForTab(session.state,tabId)){
       session.state = ensureLineCanonicalState(persistedState, tabId);
       refreshedModeCacheFromState = true;
       stateChanged = true;
@@ -5508,6 +5530,7 @@
     const gridStyleSnapshot = cloneLineRuntimeValue(getLineGridStyleState(canonicalSession, axisSettingsSnapshot?.strokeWidth), null);
     return normalizeLineCanonicalState({
       tabId,
+      fileName: getLineFileNameForSession(canonicalSession),
       notes: { text: notesText, open: notesOpen },
       displayMode: lineDisplayMode,
       last2d: {
@@ -5593,7 +5616,7 @@
       : (typeof createLineAxisSettings === 'function' ? createLineAxisSettings() : lineAxisSettings), { ...(meta || {}), reason: 'line-apply-canonical-axis' });
     setLineGridStyleState(canonicalOwnerSession, canonical.gridStyle && typeof canonical.gridStyle === 'object' ? canonical.gridStyle : null, getLineAxisStrokeWidth(canonicalOwnerSession), { ...(meta || {}), reason: 'line-apply-canonical-grid' });
     setLineRegressionSummariesState(canonical.stats.regressionSummaries, canonicalOwnerSession);
-    setLineAdvisorState(canonical.advisorState, canonicalOwnerSession);
+    lineAdvisorState = getLineAdvisorState(canonicalOwnerSession);
     setLineViewState(normalizeLineOwnedViewState(canonical.viewState));
     setLineAutoDrawState(normalizeLineOwnedAutoDrawState(canonical.autoDrawState || canonical.autoDraw));
     getLineAutoDrawState().drawPending = false;
@@ -5630,7 +5653,7 @@
         if(restoredStatsPanel && canonicalStatsState.version > 0 && canonicalStatsState.lastRunVersion === canonicalStatsState.version){
           canonicalStatsState.hasResults = true;
           setLineStatsStatus('Statistics up to date.');
-          updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+          updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
         }
       }
       syncLineRuntimeControlsFromState(canonical.controls, meta?.tab || meta?.tabId || canonical.tabId || null);
@@ -5703,12 +5726,20 @@
     return canonical;
   }
 
+  function updateLineSessionFromProjection(session, snapshot){
+    // Advisor state is already canonical in this session. Capturing projected
+    // runtime fields must never write an exported advisor copy back into it.
+    for(const [key,value] of Object.entries(snapshot)){
+      if(key!=='advisorState'){ session.state[key]=value; }
+    }
+  }
+
   function rememberLineSessionState(tabLike = null, meta = {}, options = {}){
     const session = getLineSession(tabLike || getLineProjectionTabId() || null, meta, { create: true });
     if(!session){
       return null;
     }
-    session.state = buildLineCanonicalStateFromGlobals(session.tabId, meta, { readControls: options.readControls === true });
+    updateLineSessionFromProjection(session,buildLineCanonicalStateFromGlobals(session.tabId, meta, { readControls: options.readControls === true }));
     rememberLineSessionEphemera(session);
     session.updatedAt = Date.now();
     persistLineSessionState(session, meta);
@@ -5786,6 +5817,8 @@
       showLegend: lineRefs.showLegend ? !!lineRefs.showLegend.checked : currentControls.showLegend,
       logX: lineRefs.logX ? !!lineRefs.logX.checked : currentControls.logX,
       logY: lineRefs.logY ? !!lineRefs.logY.checked : currentControls.logY,
+      includeZeroX: lineRefs.includeZeroX ? !!lineRefs.includeZeroX.checked : currentControls.includeZeroX,
+      includeZeroY: lineRefs.includeZeroY ? !!lineRefs.includeZeroY.checked : currentControls.includeZeroY,
       showTrendLine: overlayControls.showTrendLine ? !!overlayControls.showTrendLine.checked : currentControls.showTrendLine,
       showIntervals: overlayControls.showIntervals ? !!overlayControls.showIntervals.checked : currentControls.showIntervals,
       showPredictionIntervals: overlayControls.showPredictionIntervals ? !!overlayControls.showPredictionIntervals.checked : currentControls.showPredictionIntervals,
@@ -5900,7 +5933,6 @@
     refs.replicateMode = byId('lineTableFormat');
     refs.replicatesContainer = byId('lineGroupedControls');
     refs.replicatesInput = byId('lineReplicates');
-    refs.groupedList = byId('lineGroupedList');
     refs.viewMode = byId('lineViewMode');
     refs.border = byId('lineBorder');
     refs.borderWidth = byId('lineBorderWidth');
@@ -5917,6 +5949,8 @@
     refs.showFrame = byId('lineShowFrame');
     refs.logX = byId('lineLogX');
     refs.logY = byId('lineLogY');
+    refs.includeZeroX = byId('lineIncludeZeroX');
+    refs.includeZeroY = byId('lineIncludeZeroY');
     refs.xMin = byId('lineXMin');
     refs.xMax = byId('lineXMax');
     refs.yMin = byId('lineYMin');
@@ -5924,19 +5958,17 @@
     refs.originMode = byId('lineOriginMode');
     refs.originX = byId('lineOriginX');
     refs.originY = byId('lineOriginY');
+    refs.customOriginFields = byId('lineCustomOriginFields');
     refs.loadExample = byId('lineLoadExample');
     refs.importBtn = byId('lineImport');
     refs.fileInput = byId('lineFile');
-    refs.openBtn = getLineNodeById('openLineGraph', targetTabId || tabLike || null);
-    refs.saveBtn = getLineNodeById('saveLineGraph', targetTabId || tabLike || null);
-    refs.saveAsBtn = getLineNodeById('saveAsLine', targetTabId || tabLike || null);
-    refs.graphFileInput = byId('lineGraphFile');
     if(refs.showLegend){
       const legendHost = refs.showLegend.closest('label');
       if(legendHost){
         lineLegendControl = legendHost;
       }
     }
+    syncLineAxisControlAvailability();
     return createLineRefsSnapshot(refs);
   }
 
@@ -6031,6 +6063,11 @@
     const statsResults = lineRefs.statsResults || null;
     if(!statsResults || !reporting || typeof reporting.ensureReportHost !== 'function'){
       return statsResults?.__statsReportHost || null;
+    }
+    if(!statsResults.__statsExtraControlFactory){
+      statsResults.__statsExtraControlFactory = context => reporting.createResultsHeaderControls?.(context.target, {
+        document: context.document
+      }) || null;
     }
     return reporting.ensureReportHost(statsResults, {
       id: 'lineStatsReportHost',
@@ -6549,9 +6586,12 @@
     lineDebug('Debug: line uncertainty toolbar visibility updated', { visible: true, groupedMode: shouldShow });
   }
 
-  function activateLineDataToolbar(reason){
+  function activateLineDataToolbar(reason, ownerSession = null){
     const now = Date.now();
-    const tabId = String(getLineProjectionTabId() || Shared.workspaceTabs?.getActiveSessionInfo?.('line')?.tabId || 'global');
+    if(ownerSession?.tabId && !isLineSessionActive(ownerSession)){
+      return false;
+    }
+    const tabId = String(ownerSession?.tabId || getLineProjectionTabId() || Shared.workspaceTabs?.getActiveSessionInfo?.('line')?.tabId || 'global');
     const lastActivation = Number(lineDataToolbarLastActivationByTabId.get(tabId)) || 0;
     if(now - lastActivation < 80){
       return false;
@@ -6970,9 +7010,12 @@
       lineDataToolbarBound = true;
     }
     if(refs.hotWrapper && !refs.hotWrapper.__lineDataToolbarFocusBound){
-      refs.hotWrapper.addEventListener('mousedown', () => {
-        activateLineDataToolbar('table-mousedown');
-      }, true);
+      bindLineControlHandler(refs.hotWrapper, 'mousedown', 'data-toolbar-focus', (_event, ownerSession) => {
+        if(!ownerSession?.tabId){
+          return;
+        }
+        activateLineDataToolbar('table-mousedown', ownerSession);
+      }, { capture: true });
       refs.hotWrapper.__lineDataToolbarFocusBound = true;
     }
   }
@@ -7172,10 +7215,68 @@
     hideLineTooltip('plot-leave');
   }
 
+  function configureLineChartPointKeyboard(plotRoot, ownerTabId = null){
+    const resolvedOwnerTabId = String(
+      plotRoot?.dataset?.lineRenderedTabId
+        || plotRoot?.dataset?.workspaceTabId
+        || ownerTabId
+        || getLineProjectionTabId()
+        || ''
+    ).trim();
+    return Shared.chartPointKeyboard?.attach(plotRoot, {
+      componentKey: 'line',
+      componentLabel: 'Line',
+      instructions: 'Arrow keys move between data points and series lines. Enter opens series formatting.',
+      pointSelector: '[data-line-point-interaction], path[data-line-style-role="line"][data-series]:not([data-plot-point="1"]):not([data-line-overlay])',
+      ownerTabId: resolvedOwnerTabId,
+      getCurrentOwnerTabId: getLineProjectionTabId,
+      describePoint: data => {
+        const point = data?.point || {};
+        const details = [];
+        const seriesName = String(data?.seriesName || '').trim();
+        if(seriesName){
+          details.push(`Series ${seriesName}`);
+        }
+        if(point.x != null){
+          details.push(`X ${point.x}`);
+        }
+        if(point.y != null){
+          details.push(`Y ${point.y}`);
+        }
+        if(point.z != null){
+          details.push(`Z ${point.z}`);
+        }
+        if(data?.kind === 'series-line'){
+          details.push('Series line');
+        }
+        return details.join(', ') || 'Line chart data point';
+      }
+    }) || null;
+  }
+
+  function registerLineSeriesPathKeyboard(el){
+    if(!el || el.dataset?.lineStyleRole !== 'line'){ return false; }
+    const plotRoot = el.closest?.('#linePlot') || getLineNodeById('linePlot');
+    const ownerTabId = plotRoot?.dataset?.lineRenderedTabId
+      || plotRoot?.dataset?.workspaceTabId
+      || getLineProjectionTabId();
+    configureLineChartPointKeyboard(plotRoot, ownerTabId);
+    return Shared.chartPointKeyboard?.registerPoint(plotRoot, el, {
+      kind: 'series-line',
+      seriesName: String(el.dataset?.series || '').trim()
+    }) === true;
+  }
+
   function attachLineMarkerTooltip(el, seriesEntry, pt){
     if(!el || !pt){ return; }
     el.__linePointData = { seriesName: seriesEntry?.name || '', point: pt };
     try{ el.setAttribute('data-line-point-interaction', JSON.stringify(el.__linePointData)); }catch(_err){}
+    const plotRoot = el.closest?.('#linePlot') || getLineNodeById('linePlot');
+    const ownerTabId = plotRoot?.dataset?.lineRenderedTabId
+      || plotRoot?.dataset?.workspaceTabId
+      || getLineProjectionTabId();
+    configureLineChartPointKeyboard(plotRoot, ownerTabId);
+    Shared.chartPointKeyboard?.registerPoint(plotRoot, el, el.__linePointData);
     if(el.__graphitixLinePointTooltipBound === true){
       bindLineMarkerFormatInteraction(el);
       return;
@@ -7195,7 +7296,9 @@
   }
 
   function bindLinePathFormatInteraction(el){
-    if(!el || el.__graphitixLinePathFormatBound === true){ return false; }
+    if(!el){ return false; }
+    registerLineSeriesPathKeyboard(el);
+    if(el.__graphitixLinePathFormatBound === true){ return false; }
     el.addEventListener('click', handleLinePathClick);
     el.__graphitixLinePathFormatBound = true;
     return true;
@@ -7477,7 +7580,7 @@
           }
         },
         fillShape: {
-          label: 'Fill/Shape',
+          label: 'Fill / shape',
           shapeOptions: LINE_GROUP_SHAPE_OPTIONS?.length ? LINE_GROUP_SHAPE_OPTIONS : [{ value: 'circle', label: 'Circle' }],
           getColor(ctx){
             return getMarkerFill(ctx);
@@ -7524,7 +7627,6 @@
               const shapes = ensureLineGroupShapeCapacity(Math.max((lineSeriesGroupLabels || []).length, safe + 1));
               shapes[safe] = sanitizeShape(nextShape, safe);
               setLineGroupShapesState(getLineProjectionSession({ reason: 'line-projection-mutation' }), shapes, { reason: 'line-marker-shape-change' });
-              updateLineGroupShapeSelect(safe, shapes[safe]);
               scheduleActiveLineDraw({ reason: 'line-marker-shape-change', renderImpact: 'paint' });
               return;
             }
@@ -7535,7 +7637,6 @@
             for(let i = 0; i < shapes.length; i += 1){
               if(shapes[i] !== sanitized){
                 shapes[i] = sanitized;
-                updateLineGroupShapeSelect(i, sanitized);
                 changed = true;
               }
             }
@@ -7713,9 +7814,9 @@
               showSummary: false,
               showScope: true,
               showPattern: false,
-              colorLabel: 'Line',
-              thicknessLabel: 'Line width',
-              transparencyLabel: 'Line transparency',
+
+
+
               thicknessMin: 0,
               thicknessStep: 0.5,
               thicknessMax: 24
@@ -7906,7 +8007,7 @@
           const colorInput = styleControlParts.colorInput;
           const styleFieldParts = toolbarApi.createLabeledField({
             fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--style',
-            label: 'Line',
+            label: 'Style',
             labelClass: 'additional-line-controls-panel__field-label',
             control: styleControl
           });
@@ -7915,10 +8016,9 @@
           row.appendChild(styleField);
           const patternFieldParts = toolbarApi.createLinePatternField({
             fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--pattern',
-            label: 'Line pattern',
+            label: 'Pattern',
             labelClass: 'additional-line-controls-panel__field-label',
             selectClass: 'additional-line-controls-panel__input additional-line-controls-panel__input--select',
-            solidLabel: 'Continuous'
           });
           const patternField = patternFieldParts.field;
           const patternLabel = patternFieldParts.label;
@@ -7939,7 +8039,7 @@
           const transparencyValue = transparencyParts.value;
           const transparencyFieldParts = toolbarApi.createLabeledField({
             fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency',
-            label: 'Line transparency',
+            label: 'Transparency',
             labelClass: 'additional-line-controls-panel__field-label',
             control: transparencyWrap
           });
@@ -7994,9 +8094,9 @@
             const scope = resolveScope();
             lineOverlayToolbarScope = scope;
             const labels = getLineOverlayToolbarLabels(scope);
-            styleLabel.textContent = labels.colorLabel || 'Line';
-            patternLabel.textContent = labels.patternLabel || 'Line pattern';
-            transparencyLabel.textContent = labels.transparencyLabel || 'Line transparency';
+            styleLabel.textContent = labels.colorLabel || 'Style';
+            patternLabel.textContent = labels.patternLabel || 'Pattern';
+            transparencyLabel.textContent = labels.transparencyLabel || 'Transparency';
             const previewStyle = getLineOverlayPreviewStyle(scope) || getLineOverlayStyle('trend') || {};
             colorInput.value = toColorInputValue(resolveOverlayPreviewColorForScope(scope, previewStyle));
             thicknessInput.value = String(Math.max(0, Number(previewStyle.thickness) || 0));
@@ -8457,12 +8557,22 @@
     const mode = refs.regressionMode?.value;
     const show = mode === 'arima' || mode === 'holtWinters';
     if(refs.forecastFieldset){
-      refs.forecastFieldset.style.display = show ? '' : 'none';
+      refs.forecastFieldset.hidden = !show;
     }
     return show;
   }
 
   // PART: ADVISOR
+  function hasRegularLineAdvisorSpacing(points){
+    const x=points.map(point=>point.x).sort((a,b)=>a-b);
+    if(x.length<3 || x.some(value=>!Number.isFinite(value))){ return false; }
+    const step=x[1]-x[0];
+    if(!(step>0)){ return false; }
+    const scale=x.reduce((largest,value)=>Math.max(largest,Math.abs(value)),step);
+    const tolerance=Math.max(step*1e-7,Number.EPSILON*scale*8);
+    return x.slice(1).every((value,index)=>value>x[index] && Math.abs((value-x[index])-step)<=tolerance);
+  }
+
   function buildLineAdvisorContext(series, options = {}){
     const session = options.session || getLineActiveSessionForState();
     const lineRefs = resolveLineRefsContext(session, options);
@@ -8477,67 +8587,39 @@
     };
     let totalPoints=0;
     let minLen=Infinity;
-    let maxLen=0;
-    let missingCount=0;
-    const spacingCounts=new Map();
-    const yValues=[];
-    let xMin=Infinity,xMax=-Infinity;
-    let yMin=Infinity,yMax=-Infinity;
+    let xMin=Infinity;
+    let yMin=Infinity;
     arr.forEach(entry=>{
       const pointList=Array.isArray(entry?.points)?entry.points:[];
       const valid=pointList.filter(Boolean);
       totalPoints+=valid.length;
       if(valid.length<minLen) minLen=valid.length;
-      if(valid.length>maxLen) maxLen=valid.length;
-      missingCount+=pointList.length-valid.length;
-      const sorted=valid.slice().sort((a,b)=>a.x-b.x);
-      for(let i=1;i<sorted.length;i++){
-        const dx=sorted[i].x-sorted[i-1].x;
-        if(Number.isFinite(dx) && dx>0){
-          const rounded=Number(dx.toFixed(6));
-          spacingCounts.set(rounded,(spacingCounts.get(rounded)||0)+1);
-        }
-      }
       valid.forEach(pt=>{
         if(Number.isFinite(pt.x)){
           if(pt.x<xMin) xMin=pt.x;
-          if(pt.x>xMax) xMax=pt.x;
         }
         if(Number.isFinite(pt.y)){
           if(pt.y<yMin) yMin=pt.y;
-          if(pt.y>yMax) yMax=pt.y;
-          yValues.push(pt.y);
         }
       });
     });
-    const spacingTotals=Array.from(spacingCounts.values());
-    const spacingTotalCount=spacingTotals.reduce((sum,count)=>sum+count,0);
-    const spacingMaxCount=Math.max(0,...spacingTotals);
-    context.regularSpacing=spacingTotalCount>0 && spacingMaxCount/spacingTotalCount>=0.6;
+    context.regularSpacing=arr.length>0 && arr.every(entry=>hasRegularLineAdvisorSpacing((entry.points || []).filter(Boolean)));
     context.totalPoints=totalPoints;
     context.minLength=(totalPoints>0 && minLen!==Infinity)?minLen:0;
-    context.maxLength=totalPoints>0?maxLen:0;
     context.avgLength=context.seriesCount>0?totalPoints/Math.max(context.seriesCount,1):0;
-    context.hasUnequalLengths=context.seriesCount>1 && context.minLength!==context.maxLength;
-    context.hasMissing=missingCount>0;
     context.xMin=Number.isFinite(xMin)?xMin:NaN;
-    context.xMax=Number.isFinite(xMax)?xMax:NaN;
     context.yMin=Number.isFinite(yMin)?yMin:NaN;
-    context.yMax=Number.isFinite(yMax)?yMax:NaN;
-    context.yWithinZeroOne=Number.isFinite(context.yMin) && Number.isFinite(context.yMax) && context.yMin>=0 && context.yMax<=1;
-    if(yValues.length>3){
-      const mean=yValues.reduce((sum,val)=>sum+val,0)/yValues.length;
-      const variance=yValues.reduce((sum,val)=>sum+Math.pow(val-mean,2),0)/Math.max(1,yValues.length-1);
-      const std=Math.sqrt(Math.max(variance,0));
-      context.yStd=std;
-      context.yOutlierCount=std>0?yValues.reduce((count,val)=>count+(Math.abs((val-mean)/std)>3?1:0),0):0;
-    }else{
-      context.yStd=NaN;
-      context.yOutlierCount=0;
-    }
+    context.minUniqueX=arr.length?Math.min(...arr.map(entry=>new Set((entry.points || []).filter(Boolean).map(point=>point.x)).size)):0;
+    context.hasConstantY=arr.some(entry=>new Set((entry.points || []).filter(Boolean).map(point=>point.y)).size<2);
+    context.hasBinaryVariable=arr.length>0 && arr.every(entry => {
+      const points=(entry.points || []).filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
+      return new Set(points.map(point=>point.x)).size===2 || new Set(points.map(point=>point.y)).size===2;
+    });
+    context.binaryResponse=arr.length>0 && arr.every(entry=>{
+      const values=new Set((entry.points || []).map(point=>point?.y));
+      return values.size===2 && values.has(0) && values.has(1);
+    });
     context.currentDetail=context.showDiagnostics?'diagnostics':(context.showIntervals?'intervals':'minimal');
-    context.regularSeasonHint=context.regularSpacing && context.maxLength>=12;
-    context.hasForecastMode=['arima','holtWinters'].includes((lineRefs.regressionMode?.value || '').toLowerCase());
     return context;
   }
 
@@ -8545,13 +8627,7 @@
     const advisorState = getLineAdvisorState(session);
     const answers=advisorState.answers || {};
     if(!answers.measurement){
-      if(context.yWithinZeroOne && context.totalPoints>0){
-        answers.measurement='binaryOutcome';
-      }else if(context.yOutlierCount>0 || !Number.isFinite(context.yStd) || context.yStd===0){
-        answers.measurement='continuousNonNormal';
-      }else{
-        answers.measurement='continuousNormal';
-      }
+      answers.measurement=context.statsMethod==='spearman'?'continuousNonNormal':'continuousNormal';
     }
     if(!answers.analysisGoal){
       const mode=(context.regressionMode||'').toLowerCase();
@@ -8599,13 +8675,13 @@
     const questions=[
       {
         id:'measurement',
-        prompt:'How are the series measured?',
-        help:'This choice determines whether Pearson or Spearman correlation is more appropriate.',
+        prompt:'Which association do you want to summarize?',
+        help:'Choose the association target from the scientific question. Marginal symmetry or a bounded response alone does not determine the coefficient or validate its p-value.',
         options:[
-          { value:'continuousNormal', label:'Continuous and roughly symmetric' },
-          { value:'continuousNonNormal', label:'Continuous with skew/outliers' },
+          { value:'continuousNormal', label:'Linear association on the measurement scale (Pearson)' },
+          { value:'continuousNonNormal', label:'Monotonic association on ranks (Spearman)' },
           { value:'ordinal', label:'Ordinal or ranked values' },
-          { value:'binaryOutcome', label:'Binary or bounded (0–1) response' }
+          { value:'binaryOutcome', label:'Binary and continuous variables (point-biserial Pearson)' }
         ]
       },
       {
@@ -8628,7 +8704,7 @@
         options:[
           { value:'linear', label:'Mostly linear change' },
           { value:'curved', label:'Single bend (quadratic/cubic)' },
-          { value:'logistic', label:'S-shaped / saturating growth' },
+          { value:'logistic', label:'Binary response (logistic)' },
           { value:'exponential', label:'Exponential growth or decay' },
           { value:'power', label:'Power-law (y ∝ xᵏ)' },
           { value:'flexible', label:'Allow multiple bends (spline)' }
@@ -8649,7 +8725,7 @@
     questions.push({
       id:'detailLevel',
       prompt:'How much model detail should accompany the lines?',
-      help:'Controls whether interval shading and diagnostics are displayed.',
+      help:'Choose interval overlays. Residual diagnostics remain available in the statistical report for every fitted model.',
       options:[
         { value:'minimal', label:'Show fitted lines only' },
         { value:'intervals', label:'Include confidence/prediction intervals' },
@@ -8669,7 +8745,7 @@
       statsMethod:context.statsMethod || 'pearson',
       regression:context.regressionMode || 'linear',
       showIntervals:context.showIntervals,
-      showDiagnostics:context.showDiagnostics
+      showDiagnostics:true
     };
     if(!answers.measurement || !answers.analysisGoal || !answers.detailLevel ||
       (answers.analysisGoal==='trend' && !answers.trendShape) ||
@@ -8677,22 +8753,38 @@
       recommendation.message='Answer the advisor questions to receive a recommendation.';
       return recommendation;
     }
+    if(context.totalPoints < 3 || context.minLength < 3){
+      recommendation.message='Each included series needs at least three paired observations for this association and model summary.';
+      return recommendation;
+    }
+    if(context.minUniqueX<2 || context.hasConstantY){
+      recommendation.message='Each included series needs variation in both X and Y for the requested association and model summary.';
+      return recommendation;
+    }
+    if(answers.analysisGoal==='forecast' && context.minLength<4){
+      recommendation.message='The available forecasting models require at least four observations in every included series.';
+      return recommendation;
+    }
+    if(answers.measurement==='binaryOutcome' && !context.hasBinaryVariable){
+      recommendation.message='Point-biserial association requires a variable with exactly two observed values in each series. A bounded continuous response alone is not binary.';
+      return recommendation;
+    }
     switch(answers.measurement){
       case 'continuousNormal':
         recommendation.statsMethod='pearson';
-        recommendation.rationale.push('Pearson correlation suits continuous, roughly normal measurements.');
+        recommendation.rationale.push('Pearson summarizes linear association on the measurement scale. Its usual inferential calibration requires additional assumptions about sampling and dependence.');
         break;
       case 'continuousNonNormal':
         recommendation.statsMethod='spearman';
-        recommendation.rationale.push('Spearman correlation resists skew and outliers by ranking the data.');
+        recommendation.rationale.push('Spearman summarizes monotonic association using ranks; it does not remove sampling or dependence requirements.');
         break;
       case 'ordinal':
         recommendation.statsMethod='spearman';
-        recommendation.rationale.push('Ordinal data violates Pearson assumptions; Spearman works with ranks.');
+        recommendation.rationale.push('Ranks provide the requested association summary for ordinal measurements.');
         break;
       case 'binaryOutcome':
-        recommendation.statsMethod='spearman';
-        recommendation.rationale.push('Binary/bounded responses break Pearson’s normality assumption, so Spearman is safer.');
+        recommendation.statsMethod='pearson';
+        recommendation.rationale.push('For a binary variable and a continuous variable, Pearson equals the point-biserial coefficient. This is not a binary-outcome regression model.');
         break;
       default:
         break;
@@ -8701,12 +8793,10 @@
       recommendation.regression=answers.seasonality==='seasonal'?'holtWinters':'arima';
       if(recommendation.regression==='holtWinters'){
         recommendation.rationale.push('Additive Holt–Winters captures recurring seasonal structure alongside trend and level; current intervals are approximate prediction bands.');
-        if(!context.regularSpacing){
-          recommendation.warnings.push('Holt–Winters assumes evenly spaced observations; verify spacing before forecasting.');
-        }
         const seasonLength=context.forecastOptions?.seasonLength || 0;
-        if(seasonLength>0 && context.maxLength < seasonLength*2){
-          recommendation.warnings.push('Provide at least two full seasons of data for Holt–Winters to stabilize.');
+        if(seasonLength>0 && context.minLength < seasonLength*2){
+          recommendation.message='Every included series needs at least two full seasons at the configured season length. The advisor will not shorten the selected season to force a fit.';
+          return recommendation;
         }
       }else{
         recommendation.rationale.push('The available differenced autoregression handles non-seasonal autoregressive patterns; it is not a full ARIMA(p,d,q) implementation.');
@@ -8732,10 +8822,7 @@
           break;
         case 'logistic':
           recommendation.regression='logistic';
-          recommendation.rationale.push('Logistic regression models saturating S-shaped growth.');
-          if(!context.yWithinZeroOne){
-            recommendation.warnings.push('Logistic regression expects a bounded 0–1 response; rescale or verify Y values.');
-          }
+          recommendation.rationale.push('Binary logistic regression models the probability of a response encoded as 0 or 1.');
           break;
         case 'exponential':
           recommendation.regression='exponential';
@@ -8744,9 +8831,6 @@
         case 'power':
           recommendation.regression='power';
           recommendation.rationale.push('Power-law regression addresses allometric scaling relationships.');
-          if(Number.isFinite(context.xMin) && context.xMin<=0){
-            recommendation.warnings.push('Power-law models require positive X values; shift or filter non-positive points.');
-          }
           break;
         case 'flexible':
           recommendation.regression='spline';
@@ -8759,12 +8843,10 @@
     switch(answers.detailLevel){
       case 'minimal':
         recommendation.showIntervals=false;
-        recommendation.showDiagnostics=false;
-        recommendation.rationale.push('Displaying only the fitted lines keeps the visualization uncluttered.');
+        recommendation.rationale.push('Show the fitted line without interval overlays; residual diagnostics remain in the statistical report.');
         break;
       case 'intervals':
         recommendation.showIntervals=recommendation.regression!=='spline';
-        recommendation.showDiagnostics=false;
         recommendation.rationale.push('Confidence/prediction intervals communicate model uncertainty.');
         if(recommendation.regression==='spline'){
           recommendation.warnings.push('Interval shading is unavailable for spline fits and will remain hidden.');
@@ -8780,6 +8862,26 @@
         break;
       default:
         break;
+    }
+    if((recommendation.regression==='power' && !(context.xMin>0 && context.yMin>0)) || (recommendation.regression==='exponential' && !(context.yMin>0))){
+      recommendation.message='This model requires strictly positive '+(recommendation.regression==='power'?'X and Y':'Y')+' values. Choose a suitable model; observations will not be discarded to force a fit.';
+      return recommendation;
+    }
+    if(recommendation.regression==='logistic' && !context.binaryResponse){
+      recommendation.message='Binary logistic regression requires Y encoded as 0 and 1, with both outcomes in each series. A bounded continuous response does not meet this requirement.';
+      return recommendation;
+    }
+    if(answers.analysisGoal==='forecast' && !context.regularSpacing){
+      recommendation.message='These forecasting models require regularly spaced observations. Review the time axis before applying.';
+      return recommendation;
+    }
+    const requiredDistinctX=regressionTools.getModelInfo?.(recommendation.regression)?.minimumDistinctX;
+    if(requiredDistinctX && context.minUniqueX<requiredDistinctX){
+      recommendation.message=`${getLineRegressionLabel(recommendation.regression)} requires at least ${requiredDistinctX} distinct X values in every included series. Repeated X values do not supply additional design points.`;
+      return recommendation;
+    }
+    if(answers.analysisGoal==='forecast'){
+      recommendation.warnings.push('Check residual autocorrelation and validate forecasts on held-out future observations. Ordinary correlation p-values do not account for serial dependence.');
     }
     const methodLabel=recommendation.statsMethod==='pearson'?'Pearson correlation':'Spearman correlation';
     const regressionLabel = getLineRegressionLabel(recommendation.regression).toLowerCase();
@@ -8799,116 +8901,51 @@
     return recommendation;
   }
 
-  function renderLineStatsAdvisor(series, options = {}, providedContext){
+  function renderLineStatsAdvisor(options = {}){
     const session = options.session || getLineActiveSessionForState();
     const lineRefs = resolveLineRefsContext(session, options);
     const container=lineRefs.statsAdvisor || lineRefs.root?.querySelector?.('#lineStatsAdvisor') || getLineNodeById('lineStatsAdvisor');
     if(!container){
       return;
     }
+    const settingsTitle=container.querySelector('#lineStatsSettingsTitle');
     const advisorState = getLineAdvisorState(session);
-    const context=providedContext || buildLineAdvisorContext(series||[], { ...(options || {}), session });
-    advisorState.context=context;
+    const view = Shared.statsAdvisor.begin({ host: container, component: 'line', tabId: session.tabId, advisor: advisorState, getAdvisor: () => getLineAdvisorState(session), isActive: () => isLineSessionActive(session) });
+    const isAdvisorOwnerCurrent = view.isCurrent;
+    const readCurrentContext = () => {
+      const fresh=buildLineStatsContextFromOwnerData(session,{...options,session});
+      return buildLineAdvisorContext(fresh?.series || [],{...options,session,forecast:fresh?.statsOptions?.forecast});
+    };
+    const context=readCurrentContext();
     const answers=ensureLineAdvisorDefaults(context, session);
     const recommendation=computeLineAdvisorRecommendation(answers, context);
-    const sharedAdvisorUi = Shared.statsUi;
-    if(sharedAdvisorUi && typeof sharedAdvisorUi.renderAdvisorPanel==='function'){
-      sharedAdvisorUi.renderAdvisorPanel({
-        container,
-        state: advisorState,
-        title: 'Statistics advisor',
-        inactiveMessage: 'Press the "Guide me" button to view advisor recommendations.',
-        recommendation,
-        answers,
-        questions: advisorState.open ? buildLineAdvisorQuestions(context, answers) : [],
-        namePrefix: 'line-advisor',
-        onToggle: (nextOpen)=>{
-          advisorState.open=!!nextOpen;
-          if(advisorState.open && !advisorState.activated){
-            advisorState.activated=true;
-            console.debug('Debug: line statsAdvisor activated');
-          }
-          setLineAdvisorState(advisorState, session);
-          console.debug('Debug: line statsAdvisor toggled',{ open:advisorState.open });
-          renderLineStatsAdvisor(null, { ...options, session, refs: lineRefs }, advisorState.context);
-        },
-        onAnswerChange: (question, value)=>{
-          answers[question.id]=value;
-          advisorState.answers=answers;
-          setLineAdvisorState(advisorState, session);
-          console.debug('Debug: line statsAdvisor answer change',{ question:question.id, value });
-          renderLineStatsAdvisor(null, { ...options, session, refs: lineRefs }, advisorState.context);
-        },
-        onApply: ()=>{
-          if(!recommendation.ready){
-            return;
-          }
-          if(lineRefs.statType){
-            lineRefs.statType.value=recommendation.statsMethod;
-          }
-          if(lineRefs.regressionMode){
-            lineRefs.regressionMode.value=recommendation.regression;
-          }
-          if(lineRefs.showIntervals){
-            lineRefs.showIntervals.checked=!!recommendation.showIntervals;
-          }
-          if(lineRefs.showPredictionIntervals){
-            lineRefs.showPredictionIntervals.checked=!!recommendation.showIntervals;
-          }
-          updateForecastVisibility();
-          advisorState.lastApplied={ ...recommendation };
-          setLineAdvisorState(advisorState, session);
-          console.debug('Debug: line statsAdvisor applied',{
-            statsMethod:recommendation.statsMethod,
-            regression:recommendation.regression,
-            showIntervals:recommendation.showIntervals,
-            showDiagnostics:recommendation.showDiagnostics,
-            answers:{ ...answers }
-          });
-          scheduleLineDrawForSession(session, { reason: 'line-advisor-applied', renderImpact: 'analysis' });
-          renderLineStatsAdvisor(null, { ...options, session, refs: lineRefs }, advisorState.context);
-        },
-        onReset: ()=>{
-          advisorState.answers={};
-          setLineAdvisorState(advisorState, session);
-          console.debug('Debug: line statsAdvisor reset');
-          renderLineStatsAdvisor(null, { ...options, session, refs: lineRefs }, advisorState.context);
-        }
-      });
-      return;
-    }
     container.innerHTML='';
     const wrapper=document.createElement('div');
     wrapper.className='stats-advisor';
     wrapper.dataset.open=advisorState.open?'1':'0';
     const header=document.createElement('div');
     header.className='stats-advisor__header';
-    const title=document.createElement('strong');
-    title.textContent='Test advisor';
-    header.appendChild(title);
+    if(settingsTitle){ header.appendChild(settingsTitle); }
     const toggle=document.createElement('button');
     toggle.type='button';
     toggle.className='stats-advisor__toggle';
-    toggle.textContent=advisorState.open?'Hide advisor':'Guide me';
+    toggle.dataset.advisorFocus='toggle';
+    toggle.setAttribute('aria-expanded', String(!!advisorState.open));
+    toggle.textContent='Help me choose';
     toggle.addEventListener('click',()=>{
+      if(!isAdvisorOwnerCurrent()){ return; }
       advisorState.open=!advisorState.open;
-      if(advisorState.open && !advisorState.activated){
-        advisorState.activated=true;
-        console.debug('Debug: line statsAdvisor activated');
-      }
+
       setLineAdvisorState(advisorState, session);
-      console.debug('Debug: line statsAdvisor toggled',{ open:advisorState.open });
-      renderLineStatsAdvisor(null, { ...options, session, refs: lineRefs }, advisorState.context);
+      Shared.componentLifecycle?.persistOwnedUserState?.('line',{tabId:session.tabId,session},{reason:'line-advisor-change'});
+      renderLineStatsAdvisor({ ...options, session, refs: lineRefs });
     });
     header.appendChild(toggle);
     wrapper.appendChild(header);
     const summary=document.createElement('div');
     summary.className='stats-advisor__summary';
-    if(!advisorState.activated){
-      const message=document.createElement('div');
-      message.textContent='Press the "Guide me" button to view advisor recommendations.';
-      summary.appendChild(message);
-    }else if(recommendation.ready){
+    summary.hidden = !advisorState.open;
+    if(recommendation.ready){
       const summaryLine=document.createElement('div');
       summaryLine.className='stats-advisor__summary-line';
       summaryLine.textContent=`Recommendation: ${recommendation.summary}`;
@@ -8968,11 +9005,12 @@
           input.value=option.value;
           input.checked=answers[question.id]===option.value;
           input.addEventListener('change',()=>{
+            if(!isAdvisorOwnerCurrent()){ return; }
             answers[question.id]=option.value;
             advisorState.answers=answers;
             setLineAdvisorState(advisorState, session);
-            console.debug('Debug: line statsAdvisor answer change',{ question:question.id, value:option.value });
-            renderLineStatsAdvisor(null, { ...options, session, refs: lineRefs }, advisorState.context);
+            Shared.componentLifecycle?.persistOwnedUserState?.('line',{tabId:session.tabId,session},{reason:'line-advisor-change'});
+            renderLineStatsAdvisor({ ...options, session, refs: lineRefs });
           });
           const span=document.createElement('span');
           span.textContent=option.label;
@@ -8989,34 +9027,25 @@
       applyBtn.type='button';
       applyBtn.textContent='Apply recommendation';
       applyBtn.disabled=!recommendation.ready;
-      applyBtn.addEventListener('click',()=>{
-        if(!recommendation.ready){
-          return;
-        }
-        if(lineRefs.statType){
-          lineRefs.statType.value=recommendation.statsMethod;
-        }
-        if(lineRefs.regressionMode){
-          lineRefs.regressionMode.value=recommendation.regression;
-        }
-        if(lineRefs.showIntervals){
-          lineRefs.showIntervals.checked=!!recommendation.showIntervals;
-        }
-        if(lineRefs.showPredictionIntervals){
-          lineRefs.showPredictionIntervals.checked=!!recommendation.showIntervals;
-        }
-        updateForecastVisibility();
-        advisorState.lastApplied={ ...recommendation };
-        setLineAdvisorState(advisorState, session);
-        console.debug('Debug: line statsAdvisor applied',{
-          statsMethod:recommendation.statsMethod,
-          regression:recommendation.regression,
-          showIntervals:recommendation.showIntervals,
-          showDiagnostics:recommendation.showDiagnostics,
-          answers:{ ...answers }
+      applyBtn.addEventListener('click', () => {
+        view.apply({
+          readContext:readCurrentContext, decide:computeLineAdvisorRecommendation,
+          refresh:() => renderLineStatsAdvisor({ ...options, session, refs: lineRefs }),
+          commit:(recommendation) => {
+            syncLineRuntimeControlsFromState({ ...session.state.controls,
+              statType:recommendation.statsMethod, regressionMode:recommendation.regression,
+              showTrendLine:true, showIntervals:!!recommendation.showIntervals,
+              showPredictionIntervals:!!recommendation.showIntervals
+            },session.tabId);
+            updateForecastVisibility();
+            advisorState.lastApplied={ ...recommendation };
+            setLineAdvisorState(advisorState, session);
+            Shared.componentLifecycle?.persistOwnedUserState?.('line',{tabId:session.tabId,session},{reason:'line-advisor-change'});
+
+            scheduleLineDrawForSession(session, { reason: 'line-advisor-applied', renderImpact: 'analysis' });
+            renderLineStatsAdvisor({ ...options, session, refs: lineRefs });
+          }
         });
-        scheduleLineDrawForSession(session, { reason: 'line-advisor-applied', renderImpact: 'analysis' });
-        renderLineStatsAdvisor(null, { ...options, session, refs: lineRefs }, advisorState.context);
       });
       actions.appendChild(applyBtn);
       const resetBtn=document.createElement('button');
@@ -9024,15 +9053,18 @@
       resetBtn.className='stats-advisor__reset';
       resetBtn.textContent='Reset answers';
       resetBtn.addEventListener('click',()=>{
+        if(!isAdvisorOwnerCurrent()){ return; }
         advisorState.answers={};
         setLineAdvisorState(advisorState, session);
-        console.debug('Debug: line statsAdvisor reset');
-        renderLineStatsAdvisor(null, { ...options, session, refs: lineRefs }, advisorState.context);
+        Shared.componentLifecycle?.persistOwnedUserState?.('line',{tabId:session.tabId,session},{reason:'line-advisor-change'});
+
+        renderLineStatsAdvisor({ ...options, session, refs: lineRefs });
       });
       actions.appendChild(resetBtn);
       wrapper.appendChild(actions);
     }
     container.appendChild(wrapper);
+    view.finish(wrapper);
   }
 
   function clampLineReplicateCount(raw){
@@ -9217,9 +9249,6 @@
       previous,
       next
     });
-    if(options.refreshControls === true && lineReplicates > LINE_MIN_REPLICATES && isLineGroupedModeActive()){
-      renderLineGroupedList();
-    }
     return true;
   }
 
@@ -9371,9 +9400,8 @@
       return false;
     }
     const replicates = getLineGroupedReplicateCount({ ...options, hotInstance: hot });
-    const countFromCols = Number.isFinite(options.colCount)
-      ? Math.max(0, Math.ceil(Math.max(0, Number(options.colCount) - 1) / Math.max(replicates, 1)))
-      : Math.max(0, Math.ceil(Math.max(0, headerRow.length - 1) / Math.max(replicates, 1)));
+    const matrix = hot?.getData?.() || [headerRow];
+    const countFromCols = Math.ceil(computeUsedSeriesColumns(matrix) / Math.max(replicates, 1));
     const nextLabels = resolveLine2dSeriesLabelsFromHeader(
       headerRow,
       Number.isInteger(options.seriesCount) ? options.seriesCount : countFromCols,
@@ -9664,10 +9692,7 @@
     const data = hot.getData() || [];
     const headerRow = Array.isArray(data[0]) ? data[0] : [];
     const replicates = getLineGroupedReplicateCount({ ...options, hotInstance: hot });
-    const colCount = typeof hot.countCols === 'function'
-      ? hot.countCols()
-      : headerRow.length;
-    const seriesCount = Math.max(1, Math.ceil(Math.max(0, colCount - 1) / Math.max(replicates, 1)));
+    const seriesCount = Math.max(1, Math.ceil(computeUsedSeriesColumns(data) / Math.max(replicates, 1)));
     const targetCols = 1 + seriesCount * replicates;
     const changes = [];
     for(let c = headerRow.length; c < targetCols; c += 1){
@@ -9859,10 +9884,6 @@
     }
     const safeIndex = Number.isInteger(index) ? index : 0;
     return LINE_GROUP_SHAPE_DEFAULTS[safeIndex % LINE_GROUP_SHAPE_DEFAULTS.length];
-  }
-
-  function getLineGroupedListCount(){
-    return Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
   }
 
   function ensureLineGroupShapeCapacity(count, session = null){
@@ -10374,45 +10395,6 @@
     return;
   }
 
-  function updateLineSeriesGroupLabel(index, nextText){
-    const idx = Number(index);
-    if(!Number.isInteger(idx) || idx < 0) return;
-    const existing = lineSeriesGroupLabels[idx];
-    const sanitized = (typeof nextText === 'string' ? nextText : '').trim();
-    const fallback = `Series ${idx+1}`;
-    const resolved = sanitized || fallback;
-    if(existing === resolved) return;
-    const nextLabels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
-    while(nextLabels.length <= idx){
-      nextLabels.push(`Series ${nextLabels.length + 1}`);
-    }
-    nextLabels[idx] = resolved;
-    syncLineSeriesLabelState(nextLabels, { reason: 'line-group-label-edit' });
-    console.debug('Debug: updateLineSeriesGroupLabel', {
-      index: idx,
-      existing,
-      resolved
-    });
-    const is3dMode = getLineViewState().viewMode === '3d' || refs.replicateMode?.value === '3d';
-    const hot = getActiveLineHotManager();
-    if(!is3dMode && hot && typeof hot.setDataAtCell === 'function'){
-      const headerCol = resolveLineSeriesAnchorColumnIndex(idx, { replicates: lineReplicates });
-      if(Number.isInteger(headerCol)){
-        const current = hot.getDataAtCell?.(0, headerCol);
-        const currentTrimmed = current == null ? '' : String(current).trim();
-        if(currentTrimmed !== resolved){
-          hot.setDataAtCell([[0, headerCol, resolved]], 'line-group-label-edit');
-        }
-      }
-    }
-    if(is3dMode){
-      updateLine3dNestedHeaders();
-    }else{
-      updateLineNestedHeaders();
-    }
-    scheduleActiveLineDraw({ reason: 'line-group-label-change', renderImpact: 'layout' });
-  }
-
   function applyLineReplicateChange(newCount, options){
     const normalized = clampLineReplicateCount(newCount);
     const sourceReplicates = clampLineReplicateCount(options?.sourceReplicates ?? lineReplicates);
@@ -10464,167 +10446,17 @@
       const mode = wants3d ? '3d' : (modeOverride || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single'));
       if(refs.replicateMode && refs.replicateMode.value !== mode){
         refs.replicateMode.value = mode;
+        Shared.workspaceToolbar?.syncReplicateMode?.(refs.replicateMode);
       }
       if(refs.replicatesContainer){
         const showGroupedControls = mode === 'grouped';
-        if(showGroupedControls){
-          refs.replicatesContainer.style.display = '';
-          refs.replicatesContainer.setAttribute('aria-hidden', 'false');
-        }else{
-          refs.replicatesContainer.style.display = 'none';
-          refs.replicatesContainer.setAttribute('aria-hidden', 'true');
-        }
+        refs.replicatesContainer.hidden = !showGroupedControls;
+        refs.replicatesContainer.setAttribute('aria-hidden', showGroupedControls ? 'false' : 'true');
       }
     if(refs.replicatesInput){
       refs.replicatesInput.disabled = mode !== 'grouped';
     }
     syncLineUncertaintyToolbarControl();
-  }
-
-  function updateLineGroupShapeSelect(index, shape){
-    if(!refs.groupedList){
-      return;
-    }
-    const selector = `select[data-group-index="${index}"][data-shape-control="1"]`;
-    const target = refs.groupedList.querySelector(selector);
-    if(target){
-      target.value = shape;
-    }
-  }
-
-  function renderLineGroupedList(){
-    if(!refs.groupedList){
-      return;
-    }
-    if(lineReplicates <= LINE_MIN_REPLICATES){
-      refs.groupedList.innerHTML = '';
-      return;
-    }
-    const doc = global.document;
-    if(!doc){
-      return;
-    }
-    const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
-    ensureLineLabelColors(labels);
-    ensureLineGroupShapeCapacity(labels.length);
-    refs.groupedList.innerHTML = '';
-    labels.forEach((storedLabel, idx) => {
-      const row = doc.createElement('div');
-      row.className = 'grouped-row';
-      row.dataset.groupIndex = String(idx);
-      const inputId = `line-group-name-${idx}`;
-      const labelEl = doc.createElement('label');
-      labelEl.textContent = `Group ${idx + 1}`;
-      labelEl.setAttribute('for', inputId);
-      row.appendChild(labelEl);
-      const input = doc.createElement('input');
-      input.type = 'text';
-      input.value = storedLabel || '';
-      input.id = inputId;
-      input.setAttribute('aria-label', `Display name for Group ${idx + 1}`);
-      input.addEventListener('change', e => {
-        updateLineSeriesGroupLabel(idx, e.target.value);
-        e.target.value = lineSeriesGroupLabels[idx] || '';
-        renderLineGroupedList();
-      });
-      row.appendChild(input);
-      const labelKey = lineSeriesGroupLabels[idx] || `Series ${idx + 1}`;
-      const defaultColor = DEFAULT_SCATTER_COLORS[idx % DEFAULT_SCATTER_COLORS.length];
-      const existingColor = lineLabelColors[labelKey];
-      const resolvedColor = typeof existingColor === 'string' && existingColor ? existingColor : defaultColor;
-      lineLabelColors[labelKey] = resolvedColor;
-      const colorInput = doc.createElement('input');
-      colorInput.type = 'color';
-      colorInput.value = resolvedColor;
-      colorInput.dataset.groupIndex = String(idx);
-      colorInput.dataset.setting = `labelColors.${idx}`;
-      colorInput.setAttribute('aria-label', `Color for ${labelKey}`);
-      colorInput.addEventListener('input', e => {
-        const owner = getLineSessionForEvent(e, { reason: 'line-grouped-color-change' }, { create: false });
-        if(!owner || !isLineSessionActive(owner)){
-          lineDebug('Debug: line grouped color ignored without exact live owner', {
-            index: idx,
-            tabId: owner?.tabId || null
-          });
-          return;
-        }
-        const targetLabel = getLineGroupedState(owner).labels?.[idx] || `Series ${idx + 1}`;
-        const value = typeof e.target.value === 'string' && e.target.value ? e.target.value : defaultColor;
-        const nextColors = cloneLineRuntimeValue(getLineLabelsState(owner).colors, {}) || {};
-        nextColors[targetLabel] = value;
-        patchLineLabelsState(owner, { colors: nextColors }, { reason: 'line-grouped-color-change' });
-        Shared.componentLifecycle?.persistOwnedUserState?.('line', owner, {
-          tabId: owner.tabId,
-          reason: 'line-grouped-color-change'
-        });
-        console.debug('Debug: line grouped color updated',{ index: idx, color: value, label: targetLabel, tabId: owner.tabId });
-        scheduleLineDrawForSession(owner, {
-          tabId: owner.tabId,
-          renderImpact: 'paint',
-          userInitiated: true,
-          reason: 'line-grouped-color-change'
-        });
-      });
-      if(typeof Shared.attachColorPickerNear === 'function'){
-        Shared.attachColorPickerNear(colorInput);
-      }
-      row.appendChild(colorInput);
-      const shapeSelect = doc.createElement('select');
-      shapeSelect.dataset.groupIndex = String(idx);
-      shapeSelect.dataset.shapeControl = '1';
-      shapeSelect.dataset.setting = `groupShapes.${idx}`;
-      shapeSelect.setAttribute('aria-label', `Marker shape for ${labelKey}`);
-      LINE_GROUP_SHAPE_OPTIONS.forEach(opt => {
-        const option = doc.createElement('option');
-        option.value = opt.value;
-        option.textContent = opt.label;
-        shapeSelect.appendChild(option);
-      });
-      const currentShape = getLineGroupShape(idx);
-      shapeSelect.value = currentShape;
-      shapeSelect.addEventListener('change', e => {
-        const owner = getLineSessionForEvent(e, { reason: 'line-grouped-list-shape-change' }, { create: false });
-        if(!owner || !isLineSessionActive(owner)){
-          lineDebug('Debug: line grouped shape ignored without exact live owner', {
-            index: idx,
-            tabId: owner?.tabId || null
-          });
-          return;
-        }
-        const sanitized = sanitizeLineGroupShape(e.target.value, idx);
-        patchLineGroupShapeState(owner, idx, sanitized, { reason: 'line-grouped-list-shape-change' });
-        Shared.componentLifecycle?.persistOwnedUserState?.('line', owner, {
-          tabId: owner.tabId,
-          reason: 'line-grouped-list-shape-change'
-        });
-        if(e.target.value !== sanitized){
-          e.target.value = sanitized;
-        }
-        console.debug('Debug: line grouped shape updated',{ index: idx, shape: sanitized, tabId: owner.tabId });
-        scheduleLineDrawForSession(owner, {
-          tabId: owner.tabId,
-          renderImpact: 'paint',
-          userInitiated: true,
-          reason: 'line-grouped-list-shape-change'
-        });
-      });
-      attachLineSelectAutoSize(shapeSelect, `line-group-shape-${idx}`);
-      row.appendChild(shapeSelect);
-      const removeBtn = doc.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'grouped-remove';
-      removeBtn.textContent = '×';
-      removeBtn.disabled = labels.length <= 1;
-      removeBtn.addEventListener('click', () => {
-        removeLineGroupAt(idx);
-      });
-      row.appendChild(removeBtn);
-      refs.groupedList.appendChild(row);
-    });
-    if(refs.replicatesInput){
-      refs.replicatesInput.value = String(lineReplicates);
-    }
-    console.debug('Debug: line grouped list rendered',{ groups: labels.length });
   }
 
   function isLine3dDatasetHeaderMatrix(matrix){
@@ -11130,6 +10962,7 @@
     if(options.skipControls !== true){
       if(refs.replicateMode && typeof snapshot.tableFormat === 'string'){
         refs.replicateMode.value = snapshot.tableFormat;
+        Shared.workspaceToolbar?.syncReplicateMode?.(refs.replicateMode);
       }
       updateLineReplicateModeControls();
     }
@@ -11266,6 +11099,7 @@
       }
       if(refs.replicateMode){
         refs.replicateMode.value = '3d';
+        Shared.workspaceToolbar?.syncReplicateMode?.(refs.replicateMode);
       }
       updateLineReplicateModeControls('3d');
       syncLineRuntimeControlsFromRefs({ reason: 'line-enter-3d-noop-controls' });
@@ -11304,6 +11138,7 @@
     }
     if(refs.replicateMode){
       refs.replicateMode.value = '3d';
+      Shared.workspaceToolbar?.syncReplicateMode?.(refs.replicateMode);
     }
     syncLineRuntimeControlsFromRefs({ reason: 'line-enter-3d-controls' });
     stampLineHotTableFormat(hot, '3d', { reason: 'line-enter-3d-format-stamp' });
@@ -11397,6 +11232,7 @@
       }
       if(refs.replicateMode && refs.replicateMode.value === '3d'){
         refs.replicateMode.value = modeCache.lastTwoDFormat === 'grouped' ? 'grouped' : 'single';
+        Shared.workspaceToolbar?.syncReplicateMode?.(refs.replicateMode);
       }
       updateLineReplicateModeControls();
       applyLineTableFormatToHot(getActiveLineHotManager(), { reason: 'line-exit-3d-noop' });
@@ -11430,6 +11266,7 @@
     const target2dFormat = modeCache.twoD?.tableFormat === 'grouped' ? 'grouped' : fallback2dFormat;
     if(refs.replicateMode){
       refs.replicateMode.value = target2dFormat;
+      Shared.workspaceToolbar?.syncReplicateMode?.(refs.replicateMode);
     }
     stampLineHotTableFormat(hot, target2dFormat, { reason: 'line-exit-3d-format-stamp' });
     hot.updateSettings?.({
@@ -11442,6 +11279,7 @@
       restoreLineHotState(modeCache.twoD, { skipControls: true });
       if(refs.replicateMode){
         refs.replicateMode.value = modeCache.twoD.tableFormat === 'grouped' ? 'grouped' : 'single';
+        Shared.workspaceToolbar?.syncReplicateMode?.(refs.replicateMode);
       }
     }else{
       const converted = buildLine2dMatrixFrom3d(hot.getData());
@@ -11497,7 +11335,7 @@
     }
   }
 
-  const LINE_3D_ROTATION_MODEL_VERSION = 1;
+  const LINE_3D_ROTATION_MODEL_VERSION = plot3d.FRAME_LAYOUT_VERSION;
 
   function normalizeLine3dRotationModel(value){
     if(!value || typeof value !== 'object' || Number(value.version) !== LINE_3D_ROTATION_MODEL_VERSION){
@@ -11575,7 +11413,6 @@
         bottom: Number(margin.bottom) || 0,
         left: Number(margin.left) || 0
       },
-      legendShiftX: Number(value.legendShiftX) || 0,
       axisRanges: normalizedRanges,
       axisTicks: normalizedTicks,
       axisTickLabels: normalizedTickLabels,
@@ -11763,7 +11600,7 @@
       path.dataset.lineStyleRole = 'line';
       path.dataset.viewMode = '3d';
       path.style.cursor = 'pointer';
-      path.addEventListener('click', handleLinePathClick);
+      bindLinePathFormatInteraction(path);
       const markerGroup = global.document.createElementNS(NS, 'g');
       markerGroup.dataset.series = seriesEntry.name;
       markerGroup.dataset.lineStyleRole = 'markers';
@@ -11815,8 +11652,7 @@
         rotatedCorners,
         width: model.width,
         height: model.height,
-        margin: model.margin,
-        shiftX: model.legendShiftX
+        margin: model.margin
       });
       const project = point => projector.project(point);
 
@@ -12080,67 +11916,22 @@
     return bindLine3dRotationControls(svg, debugLabel, rotationSession);
   }
 
-  function removeLineGroupAt(index){
-    if(lineReplicates <= LINE_MIN_REPLICATES){
-      console.debug('Debug: line grouped remove blocked',{ index, reason: 'single-mode' });
-      return;
-    }
-    const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
-    const listCount = getLineGroupedListCount();
-    const currentSeriesCount = Math.max(listCount || labels.length || 1, 1);
-    if(labels.length > currentSeriesCount){
-      labels.length = currentSeriesCount;
-    }
-    while(labels.length < currentSeriesCount){
-      labels.push(`Series ${labels.length + 1}`);
-    }
-    if(labels.length <= 1 || !Number.isInteger(index) || index < 0 || index >= labels.length){
-      console.debug('Debug: line grouped remove blocked',{ index, length: labels.length });
-      return;
-    }
-    const replicates = Math.max(lineReplicates, LINE_MIN_REPLICATES);
-    const hot = getActiveLineHotManager();
-    const matrix = hot ? hot.getData() : [];
-    const start = 1 + index * replicates;
-    const end = start + replicates;
-    const trimmed = Array.isArray(matrix)
-      ? matrix.map(row => {
-        if(!Array.isArray(row)){
-          return [];
-        }
-        const prefix = row.slice(0, start);
-        const suffix = row.slice(end);
-        return prefix.concat(suffix);
-      })
-      : [];
-    labels.splice(index, 1);
-    const shapes = Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [];
-    if(shapes.length > index){
-      shapes.splice(index, 1);
-    }
-    console.debug('Debug: line grouped remove',{ index, remaining: labels.length });
-    applyLineReplicateChange(lineReplicates, {
-      dataOverride: trimmed,
-      sourceReplicates: lineReplicates,
-      skipDraw: true,
-      minSeriesCount: Math.max(labels.length, 1),
-      groupLabels: labels,
-      groupShapes: shapes,
-      resetGroupLabels: true
-    });
-    renderLineGroupedList();
-    scheduleActiveLineDraw({ reason: 'line-grouped-remove', renderImpact: 'structural' });
-  }
-
-
   function ensureLineLabelColors(labels, session = null){
     const owner = resolveLineStateSession(session || getLineActiveSessionForState());
     const nextColors = cloneLineRuntimeValue(getLineLabelsState(owner).colors, {}) || {};
+    const schemeId = getLineThemeState(owner).colorScheme;
+    const schemePalette = Shared.colorSchemes?.resolveCategoricalPaletteForType?.('line', {
+      schemeId,
+      payload: { config: { colorScheme: schemeId } }
+    });
+    const fallbackPalette = Array.isArray(schemePalette) && schemePalette.length
+      ? schemePalette
+      : DEFAULT_SCATTER_COLORS;
     let changed = false;
     const labelSet = new Set(labels);
     labels.forEach((lab,i)=>{
       if(!nextColors[lab]){
-        nextColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+        nextColors[lab]=fallbackPalette[i%fallbackPalette.length];
         changed = true;
         console.debug('Debug: line default label color applied',{label:lab,color:nextColors[lab]});
       }
@@ -12275,59 +12066,6 @@
     return { low: toR(loZ), high: toR(hiZ), method: 'fisher-z' };
   }
 
-  function hasLineDuplicateValues(values){
-    const seen = new Set();
-    for(let i = 0; i < values.length; i += 1){
-      const key = String(values[i]);
-      if(seen.has(key)){
-        return true;
-      }
-      seen.add(key);
-    }
-    return false;
-  }
-
-  function computeLineSpearmanExactP(rho, n){
-    const size = Number(n);
-    const observed = Math.abs(Number(rho));
-    if(!Number.isFinite(size) || !Number.isFinite(observed) || size < 3 || size > 9){
-      return null;
-    }
-    const ranks = Array.from({ length: size }, (_, idx) => idx + 1);
-    let total = 0;
-    let extreme = 0;
-    const denom = size * (Math.pow(size, 2) - 1);
-    const tolerance = 1e-12;
-    const backtrack = index => {
-      if(index >= size){
-        let d2 = 0;
-        for(let i = 0; i < size; i += 1){
-          const d = (i + 1) - ranks[i];
-          d2 += d * d;
-        }
-        const permRho = 1 - ((6 * d2) / denom);
-        total += 1;
-        if(Math.abs(permRho) >= observed - tolerance){
-          extreme += 1;
-        }
-        return;
-      }
-      for(let i = index; i < size; i += 1){
-        const tmp = ranks[index];
-        ranks[index] = ranks[i];
-        ranks[i] = tmp;
-        backtrack(index + 1);
-        ranks[i] = ranks[index];
-        ranks[index] = tmp;
-      }
-    };
-    backtrack(0);
-    if(!total){
-      return null;
-    }
-    return extreme / total;
-  }
-
   function computeLineCorrelationStats(method, x, y, jStatLib, alpha = 0.05){
     const n = x.length;
     const pearson = jStatLib.corrcoeff(x, y);
@@ -12345,28 +12083,14 @@
         ciApproximate: false
       };
     }
-    const spearman = jStatLib.spearmancoeff(x, y);
-    const hasTies = hasLineDuplicateValues(x) || hasLineDuplicateValues(y);
-    let p = NaN;
-    let pMethod = 't approximation';
-    if(!hasTies && n <= 9){
-      const exact = computeLineSpearmanExactP(spearman, n);
-      if(Number.isFinite(exact)){
-        p = exact;
-        pMethod = 'exact permutation';
-      }
-    }
-    if(!Number.isFinite(p)){
-      const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, spearman));
-      const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-      p = lineStudentTTwoSidedPValue(t, n - 2);
-    }
+    const spearman = Shared.stats?.spearmanPermutationTest?.(x, y) || null;
+    const rho = Number.isFinite(spearman?.rho) ? spearman.rho : jStatLib.spearmancoeff(x, y);
     return {
       label: 'Spearman',
-      r: spearman,
-      p,
-      pMethod,
-      ci: computeLineCorrelationConfidenceInterval(spearman, n, ciAlpha),
+      r: rho,
+      p: spearman?.available === true ? spearman.pValue : NaN,
+      pMethod: spearman?.method || 'not calculated',
+      ci: computeLineCorrelationConfidenceInterval(rho, n, ciAlpha),
       ciApproximate: true
     };
   }
@@ -12729,7 +12453,7 @@
     const showDiagnostics = isLineDiagnosticsEnabled();
     const regressionAlpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
     const regressionCache = options.regressionCache instanceof Map ? options.regressionCache : new Map();
-    renderLineStatsAdvisor(series, { ...options, session, refs: lineRefs, showIntervals, showDiagnostics });
+    renderLineStatsAdvisor({ ...options, session, refs: lineRefs, showIntervals, showDiagnostics });
     console.debug('Debug: updateLineStats',{seriesCount:series.length,method,regressionMode,showIntervals,showDiagnostics}); // Debug: stats update entry
     const tableRows=[];
     const intervalRows=[];
@@ -12813,8 +12537,11 @@
                 seasonalRows.push({ series: s.name, label, value: formattedValue });
                 return;
               }
-              if(normalizedLabel === 'horizon'){
+              if(normalizedLabel === 'horizon' && isForecastModel){
                 forecastRows.push({ series: s.name, horizon: formattedValue, mae: 'n/a', rmse: 'n/a', mape: 'n/a', smape: 'n/a', selectionCriterion: 'n/a', selectionScore: 'n/a', aic: 'n/a', bic: 'n/a' });
+                return;
+              }
+              if(normalizedLabel === 'horizon'){
                 return;
               }
               parameterRows.push({ series: s.name, parameter: label, value: formattedValue });
@@ -12894,7 +12621,7 @@
           const metricsSource = stats.regression?.metrics || {};
           const summaryMetrics = summary?.metrics || {};
           const hasAccuracy = [metricsSource.mae, metricsSource.mape, metricsSource.smape, metricsSource.aic, metricsSource.bic, metricsSource.selectionScore, metricsSource.horizon].some(val => Number.isFinite(val));
-          if(hasAccuracy){
+          if(hasAccuracy && isForecastModel){
             const existingIndex = forecastRows.findIndex(row => row.series === s.name);
             const rowBase = existingIndex >= 0 ? forecastRows[existingIndex] : { series: s.name };
             rowBase.horizon = rowBase.horizon || formatMetricValue(summaryMetrics.horizon ?? metricsSource.horizon ?? NaN,0);
@@ -12921,7 +12648,17 @@
       }
     });
     setLineRegressionSummariesState(regressionSummaries, session);
+    const parameterKey = (seriesName, term) => `${seriesName}\u0000${String(term || '').trim().toLowerCase()}`;
+    // The coefficient table already includes estimates and intervals for these terms.
+    const coefficientTerms = new Set(coefficientRows.map(row => parameterKey(row.series, row.term)));
+    const supplementaryParameterRows = parameterRows.filter(row => !coefficientTerms.has(parameterKey(row.series, row.parameter)));
     const associationSymbol = getLineAssociationSymbol(methodLabel || method);
+    const primaryCoefficientIsReported = tableRows.length > 0 && tableRows.every(row => (
+      coefficientRows.some(coefficient => (
+        coefficient.series === row.series
+        && String(coefficient.term || '').trim().toLowerCase() === String(parameterColumnLabel || '').trim().toLowerCase()
+      ))
+    ));
     if(tableRows.length && options.createResidualView !== false){
       try{
         upsertLineResidualsDataView(series, {
@@ -12936,13 +12673,30 @@
     if(tableRows.length){
       clearLineStatsReportHost({ session, refs: lineRefs });
       statsResults.innerHTML='';
-      if(methodLabel){
-        const lead=document.createElement('div');
-        lead.className='stats-table-lead';
-        lead.textContent=`${methodLabel} correlation coefficients`;
-        statsResults.appendChild(lead);
+      const supplementary = document.createElement('details');
+      supplementary.className = 'stats-results-advanced-panel';
+      supplementary.open = !!showIntervals;
+      const supplementarySummary = document.createElement('summary');
+      supplementarySummary.textContent = 'Additional regression results';
+      supplementary.appendChild(supplementarySummary);
+      const supplementaryBody = document.createElement('div');
+      supplementaryBody.className = 'stats-results-advanced-panel__body';
+      supplementary.appendChild(supplementaryBody);
+      let additionalParametersDisclosure = null;
+      let additionalParametersBody = null;
+      if(supplementaryParameterRows.length){
+        additionalParametersDisclosure = document.createElement('details');
+        additionalParametersDisclosure.className = 'line-regression-parameters stats-results-advanced-panel--nested';
+        additionalParametersDisclosure.setAttribute('data-stats-section', 'estimates');
+        const additionalParametersSummary = document.createElement('summary');
+        additionalParametersSummary.textContent = 'Additional regression parameters';
+        additionalParametersDisclosure.appendChild(additionalParametersSummary);
+        additionalParametersBody = document.createElement('div');
+        additionalParametersBody.className = 'stats-results-advanced-panel__body';
+        additionalParametersDisclosure.appendChild(additionalParametersBody);
       }
       if(Shared.statsTable && typeof Shared.statsTable.render==='function'){
+        const associationPMethods = [...new Set(tableRows.map(row => row.pMethod).filter(value => value && value !== '—'))];
         Shared.statsTable.render({
           target: statsResults,
           columns:[
@@ -12950,29 +12704,53 @@
             {key:'n',label:'N',align:'right'},
             {key:'r',label:associationSymbol,align:'right'},
             {key:'rCi',label:`${associationSymbol} (95% CI)`,align:'right'},
-            {key:'pValueCell',label:'p',align:'right'},
-            {key:'pMethod',label:'p method',align:'left'},
-            {key:'slope',label:parameterColumnLabel,align:'right'},
-            {key:'r2',label:rSquaredLabel,align:'right'},
-            {key:'adjR2',label:'Adjusted R²',align:'right'},
-            {key:'modelF',label:'Model F',align:'right'},
-            {key:'modelPValueCell',label:'Model p',align:'right'},
-            {key:'rmse',label:'RMSE',align:'right'},
-            {key:'mae',label:'MAE',align:'right'},
-            {key:'logLoss',label:'Log loss',align:'right'}
+            {key:'pValueCell',label:'Association p-value',align:'right'}
           ],
           rows:tableRows,
-          caption: methodLabel ? `${methodLabel} correlation summary (${regressionModeLabel})` : 'Correlation summary',
+          caption: methodLabel ? `${methodLabel} correlation` : 'Correlation results',
           section:'summary',
+          footnotes:associationPMethods.length ? [`Association p-value method: ${associationPMethods.join('; ')}.`] : [],
           options:{
-            fileName:'line-statistics',
-            contextLabel:'line-stats'
+            fileName:'line-correlation',
+            contextLabel:'line-correlation'
           },
           append:true
         });
+        if(regressionMode !== 'none'){
+          const regressionFitColumns = [
+            { key:'modelF', label:'Model F', align:'right' },
+            { key:'modelPValueCell', label:'Model p', align:'right' },
+            { key:'rmse', label:'RMSE', align:'right' },
+            { key:'mae', label:'MAE', align:'right' },
+            { key:'logLoss', label:'Log loss', align:'right' }
+          ].filter(column => tableRows.some(row => {
+            const value = row[column.key];
+            const displayValue = value && typeof value === 'object'
+              ? (value.fallback ?? value.value)
+              : value;
+            return displayValue != null
+              && String(displayValue).trim() !== ''
+              && !['n/a', '—'].includes(String(displayValue).trim().toLowerCase());
+          }));
+          Shared.statsTable.render({
+            target:statsResults,
+            columns:[
+              { key:'series', label:'Series', align:'left' },
+              ...(primaryCoefficientIsReported ? [] : [{ key:'slope', label:parameterColumnLabel, align:'right' }]),
+              { key:'r2', label:rSquaredLabel, align:'right' },
+              { key:'adjR2', label:'Adjusted R²', align:'right' },
+              ...regressionFitColumns
+            ],
+            rows:tableRows,
+            caption:`Regression summary (${regressionModeLabel})`,
+            section:'estimates',
+            options:{ fileName:'line-regression-summary', contextLabel:'line-regression-summary' },
+            append:true
+          });
+        }
         if(showIntervals && intervalRows.length){
           Shared.statsTable.render({
-            target: statsResults,
+            target: supplementaryBody,
             columns:[
               { key:'series', label:'Series', align:'left' },
               { key:'ciLow', label:'CI Low', align:'right' },
@@ -12989,7 +12767,7 @@
         }
         if(showDiagnostics && diagnosticRows.length){
           Shared.statsTable.render({
-            target: statsResults,
+            target: supplementaryBody,
             columns:[
               { key:'series', label:'Series', align:'left' },
               { key:'skewness', label:'Skewness', align:'right' },
@@ -13008,16 +12786,16 @@
             append:true
           });
         }
-        if(parameterRows.length){
+        if(supplementaryParameterRows.length){
           Shared.statsTable.render({
-            target: statsResults,
+            target: additionalParametersBody,
             columns:[
               { key:'series', label:'Series', align:'left' },
               { key:'parameter', label:'Parameter', align:'left' },
               { key:'value', label:'Value', align:'right' }
             ],
-            rows: parameterRows,
-            caption: 'Regression parameters',
+            rows: supplementaryParameterRows,
+            caption: 'Derived regression parameters',
             section:'estimates',
             options:{ fileName:'line-parameters', contextLabel:'line-parameters' },
             append:true
@@ -13025,7 +12803,7 @@
         }
         if(seasonalRows.length){
           Shared.statsTable.render({
-            target: statsResults,
+            target: supplementaryBody,
             columns:[
               { key:'series', label:'Series', align:'left' },
               { key:'label', label:'Component', align:'left' },
@@ -13039,20 +12817,21 @@
           });
         }
         if(forecastRows.length){
+          const forecastColumns = [
+            { key:'series', label:'Series', align:'left' },
+            { key:'horizon', label:'Horizon', align:'right' },
+            { key:'mae', label:'MAE', align:'right' },
+            { key:'rmse', label:'RMSE', align:'right' },
+            { key:'mape', label:'MAPE', align:'right' },
+            { key:'smape', label:'sMAPE', align:'right' },
+            { key:'selectionCriterion', label:'Tuning criterion', align:'left' },
+            { key:'selectionScore', label:'Tuning score', align:'right' },
+            { key:'aic', label:'AIC', align:'right' },
+            { key:'bic', label:'BIC', align:'right' }
+          ].filter(column => column.key === 'series' || forecastRows.some(row => row[column.key] && row[column.key] !== 'n/a'));
           Shared.statsTable.render({
-            target: statsResults,
-            columns:[
-              { key:'series', label:'Series', align:'left' },
-              { key:'horizon', label:'Horizon', align:'right' },
-              { key:'mae', label:'MAE', align:'right' },
-              { key:'rmse', label:'RMSE', align:'right' },
-              { key:'mape', label:'MAPE', align:'right' },
-              { key:'smape', label:'sMAPE', align:'right' },
-              { key:'selectionCriterion', label:'Tuning criterion', align:'left' },
-              { key:'selectionScore', label:'Tuning score', align:'right' },
-              { key:'aic', label:'AIC', align:'right' },
-              { key:'bic', label:'BIC', align:'right' }
-            ],
+            target: supplementaryBody,
+            columns:forecastColumns,
             rows: forecastRows,
             caption: 'Forecast accuracy metrics',
             section:'estimates',
@@ -13062,7 +12841,7 @@
         }
         if(coefficientRows.length){
           Shared.statsTable.render({
-            target: statsResults,
+            target: supplementaryBody,
             columns:[
               { key:'series', label:'Series', align:'left' },
               { key:'term', label:'Term', align:'left' },
@@ -13090,38 +12869,44 @@
           const intervalTable=document.createElement('table');
           intervalTable.innerHTML='<tr><th>Series</th><th>CI Low</th><th>CI High</th><th>PI Low</th><th>PI High</th></tr>'+
             intervalRows.map(row=>`<tr><td>${row.series}</td><td>${row.ciLow}</td><td>${row.ciHigh}</td><td>${row.piLow}</td><td>${row.piHigh}</td></tr>`).join('');
-          statsResults.appendChild(intervalTable);
+          supplementaryBody.appendChild(intervalTable);
         }
         if(showDiagnostics && diagnosticRows.length){
           const diagTable=document.createElement('table');
           diagTable.innerHTML='<tr><th>Series</th><th>Skewness</th><th>Kurtosis</th><th>JB</th><th>JB p</th><th>Runs z</th><th>Runs p</th><th>Lack-of-fit F</th><th>Lack-of-fit p</th></tr>'+
             diagnosticRows.map(row=>`<tr><td>${row.series}</td><td>${row.skewness}</td><td>${row.kurtosis}</td><td>${row.jb}</td><td>${row.jbP}</td><td>${row.runsZ}</td><td>${row.runsP}</td><td>${row.lofF}</td><td>${row.lofP}</td></tr>`).join('');
-          statsResults.appendChild(diagTable);
+          supplementaryBody.appendChild(diagTable);
         }
-        if(parameterRows.length){
+        if(supplementaryParameterRows.length){
           const paramTable=document.createElement('table');
           paramTable.innerHTML='<tr><th>Series</th><th>Parameter</th><th>Value</th></tr>'+
-            parameterRows.map(row=>`<tr><td>${row.series}</td><td>${row.parameter}</td><td>${row.value}</td></tr>`).join('');
-          statsResults.appendChild(paramTable);
+            supplementaryParameterRows.map(row=>`<tr><td>${row.series}</td><td>${row.parameter}</td><td>${row.value}</td></tr>`).join('');
+          additionalParametersBody.appendChild(paramTable);
         }
         if(seasonalRows.length){
           const seasonTable=document.createElement('table');
           seasonTable.innerHTML='<tr><th>Series</th><th>Component</th><th>Value</th></tr>'+
             seasonalRows.map(row=>`<tr><td>${row.series}</td><td>${row.label}</td><td>${row.value}</td></tr>`).join('');
-          statsResults.appendChild(seasonTable);
+          supplementaryBody.appendChild(seasonTable);
         }
         if(forecastRows.length){
           const forecastTable=document.createElement('table');
           forecastTable.innerHTML='<tr><th>Series</th><th>Horizon</th><th>MAE</th><th>RMSE</th><th>MAPE</th><th>sMAPE</th><th>Tuning criterion</th><th>Tuning score</th><th>AIC</th><th>BIC</th></tr>'+
             forecastRows.map(row=>`<tr><td>${row.series}</td><td>${row.horizon || 'n/a'}</td><td>${row.mae || 'n/a'}</td><td>${row.rmse || 'n/a'}</td><td>${row.mape || 'n/a'}</td><td>${row.smape || 'n/a'}</td><td>${row.selectionCriterion || 'n/a'}</td><td>${row.selectionScore || 'n/a'}</td><td>${row.aic || 'n/a'}</td><td>${row.bic || 'n/a'}</td></tr>`).join('');
-          statsResults.appendChild(forecastTable);
+          supplementaryBody.appendChild(forecastTable);
         }
         if(coefficientRows.length){
           const coeffTable=document.createElement('table');
           coeffTable.innerHTML='<tr><th>Series</th><th>Term</th><th>Estimate</th><th>Std Error</th><th>t-stat</th><th>p-value</th><th>CI Low</th><th>CI High</th></tr>'+
             coefficientRows.map(row=>`<tr><td>${row.series}</td><td>${row.term}</td><td>${row.estimate}</td><td>${row.se}</td><td>${row.t}</td><td>${row.p}</td><td>${row.ciLow}</td><td>${row.ciHigh}</td></tr>`).join('');
-          statsResults.appendChild(coeffTable);
+          supplementaryBody.appendChild(coeffTable);
         }
+      }
+      if(additionalParametersDisclosure){
+        supplementaryBody.appendChild(additionalParametersDisclosure);
+      }
+      if(supplementaryBody.childElementCount){
+        statsResults.appendChild(supplementary);
       }
     }else{
       statsResults.textContent='Not enough data for statistics.';
@@ -13129,21 +12914,21 @@
     if(tableRows.length && statsResults && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel==='function'){
       const methodsParts = [
         `Association and regression statistics were computed for ${tableRows.length} series using ${methodLabel || method} correlation with ${regressionModeLabel}. Inferential decisions used α = ${Shared.statsInference?.formatLevel?.(getLineStatsAlpha()) || getLineStatsAlpha()}.`,
-        'For each series, only rows with finite numeric X and Y values were analyzed; missing or non-numeric pairs were omitted before correlation, regression, diagnostics, and forecast summaries.',
+        'For each series, only rows with finite numeric X and Y values were analyzed; missing or non-numeric pairs were omitted before correlation, regression, and diagnostics.',
         showIntervals ? 'Confidence and prediction interval bounds were calculated from the fitted regression model where estimable.' : null,
         showDiagnostics ? 'Residual diagnostic summaries were requested, including distributional checks, runs tests, and lack-of-fit summaries when the data supported them.' : null,
-        forecastRows.length ? 'Forecast accuracy metrics were also summarised when a forecast model and holdout information were available.' : null
+        forecastRows.length ? 'Forecast accuracy metrics were summarized for forecast models with available holdout information.' : null
       ].filter(Boolean);
       const bestSeries = tableRows[0] || null;
       const resultsParts = [
-        `${tableRows.length} series were analysable.`,
-        bestSeries ? `${bestSeries.series} returned ${associationSymbol} = ${bestSeries.r}, ${formatLinePExpression(bestSeries.pRaw)}, and ${rSquaredLabel} = ${bestSeries.r2}.` : null,
+        `${tableRows.length} series were analyzable.`,
+        bestSeries ? `For ${bestSeries.series}, ${associationSymbol} = ${bestSeries.r}, ${formatLinePExpression(bestSeries.pRaw)}, and ${rSquaredLabel} = ${bestSeries.r2}.` : null,
         forecastRows.length ? `${forecastRows.length} series produced forecast accuracy statistics.` : null,
         coefficientRows.length ? `${coefficientRows.length} coefficient estimates were tabulated.` : null
       ].filter(Boolean);
       const structuredResultsParts = [
-        `${tableRows.length} series were analysable.`,
-        bestSeries ? [' ', `${bestSeries.series} returned ${associationSymbol} = ${bestSeries.r}, p = `, { type:'pValue', value:bestSeries.pRaw, fallback:String(bestSeries.p), __statsInference:createLineInferenceSpec() }, `, and ${rSquaredLabel} = ${bestSeries.r2}.`] : null,
+        `${tableRows.length} series were analyzable.`,
+        bestSeries ? [' ', `For ${bestSeries.series}, ${associationSymbol} = ${bestSeries.r}, p = `, { type:'pValue', value:bestSeries.pRaw, fallback:String(bestSeries.p), __statsInference:createLineInferenceSpec() }, `, and ${rSquaredLabel} = ${bestSeries.r2}.`] : null,
         forecastRows.length ? ` ${forecastRows.length} series produced forecast accuracy statistics.` : null,
         coefficientRows.length ? ` ${coefficientRows.length} coefficient estimates were tabulated.` : null
       ].filter(Boolean);
@@ -13179,6 +12964,7 @@
         }
       }, { title: 'Reporting and reproducibility' });
     }
+    Shared.statsReporting?.markPanelCurrent?.(statsResults);
     console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,intervalRows:intervalRows.length,diagnosticRows:diagnosticRows.length,parameterRows:parameterRows.length,seasonalRows:seasonalRows.length,forecastRows:forecastRows.length,methodLabel,regressionMode}); // Debug: stats update exit
   }
 
@@ -13199,17 +12985,7 @@
       }
       return matrix;
     }
-    let lastBodyCol = 0;
-    for(let r = 1; r < matrix.length; r += 1){
-      const row = Array.isArray(matrix[r]) ? matrix[r] : [];
-      for(let c = row.length - 1; c >= 1; c -= 1){
-        const value = row[c];
-        if(value !== null && value !== undefined && String(value).trim() !== ''){
-          lastBodyCol = Math.max(lastBodyCol, c);
-          break;
-        }
-      }
-    }
+    const lastBodyCol = computeUsedSeriesColumns(matrix);
     if(lastBodyCol <= 0){
       return matrix;
     }
@@ -13248,6 +13024,53 @@
     return filtered;
   }
 
+  function getLineColorSchemePayload(options = {}){
+    const tabId = String(options?.tabId || '').trim();
+    if(!tabId){
+      return null;
+    }
+    const activeTab = global.Main?.session?.getActiveTab?.() || null;
+    const ownerTab = activeTab && String(activeTab.id || '') === tabId ? activeTab : null;
+    if(!ownerTab || ownerTab.type !== 'line' || String(ownerTab.id || '') !== tabId){
+      return null;
+    }
+    const payload = ownerTab.payload && typeof ownerTab.payload === 'object' ? ownerTab.payload : {};
+    const config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+    const owner = getLineSession(tabId, { tabId, reason: 'line-color-scheme-payload' }, { create: false });
+    const theme = owner ? getLineThemeState(owner) : {};
+    const labels = owner ? getLineLabelsState(owner).colors : null;
+    const styles = owner ? getLineStylesState(owner) : null;
+    const controls = owner ? getLineRuntimeControlsForSession(owner) : {};
+    const axisSettings = owner ? getLineAxisSettingsState(owner) : null;
+    const gridStyle = owner ? getLineGridStyleState(owner, controls.borderWidth) : null;
+    const projectMap = (persisted, current, mergeObjects = false) => {
+      const source = persisted && typeof persisted === 'object' ? persisted : {};
+      const live = current && typeof current === 'object' ? current : {};
+      return Object.fromEntries(Object.keys(source).map(key => [
+        key,
+        mergeObjects && source[key] && typeof source[key] === 'object'
+          ? { ...source[key], ...(live[key] && typeof live[key] === 'object' ? live[key] : {}) }
+          : (Object.prototype.hasOwnProperty.call(live, key) ? live[key] : source[key])
+      ]));
+    };
+    const header = Array.isArray(payload.data?.[0]) ? payload.data[0].slice() : null;
+    return {
+      type: 'line',
+      data: header ? [header] : [],
+      config: {
+        colorScheme: theme.colorScheme || config.colorScheme || getLineDefaultSchemeId(),
+        border: controls.border || config.border,
+        labelColors: projectMap(config.labelColors, labels),
+        seriesStyles: projectMap(config.seriesStyles, styles?.series, true),
+        overlayStyles: projectMap(config.overlayStyles, styles?.overlays, true),
+        axis: { color: axisSettings?.color ?? config.axis?.color },
+        gridStyle: { color: gridStyle?.color ?? config.gridStyle?.color },
+        textColor: theme.textColor ?? config.textColor,
+        backgroundColor: theme.backgroundColor ?? config.backgroundColor
+      }
+    };
+  }
+
   function getLineGraphPayload(){
     const activeHot = (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null) || getActiveLineHotManager();
     if(!activeHot) return null;
@@ -13281,9 +13104,10 @@
     const showPredictionIntervals = !!controls.showPredictionIntervals;
     const payloadData = trimLinePayloadData(payloadSourceData, viewMode);
     const payloadSeriesStyles = buildLinePayloadSeriesStyles(payloadData, viewMode);
+    const persistedPayloadData = includeDataViews ? payloadSourceData : payloadData;
     return {
       type:'line',
-      data:payloadData,
+      data:persistedPayloadData,
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
       filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
@@ -13343,6 +13167,8 @@
         xMax:controls.xMax,
         yMin:controls.yMin,
         yMax:controls.yMax,
+        includeZeroX: !!controls.includeZeroX,
+        includeZeroY: !!controls.includeZeroY,
         originMode:controls.originMode,
         originX:controls.originX,
         originY:controls.originY,
@@ -13419,6 +13245,7 @@
             }
           }
         },
+        advisorState: captureLineAdvisorPayloadState(payloadSession),
         notes: {
           text: notesText,
           open: notesOpen
@@ -13436,6 +13263,14 @@
       console.error('Invalid line payload type', { type: obj.type, meta });
       return false;
     }
+    const requestedPayloadOwner = meta?.tab || meta?.tabId || getLineProjectionTabId() || null;
+    if(requestedPayloadOwner && Shared.componentLifecycle?.isOwnerActivationTarget?.('line', requestedPayloadOwner, { component: line }) !== true){
+      lineDebug('Debug: line payload rejected for inactive owner', {
+        tabId: typeof requestedPayloadOwner === 'string' ? requestedPayloadOwner : requestedPayloadOwner?.id || null,
+        source: meta?.source || 'unknown'
+      });
+      return false;
+    }
     if(meta?.flagOverlay){
       const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
       markLineOverlayPending(overlayReason);
@@ -13443,7 +13278,6 @@
     const skipDraw = meta?.skipDraw === true;
     const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
-    console.debug('Debug: applyLineGraphPayload payload', obj);
     const c=obj.config||{};
     const payloadTabLike = meta?.tab || meta?.tabId || getLineProjectionTabId() || null;
     const payloadSession = bindLineSessionForTab(payloadTabLike, { ...(meta || {}), reason: meta?.reason || 'line-payload-bind-session' }, { syncControls: false });
@@ -13453,6 +13287,9 @@
         reason: 'line-payload-state-session'
       }, { create: true })
       || getLineActiveSessionForState();
+    if(!styleOnly){
+      setLineAdvisorState(c.advisorState || c.statsAdvisor || createDefaultLineAdvisorState(), payloadStateSession);
+    }
     const payloadRefs = resolveLineRefsContext(payloadSession, meta);
     let scheduleBackup = null;
     let sessionScheduleBackup = null;
@@ -13505,7 +13342,7 @@
           })
         : null;
     const payloadHot = activeHotForViews || getActiveLineHotManager();
-    if(dataManager){
+    if(!styleOnly && dataManager){
       if(serializedViews){
         dataManager.deserialize(serializedViews, {
           fallbackData: rawDataMatrix,
@@ -13579,6 +13416,7 @@
         }
         if(payloadRefs.replicateMode){
           payloadRefs.replicateMode.value = '3d';
+          Shared.workspaceToolbar?.syncReplicateMode?.(payloadRefs.replicateMode);
         }
         payloadHot.loadData(matrixForLoad);
         if(exclusionsToApply){
@@ -13663,21 +13501,19 @@
         });
         if(payloadRefs.replicateMode && payloadRefs.replicateMode.value === '3d'){
           payloadRefs.replicateMode.value = storedTableFormat === 'grouped' ? 'grouped' : 'single';
+          Shared.workspaceToolbar?.syncReplicateMode?.(payloadRefs.replicateMode);
         }
-        const usedSeriesCols = computeUsedSeriesColumns(matrixData);
-        const inferredSeries = usedSeriesCols > 0
-          ? Math.ceil(usedSeriesCols / Math.max(storedReplicates, 1))
-          : 0;
-        const minSeriesCount = Math.max(1, inferredSeries, storedGroupLabels?.length || 0, storedGroupShapes?.length || 0);
-        applyLineReplicateChange(storedReplicates, {
-          dataOverride: matrixData,
-          sourceReplicates: storedReplicates,
-          skipDraw: true,
-          minSeriesCount,
-          groupLabels: storedGroupLabels || lineSeriesGroupLabels,
-          groupShapes: storedGroupShapes || lineGroupShapes,
-          resetGroupLabels: storedGroupLabels ? true : undefined
-        });
+        lineReplicates = storedReplicates;
+        if(lineReplicates > LINE_MIN_REPLICATES){
+          lineLastGroupedReplicateCount = lineReplicates;
+        }
+        patchLineGroupedState(payloadStateSession, {
+          replicates: lineReplicates,
+          lastGroupedReplicateCount: lineLastGroupedReplicateCount
+        }, { reason: 'line-payload-replicates' });
+        updateLineReplicateModeControls();
+        payloadHot.loadData(matrixData);
+        updateLineNestedHeaders(payloadHot);
         if(exclusionsToApply){
           payloadHot.applyExclusions?.(exclusionsToApply);
         }
@@ -13782,6 +13618,16 @@
     if(payloadRefs.showLegend) payloadRefs.showLegend.checked=c.showLegend !== false;
     if(payloadRefs.logX) payloadRefs.logX.checked=!!c.logX;
     if(payloadRefs.logY) payloadRefs.logY.checked=!!c.logY;
+    if(payloadRefs.includeZeroX && (!styleOnly || Object.prototype.hasOwnProperty.call(c, 'includeZeroX'))){
+      payloadRefs.includeZeroX.checked = Object.prototype.hasOwnProperty.call(c, 'includeZeroX')
+        ? c.includeZeroX === true
+        : (c.originMode != null ? c.originMode === 'zero' && c.logX !== true : createDefaultLineRuntimeControls().includeZeroX);
+    }
+    if(payloadRefs.includeZeroY && (!styleOnly || Object.prototype.hasOwnProperty.call(c, 'includeZeroY'))){
+      payloadRefs.includeZeroY.checked = Object.prototype.hasOwnProperty.call(c, 'includeZeroY')
+        ? c.includeZeroY === true
+        : (c.originMode != null ? c.originMode === 'zero' && c.logY !== true : createDefaultLineRuntimeControls().includeZeroY);
+    }
     lineLogPlusOneX=!!c.logPlusOneX;
     lineLogPlusOneY=!!c.logPlusOneY;
     if(wants3d){
@@ -13800,6 +13646,7 @@
     if(payloadRefs.originMode && c.originMode) payloadRefs.originMode.value=c.originMode;
     if(payloadRefs.originX) payloadRefs.originX.value=c.originX||'';
     if(payloadRefs.originY) payloadRefs.originY.value=c.originY||'';
+    syncLineAxisControlAvailability();
     if(payloadRefs.fontSize){
       payloadRefs.fontSize.value=c.fontSize||payloadRefs.fontSize.value;
       if(payloadRefs.fontSize.dataset){
@@ -13866,6 +13713,7 @@
       }
       if(payloadRefs.replicateMode && payloadRefs.replicateMode.value !== '3d'){
         payloadRefs.replicateMode.value = '3d';
+        Shared.workspaceToolbar?.syncReplicateMode?.(payloadRefs.replicateMode);
       }
       if(payloadRefs.viewMode && payloadRefs.viewMode.value !== '3d'){
         payloadRefs.viewMode.value = '3d';
@@ -13904,6 +13752,7 @@
           ? 'grouped'
           : (storedReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single');
         payloadRefs.replicateMode.value = fallbackFormat;
+        Shared.workspaceToolbar?.syncReplicateMode?.(payloadRefs.replicateMode);
       }
       if(payloadRefs.viewMode && payloadRefs.viewMode.value !== '2d'){
         payloadRefs.viewMode.value = '2d';
@@ -13911,83 +13760,85 @@
       getLineViewState().viewMode = '2d';
       updateLineReplicateModeControls();
     }
-    setLineRegressionSummariesState(c.regression?.seriesSummaries, payloadSession);
+    if(!styleOnly) setLineRegressionSummariesState(c.regression?.seriesSummaries, payloadSession);
     if(c.labelPositions && typeof c.labelPositions === 'object'){
       lineLabelPositions = normalizeLineOwnedLabelsState({ positions: c.labelPositions }).positions;
     }else if(!styleOnly){
       lineLabelPositions = normalizeLineOwnedLabelsState({}).positions;
     }
-    // restore persisted stats HTML and metadata if present
-    if(c.stats){
-      try{
-        const s = c.stats || {};
-        const payloadStatsState = getLineStatsState(payloadSession);
-        payloadStatsState.signature = s.signature || payloadStatsState.signature;
-        payloadStatsState.version = Number(s.version) || payloadStatsState.version || 0;
-        payloadStatsState.lastRunVersion = Number(s.lastRunVersion) || 0;
-        payloadStatsState.panelModel = normalizeLineStatsPanelModel(s.panelModel || s);
-        payloadStatsState.regressionSummaries = getLineRegressionSummariesState(payloadSession).slice();
-        if(payloadRefs.statsResults){
-          if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
-            Shared.statsReporting.restorePanelModel(payloadRefs.statsResults, s, {
-              ensureReportHost: () => ensureLineStatsReportHost({ session: payloadSession, refs: payloadRefs })
-            });
-          }else{
-            payloadRefs.statsResults.textContent = '';
-          }
-        }
-        // restore stat control values if saved
-        if(s.controls && typeof s.controls === 'object'){
-          if(typeof s.controls.method === 'string' && payloadRefs.statType){ payloadRefs.statType.value = s.controls.method; }
-          if(!c.regression?.mode && typeof s.controls.regressionMode === 'string' && payloadRefs.regressionMode){
-            ensureLineRegressionSelectOptions(payloadRefs.regressionMode);
-            payloadRefs.regressionMode.value = s.controls.regressionMode;
-          }
-        }
-        const hasSavedStatsModel = !!(s.resultsModel || s.reportModel);
-        const hasRestoredResults = hasSavedStatsModel || lineStatsPanelHasRenderedResults({ session: payloadSession, refs: payloadRefs });
-        payloadStatsState.hasResults = hasRestoredResults && payloadStatsState.lastRunVersion > 0;
-        payloadStatsState.restorePending = hasRestoredResults && payloadStatsState.lastRunVersion > 0
-          ? {
-              signature: typeof s.signature === 'string' ? s.signature : null,
-              version: payloadStatsState.version,
-              hasResults: true
+    if(!styleOnly){
+      // restore persisted stats HTML and metadata if present
+      if(c.stats){
+        try{
+          const s = c.stats || {};
+          const payloadStatsState = getLineStatsState(payloadSession);
+          payloadStatsState.signature = s.signature || payloadStatsState.signature;
+          payloadStatsState.version = Number(s.version) || payloadStatsState.version || 0;
+          payloadStatsState.lastRunVersion = Number(s.lastRunVersion) || 0;
+          payloadStatsState.panelModel = normalizeLineStatsPanelModel(s.panelModel || s);
+          payloadStatsState.regressionSummaries = getLineRegressionSummariesState(payloadSession).slice();
+          if(payloadRefs.statsResults){
+            if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+              Shared.statsReporting.restorePanelModel(payloadRefs.statsResults, s, {
+                ensureReportHost: () => ensureLineStatsReportHost({ session: payloadSession, refs: payloadRefs })
+              });
+            }else{
+              payloadRefs.statsResults.textContent = '';
             }
-          : null;
-        if(hasRestoredResults && payloadStatsState.lastRunVersion){
-          setLineStatsStatus('Statistics up to date.', { session: payloadSession, refs: payloadRefs });
-          updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' }, { session: payloadSession, refs: payloadRefs });
-          updateLineRegressionOverlayControlState(true, { session: payloadSession, refs: payloadRefs });
-        }else{
-          // leave button enabled so user can (re)calculate
-          updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' }, { session: payloadSession, refs: payloadRefs });
-          updateLineRegressionOverlayControlState(false, { session: payloadSession, refs: payloadRefs });
+          }
+          // restore stat control values if saved
+          if(s.controls && typeof s.controls === 'object'){
+            if(typeof s.controls.method === 'string' && payloadRefs.statType){ payloadRefs.statType.value = s.controls.method; }
+            if(!c.regression?.mode && typeof s.controls.regressionMode === 'string' && payloadRefs.regressionMode){
+              ensureLineRegressionSelectOptions(payloadRefs.regressionMode);
+              payloadRefs.regressionMode.value = s.controls.regressionMode;
+            }
+          }
+          const hasSavedStatsModel = !!(s.resultsModel || s.reportModel);
+          const hasRestoredResults = hasSavedStatsModel || lineStatsPanelHasRenderedResults({ session: payloadSession, refs: payloadRefs });
+          payloadStatsState.hasResults = hasRestoredResults && payloadStatsState.lastRunVersion > 0;
+          payloadStatsState.restorePending = hasRestoredResults && payloadStatsState.lastRunVersion > 0
+            ? {
+                signature: typeof s.signature === 'string' ? s.signature : null,
+                version: payloadStatsState.version,
+                hasResults: true
+              }
+            : null;
+          if(hasRestoredResults && payloadStatsState.lastRunVersion){
+            setLineStatsStatus('Statistics up to date.', { session: payloadSession, refs: payloadRefs });
+            updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' }, { session: payloadSession, refs: payloadRefs });
+            updateLineRegressionOverlayControlState(true, { session: payloadSession, refs: payloadRefs });
+          }else{
+            // leave button enabled so user can (re)calculate
+            updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' }, { session: payloadSession, refs: payloadRefs });
+            updateLineRegressionOverlayControlState(false, { session: payloadSession, refs: payloadRefs });
+          }
+          payloadStatsState.context = null;
+          payloadStatsState.computationPending = false;
+          console.debug('Debug: line stats restored from payload', { signature: s.signature, version: s.version, lastRunVersion: s.lastRunVersion });
+        }catch(e){
+          console.debug('Debug: restore line stats failed', e?.message || String(e));
         }
-        payloadStatsState.context = null;
-        payloadStatsState.computationPending = false;
-        console.debug('Debug: line stats restored from payload', { signature: s.signature, version: s.version, lastRunVersion: s.lastRunVersion });
-      }catch(e){
-        console.debug('Debug: restore line stats failed', e?.message || String(e));
       }
-    }
-    else {
-      // no persisted stats in payload -> clear any previous results and state
-      try{
-        clearLineStatsOutputs(lineStatsEmptyPlaceholder, { session: payloadSession, refs: payloadRefs });
-        const payloadStatsState = getLineStatsState(payloadSession);
-        payloadStatsState.signature = null;
-        payloadStatsState.version = 0;
-        payloadStatsState.lastRunVersion = 0;
-        payloadStatsState.hasResults = false;
-        payloadStatsState.panelModel = { resultsModel: null, reportModel: null };
-        payloadStatsState.regressionSummaries = [];
-        payloadStatsState.context = null;
-        payloadStatsState.computationPending = false;
-        payloadStatsState.restorePending = null;
-        setLineRegressionSummariesState([], payloadSession);
-        updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' }, { session: payloadSession, refs: payloadRefs });
-      }catch(err){
-        console.debug('Debug: clearing line stats during payload apply failed', { err: err?.message || String(err) });
+      else {
+        // no persisted stats in payload -> clear any previous results and state
+        try{
+          clearLineStatsOutputs(lineStatsEmptyPlaceholder, { session: payloadSession, refs: payloadRefs });
+          const payloadStatsState = getLineStatsState(payloadSession);
+          payloadStatsState.signature = null;
+          payloadStatsState.version = 0;
+          payloadStatsState.lastRunVersion = 0;
+          payloadStatsState.hasResults = false;
+          payloadStatsState.panelModel = { resultsModel: null, reportModel: null };
+          payloadStatsState.regressionSummaries = [];
+          payloadStatsState.context = null;
+          payloadStatsState.computationPending = false;
+          payloadStatsState.restorePending = null;
+          setLineRegressionSummariesState([], payloadSession);
+          updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' }, { session: payloadSession, refs: payloadRefs });
+        }catch(err){
+          console.debug('Debug: clearing line stats during payload apply failed', { err: err?.message || String(err) });
+        }
       }
     }
     setLineLabelsState(payloadStateSession, {
@@ -14037,112 +13888,6 @@
     }
     console.debug('Debug: line payload applied', { source: meta.source || 'unknown', hasData: !!matrixData });
     return true;
-  }
-
-  function loadLineGraphFile(file, options = {}){
-    const ownerTabId = String(options?.tabId || options?.operation?.tabId || getLineProjectionTabId() || '').trim() || null;
-    const operation = fileIO?.createGraphOpenOperation?.({
-      context: 'line',
-      operation: options?.operation,
-      owner: { component: 'line', tabId: ownerTabId }
-    }) || options?.operation || null;
-    const reader=new FileReader();
-    reader.onload=e=>{
-      try{
-        const obj=JSON.parse(e.target.result);
-        const routed = fileIO?.routeGraphOpenPayload?.({
-          context: 'line',
-          component: 'line',
-          operation,
-          payload: obj,
-          reason: 'line-graph-file-open',
-          apply: (payload, owner) => applyLineGraphPayload(payload, {
-            source: 'file',
-            flagOverlay: true,
-            overlayReason: 'graph-file',
-            tabId: owner?.tabId || ownerTabId || undefined
-          })
-        });
-        const fallbackOwnerIsCurrent = !ownerTabId || String(getLineProjectionTabId() || '') === ownerTabId;
-        const accepted = routed ? routed.value !== false : (fallbackOwnerIsCurrent && applyLineGraphPayload(obj, {
-          source: 'file',
-          flagOverlay: true,
-          overlayReason: 'graph-file',
-          tabId: ownerTabId || undefined
-        }));
-        if(!accepted){
-          console.warn('line payload rejected from file', { hasType: !!obj?.type, routeStatus: routed?.status || null });
-        }
-      }catch(err){ console.error('loadLineGraph error',err); }
-    };
-    reader.readAsText(file);
-  }
-
-  async function saveLineFile(){
-    const operationSession = getLineActiveSessionForState();
-    const payload=getLineGraphPayload();
-    if(!payload) return;
-    console.debug('Debug: saveLineFile',{hasHandle:!!lineFileHandle}); // Debug: save request
-    if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
-      console.error('saveLineFile missing fileIO.saveGraphFile');
-      return;
-    }
-    const result = await fileIO.saveGraphFile({
-      context: 'line',
-      owner: { component: 'line', tabId: operationSession?.tabId || getLineProjectionTabId() || null },
-      fileHandle: lineFileHandle,
-      payload,
-      fileName: lineFileName,
-      downloadFileName: lineFileName,
-      setFileHandle: handle => { setLineFileHandleForSession(handle, operationSession); },
-      setFileName: name => { setLineFileNameForSession(name, operationSession); }
-    });
-    console.debug('Debug: saveLineFile result', result);
-  }
-
-  async function saveAsLineFile(){
-    const operationSession = getLineActiveSessionForState();
-    const payload=getLineGraphPayload();
-    if(!payload) return;
-    console.debug('Debug: saveAsLineFile invoked'); // Debug: saveAs entry
-    if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
-      console.error('saveAsLineFile missing fileIO.saveGraphFileAs');
-      return;
-    }
-    const result = await fileIO.saveGraphFileAs({
-      context: 'line',
-      owner: { component: 'line', tabId: operationSession?.tabId || getLineProjectionTabId() || null },
-      payload,
-      fileName: lineFileName,
-      downloadFileName: lineFileName,
-      setFileHandle: handle => { setLineFileHandleForSession(handle, operationSession); },
-      setFileName: name => { setLineFileNameForSession(name, operationSession); }
-    });
-    console.debug('Debug: saveAsLineFile result', result);
-  }
-
-  async function openLineFile(){
-    const operationSession = getLineActiveSessionForState();
-    const operationTabId = operationSession?.tabId || getLineProjectionTabId() || null;
-    console.debug('Debug: openLineFile start'); // Debug: open entry
-    if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
-      console.error('openLineFile missing fileIO.openGraphFile');
-      return;
-    }
-    const result = await fileIO.openGraphFile({
-      context: 'line',
-      owner: { component: 'line', tabId: operationTabId },
-      setFileHandle: handle => { setLineFileHandleForSession(handle, operationSession); },
-      setFileName: name => { setLineFileNameForSession(name, operationSession); },
-      loadFromFile: (file, operation) => loadLineGraphFile(file, { operation, tabId: operationTabId }),
-      triggerInput: () => {
-        if(refs.graphFileInput){
-          refs.graphFileInput.value='';
-          refs.graphFileInput.click();
-        }
-      }
-    });
-    console.debug('Debug: openLineFile result', result);
   }
 
   function buildLineExportSvg(){
@@ -14219,6 +13964,7 @@
         rawSize: controls.fontSize,
         width: drawableFrame.width,
         height: drawableFrame.height,
+        zoomScale: 1,
         svgBox: refs.svgBox,
         input: refs.fontSize
       });
@@ -14227,7 +13973,7 @@
       const axisStrokeWidthBase = getLineAxisStrokeWidth(invocation.session);
       const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis-3d', min: 0, exact: true });
       const axisStroke = getLineAxisColor(invocation.session);
-      const lineThemeDark = String(lineThemeState.colorScheme || '').toLowerCase() === 'dark';
+      const lineThemeDark = (Shared.colorSchemes?.isDarkScheme?.(lineThemeState.colorScheme) ?? (String(lineThemeState.colorScheme || '').toLowerCase() === 'dark'));
       const lineThemeTextColor = getLineThemeTextColor(invocation.session);
       const dotSizeRaw = Number(controls.dotSize) || LINE_DEFAULT_DOT_SIZE;
       const dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker-3d', min: 0 });
@@ -14522,18 +14268,11 @@
       const frameDimensions = typeof plot3d.resolveFrameDimensions === 'function'
         ? plot3d.resolveFrameDimensions({ availableWidth, availableHeight, fallbackWidth, fallbackHeight })
         : { width: fallbackWidth, height: fallbackHeight };
-      let W3 = frameDimensions.width;
-      let H3 = frameDimensions.height;
-      const baseW3 = W3;
+      const W3 = frameDimensions.width;
+      const H3 = frameDimensions.height;
       const legendVisible = showLegend && legendLayout?.renderer?.entries?.length > 0;
       const legendAxisGap = Math.max(fs * 0.9, 18);
       const appliedLegendAxisGap = legendVisible ? legendAxisGap : 0;
-      const legendViewport3d = chartStyle.computeLegendViewport({
-        baseWidth: baseW3,
-        baseHeight: H3,
-        legendWidth: legendVisible ? lineLegendWidth + appliedLegendAxisGap : 0
-      });
-      W3 = legendViewport3d.width;
       plotEl.style.display = 'block';
       plotEl.style.position = 'relative';
       const line3dDrawReason = drawOpts?.reason || 'line-3d-draw';
@@ -14571,7 +14310,7 @@
         ? normalizeLineThemeColor(lineThemeState.backgroundColor, '#000000')
         : '';
       svg3.style.pointerEvents = 'all';
-      svg3.setAttribute('data-color-scheme', lineThemeState.colorScheme || 'scientific');
+      svg3.setAttribute('data-color-scheme', lineThemeState.colorScheme || 'normal');
       if(!reuse3dSvg){
         svgPublication = Shared.framePublication.stage({
           container: plotEl,
@@ -14590,17 +14329,13 @@
       bindLine3dRotationControls(svg3, 'line-3d', invocation.session);
 
       const legendGapFor3d = legendLayout?.legendGapPx ?? 12;
-      const baseLegendMargin = Math.max(fs * 2.25, 28);
-      const legendMargin = legendVisible ? lineLegendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
+      const baseRightMargin = Math.max(fs * 2.25, 28);
       const margin3 = {
         top: Math.max(fs * 3.2, 36),
-        right: legendMargin,
+        right: baseRightMargin,
         bottom: Math.max(fs * 3.2, 40),
         left: Math.max(fs * 3.2, 40)
       };
-      let legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
-        ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth: lineLegendWidth })
-        : 0;
       let plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
       let plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
 
@@ -14816,8 +14551,7 @@
         rotatedCorners,
         width: W3,
         height: H3,
-        margin: margin3,
-        shiftX: legendShiftX
+        margin: margin3
       });
       const line3dAxisLabels = { x: lineLabelsState.x, y: lineLabelsState.y, z: lineLabelsState.z };
       const line3dTitleBlocks = {
@@ -14852,9 +14586,6 @@
       Object.assign(margin3, line3dTitleFrame.margin);
       const line3dFrameWidth = line3dTitleFrame.width;
       const line3dFrameHeight = line3dTitleFrame.height;
-      legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
-        ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth: lineLegendWidth })
-        : 0;
       plotW3 = Math.max(20, line3dTitleFrame.plotWidth);
       plotH3 = Math.max(20, line3dTitleFrame.plotHeight);
       projector = plot3d.createProjector({
@@ -14862,8 +14593,7 @@
         rotatedCorners,
         width: line3dFrameWidth,
         height: line3dFrameHeight,
-        margin: margin3,
-        shiftX: legendShiftX
+        margin: margin3
       });
 
       const frontFrameLayer = global.document.createElementNS(NS, 'g');
@@ -15021,7 +14751,7 @@
           path.dataset.lineStyleRole = 'line';
           path.dataset.viewMode = '3d';
           path.style.cursor = 'pointer';
-          path.addEventListener('click', handleLinePathClick);
+          bindLinePathFormatInteraction(path);
           lineLayer.appendChild(path);
           const mGroup = global.document.createElementNS(NS, 'g');
           mGroup.dataset.series = s.name || '';
@@ -15075,9 +14805,9 @@
         const legendPos = lineLabelsState.positions?.legend;
         const legacyLegendOriginX = margin3.left + plotW3;
         const legendPosition = chartStyle.resolveLegendPosition(legendPos, {
-          defaultX: baseW3 + appliedLegendAxisGap + legendGapFor3d,
+          defaultX: line3dFrameWidth + appliedLegendAxisGap + legendGapFor3d,
           defaultY: defaultLegendY,
-          reserveOriginX: baseW3 + appliedLegendAxisGap,
+          reserveOriginX: line3dFrameWidth + appliedLegendAxisGap,
           reserveOriginY: margin3.top,
           reserveScaleX: legendGapFor3d,
           reserveScaleY: plotH3,
@@ -15231,7 +14961,6 @@
         width: line3dFrameWidth,
         height: line3dFrameHeight,
         margin: margin3,
-        legendShiftX,
         axisRanges: renderAxisRanges3d,
         axisTicks: axisTicks3d,
         axisTickLabels: {
@@ -15271,7 +15000,7 @@
             svgBox: refs.svgBox,
             plot: plotEl,
             svg: svg3,
-            baseWidth: baseW3,
+            baseWidth: W3,
             baseHeight: H3,
             canonicalWidth: line3dFrameWidth,
             canonicalHeight: line3dFrameHeight,
@@ -15373,6 +15102,7 @@
         rawSize: controls.fontSize,
         width: drawableFrame.width,
         height: drawableFrame.height,
+        zoomScale: 1,
         svgBox: refs.svgBox,
         input: refs.fontSize
       });
@@ -15456,6 +15186,8 @@
       const xMaxManual=parseFloat(controls.xMax);
       const yMinManual=parseFloat(controls.yMin);
       const yMaxManual=parseFloat(controls.yMax);
+      const includeZeroX=!!controls.includeZeroX;
+      const includeZeroY=!!controls.includeZeroY;
       const originMode=controls.originMode;
       const originXInput=parseFloat(controls.originX);
       const originYInput=parseFloat(controls.originY);
@@ -15692,7 +15424,6 @@
             if(Array.isArray(series) && series[seriesIndex]){
               series[seriesIndex].shape = sanitized;
             }
-            updateLineGroupShapeSelect(seriesIndex, sanitized);
             scheduleActiveLineDraw({ reason: 'line-2d-legend-shape', renderImpact: 'paint' });
             return true;
           };
@@ -15759,27 +15490,30 @@
       if(isFinite(xMaxManual)) xMax=xMaxManual;
       if(isFinite(yMinManual)) yMin=yMinManual;
       if(isFinite(yMaxManual)) yMax=yMaxManual;
-      const useZeroOrigin = originMode === 'zero';
-      if(originMode==='custom'){
-        if(isFinite(originXInput) && !(logX && originXInput<=0)){
-          if(originXInput<xMin) xMin=originXInput;
-          if(originXInput>xMax) xMax=originXInput;
-        }
-        if(isFinite(originYInput) && !(logY && originYInput<=0)){
-          if(originYInput<yMin) yMin=originYInput;
-          if(originYInput>yMax) yMax=originYInput;
-        }
-      }else if(useZeroOrigin){
-        if(!logX){
-          if(!isFinite(xMinManual)) xMin=Math.min(xMin,0);
-          if(!isFinite(xMaxManual)) xMax=Math.max(xMax,0);
-        }
-        if(!logY){
-          if(!isFinite(yMinManual)) yMin=Math.min(yMin,0);
-          if(!isFinite(yMaxManual)) yMax=Math.max(yMax,0);
-        }
-        lineDebug('Debug: line range adjusted for zero origin',{xMin,xMax,yMin,yMax,logX,logY});
-      }
+      const customXRange = Shared.axisRange.includeValue({ min: xMin, max: xMax }, originXInput, {
+        enabled: originMode === 'custom', log: logX,
+        autoMin: !Number.isFinite(xMinManual), autoMax: !Number.isFinite(xMaxManual)
+      });
+      const customYRange = Shared.axisRange.includeValue({ min: yMin, max: yMax }, originYInput, {
+        enabled: originMode === 'custom', log: logY,
+        autoMin: !Number.isFinite(yMinManual), autoMax: !Number.isFinite(yMaxManual)
+      });
+      xMin = customXRange.min;
+      xMax = customXRange.max;
+      yMin = customYRange.min;
+      yMax = customYRange.max;
+      const xRange = Shared.axisRange.includeZero({ min: xMin, max: xMax }, {
+        enabled: includeZeroX, log: logX,
+        autoMin: !Number.isFinite(xMinManual), autoMax: !Number.isFinite(xMaxManual)
+      });
+      const yRange = Shared.axisRange.includeZero({ min: yMin, max: yMax }, {
+        enabled: includeZeroY, log: logY,
+        autoMin: !Number.isFinite(yMinManual), autoMax: !Number.isFinite(yMaxManual)
+      });
+      xMin = xRange.min;
+      xMax = xRange.max;
+      yMin = yRange.min;
+      yMax = yRange.max;
       const rangeForClipping = { xMin, xMax, yMin, yMax };
       seriesWithData = clipSeriesToRange(seriesWithData, rangeForClipping);
       if(!seriesWithData.length){
@@ -15831,8 +15565,8 @@
       const lineResolvedTheme2d = Shared.colorSchemes?.resolveThemeState?.('line', { config: { colorScheme: lineThemeState.colorScheme } }) || null;
       const lineThemeDark = lineResolvedTheme2d
         ? lineResolvedTheme2d.isDark === true
-        : String(lineThemeState.colorScheme || '').toLowerCase() === 'dark';
-      svg.setAttribute('data-color-scheme', lineThemeState.colorScheme || 'scientific');
+        : (Shared.colorSchemes?.isDarkScheme?.(lineThemeState.colorScheme) ?? (String(lineThemeState.colorScheme || '').toLowerCase() === 'dark'));
+      svg.setAttribute('data-color-scheme', lineThemeState.colorScheme || 'normal');
       if(lineThemeDark){
         const darkBg = normalizeLineThemeColor(lineThemeState.backgroundColor, '#000000');
         svg.style.backgroundColor = darkBg;
@@ -16241,19 +15975,14 @@
         }
         console.debug('Debug: line grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,gridStrokeStyle});
       }
-      let originXT,originYT;
-      if(originMode==='custom'){
-        originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);
-        originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);
-      }else if(originMode==='zero'){
-        originXT=logX?xScale.min:0;
-        originYT=logY?yScale.min:0;
-      }else{
-        originXT=xScale.min;
-        originYT=yScale.min;
-      }
-      const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max);
-      const clampedYT=Math.min(Math.max(originYT,yScale.min),yScale.max);
+      const clampedXT = Shared.axisRange.resolveOrigin({
+        mode: originMode, min: xScale.min, max: xScale.max, log: logX,
+        custom: logX ? (originXInput > 0 ? Math.log10(originXInput) : NaN) : originXInput
+      });
+      const clampedYT = Shared.axisRange.resolveOrigin({
+        mode: originMode, min: yScale.min, max: yScale.max, log: logY,
+        custom: logY ? (originYInput > 0 ? Math.log10(originYInput) : NaN) : originYInput
+      });
       if(isAreaMode){
         const axisMinTransformed = Number.isFinite(yScale.min) ? yScale.min : yMinT;
         const axisMaxTransformed = Number.isFinite(yScale.max) ? yScale.max : yMaxT;
@@ -16374,39 +16103,7 @@
         return true;
       };
       const registerAdditionalLineControlElement = (axis, index, lineElement) => {
-        if(!lineElement || !additionalLineControls || typeof additionalLineControls.registerAdditionalLineElement !== 'function'){
-          return;
-        }
-        additionalLineControls.registerAdditionalLineElement(lineElement, {
-          scopeId: 'line',
-          axis,
-          index,
-          getValue: () => getLineAxisAdditionalTicks(axis)?.[index]?.value,
-          getColor: () => getLineAxisAdditionalTicks(axis)?.[index]?.lineColor ?? null,
-          getThickness: () => getLineAxisAdditionalTicks(axis)?.[index]?.lineWidth ?? null,
-          getPattern: () => getLineAxisAdditionalTicks(axis)?.[index]?.linePattern ?? 'dotted',
-          getTransparency: () => getLineAxisAdditionalTicks(axis)?.[index]?.lineTransparency ?? 0,
-          onColorChange: value => {
-            const entry = getLineAxisAdditionalTicks(axis)?.[index] || null;
-            if(!entry){ return; }
-            updateLineAxisAdditionalTick(axis, index, { ...entry, lineColor: value });
-          },
-          onThicknessChange: value => {
-            const entry = getLineAxisAdditionalTicks(axis)?.[index] || null;
-            if(!entry){ return; }
-            updateLineAxisAdditionalTick(axis, index, { ...entry, lineWidth: value });
-          },
-          onPatternChange: value => {
-            const entry = getLineAxisAdditionalTicks(axis)?.[index] || null;
-            if(!entry){ return; }
-            updateLineAxisAdditionalTick(axis, index, { ...entry, linePattern: value });
-          },
-          onTransparencyChange: value => {
-            const entry = getLineAxisAdditionalTicks(axis)?.[index] || null;
-            if(!entry){ return; }
-            updateLineAxisAdditionalTick(axis, index, { ...entry, lineTransparency: value });
-          }
-        });
+        registerLineAdditionalLineControlElement(axis, index, lineElement, invocation.session);
       };
       const axisControlConfig = axis => buildLineAxisControlConfig(axis, invocation.session, {
         bounds: axis === 'x' ? { min: xScale.min, max: xScale.max } : { min: yScale.min, max: yScale.max },
@@ -17277,7 +16974,7 @@
         path.dataset.series = s.name || '';
         path.dataset.lineStyleRole = 'line';
         path.style.cursor = 'pointer';
-        path.addEventListener('click', handleLinePathClick);
+        bindLinePathFormatInteraction(path);
         const mGroup=add('g',{});
         mGroup.dataset.series = s.name || '';
         mGroup.dataset.lineStyleRole = 'markers';
@@ -17457,6 +17154,13 @@
       // Enable drag for x-axis label
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(xText, svg, {
+          positionKey: 'xLabel',
+          positionMetrics: {
+            xOrigin: margin.left,
+            xScale: Math.max(plotW, 1),
+            yOrigin: xAxisBase,
+            yScale: Math.max(plotH + margin.top, 1)
+          },
           onDragEnd: pos => {
             // Store both absolute and relative positions for xLabel
             const relX = (pos.x - margin.left) / plotW;
@@ -17502,6 +17206,13 @@
       // Enable drag for y-axis label
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(yText, svg, {
+          positionKey: 'yLabel',
+          positionMetrics: {
+            xOrigin: margin.left - lineTitleShiftX,
+            xScale: Math.max(yLabelOffsetSpan, 1),
+            yOrigin: margin.top,
+            yScale: Math.max(plotH, 1)
+          },
           onDragEnd: pos => {
             // Store both absolute and relative positions for yLabel
             const relX = (pos.x - margin.left + lineTitleShiftX) / yLabelOffsetSpan;
@@ -17544,6 +17255,12 @@
       // Enable drag for title
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(titleText, svg, {
+          positionMetrics: {
+            xOrigin: margin.left,
+            xScale: plotW,
+            yOrigin: margin.top - lineTitleShiftY,
+            yScale: plotH
+          },
           onDragEnd: pos => {
             // Store both absolute and relative positions
             const relX = (pos.x - margin.left) / plotW;
@@ -17560,7 +17277,11 @@
           }
         });
       }
-      renderLineStatsAdvisor(seriesWithData, statsContext);
+      renderLineStatsAdvisor({
+        ...statsContext,
+        session: invocation.session,
+        refs: resolveLineRefsContext(invocation.session)
+      });
       const lineAxisOwnerTabId = invocation.session?.tabId || getLineProjectionTabId() || null;
       Shared.visualProjection?.bind?.(
         svg.querySelectorAll('[data-axis-control="1"]:not([stroke="transparent"]), [data-frame-edge], [data-line-axis-style-target="1"]'),
@@ -17733,6 +17454,10 @@
       || getLineNodeById('linePage')
       || document;
     bindLineDomRefs(activeRoot, targetTabId);
+    Shared.checkboxDropdown?.attach?.(
+      activeRoot.querySelector?.('#lineRegressionOverlayButton'),
+      activeRoot.querySelector?.('#lineRegressionOverlayMenu')
+    );
     ensureLineAxisSettings();
     ensureLineGridStyle(getLineAxisStrokeWidth());
     if(refs.plot && !refs.plot.__lineAxesLengthCloseHandler){
@@ -17745,14 +17470,18 @@
     ensureLineStatsReportHost();
     ensureLineStatsInferenceControls();
     ensureLineRegressionSelection();
-    renderLineStatsAdvisor([], { showIntervals: isLineAnyIntervalEnabled(), showDiagnostics: isLineDiagnosticsEnabled() });
+    const setupSession = getLineActiveSessionForState();
+    renderLineStatsAdvisor({
+      session: setupSession,
+      refs: resolveLineRefsContext(setupSession),
+      showIntervals: isLineAnyIntervalEnabled(),
+      showDiagnostics: isLineDiagnosticsEnabled()
+    });
     clearLineStatsOutputs(lineStatsEmptyPlaceholder);
     setLineStatsStatus('');
     updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
     updateLineRegressionOverlayControlState(false);
-    if(refs.statsButton){
-      refs.statsButton.addEventListener('click', handleLineStatsComputeClick);
-    }
+    bindLineControlHandler(refs.statsButton, 'click', 'compute-stats', handleLineStatsComputeClick);
     syncLineUncertaintyToolbarValue();
     if(refs.fontSize && refs.fontSizeVal){
       if(refs.fontSize.dataset){
@@ -17764,20 +17493,28 @@
     if(refs.displayMode){
       lineDisplayMode = sanitizeLineDisplayMode(refs.displayMode.value);
       refs.displayMode.value = lineDisplayMode;
-      refs.displayMode.addEventListener('change',e=>{
-        const nextMode = sanitizeLineDisplayMode(e.target.value);
+      bindLineControlHandler(refs.displayMode, 'change', 'display-mode', (event, ownerSession) => {
+        if(!ownerSession?.tabId){
+          return;
+        }
+        const nextMode = sanitizeLineDisplayMode(event?.currentTarget?.value || event?.target?.value);
         if(nextMode !== lineDisplayMode){
           lineDisplayMode = nextMode;
           console.debug('Debug: line display mode change',{ mode: lineDisplayMode });
-          scheduleLineViewRefresh('line-display-mode-change', Shared.componentLifecycle.createStructuralDrawOptions('line-display-mode-change'));
+          scheduleLineViewRefresh('line-display-mode-change', Shared.componentLifecycle.createStructuralDrawOptions('line-display-mode-change', {
+            tabId: ownerSession.tabId
+          }));
         }
       });
     }
     if(refs.replicatesInput){
       refs.replicatesInput.value = String(lineReplicates);
-      refs.replicatesInput.addEventListener('change',e=>{
-        const resolved = clampLineReplicateCount(e.target.value);
-        console.debug('Debug: line replicates input change',{ raw: e.target.value, resolved });
+      bindLineControlHandler(refs.replicatesInput, 'change', 'replicates-count', (event, ownerSession) => {
+        if(!ownerSession?.tabId){
+          return;
+        }
+        const resolved = clampLineReplicateCount(event?.currentTarget?.value ?? event?.target?.value);
+        console.debug('Debug: line replicates input change',{ raw: event?.currentTarget?.value ?? event?.target?.value, resolved });
         if(resolved !== lineReplicates){
           applyLineReplicateChange(resolved);
         }else{
@@ -17785,23 +17522,26 @@
           updateLineReplicateModeControls();
           applyLineTableFormatToHot(getActiveLineHotManager(), { reason: 'line-replicates-unchanged' });
         }
-        syncLineRuntimeControlsFromRefs({ reason: 'line-replicates-input-change' });
+        syncLineRuntimeControlsFromRefs({ tabId: ownerSession.tabId, session: ownerSession, reason: 'line-replicates-input-change' });
       });
     }
     if(refs.replicateMode){
-      refs.replicateMode.addEventListener('change',e=>{
-        const requested = e.target.value === '3d'
+      bindLineControlHandler(refs.replicateMode, 'change', 'table-format', (event, ownerSession) => {
+        if(!ownerSession?.tabId){
+          return;
+        }
+        const requested = event?.currentTarget?.value === '3d'
           ? '3d'
-          : (e.target.value === 'grouped' ? 'grouped' : 'single');
+          : (event?.currentTarget?.value === 'grouped' ? 'grouped' : 'single');
         console.debug('Debug: line table format change',{ mode: requested });
         if(requested === '3d'){
-          enterLine3dMode({ resetRotation: !!e?.isTrusted });
+          enterLine3dMode({ resetRotation: !!event?.isTrusted, tabId: ownerSession.tabId });
           return;
         }
         if(getLineViewState().viewMode === '3d'){
-          exitLine3dMode({ skipDraw: true });
+          exitLine3dMode({ skipDraw: true, tabId: ownerSession.tabId });
         }
-        syncLineRuntimeControlsFromRefs({ reason: 'line-table-format-change' });
+        syncLineRuntimeControlsFromRefs({ tabId: ownerSession.tabId, session: ownerSession, reason: 'line-table-format-change' });
         if(requested === 'single'){
           if(lineReplicates > LINE_MIN_REPLICATES){
             lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
@@ -17829,13 +17569,16 @@
     }
     if(refs.viewMode){
       refs.viewMode.value = getLineViewState().viewMode;
-      refs.viewMode.addEventListener('change', e => {
-        const requested = e.target.value === '3d' ? '3d' : '2d';
-        console.debug('Debug: line view mode change', { mode: requested });
+      bindLineControlHandler(refs.viewMode, 'change', 'view-mode', (event, ownerSession) => {
+        if(!ownerSession?.tabId){
+          return;
+        }
+        const requested = event?.currentTarget?.value === '3d' ? '3d' : '2d';
+        console.debug('Debug: line view mode change', { mode: requested, tabId: ownerSession.tabId });
         if(requested === '3d'){
-          enterLine3dMode({ resetRotation: !!e?.isTrusted });
+          enterLine3dMode({ resetRotation: !!event?.isTrusted, tabId: ownerSession.tabId });
         }else{
-          exitLine3dMode();
+          exitLine3dMode({ tabId: ownerSession.tabId });
         }
       });
     }
@@ -18159,7 +17902,9 @@
           onResize: (phase) => {
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = refs.svgBox?.dataset?.resizerAspectLocked === 'true';
-            console.debug('Debug: line layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: line layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
+            }
             if(resizePhase === 'observe' && Date.now() <= lineSuppressResizeObserveUntil){
               console.debug('Debug: line resize observe ignored during controlled layout/data load');
               return;
@@ -18231,6 +17976,7 @@
       let instance = null;
       instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDrawProxy, {
         debugLabel: 'line',
+        ariaLabel: 'Line data table',
         data,
         // Line owns first-column pinning because 3D X/Y/Z dataset blocks must scroll as
         // complete, unpinned triplets. The shared table factory's static pinFirstColumn
@@ -18471,8 +18217,7 @@
                 if(groupedHeaderTouched){
                   syncLineSeriesGroupLabelsFromHeader(instance, {
                     reason: `line-afterChange:${source}`,
-                    refreshControls: true,
-                    colCount: typeof instance?.countCols === 'function' ? instance.countCols() : undefined
+                    refreshControls: true
                   });
                 }
               }
@@ -18498,8 +18243,7 @@
               updateLineNestedHeaders(instance);
               syncLineSeriesGroupLabelsFromHeader(instance, {
                 reason: 'line-afterLoadData',
-                refreshControls: true,
-                colCount: typeof instance?.countCols === 'function' ? instance.countCols() : undefined
+                refreshControls: true
               });
             }
             syncLineActiveDataViewFromHot(instance, 'afterLoadData');
@@ -18658,7 +18402,49 @@
     }
     applyLineReplicateChange(lineReplicates, { sourceReplicates: lineReplicates, skipDraw: true });
 
-    const loadExampleData = () => {
+    const applyLineExampleDefaultScheme = (tabId, reason) => {
+      const ownerTabId = String(tabId || '').trim();
+      if(!ownerTabId){
+        return false;
+      }
+      const activeTab = global.Main?.session?.getActiveTab?.() || null;
+      if(String(activeTab?.id || '') !== ownerTabId || String(getLineProjectionTabId() || '') !== ownerTabId){
+        return false;
+      }
+      const sourcePayload = line.getPayload?.();
+      const defaultPayload = sourcePayload
+        ? Shared.colorSchemes?.applyDefaultToPayload?.('line', sourcePayload)
+        : null;
+      const session = global.Main?.session || null;
+      const ownerTab = session?.getTabById?.(ownerTabId)
+        || session?.workspaceState?.tabs?.find(tab => String(tab?.id || '') === ownerTabId)
+        || null;
+      if(!defaultPayload || !ownerTab || ownerTab.type !== 'line'){
+        return false;
+      }
+      if(typeof line.applyColorSchemePayload !== 'function'){
+        return false;
+      }
+      const projected = line.applyColorSchemePayload(defaultPayload, {
+        tab: ownerTab,
+        tabId: ownerTabId,
+        reason: `${reason}-default-scheme`,
+        source: 'line-example-default-scheme',
+        skipDraw: true
+      });
+      if(!projected){
+        return false;
+      }
+      session.commitTabPayload?.(ownerTab, defaultPayload, {
+        reason: `${reason}-default-scheme`,
+        origin: 'user'
+      });
+      Shared.colorSchemes?.refreshActiveTabVisuals?.(`${reason}-default-scheme`);
+      return true;
+    };
+
+    const loadExampleData = async () => {
+      const ownerTabId = String(getLineProjectionTabId() || '').trim();
       const is3dMode = getLineViewState().viewMode === '3d' || refs.replicateMode?.value === '3d' || refs.viewMode?.value === '3d';
       if(is3dMode){
         const example = Shared.exampleDatasets?.get?.('line', 'threeD');
@@ -18690,7 +18476,11 @@
         Shared.exampleDatasets?.applyNotesState?.(notesState, example);
         rememberLineSessionState(getLineProjectionTabId() || null, { reason: 'line-3d-example-load' }, { readControls: true });
         console.debug('Debug: line 3d example loaded',{ key: 'threeD', seriesCount: exampleMeta.seriesCount });
+        if(!applyLineExampleDefaultScheme(ownerTabId, 'line-3d-example-load')){
+          return;
+        }
         scheduleActiveLineDraw({ force: true, reason: 'line-3d-example-load', renderImpact: 'structural' });
+        await line.awaitReadyForSnapshot({ tabId: ownerTabId, reason: 'line-3d-example-load-ready', settleFrames: 2 });
         return;
       }
       const isGroupedMode = refs.replicateMode?.value === 'grouped';
@@ -18732,9 +18522,13 @@
       Shared.exampleDatasets?.applyNotesState?.(notesState, example);
       rememberLineSessionState(getLineProjectionTabId() || null, { reason: 'line-example-load' }, { readControls: true });
       console.debug('Debug: line example loaded',{ key, replicates: exampleReplicates, mode: isGroupedMode ? 'grouped' : 'single' });
+      if(!applyLineExampleDefaultScheme(ownerTabId, 'line-example-load')){
+        return;
+      }
       scheduleActiveLineDraw({ force: true, reason: 'line-example-load', renderImpact: 'structural' });
+      await line.awaitReadyForSnapshot({ tabId: ownerTabId, reason: 'line-example-load-ready', settleFrames: 2 });
     };
-    refs.loadExample?.addEventListener('click', loadExampleData);
+    bindLineControlHandler(refs.loadExample, 'click', 'load-example', loadExampleData);
     const openImportPicker = () => {
       if(!refs.fileInput || typeof refs.fileInput.click !== 'function'){
         return false;
@@ -18744,8 +18538,8 @@
       return true;
     };
     line.__desktopCommandActions = {
-      loadExampleData: () => {
-        loadExampleData();
+      loadExampleData: async () => {
+        await loadExampleData();
         return { status: 'handled' };
       },
       importData: () => openImportPicker()
@@ -18948,6 +18742,7 @@
                 }
                 clearLineLogWarning();
                 console.debug('Debug: line log+1 enabled by user confirmation',{ axis });
+                syncLineAxisControlAvailability();
                 scheduleLineViewRefresh(`line-log-${axis}-toggle`, { renderImpact: 'analysis' });
                 return;
               }else{
@@ -18981,12 +18776,20 @@
           }
           clearLineLogWarning();
         }
+        syncLineAxisControlAvailability();
         console.debug('Debug: line log toggle change',{ id: checkbox.id, checked: checkbox.checked });
         scheduleLineViewRefresh(`line-log-${axis}-toggle`, { renderImpact: 'analysis' });
       });
     };
     handleLineLogToggle('x',refs.logX);
     handleLineLogToggle('y',refs.logY);
+    [refs.includeZeroX, refs.includeZeroY].forEach((checkbox, index)=>{
+      checkbox?.addEventListener('change',()=>{
+        const reason = index === 0 ? 'line-include-zero-x' : 'line-include-zero-y';
+        syncLineRuntimeControlsFromRefs({ reason });
+        scheduleLineViewRefresh(reason, { renderImpact: 'layout' });
+      });
+    });
     const lineAxisInputs=[
       { el: refs.xMin, axis: 'x', context: 'axis-min-input', logLabel: 'lineXMin changed' },
       { el: refs.xMax, axis: 'x', context: 'axis-max-input', logLabel: 'lineXMax changed' },
@@ -19030,17 +18833,21 @@
     if(refs.originMode){
       refs.originMode.addEventListener('change',()=>{
         console.debug('Debug: line originMode change',{ value: refs.originMode.value });
+        syncLineAxisControlAvailability();
         const xOk=revalidateActiveLineLogAxis('x','origin-mode-change');
         const yOk=revalidateActiveLineLogAxis('y','origin-mode-change');
         if(!xOk||!yOk){
           return;
         }
+        syncLineRuntimeControlsFromRefs({ reason: 'line-origin-mode-change' });
         scheduleLineViewRefresh('line-origin-mode-change', { renderImpact: 'layout' });
       });
     }
     refs.statType?.addEventListener('change',()=>{
       requestLineStatsContextRefresh('stat-type-change');
-      scheduleLineViewRefresh('line-stat-type-change', { force: true, skipThresholdEvaluation: true, renderImpact: 'analysis' });
+      if(refs.showPlotStats?.checked){
+        scheduleLineViewRefresh('line-stat-type-change', { force: true, skipThresholdEvaluation: true, renderImpact: 'analysis' });
+      }
     });
     refs.showPlotStats?.addEventListener('change', event => {
       const session = getLineSessionForEvent(event, { reason: 'line-show-plot-stats' }, { create: true });
@@ -19132,20 +18939,6 @@
     } else {
       console.debug('Debug: line export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: line export fallback
     }
-
-    refs.openBtn?.addEventListener('click',openLineFile);
-    refs.saveBtn?.addEventListener('click',saveLineFile);
-    refs.saveAsBtn?.addEventListener('click',saveAsLineFile);
-    refs.graphFileInput?.addEventListener('change',e=>{
-      const f=e.target.files[0];
-      if(f){
-        const session = getLineSessionForEvent(e, { reason: 'line-graph-file-input' }, { create: false }) || getLineActiveSessionForState();
-        const operationTabId = session?.tabId || getLineProjectionTabId() || null;
-        setLineFileNameForSession(f.name, session);
-        setLineFileHandleForSession(null, session);
-        loadLineGraphFile(f, { tabId: operationTabId });
-      }
-    });
 
     const runLineDrawCycle = async (drawOpts = {}) => {
       const drawSession = getLineSession(drawOpts?.tabId || getLineProjectionTabId() || null, {
@@ -19583,6 +19376,7 @@
   }
 
   function canRestoreLineRenderCache(cache, meta = {}){
+    if(cache?.rotationModel && Number(cache.rotationModel.version) !== LINE_3D_ROTATION_MODEL_VERSION){ return false; }
     if(!isCompleteLineRenderCache(cache)){
       lineDebug('Debug: line render cache restore rejected', {
         reason: 'incomplete-or-empty-graph-cache',
@@ -19664,20 +19458,52 @@
     if(typeof raw !== 'string' || !raw){
       return null;
     }
-    const points = [];
-    const re = /([ML])\s*(-?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?)\s*,?\s*(-?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?)/gi;
-    let match;
-    while((match = re.exec(raw))){
-      const x = Number(match[2]);
-      const y = Number(match[3]);
-      if(Number.isFinite(x) && Number.isFinite(y)){
-        points.push({ cmd: points.length ? 'L' : 'M', x, y });
-      }
-    }
-    if(points.length < 2){
+    const numberPattern = '[-+]?(?:\\d*\\.\\d+|\\d+\\.?\\d*)(?:e[-+]?\\d+)?';
+    const tokens = raw.match(new RegExp(`[MLZ]|${numberPattern}`, 'gi')) || [];
+    const remainder = raw
+      .replace(new RegExp(`[MLZ]|${numberPattern}`, 'gi'), '')
+      .replace(/[\s,]+/g, '');
+    if(remainder){
       return null;
     }
-    return { points, closed: /Z\s*$/i.test(raw.trim()) };
+    const subpaths = [];
+    let current = null;
+    let command = null;
+    let pointCount = 0;
+    for(let index = 0; index < tokens.length; index += 1){
+      const token = tokens[index];
+      if(/^[a-z]$/i.test(token)){
+        command = token.toUpperCase();
+        if(command === 'Z'){
+          if(!current || current.closed){ return null; }
+          current.closed = true;
+          command = null;
+        }
+        continue;
+      }
+      if(command !== 'M' && command !== 'L'){
+        return null;
+      }
+      const x = Number(token);
+      const y = Number(tokens[index + 1]);
+      if(!Number.isFinite(x) || !Number.isFinite(y)){
+        return null;
+      }
+      index += 1;
+      if(command === 'L' && current?.closed){ return null; }
+      if(command === 'M'){
+        current = { points: [], closed: false };
+        subpaths.push(current);
+        command = 'L';
+      }
+      if(!current){ return null; }
+      current.points.push({ x, y });
+      pointCount += 1;
+    }
+    if(pointCount < 2 || subpaths.some(subpath => subpath.points.length < 2)){
+      return null;
+    }
+    return { subpaths };
   }
 
   function downsampleLinePreviewPoints(points, maxPoints){
@@ -19705,12 +19531,14 @@
     const isInterval = overlayKey === 'confidence' || overlayKey === 'prediction' || node?.dataset?.lineOverlayRole === 'interval';
     const isTrend = overlayKey === 'trend';
     const maxPoints = isInterval ? 72 : (isTrend ? 64 : 96);
-    const points = downsampleLinePreviewPoints(parsed.points, maxPoints);
-    const commands = points.map((pt, idx) => `${idx ? 'L' : 'M'}${formatLinePreviewNumber(pt.x)},${formatLinePreviewNumber(pt.y)}`);
-    if(parsed.closed){
-      commands.push('Z');
-    }
-    return commands.join(' ');
+    return parsed.subpaths.map(subpath => {
+      const points = downsampleLinePreviewPoints(subpath.points, maxPoints);
+      const commands = points.map((pt, idx) => `${idx ? 'L' : 'M'}${formatLinePreviewNumber(pt.x)},${formatLinePreviewNumber(pt.y)}`);
+      if(subpath.closed){
+        commands.push('Z');
+      }
+      return commands.join(' ');
+    }).join(' ');
   }
 
   function compactLinePreviewSvg(svg, tabId = null){
@@ -19898,7 +19726,40 @@
       bounds: metadata?.bounds || null,
       effectiveTickInterval: metadata?.effectiveTickInterval ?? null
     })) !== false;
+    const additionalLineTargets = svg.querySelectorAll?.('[data-additional-line-control="1"]:not([data-additional-line-overlay="1"])') || [];
+    const additionalLinesReady = additionalLineTargets.length === 0
+      || (typeof additionalLineControls?.rehydrateAdditionalLineElements === 'function'
+        && additionalLineControls.rehydrateAdditionalLineElements(svg, (axis, index) =>
+          buildLineAdditionalLineControlConfig(axis, index, session)
+        ) === true);
     const textReady = rehydrateLineInlineTextInteractions(svg, session);
+    const title = svg.querySelector?.('[data-font-role="graphTitle"]') || null;
+    const titleDragReady = !title
+      || Shared.rehydrateLabelDrag?.(title, svg, {
+        owner: session,
+        tabId: session.tabId,
+        onPositionChange: position => {
+          const labels = getLineLabelsState(session);
+          const positions = cloneLineRuntimeValue(labels.positions, {}) || {};
+          positions.title = {
+            x: position.x,
+            y: position.y,
+            relX: position.relX,
+            relY: position.relY
+          };
+          patchLineLabelsState(session, { positions }, { reason: 'line-2d-title-position' });
+        }
+      }) === true;
+    const axisLabelDragsReady = Shared.rehydrateLabelDrags?.(svg, {
+      owner: session,
+      tabId: session.tabId,
+      onPositionChange: (key, _label, position) => {
+        const labels = getLineLabelsState(session);
+        const positions = cloneLineRuntimeValue(labels.positions, {}) || {};
+        positions[key] = { x: position.x, y: position.y, relX: position.relX, relY: position.relY };
+        patchLineLabelsState(session, { positions }, { reason: `line-2d-${key}-position` });
+      }
+    }) !== false;
     svg.querySelectorAll?.('[data-line-point-interaction]').forEach(node => {
       try{
         const data = JSON.parse(node.getAttribute('data-line-point-interaction'));
@@ -19921,7 +19782,7 @@
       }
       if(!bindLine3dRotationControls(svg, 'line-3d-cache-rehydrate', session)){ return false; }
     }
-    return axesReady && textReady;
+    return axesReady && additionalLinesReady && textReady && titleDragReady && axisLabelDragsReady;
   };
 
   line.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
@@ -20043,14 +19904,15 @@
     });
     return true;
   };
-  line.save = saveLineFile;
-  line.saveAs = saveAsLineFile;
-  line.open = openLineFile;
-  line.loadFromFile = loadLineGraphFile;
+  line.save = () => global.Main?.fileActions?.save?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+  line.saveAs = () => global.Main?.fileActions?.saveAs?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
+  line.open = () => global.Main?.fileActions?.open?.() || { status: 'error', reason: 'workspace-file-action-unavailable' };
   line.loadFromPayload = function loadLineGraphFromPayload(payload, options = {}){
     if(!applyLineGraphPayload(payload, { source: 'payload', ...options })){
       console.warn('line payload application failed', { source: 'payload' });
+      return false;
     }
+    return true;
   };
   line.applyColorSchemePayload = function applyLineColorSchemePayload(payload, options = {}){
     return applyLineGraphPayload(payload, {
@@ -20060,6 +19922,7 @@
     });
   };
   line.getPayload = getLineGraphPayload;
+  line.getColorSchemePayload = getLineColorSchemePayload;
   {
     const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(() => getActiveLineHotManager(), 'line');
     line.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
@@ -20095,6 +19958,7 @@
       : (requestedFormat === 'grouped' ? 'grouped' : 'single');
     if(refs.replicateMode){
       refs.replicateMode.value = tableFormat;
+      Shared.workspaceToolbar?.syncReplicateMode?.(refs.replicateMode);
     }
     if(refs.replicatesInput){
       refs.replicatesInput.value = String(lineReplicates);
@@ -20159,6 +20023,9 @@
     setValue(refs.originMode, 'originMode');
     setValue(refs.originX, 'originX');
     setValue(refs.originY, 'originY');
+    setChecked(refs.includeZeroX, 'includeZeroX');
+    setChecked(refs.includeZeroY, 'includeZeroY');
+    syncLineAxisControlAvailability();
 
     if(refs.statType && hasControl('statType') && controls.statType){
       refs.statType.value = String(controls.statType);
@@ -20179,10 +20046,6 @@
     }
 
     updateLineReplicateModeControls(tableFormat);
-    if(tableFormat === 'grouped'){
-      renderLineGroupedList();
-    }else if(tableFormat === '3d'){
-    }
     updateForecastVisibility();
     updateLineRegressionOverlayControlState(lineHasComputedStats());
     syncLineAspectControls('runtime-controls');
@@ -20207,9 +20070,6 @@
       tabId: targetTabId || snapshot.tabId || null,
       reason: snapshot.reason
     };
-    if(effectiveMeta.tabId){
-      storeLineCanonicalStateForTab(snapshot, effectiveMeta.tab || effectiveMeta.tabId, effectiveMeta);
-    }
     console.debug('Debug: line runtime snapshot captured', {
       tabId: effectiveMeta.tabId || null,
       displayMode: snapshot.displayMode,
@@ -20242,6 +20102,7 @@
             applyLineCanonicalStateToGlobals(session.state, effectiveMeta, { syncControls: true });
             rememberLineSessionEphemera(session);
           }
+          renderLineStatsAdvisor({session});
           rehydrateActiveLine3dInteraction(session, 'line-3d-runtime-session');
         }
         console.debug('Debug: line runtime snapshot apply used stored session state', { tabId: session.tabId, reason: effectiveMeta.reason || 'missing-snapshot-session' });
@@ -20285,6 +20146,7 @@
           rememberLineSessionEphemera(projectedLineSession);
         }
       }
+      renderLineStatsAdvisor({session:projectedLineSession});
       rehydrateActiveLine3dInteraction(projectedLineSession, 'line-3d-runtime');
     }
     Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(line, canonical, {
@@ -20305,6 +20167,7 @@
     component: line,
     componentKey: 'line',
     cancel: (tab, meta = {}) => {
+      Shared.checkboxDropdown?.closeAll?.();
       const tabLike = tab || meta?.tabId || getLineProjectionTabId() || null;
       const session = getLineSession(tabLike, { ...(meta || {}), reason: 'line-deactivate-session' }, { create: false });
       resetLineRotationFrameState(session);
@@ -20314,6 +20177,7 @@
       rememberLineOwnedRuntimeRecord(tabLike, { ...(meta || {}), reason: meta?.reason || 'line-deactivate-remember-owned-runtime' });
     }
   }) || function deactivateLineTab(tab, meta = {}){
+    Shared.checkboxDropdown?.closeAll?.();
     const tabLike = tab || meta?.tabId || getLineProjectionTabId() || null;
     const session = getLineSession(tabLike, { ...(meta || {}), reason: 'line-deactivate-session' }, { create: false });
     resetLineRotationFrameState(session);
@@ -20329,6 +20193,28 @@
     });
     return true;
   };
+
+  line.disposeTab = function disposeLineTab(tab, meta = {}){
+    const tabId = String((typeof tab === 'string' ? tab : tab?.id) || meta?.tabId || '').trim();
+    if(!tabId){ return false; }
+    const session = getLineSession(tabId, { ...(meta || {}), tabId, reason: meta.reason || 'line-dispose-session' }, { create: false });
+    if(session){
+      resetLineRotationFrameState(session);
+      session.timers.drawGeneration = (Number(session.timers.drawGeneration) || 0) + 1;
+      session.timers.drawScheduler = null;
+      session.timers.rawDrawScheduler = null;
+      try{ session.managers?.autoDraw?.dispose?.(); }catch(error){ console.debug('Debug: line tab auto-draw cleanup failed', { tabId, message: error?.message || String(error) }); }
+      if(session.managers){ session.managers.autoDraw = null; }
+    }
+    lineDataToolbarLastActivationByTabId.delete(tabId);
+    lineSessionsByTabId.delete(tabId);
+    if(String(projectedLineSession?.tabId || '') === tabId){
+      projectedLineSession = null;
+      if(String(line.__boundTabId || '') === tabId){ line.__boundTabId = null; }
+    }
+    return true;
+  };
+
   line.captureEmptyPayloadTemplate = function captureLineEmptyPayloadTemplate(){
     const snapshot = line.createEmptyPayload();
     console.debug('Debug: line empty payload template captured', { hasTemplate: !!snapshot });
@@ -20361,11 +20247,22 @@
     payload.series = Array.isArray(payload.series) ? [] : [];
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
     if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
-      payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('line') || 'scientific';
+      payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('line') || 'normal';
     }
     if(payload.config){
       payload.config.series = Array.isArray(payload.config.series) ? [] : [];
       payload.config.showPlotStats = false;
+      payload.config.logX = false;
+      payload.config.logY = false;
+      payload.config.xMin = '';
+      payload.config.xMax = '';
+      payload.config.yMin = '';
+      payload.config.yMax = '';
+      payload.config.includeZeroX = false;
+      payload.config.includeZeroY = true;
+      payload.config.originMode = 'lower';
+      payload.config.originX = '';
+      payload.config.originY = '';
     }
     return payload;
   };
@@ -20422,6 +20319,9 @@
   };
 
   line.__testHooks = Object.assign({}, line.__testHooks, {
+    getAdvisorRecommendation:computeLineAdvisorRecommendation,
+    getSession: tabLike => getLineSession(tabLike || getLineProjectionTabId() || null, { reason: 'line-test-session' }, { create: false }),
+    hasRegularAdvisorSpacing:hasRegularLineAdvisorSpacing,
     computeLineCorrelationStats: (method, x, y, jStatLib, alpha = 0.05) => computeLineCorrelationStats(
       method,
       Array.isArray(x) ? x : [],
@@ -20454,6 +20354,7 @@
     getSessionForTab: tabId => getLineSession(tabId, { tabId, reason: 'test-session-read' }, { create: false }),
     captureCanonicalState: (tabId, options = {}) => captureLineCanonicalSnapshot(tabId || getLineProjectionTabId() || null, { tabId, reason: 'test-canonical-capture' }, { readActiveControls: options.readActiveControls !== false }),
     stabilizeResizeMargin: (margin, options = {}) => stabilizeLineMarginForAxisResize(margin, options),
+    syncAspectControls: reason => syncLineAspectControls(reason),
     normalizeViewState: value => normalizeLineOwnedViewState(value),
     normalize3dRotationModel: normalizeLine3dRotationModel,
     bind3dRotationRenderer: (session, svg, model) => bindLine3dRotationRenderer(session, svg, model)

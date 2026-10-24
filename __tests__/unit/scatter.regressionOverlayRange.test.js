@@ -1,10 +1,12 @@
+const { loadComponentTestBootstrap } = require('../../test-support/componentTestBootstrap');
+
 describe('Scatter regression overlay range', () => {
   beforeEach(() => {
     jest.resetModules();
     global.Main = {};
     global.Components = {};
     global.Shared = {};
-    require('../../js/components/scatter.js');
+    loadComponentTestBootstrap('scatter');
   });
 
   test('automatic overlay bounds include a nonlinear fitted curve even without CI/PI', () => {

@@ -229,6 +229,7 @@ describe('Shared.enableLegendDrag viewport bounds', () => {
 
   test('rebinds a serialized legend so its first drag updates owner-relative state', () => {
     const { svg, legend } = createLegend();
+    window.Shared.workspaceTabs = { resolveTab: () => ({ id: 'tab-a' }) };
     window.Shared.bindLegendDragInteraction(legend, svg, {
       owner: { tabId: 'tab-a' },
       originX: 80,
@@ -281,5 +282,127 @@ describe('Shared.enableLegendDrag viewport bounds', () => {
 
     expect(legend.getAttribute('transform')).toBe('translate(0,80)');
     expect(onCommit).toHaveBeenLastCalledWith({ x: 0, y: 80, relX: -4, relY: 1 }, owner);
+  });
+
+  test('keyboard arrows move and persist the legend, and undo restores its owner state', () => {
+    const { svg, legend } = createLegend();
+    const owner = { tabId: 'tab-a' };
+    const onCommit = jest.fn();
+    window.Shared.workspaceTabs = { resolveTab: () => ({ id: 'tab-a' }) };
+    window.Shared.bindLegendDragInteraction(legend, svg, {
+      owner,
+      originX: 80,
+      originY: 40,
+      scaleX: 20,
+      scaleY: 40,
+      onCommit
+    });
+    const keyEvent = new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true, cancelable: true });
+
+    legend.dispatchEvent(keyEvent);
+
+    expect(keyEvent.defaultPrevented).toBe(true);
+    expect(legend.getAttribute('transform')).toBe('translate(132,80)');
+    expect(legend.getAttribute('tabindex')).toBe('0');
+    expect(legend.getAttribute('role')).toBe('group');
+    expect(legend.getAttribute('aria-label')).toBe('Move graph legend');
+    expect(legend.dataset.keyboardMovable).toBe('legend');
+    expect(onCommit).toHaveBeenLastCalledWith({ x: 132, y: 80, relX: 2.6, relY: 1 }, owner);
+
+    const entry = window.Shared.undoManager.recordStateChange.mock.calls[0][0];
+    expect(entry.tabId).toBe('tab-a');
+    expect(entry.apply(entry.from, 'undo')).toBe(true);
+    expect(legend.getAttribute('transform')).toBe('translate(100,80)');
+    expect(onCommit).toHaveBeenLastCalledWith({ x: 100, y: 80, relX: 1, relY: 1 }, owner);
+    expect(entry.apply(entry.to, 'redo')).toBe(true);
+    expect(legend.getAttribute('transform')).toBe('translate(132,80)');
+  });
+
+  test('keyboard legend movement rejects an inactive owner', () => {
+    const ownerRoot = document.createElement('section');
+    ownerRoot.className = 'workspace-page';
+    ownerRoot.dataset.workspaceTabId = 'tab-inactive';
+    document.body.appendChild(ownerRoot);
+    const { svg, legend } = createLegend();
+    ownerRoot.appendChild(svg);
+    const onCommit = jest.fn();
+    window.Shared.workspaceTabs = { resolveTab: () => ({ id: 'tab-active' }) };
+    window.Shared.bindLegendDragInteraction(legend, svg, {
+      owner: { tabId: 'tab-inactive' },
+      onCommit
+    });
+    const keyEvent = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+
+    legend.dispatchEvent(keyEvent);
+
+    expect(keyEvent.defaultPrevented).toBe(false);
+    expect(legend.getAttribute('transform')).toBe('translate(100,80)');
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(window.Shared.undoManager.recordStateChange).not.toHaveBeenCalled();
+  });
+
+  test('pointer legend drag cancels when its tab deactivates before pointer up', () => {
+    const ownerRoot = document.createElement('section');
+    ownerRoot.className = 'workspace-page';
+    ownerRoot.dataset.workspaceTabId = 'tab-a';
+    document.body.appendChild(ownerRoot);
+    const { svg, legend } = createLegend();
+    ownerRoot.appendChild(svg);
+    let activeTabId = 'tab-a';
+    window.Shared.workspaceTabs = { resolveTab: () => ({ id: activeTabId }) };
+    window.Main = { session: { workspaceState: { activeTabId } } };
+    const onDragEnd = jest.fn();
+    window.Shared.enableLegendDrag(legend, svg, {
+      owner: { tabId: 'tab-a' },
+      onDragEnd
+    });
+
+    legend.dispatchEvent(new window.MouseEvent('pointerdown', {
+      bubbles: true, cancelable: true, button: 0, clientX: 100, clientY: 80
+    }));
+    window.dispatchEvent(new window.MouseEvent('pointermove', {
+      bubbles: true, cancelable: true, buttons: 1, clientX: 112, clientY: 92
+    }));
+    activeTabId = 'tab-b';
+    window.Main.session.workspaceState.activeTabId = activeTabId;
+    ownerRoot.hidden = true;
+    expect(window.Shared.cancelSvgPointerGesturesForTab('tab-a')).toBe(1);
+    activeTabId = 'tab-a';
+    window.Main.session.workspaceState.activeTabId = activeTabId;
+    ownerRoot.hidden = false;
+    window.dispatchEvent(new window.MouseEvent('pointermove', {
+      bubbles: true, cancelable: true, buttons: 1, clientX: 120, clientY: 100
+    }));
+    window.dispatchEvent(new window.MouseEvent('pointerup', {
+      bubbles: true, cancelable: true, button: 0, clientX: 120, clientY: 100
+    }));
+
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  test('a reused SVG legend follows its newly bound tab owner', () => {
+    const { svg, legend } = createLegend();
+    const firstCommit = jest.fn();
+    const secondOwner = { tabId: 'tab-b' };
+    const secondCommit = jest.fn();
+    window.Shared.workspaceTabs = { resolveTab: () => ({ id: 'tab-a' }) };
+    window.Shared.bindLegendDragInteraction(legend, svg, {
+      owner: { tabId: 'tab-a' },
+      onCommit: firstCommit
+    });
+
+    window.Shared.workspaceTabs.resolveTab = () => ({ id: 'tab-b' });
+    window.Shared.bindLegendDragInteraction(legend, svg, {
+      owner: secondOwner,
+      onCommit: secondCommit
+    });
+    legend.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowRight', bubbles: true, cancelable: true
+    }));
+
+    expect(legend.getAttribute('transform')).toBe('translate(108,80)');
+    expect(firstCommit).not.toHaveBeenCalled();
+    expect(secondCommit).toHaveBeenCalledWith({ x: 108, y: 80 }, secondOwner);
+    expect(window.Shared.undoManager.recordStateChange.mock.calls[0][0].tabId).toBe('tab-b');
   });
 });

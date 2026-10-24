@@ -16,6 +16,7 @@
   // compression are already delegated to graphArchive.worker.js; live session capture must
   // remain with the owner-aware main-thread state model.
   const RECOVERY_DELAY_MS = 2500;
+  const RECOVERY_CLEAR_RETRY_MS = 5000;
   // Continuous edits may keep restarting the trailing timer, so cap deferral. The
   // periodic checkpoint uses the same pending window instead of bypassing the delay.
   const RECOVERY_MAX_DEFER_MS = 10000;
@@ -24,10 +25,15 @@
 
   let state = null;
   let recoveryTimer = null;
+  let recoveryClearRetryTimer = null;
+  let recoveryClearRetryTarget = null;
   let recoveryInterval = null;
   let autosaveInterval = null;
   let webDbPromise = null;
   let recoveryWriteSequence = 0;
+  let recoveryClearInFlightCount = 0;
+  let recoveryClearStartRevision = 0;
+  let documentStorageQueue = Promise.resolve();
   let documentStateChangeHandler = null;
   let rotationGestureHandler = null;
   let recoveryTimerRevision = 0;
@@ -156,14 +162,23 @@
     return webDbPromise;
   }
 
-  async function putWebSnapshot(record) {
+  async function putWebSnapshot(record, canWrite = null) {
     const db = await openWebDb();
+    if(typeof canWrite === 'function' && !canWrite()){
+      return false;
+    }
     return new Promise((resolve, reject) => {
       const tx = db.transaction(WEB_DB_STORE, 'readwrite');
       tx.objectStore(WEB_DB_STORE).put(record, RECOVERY_KEY);
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error || new Error('IndexedDB snapshot write failed.'));
     });
+  }
+
+  function enqueueDocumentStorageOperation(operation) {
+    const result = documentStorageQueue.catch(() => {}).then(operation);
+    documentStorageQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   async function getWebSnapshot() {
@@ -176,8 +191,11 @@
     });
   }
 
-  async function clearWebSnapshot() {
+  async function clearWebSnapshot(canClear = null) {
     const db = await openWebDb();
+    if(typeof canClear === 'function' && !canClear()){
+      return false;
+    }
     return new Promise((resolve, reject) => {
       const tx = db.transaction(WEB_DB_STORE, 'readwrite');
       tx.objectStore(WEB_DB_STORE).delete(RECOVERY_KEY);
@@ -186,8 +204,11 @@
     });
   }
 
-  async function putCanonicalJournal(meta, tabs) {
+  async function putCanonicalJournal(meta, tabs, canWrite = null) {
     const db = await openWebDb();
+    if(typeof canWrite === 'function' && !canWrite()){
+      return false;
+    }
     return new Promise((resolve, reject) => {
       const tx = db.transaction(WEB_JOURNAL_STORE, 'readwrite');
       const store = tx.objectStore(WEB_JOURNAL_STORE);
@@ -217,8 +238,11 @@
     });
   }
 
-  async function clearCanonicalJournal() {
+  async function clearCanonicalJournal(canClear = null) {
     const db = await openWebDb();
+    if(typeof canClear === 'function' && !canClear()){
+      return false;
+    }
     return new Promise((resolve, reject) => {
       const tx = db.transaction(WEB_JOURNAL_STORE, 'readwrite');
       tx.objectStore(WEB_JOURNAL_STORE).clear();
@@ -292,11 +316,48 @@
   }
 
   function clearLocalCanonicalJournal() {
+    let storage;
     try {
-      window.localStorage.removeItem(CANONICAL_JOURNAL_LOCAL_KEY);
+      storage = window.localStorage;
+    } catch (err) {
+      debug('journal.localClearUnavailable', { message: err?.message || String(err) });
+      return true;
+    }
+    if (!storage) return true;
+    try {
+      storage.removeItem(CANONICAL_JOURNAL_LOCAL_KEY);
+      return storage.getItem(CANONICAL_JOURNAL_LOCAL_KEY) === null;
     } catch (err) {
       debug('journal.localClearFailed', { message: err?.message || String(err) });
+      return false;
     }
+  }
+
+  function cancelRecoveryClearRetry() {
+    if (recoveryClearRetryTimer) {
+      window.clearTimeout(recoveryClearRetryTimer);
+    }
+    recoveryClearRetryTimer = null;
+    recoveryClearRetryTarget = null;
+  }
+
+  function scheduleRecoveryClearRetry(reason, expectedRevision, options) {
+    if (expectedRevision === null || expectedRevision === undefined) return;
+    const revision = Number(expectedRevision);
+    if (!Number.isFinite(revision) || revision < 0 || !state) return;
+    if (recoveryClearRetryTimer && recoveryClearRetryTarget?.revision === revision) return;
+    cancelRecoveryClearRetry();
+    recoveryClearRetryTarget = { revision, reason, options: { ...options } };
+    recoveryClearRetryTimer = window.setTimeout(() => {
+      const target = recoveryClearRetryTarget;
+      recoveryClearRetryTimer = null;
+      recoveryClearRetryTarget = null;
+      if (!target || getSessionRevision() !== target.revision
+        || (state?.workspaceState?.sessionUserDirty && target.options.allowDirty !== true)) {
+        return;
+      }
+      void clearRecoverySnapshot(target.reason, target.revision, target.options);
+    }, RECOVERY_CLEAR_RETRY_MS);
   }
 
   function resolveJournalTabId(detail = {}) {
@@ -315,10 +376,15 @@
     if (!graphTabs.length) {
       return null;
     }
-    const changedTabId = forceAll ? '' : resolveJournalTabId(detail);
-    const tabsToWrite = changedTabId
-      ? graphTabs.filter(tab => String(tab.id) === changedTabId)
-      : graphTabs;
+    const requestDetail = detail?.detail && typeof detail.detail === 'object' ? detail.detail : detail;
+    const requestedTabIds = Array.isArray(detail?.tabIds)
+      ? detail.tabIds.map(value => String(value || '').trim()).filter(Boolean)
+      : [resolveJournalTabId(requestDetail)].filter(Boolean);
+    const changedTabIds = new Set(requestedTabIds);
+    const writeAllTabs = forceAll || detail?.writeAll === true || changedTabIds.size === 0;
+    const tabsToWrite = writeAllTabs
+      ? graphTabs
+      : graphTabs.filter(tab => changedTabIds.has(String(tab.id || '')));
     const graphTabIds = graphTabs.map(tab => String(tab.id || '')).filter(Boolean);
     const activeIndex = graphTabIds.indexOf(String(workspaceState.activeTabId || ''));
     const revision = getSessionRevision();
@@ -334,6 +400,10 @@
         fileName: workspaceState.sessionFileName || '',
         filePath: workspaceState.sessionFilePath || '',
         fileScope: workspaceState.sessionFileScope || 'workspace',
+        fileTargetKind: workspaceState.sessionFileTargetKind || 'new',
+        fileTargetTabId: workspaceState.sessionFileScope === 'tab'
+          ? (workspaceState.sessionFileTabId || null)
+          : null,
         activeTabId: workspaceState.activeTabId || null,
         activeIndex: activeIndex >= 0 ? activeIndex : 0,
         tabCount: graphTabs.length,
@@ -362,7 +432,23 @@
       return;
     }
     const sequence = ++canonicalJournalSequence;
-    canonicalJournalPendingRequest = { detail, sequence };
+    const requestTabId = resolveJournalTabId(detail);
+    const requestedTabIds = Array.isArray(options.tabIds)
+      ? options.tabIds.map(value => String(value || '').trim()).filter(Boolean)
+      : [requestTabId].filter(Boolean);
+    const requestWritesAllTabs = options.writeAll === true
+      || (!Array.isArray(options.tabIds) && !requestTabId);
+    const previousRequest = canonicalJournalPendingRequest;
+    const pendingTabIds = new Set([
+      ...(previousRequest?.tabIds || []),
+      ...requestedTabIds
+    ]);
+    canonicalJournalPendingRequest = {
+      detail,
+      sequence,
+      tabIds: [...pendingTabIds],
+      writeAll: requestWritesAllTabs || previousRequest?.writeAll === true
+    };
     if (canonicalJournalWriteActive) {
       return;
     }
@@ -388,7 +474,7 @@
             .filter(Boolean);
           const forceAll = !canonicalJournalTabOrder
             || JSON.stringify(canonicalJournalTabOrder) !== JSON.stringify(currentTabOrder);
-          const journal = buildCanonicalJournalState(request.detail, forceAll);
+          const journal = buildCanonicalJournalState(request, forceAll);
           if (!journal || !state?.workspaceState?.sessionUserDirty || state.restoringRecovery) {
             break;
           }
@@ -396,7 +482,7 @@
             sequence: request.sequence,
             currentSequence: canonicalJournalSequence,
             revision: journal.meta.revision,
-            changedTabId: resolveJournalTabId(request.detail) || null,
+            changedTabIds: request.writeAll || forceAll ? null : request.tabIds.slice(),
             tabs: journal.tabs.map(tab => ({
               id: tab.id,
               type: tab.type,
@@ -405,12 +491,28 @@
             }))
           });
           try {
-            await putCanonicalJournal(journal.meta, journal.tabs);
+            const journalRevision = Number(journal.meta.revision) || 0;
+            const canWrite = () => request.sequence === canonicalJournalSequence
+              && getSessionRevision() === journalRevision
+              && !!state?.workspaceState?.sessionUserDirty
+              && !state?.restoringRecovery;
+            const written = await enqueueDocumentStorageOperation(() =>
+              putCanonicalJournal(journal.meta, journal.tabs, canWrite)
+            );
+            if(!written){
+              debug('journal.writeSkippedStale', {
+                sequence: request.sequence,
+                currentSequence: canonicalJournalSequence,
+                revision: journalRevision,
+                currentRevision: getSessionRevision()
+              });
+              continue;
+            }
             canonicalJournalTabOrder = journal.meta.tabOrder.slice();
             debug('journal.written', {
               revision: journal.meta.revision,
               tabCount: journal.meta.tabCount,
-              changedTabId: resolveJournalTabId(request.detail) || null
+              changedTabIds: request.writeAll || forceAll ? null : request.tabIds.slice()
             });
           } catch (err) {
             debug('journal.writeFailed', { message: err?.message || String(err) });
@@ -424,7 +526,10 @@
             if (canonicalJournalPendingRequest && !canonicalJournalWriteActive) {
               const pending = canonicalJournalPendingRequest;
               canonicalJournalPendingRequest = null;
-              scheduleCanonicalJournal(pending.detail);
+              scheduleCanonicalJournal(pending.detail, {
+                tabIds: pending.tabIds,
+                writeAll: pending.writeAll
+              });
             }
           });
         }
@@ -631,7 +736,11 @@
         revision: getSessionRevision(),
         fileName: workspaceState.sessionFileName || '',
         filePath: workspaceState.sessionFilePath || '',
-        fileScope: workspaceState.sessionFileScope || null
+        fileScope: workspaceState.sessionFileScope || null,
+        fileTargetKind: workspaceState.sessionFileTargetKind || 'new',
+        fileTargetTabId: workspaceState.sessionFileScope === 'tab'
+          ? (workspaceState.sessionFileTabId || null)
+          : null
       }
     };
   }
@@ -642,6 +751,9 @@
     }
     if (!state?.workspaceState?.sessionUserDirty) {
       return { status: 'skipped', reason: 'clean' };
+    }
+    if (recoveryClearInFlightCount > 0) {
+      return { status: 'skipped', reason: 'recovery-clear-in-progress' };
     }
     const revision = getSessionRevision();
     if (hasActiveRotationGesture()) {
@@ -674,11 +786,6 @@
     const phaseMetrics = {};
     try {
       const record = await buildRecoveryRecord(reason, phaseMetrics);
-      if (!record) {
-        await clearRecoverySnapshot('no-recoverable-data');
-        lastRecoverySavedRevision = revision;
-        return { status: 'skipped', reason: 'no-recoverable-data' };
-      }
       const currentRevision = getSessionRevision();
       if(revision > 0 && currentRevision !== revision){
         debug('recovery.write.staleRevision', { reason, revision, currentRevision });
@@ -688,40 +795,47 @@
         debug('recovery.write.superseded', { reason, sequence, latest: recoveryWriteSequence });
         return { status: 'skipped', reason: 'superseded' };
       }
-      if (isDesktop() && typeof window.desktop.writeRecoverySnapshot === 'function') {
-        const storageStartedAt = now();
-        await window.desktop.writeRecoverySnapshot({
-          meta: record.meta,
-          dataBuffer: await record.blob.arrayBuffer()
-        });
-        phaseMetrics.storage = now() - storageStartedAt;
-        lastRecoverySavedRevision = revision;
-        lastRecoveryPerformance = {
-          ...phaseMetrics,
-          total: now() - totalStartedAt,
-          bytes: record.blob.size,
-          revision,
-          via: 'desktop'
-        };
-        debug('recovery.write.desktop', { bytes: record.blob.size, reason });
-        return { status: 'saved', via: 'desktop', bytes: record.blob.size };
+      if (!record) {
+        const cleared = await clearRecoverySnapshot('no-recoverable-data', revision, { allowDirty: true });
+        if (cleared) {
+          lastRecoverySavedRevision = revision;
+        }
+        return { status: 'skipped', reason: 'no-recoverable-data' };
       }
       const storageStartedAt = now();
-      await putWebSnapshot({
-        meta: record.meta,
-        blob: record.blob
+      const canWrite = () => sequence === recoveryWriteSequence
+        && getSessionRevision() === revision;
+      const via = await enqueueDocumentStorageOperation(async () => {
+        if (!canWrite()) {
+          return null;
+        }
+        if (isDesktop() && typeof window.desktop.writeRecoverySnapshot === 'function') {
+          await window.desktop.writeRecoverySnapshot({
+            meta: record.meta,
+            dataBuffer: await record.blob.arrayBuffer()
+          });
+          return 'desktop';
+        }
+        const written = await putWebSnapshot({
+          meta: record.meta,
+          blob: record.blob
+        }, canWrite);
+        return written ? 'web' : null;
       });
       phaseMetrics.storage = now() - storageStartedAt;
+      if (!via || sequence !== recoveryWriteSequence || getSessionRevision() !== revision) {
+        return { status: 'skipped', reason: 'stale-storage-completion', revision };
+      }
       lastRecoverySavedRevision = revision;
       lastRecoveryPerformance = {
         ...phaseMetrics,
         total: now() - totalStartedAt,
         bytes: record.blob.size,
         revision,
-        via: 'web'
+        via
       };
-      debug('recovery.write.web', { bytes: record.blob.size, reason });
-      return { status: 'saved', via: 'web', bytes: record.blob.size };
+      debug(`recovery.write.${via}`, { bytes: record.blob.size, reason });
+      return { status: 'saved', via, bytes: record.blob.size };
     } catch (err) {
       if (err?.code === 'GRAPHITIX_RECOVERY_INTERACTION_ACTIVE') {
         interactionDeferred = true;
@@ -811,24 +925,116 @@
     debug('recovery.schedule', { reason, revision: recoveryTimerRevision, delay });
   }
 
-  async function clearRecoverySnapshot(reason = 'clear') {
+  async function clearRecoverySnapshot(reason = 'clear', expectedRevision = null, options = {}) {
+    const allowDirty = options.allowDirty === true;
+    const isCurrentClearTarget = () => expectedRevision === null || expectedRevision === undefined
+      || (getSessionRevision() === Number(expectedRevision)
+        && (allowDirty || !state?.workspaceState?.sessionUserDirty));
+    const currentRevision = getSessionRevision();
+    if (!isCurrentClearTarget()) {
+      debug('recovery.clear.skippedStale', {
+        reason,
+        expectedRevision: Number(expectedRevision),
+        currentRevision,
+        userDirty: !!state?.workspaceState?.sessionUserDirty
+      });
+      return false;
+    }
+    cancelRecoveryClearRetry();
+    if (recoveryClearInFlightCount === 0) {
+      recoveryClearStartRevision = currentRevision;
+    }
+    recoveryClearInFlightCount += 1;
+    recoveryWriteSequence += 1;
+    canonicalJournalSequence += 1;
     canonicalJournalPendingRequest = null;
     canonicalJournalTabOrder = null;
-    clearLocalCanonicalJournal();
     try {
-      if (isDesktop() && typeof window.desktop.clearRecoverySnapshot === 'function') {
-        await window.desktop.clearRecoverySnapshot();
-      } else {
-        await clearWebSnapshot();
+      const outcome = await enqueueDocumentStorageOperation(async () => {
+        if (!isCurrentClearTarget()) return { stale: true, failures: [] };
+        const failures = [];
+
+        if (!clearLocalCanonicalJournal()) {
+          failures.push({ store: 'local-journal', message: 'Local recovery journal remains present.' });
+        }
+
+        if (!isCurrentClearTarget()) return { stale: true, failures };
+        if (isDesktop() && typeof window.desktop.clearRecoverySnapshot === 'function') {
+          try {
+            await window.desktop.clearRecoverySnapshot();
+          } catch (err) {
+            failures.push({ store: 'desktop-snapshot', message: err?.message || String(err) });
+          }
+        } else if (window.indexedDB) {
+          try {
+            const snapshotCleared = await clearWebSnapshot(isCurrentClearTarget);
+            if (!snapshotCleared && !isCurrentClearTarget()) return { stale: true, failures };
+            if (!snapshotCleared) failures.push({ store: 'web-snapshot', message: 'Snapshot clear was not committed.' });
+          } catch (err) {
+            failures.push({ store: 'web-snapshot', message: err?.message || String(err) });
+          }
+        }
+
+        if (!isCurrentClearTarget()) return { stale: true, failures };
+        if (window.indexedDB) {
+          try {
+            const journalCleared = await clearCanonicalJournal(isCurrentClearTarget);
+            if (!journalCleared && !isCurrentClearTarget()) return { stale: true, failures };
+            if (!journalCleared) failures.push({ store: 'indexeddb-journal', message: 'Journal clear was not committed.' });
+          } catch (err) {
+            failures.push({ store: 'indexeddb-journal', message: err?.message || String(err) });
+          }
+        }
+        return { stale: false, failures };
+      });
+
+      if (outcome?.stale || !isCurrentClearTarget()) {
+        debug('recovery.clear.skippedStale', {
+          reason,
+          expectedRevision: Number(expectedRevision),
+          currentRevision: getSessionRevision(),
+          userDirty: !!state?.workspaceState?.sessionUserDirty
+        });
+        return false;
+      }
+      if (!outcome || outcome.failures.length) {
+        debug('recovery.clearFailed', {
+          reason,
+          failures: outcome?.failures || [{ message: 'Storage clear did not complete.' }]
+        });
+        scheduleRecoveryClearRetry(reason, expectedRevision, { allowDirty });
+        return false;
+      }
+      if (!state?.workspaceState?.sessionUserDirty && Number.isFinite(Number(expectedRevision))) {
+        lastRecoverySavedRevision = Math.max(lastRecoverySavedRevision, Number(expectedRevision));
       }
       debug('recovery.clear', { reason });
+      return true;
     } catch (err) {
       debug('recovery.clearFailed', { reason, message: err?.message || String(err) });
-    }
-    try {
-      await clearCanonicalJournal();
-    } catch (err) {
-      debug('journal.clearFailed', { reason, message: err?.message || String(err) });
+      if (isCurrentClearTarget()) {
+        scheduleRecoveryClearRetry(reason, expectedRevision, { allowDirty });
+      }
+      return false;
+    } finally {
+      recoveryClearInFlightCount = Math.max(0, recoveryClearInFlightCount - 1);
+      if (recoveryClearInFlightCount === 0) {
+        const clearStartRevision = recoveryClearStartRevision;
+        recoveryClearStartRevision = 0;
+        const latestRevision = getSessionRevision();
+        if (state?.workspaceState?.sessionUserDirty && latestRevision > clearStartRevision) {
+          const latestChange = {
+            type: 'dirty',
+            revision: latestRevision,
+            userDirty: true,
+            reason: `${reason}-newer-revision`,
+            details: { origin: 'user', directPayloadMutation: true }
+          };
+          persistCanonicalJournalNow(latestChange);
+          scheduleCanonicalJournal(latestChange, { writeAll: true });
+          scheduleRecoverySnapshot(`${reason}-newer-revision`);
+        }
+      }
     }
   }
 
@@ -886,13 +1092,53 @@
     return journalRevision > storedRevision ? newestJournal : (stored || newestJournal);
   }
 
+  function captureRecoveryRestoreTarget() {
+    const workspaceState = state?.workspaceState || null;
+    return {
+      workspaceState,
+      session: state?.session || null,
+      revision: getSessionRevision(),
+      tabsReference: workspaceState?.tabs || null,
+      tabs: Array.isArray(workspaceState?.tabs) ? workspaceState.tabs.slice() : [],
+      activeTabId: workspaceState?.activeTabId || null,
+      nextId: workspaceState?.nextId
+    };
+  }
+
+  function isRecoveryRestoreTargetCurrent(target) {
+    const workspaceState = state?.workspaceState || null;
+    return !!target
+      && workspaceState === target.workspaceState
+      && state?.session === target.session
+      && !workspaceState?.documentOperation?.active
+      && getSessionRevision() === target.revision
+      && workspaceState?.tabs === target.tabsReference
+      && Array.isArray(workspaceState?.tabs)
+      && workspaceState.tabs.length === target.tabs.length
+      && workspaceState.tabs.every((tab, index) => tab === target.tabs[index])
+      && (workspaceState.activeTabId || null) === target.activeTabId
+      && workspaceState.nextId === target.nextId;
+  }
+
   async function maybeRestoreRecovery() {
+    const restoreTarget = captureRecoveryRestoreTarget();
+    if (restoreTarget.workspaceState?.documentOperation?.active) {
+      return false;
+    }
     const record = await readRecoverySnapshot();
     if (!record?.blob || !record?.meta?.dirty) {
       return false;
     }
-    if (!(await recoveryRecordHasRecoverableData(record))) {
-      await clearRecoverySnapshot('no-recoverable-data');
+    const hasRecoverableData = await recoveryRecordHasRecoverableData(record);
+    if (!isRecoveryRestoreTargetCurrent(restoreTarget)) {
+      debug('recovery.restoreSkippedWorkspaceChanged', {
+        startingRevision: restoreTarget.revision,
+        currentRevision: getSessionRevision()
+      });
+      return false;
+    }
+    if (!hasRecoverableData) {
+      await clearRecoverySnapshot('no-recoverable-data', restoreTarget.revision);
       return false;
     }
     const fileName = record.meta.fileName || 'recovered.graph';
@@ -901,7 +1147,7 @@
       ? window.confirm(`Graphitix found recovered changes for ${fileName} from ${savedAt}. Restore them now?`)
       : true;
     if (!shouldRestore) {
-      await clearRecoverySnapshot('user-discarded-recovery');
+      await clearRecoverySnapshot('user-discarded-recovery', restoreTarget.revision);
       return false;
     }
     record.blob.name = fileName;
@@ -915,6 +1161,16 @@
       state.workspaceState.sessionFilePath = record.meta.filePath || '';
       state.workspaceState.sessionFileName = record.meta.fileName || fileName;
       state.workspaceState.sessionFileScope = record.meta.fileScope || 'workspace';
+      state.workspaceState.sessionFileTargetKind = record.meta.fileTargetKind === 'existing'
+        || (!record.meta.fileTargetKind && (record.meta.fileName || record.meta.filePath))
+        ? 'existing'
+        : 'new';
+      const recoveredGraphTabs = Array.isArray(state.workspaceState.tabs)
+        ? state.workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
+        : [];
+      state.workspaceState.sessionFileTabId = state.workspaceState.sessionFileScope === 'tab'
+        ? (record.meta.fileTargetTabId || (recoveredGraphTabs.length === 1 ? recoveredGraphTabs[0].id : null))
+        : null;
       state.session.markSessionDirty('recovery-restored', {
         fileName: state.workspaceState.sessionFileName,
         recoveredAt: record.meta.savedAt || null,
@@ -965,8 +1221,17 @@
     try {
       result = await state.sessionActions.autosaveWorkspace(state.getSessionActionsContext(), { reason });
       if (result?.status === 'saved' || result?.status === 'downloaded') {
-        lastRecoverySavedRevision = revision;
-        await clearRecoverySnapshot('autosave-success');
+        const savedRevision = Number.isFinite(Number(result.savedRevision))
+          ? Number(result.savedRevision)
+          : revision;
+        const currentRevision = getSessionRevision();
+        if (savedRevision === currentRevision && !state.workspaceState?.sessionUserDirty) {
+          // The save path's clean-state event owns recovery deletion. Record the
+          // revision here only for save adapters that do not emit that event.
+          lastRecoverySavedRevision = Math.max(lastRecoverySavedRevision, savedRevision);
+        } else if (hasRecoverySnapshotDue() && !recoveryTimer) {
+          scheduleRecoverySnapshot(`${reason}-newer-revision`);
+        }
       } else {
         if (result?.reason === 'no-file-target') {
           lastAutosaveNoTargetRevision = revision;
@@ -996,13 +1261,15 @@
     syncTitle({ reason: meta.reason || 'autosave-toggle' });
   }
 
+  function handleAutosaveToggle(event) {
+    const autosaveToggle = event.target?.closest?.('input[data-document-autosave="1"]');
+    if (autosaveToggle) {
+      setAutosaveEnabled(autosaveToggle.checked, { reason: 'autosave-toggle-ui' });
+    }
+  }
+
   function bindUi() {
-    document.addEventListener('change', event => {
-      const autosaveToggle = event.target?.closest?.('input[data-document-autosave="1"]');
-      if (autosaveToggle) {
-        setAutosaveEnabled(autosaveToggle.checked, { reason: 'autosave-toggle-ui' });
-      }
-    }, true);
+    document.addEventListener('change', handleAutosaveToggle, true);
 
   }
 
@@ -1043,9 +1310,9 @@
       } else if ((type === 'saved' || type === 'clean') && !state.restoringRecovery) {
         clearRecoveryTimer();
         recoveryPendingSince = 0;
-        lastRecoverySavedRevision = getSessionRevision();
         lastAutosaveNoTargetRevision = 0;
-        void clearRecoverySnapshot(type);
+        const revision = Number(event?.detail?.revision ?? getSessionRevision());
+        void clearRecoverySnapshot(type, revision);
       }
     };
     window.addEventListener('graphitix:document-state-change', documentStateChangeHandler);
@@ -1095,7 +1362,9 @@
   namespace.runAutosave = runAutosave;
   namespace.syncTitle = syncTitle;
   namespace.dispose = function dispose() {
+    document.removeEventListener('change', handleAutosaveToggle, true);
     clearRecoveryTimer();
+    cancelRecoveryClearRetry();
     if (savedMessageTimer) window.clearTimeout(savedMessageTimer);
     if (recoveryInterval) window.clearInterval(recoveryInterval);
     if (autosaveInterval) window.clearInterval(autosaveInterval);

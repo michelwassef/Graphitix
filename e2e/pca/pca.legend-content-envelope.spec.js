@@ -27,7 +27,7 @@ test('PCA legend remains inside the published SVG content envelope', async ({ pa
     const style = getComputedStyle(svgBox);
     const extraRight = Number.parseFloat(style.getPropertyValue('--graph-content-extra-right')) || 0;
     const extraLeft = Number.parseFloat(style.getPropertyValue('--graph-content-extra-left')) || 0;
-    const trayRect = svgBox.querySelector('.resizer-control-tray').getBoundingClientRect();
+    const trayRect = svgBox.closest('.graph-frame')?.querySelector('.graph-controls-header .resizer-control-tray')?.getBoundingClientRect();
     return {
       boxLeft: boxRect.left,
       boxRight: boxRect.right,

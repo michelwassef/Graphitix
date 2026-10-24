@@ -33,6 +33,7 @@
     "dev:entrypoint": "node scripts/change-entrypoint.js",
     "test:suggest": "node scripts/suggest-tests.js",
     "bench": "node scripts/run-benchmarks.js",
+    "bench:box-studentized-range": "node scripts/box-studentized-range-benchmark.js",
     "e2e:serve": "node scripts/e2e-server.cjs --port 4173",
     "assets:welcome-examples": "node scripts/generate-welcome-example-thumbnails.cjs",
     "assets:welcome-examples:check": "node scripts/generate-welcome-example-thumbnails.cjs --check",
@@ -61,7 +62,11 @@
     "pages:build": "node scripts/build-pages-site.cjs",
     "lint:test": "eslint __tests__ e2e",
     "lint": "eslint js scripts test-support __tests__ e2e",
-    "quality:static": "npm run lint && npm run docs:component-contracts:check && npm run docs:testing-inventory:check && npm run test:bootstrap:check && npm run test:vendor:check && npm run test:runtime:check && npm run test:assets:check && npm run test:inventory:check",
+    "lint:css": "stylelint \"css/**/*.css\"",
+    "lint:html": "html-validate index.html",
+    "css:priority-budget": "node scripts/check-css-priority-budget.cjs",
+    "lint:ui": "npm run lint:css && npm run lint:html && npm run css:priority-budget",
+    "quality:static": "npm run lint:ui && npm run lint && npm run docs:component-contracts:check && npm run docs:testing-inventory:check && npm run test:bootstrap:check && npm run test:vendor:check && npm run test:runtime:check && npm run test:assets:check && npm run test:inventory:check",
     "docs:component-contracts:check": "node scripts/generate-component-contracts.js --check"
   },
   "keywords": [
@@ -90,17 +95,21 @@
   "devDependencies": {
     "@playwright/test": "1.60.0",
     "ag-grid-community": "32.3.9",
+    "axe-core": "4.11.0",
     "eslint": "9.39.1",
     "espree": "10.4.0",
     "globals": "14.0.0",
+    "html-validate": "10.0.0",
     "istanbul-lib-coverage": "3.2.2",
     "istanbul-lib-instrument": "6.0.3",
     "jest": "30.4.2",
     "jest-environment-jsdom": "30.4.1",
-    "jstat": "1.9.6",
     "js-yaml": "3.15.2",
+    "jstat": "1.9.6",
     "jszip": "3.10.1",
     "pako": "1.0.11",
+    "postcss": "8.5.29",
+    "stylelint": "16.25.0",
     "svd-js": "1.1.1"
   }
 }

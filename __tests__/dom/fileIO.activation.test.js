@@ -55,6 +55,25 @@ describe('fileIO activation handling', () => {
     expect(handle.requestPermission).not.toHaveBeenCalled();
   });
 
+  test('verifyPermission requests write access before a permission query can use up activation', async () => {
+    setActivation(true);
+    const fileIO = installFileIO();
+    const activation = window.navigator.userActivation;
+    const handle = {
+      queryPermission: jest.fn(async () => {
+        activation.isActive = false;
+        return 'prompt';
+      }),
+      requestPermission: jest.fn(async () => activation.isActive ? 'granted' : 'prompt')
+    };
+
+    const allowed = await fileIO.verifyPermission(handle, true);
+
+    expect(allowed).toBe(true);
+    expect(handle.requestPermission).toHaveBeenCalledTimes(1);
+    expect(handle.queryPermission).not.toHaveBeenCalled();
+  });
+
   test('verifyPermission handles activation SecurityError without throwing', async () => {
     setActivation(true);
     const fileIO = installFileIO();
@@ -91,6 +110,59 @@ describe('fileIO activation handling', () => {
     expect(downloadSpy.mock.calls.length + downloadJsonSpy.mock.calls.length).toBeGreaterThan(0);
     expect(result.status).toBe('downloaded');
     expect(result.via).toBe('download');
+  });
+
+  test('saveGraphFile never opens Save As after existing-file write permission is denied', async () => {
+    setActivation(true);
+    const fileIO = installFileIO();
+    window.showSaveFilePicker = jest.fn();
+    const getPayload = jest.fn(() => new Blob(['existing archive']));
+    const fileHandle = {
+      requestPermission: jest.fn().mockResolvedValue('denied'),
+      queryPermission: jest.fn().mockResolvedValue('denied'),
+      createWritable: jest.fn()
+    };
+
+    const result = await fileIO.saveGraphFile({
+      context: 'workspace',
+      fileHandle,
+      getPayload,
+      fileName: 'workspace.graph'
+    });
+
+    expect(result).toMatchObject({ status: 'error', reason: 'existing-file-write-permission-denied' });
+    expect(window.showSaveFilePicker).not.toHaveBeenCalled();
+    expect(getPayload).not.toHaveBeenCalled();
+    expect(fileHandle.createWritable).not.toHaveBeenCalled();
+  });
+
+  test('workspace archive saves are not mistaken for the active component tab owner', async () => {
+    setActivation(true);
+    const fileIO = installFileIO();
+    const activeTab = { id: 'tab-scatter', type: 'scatter' };
+    window.Main = {
+      session: {
+        workspaceState: { tabs: [activeTab], activeTabId: activeTab.id },
+        getActiveTab: () => activeTab
+      }
+    };
+    const writable = { write: jest.fn().mockResolvedValue(), close: jest.fn().mockResolvedValue() };
+    const fileHandle = {
+      queryPermission: jest.fn().mockResolvedValue('granted'),
+      createWritable: jest.fn().mockResolvedValue(writable)
+    };
+
+    const result = await fileIO.saveGraphFile({
+      context: 'workspace',
+      fileHandle,
+      getPayload: () => new Blob(['workspace archive']),
+      fileName: 'workspace.graph',
+      downloadFileName: 'workspace.graph'
+    });
+
+    expect(result.status).toBe('saved');
+    expect(writable.write).toHaveBeenCalledTimes(1);
+    expect(writable.close).toHaveBeenCalledTimes(1);
   });
 
   test('saveGraphFileAs falls back to download on picker SecurityError activation failure', async () => {
@@ -578,13 +650,10 @@ describe('fileIO activation handling', () => {
     expect(writable.write).toHaveBeenCalled();
   });
 
-  test('saveGraphFile does not build payload when picker is cancelled', async () => {
+  test('saveGraphFile without an existing handle never opens a picker or builds payload', async () => {
     setActivation(true);
     const fileIO = installFileIO();
-    const abortErr = typeof DOMException === 'function'
-      ? new DOMException('The user aborted a request.', 'AbortError')
-      : { name: 'AbortError', message: 'The user aborted a request.' };
-    window.showSaveFilePicker = jest.fn().mockRejectedValue(abortErr);
+    window.showSaveFilePicker = jest.fn();
     const getPayload = jest.fn(() => new Blob(['zip'], { type: 'application/zip' }));
 
     const result = await fileIO.saveGraphFile({
@@ -595,9 +664,8 @@ describe('fileIO activation handling', () => {
       mimeType: 'application/zip'
     });
 
-    expect(window.showSaveFilePicker).toHaveBeenCalled();
+    expect(window.showSaveFilePicker).not.toHaveBeenCalled();
     expect(getPayload).not.toHaveBeenCalled();
-    expect(result.status).toBe('cancelled');
-    expect(result.via).toBe('picker');
+    expect(result).toMatchObject({ status: 'error', reason: 'existing-file-handle-unavailable' });
   });
 });

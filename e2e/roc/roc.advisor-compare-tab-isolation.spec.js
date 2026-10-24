@@ -32,6 +32,7 @@ async function openRocExampleTab(page, { first = false } = {}) {
   );
   await openComponentFromWelcome(page, { type: 'roc', pageId: 'rocPage' }, { first });
   await page.waitForFunction(() => !!window.Components?.roc?.ready, null, { timeout: 35_000 });
+  await expectCompareVisibility(page, true);
   await clickExpectedExampleButton(page, 'rocLoadExample');
   await page.waitForFunction(() => {
     const payload = window.Components?.roc?.getPayload?.();
@@ -44,19 +45,47 @@ async function openRocExampleTab(page, { first = false } = {}) {
   return after.find(id => id && !before.includes(id)) || await activeRocTabId(page);
 }
 
+async function expectCompareVisibility(page, hidden){
+  const controls = page.locator('#rocPage:not([hidden]) #rocStatsControls');
+  const expected = {
+    labelHidden: hidden,
+    selectHidden: hidden,
+    labelInlineDisplay: '',
+    selectInlineDisplay: ''
+  };
+  await expect.poll(() => controls.evaluate(root => {
+    const label = Array.from(root.querySelectorAll('label'))
+      .find(node => node.htmlFor === 'rocCompareSelection') || null;
+    const select = root.querySelector('#rocCompareSelection');
+    if(!label || !select){ return null; }
+    return {
+      labelHidden: label.hidden,
+      selectHidden: select.hidden,
+      labelInlineDisplay: label.style.display,
+      selectInlineDisplay: select.style.display
+    };
+  })).toEqual(expected);
+  if(hidden){
+    await expect(page.locator('#rocPage:not([hidden]) label[for="rocCompareSelection"]')).toBeHidden();
+    await expect(page.locator('#rocPage:not([hidden]) #rocCompareSelection')).toBeHidden();
+  }else{
+    await expect(page.locator('#rocPage:not([hidden]) label[for="rocCompareSelection"]')).toBeVisible();
+    await expect(page.locator('#rocPage:not([hidden]) #rocCompareSelection')).toBeVisible();
+  }
+}
+
 async function waitForRocComparison(page, expected) {
   try {
     await page.waitForFunction(({ graphType, diffMethod, metric }) => {
       const root = document.querySelector('#rocPage:not([hidden])');
       const payload = window.Components?.roc?.getPayload?.() || {};
-      const selects = Array.from(root?.querySelectorAll?.('#rocStatsControls select') || []);
       const compareText = root?.querySelector?.('#rocStatsResults .roc-curve-comparison-card')?.textContent || '';
       const advisorText = root?.querySelector?.('#rocStatsAdvisor')?.textContent || '';
       const persistedCompareText = payload?.stats?.compareResult?.displayText || '';
       return root?.querySelector?.('#rocGraphType')?.value === graphType
         && payload?.config?.graphType === graphType
         && payload?.stats?.diffMethod === diffMethod
-        && selects[0]?.value === diffMethod
+        && root?.querySelector?.('#rocDiffMethod')?.value === diffMethod
         && new RegExp(metric, 'i').test(compareText)
         && /p\s*=/.test(persistedCompareText)
         && /p-value/i.test(compareText)
@@ -97,8 +126,13 @@ async function configureRocComparison(page, variant) {
   await page.locator('#rocPage:not([hidden]) #rocGraphType').selectOption(variant.graphType);
   await waitForComponentOwnerReady(page, 'roc', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   await page.locator('#rocPage:not([hidden]) #rocStatsAdvisor .stats-advisor__toggle').click();
-  await page.locator(`#rocPage:not([hidden]) #rocStatsAdvisor input[name="roc-advisor-methodChoice"][value="${variant.diffMethod}"]`).check();
+  await page.locator(`#rocPage:not([hidden]) #rocStatsAdvisor input[data-advisor-question="roc-advisor-methodChoice"][value="${variant.diffMethod}"]`).check();
   await page.getByRole('button', { name: 'Apply recommendation' }).click();
+  const compareSelection = page.locator('#rocPage:not([hidden]) #rocCompareSelection');
+  await expect(compareSelection).toBeVisible();
+  await expect(compareSelection.locator('option').nth(1)).toBeAttached();
+  await compareSelection.selectOption({ index: 1 });
+  await page.locator('#rocPage:not([hidden]) #rocComputeStats').click();
   await waitForRocComparison(page, variant);
 }
 
@@ -108,19 +142,20 @@ async function snapshotRoc(page) {
     const active = (state.tabs || []).find(tab => tab && tab.id === state.activeTabId) || null;
     const root = document.querySelector('#rocPage:not([hidden])');
     const payload = window.Components?.roc?.getPayload?.() || null;
-    const selects = Array.from(root?.querySelectorAll?.('#rocStatsControls select') || []);
     const compareLabel = Array.from(root?.querySelectorAll?.('#rocStatsControls label') || [])
-      .find(label => String(label.textContent || '').trim() === 'Compare:') || null;
-    const compareSelect = compareLabel?.nextElementSibling?.tagName === 'SELECT'
-      ? compareLabel.nextElementSibling
-      : null;
-    const checked = root?.querySelector?.('#rocStatsAdvisor input[name="roc-advisor-methodChoice"]:checked') || null;
+      .find(label => label.htmlFor === 'rocCompareSelection') || null;
+    const compareSelect = root?.querySelector?.('#rocCompareSelection') || null;
+    const checked = root?.querySelector?.('#rocStatsAdvisor input[data-advisor-question="roc-advisor-methodChoice"]:checked') || null;
     return {
       tabId: active?.id || null,
       graphType: root?.querySelector?.('#rocGraphType')?.value || null,
       payloadGraphType: payload?.config?.graphType || null,
-      diffMethod: selects[0]?.value || null,
+      diffMethod: root?.querySelector?.('#rocDiffMethod')?.value || null,
       compareSelection: compareSelect?.value || null,
+      compareLabelHidden: compareLabel?.hidden ?? null,
+      compareSelectHidden: compareSelect?.hidden ?? null,
+      compareLabelInlineDisplay: compareLabel?.style?.display ?? null,
+      compareSelectInlineDisplay: compareSelect?.style?.display ?? null,
       payloadDiffMethod: payload?.stats?.diffMethod || null,
       payloadCompareSelection: payload?.stats?.compareSelection || null,
       payloadCompareText: payload?.stats?.compareResult?.displayText || '',
@@ -166,6 +201,10 @@ function expectRocSnapshot(snapshot, expected) {
   expect(snapshot.payloadDiffMethod).toBe(expected.diffMethod);
   expect(snapshot.checkedAdvisorMethod).toBe(expected.diffMethod);
   expect(snapshot.compareSelection).toBeTruthy();
+  expect(snapshot.compareLabelHidden).toBe(false);
+  expect(snapshot.compareSelectHidden).toBe(false);
+  expect(snapshot.compareLabelInlineDisplay).toBe('');
+  expect(snapshot.compareSelectInlineDisplay).toBe('');
   expect(snapshot.payloadCompareSelection).toBe(snapshot.compareSelection);
   expect(snapshot.compareText).toMatch(new RegExp(expected.metric, 'i'));
   expect(snapshot.compareText).toMatch(/p-value/i);

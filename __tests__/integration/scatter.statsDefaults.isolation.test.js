@@ -1,10 +1,12 @@
 const { ensureJStatStub } = require('../helpers/jstatTestStub');
-const { loadProductionBootstrap } = require('../../test-support/productionLoader');
+const {loadProductionBootstrap,resetProductionNamespaces}=require('../../test-support/productionLoader');
+const {waitForIntegrationOwnerReady}=require('../../test-support/readiness');
 
-async function flushAsyncWork(iterations = 10){
-  for(let i = 0; i < iterations; i += 1){
-    await new Promise(resolve => setTimeout(resolve, 0));
-  }
+async function settleScatterOwner(){
+  await new Promise(resolve=>{setTimeout(resolve,0);});
+  const tab=window.Main?.session?.getActiveTab?.(),prompt=document.getElementById('duplicatePrompt');
+  if(tab?.type!=='scatter' || (prompt && !prompt.hidden)) return;
+  await waitForIntegrationOwnerReady({type:'scatter',expectedTabId:tab.id,requireMountedRoot:true});
 }
 
 async function activateWorkspace(type){
@@ -12,7 +14,7 @@ async function activateWorkspace(type){
   if(result && typeof result.then === 'function'){
     await result;
   }
-  await flushAsyncWork(10);
+  await settleScatterOwner();
 }
 
 async function ensureEmptyDuplicateTab(){
@@ -21,7 +23,7 @@ async function ensureEmptyDuplicateTab(){
     const emptyButton = document.getElementById('duplicateEmpty');
     expect(emptyButton).toBeTruthy();
     emptyButton.click();
-    await flushAsyncWork(25);
+    await settleScatterOwner();
   }
 }
 
@@ -33,7 +35,7 @@ async function awaitScatterReadyForTest(reason = 'scatter-test-ready'){
       await ready;
     }
   }
-  await flushAsyncWork(2);
+  await settleScatterOwner();
 }
 
 async function computeCurrentScatterStats(regressionMode = 'linear'){
@@ -42,48 +44,32 @@ async function computeCurrentScatterStats(regressionMode = 'linear'){
   if(regression.value !== regressionMode){
     regression.value = regressionMode;
     regression.dispatchEvent(new window.Event('change', { bubbles: true }));
-    await flushAsyncWork(12);
+    await settleScatterOwner();
   }
 
   const computeButton = document.getElementById('scatterComputeStats');
   expect(computeButton).toBeTruthy();
-  for(let attempt = 0; attempt < 20 && computeButton.disabled; attempt += 1){
-    await flushAsyncWork(5);
-  }
-  expect(computeButton.disabled).toBe(false);
+  const ownerId=window.Main.session.getActiveTab().id;
+  await waitForIntegrationOwnerReady({type:'scatter',expectedTabId:ownerId,requireMountedRoot:true,condition:()=>!computeButton.disabled});
   computeButton.click();
-
-  for(let attempt = 0; attempt < 30; attempt += 1){
-    await flushAsyncWork(5);
-    const session = window.Components?.scatter?.__testHooks?.getSession?.();
-    const stats = session?.state?.stats || null;
-    const results = document.getElementById('scatterStatsResults');
-    const rendered = !!results?.querySelector?.('.stats-table-card, .stats-report-panel, table');
-    if(stats?.precomputedStats && Number(stats.lastRunVersion) > 0 && Number(stats.lastRunVersion) === Number(stats.contextVersion) && rendered){
-      await awaitScatterReadyForTest('scatter-stats-computed-ready');
-      return { session, stats, results };
+  await waitForIntegrationOwnerReady({
+    type:'scatter',expectedTabId:ownerId,requireMountedRoot:true,
+    condition:()=>{
+      const stats=window.Components.scatter.__testHooks.getSession(ownerId)?.state?.stats;
+      const root=window.Shared.workspaceTabs.getMountedRoot(ownerId,'scatter');
+      return !!stats?.precomputedStats && Number(stats.lastRunVersion)>0
+        && Number(stats.lastRunVersion)===Number(stats.contextVersion)
+        && !!root?.querySelector('#scatterStatsResults .stats-table-card, #scatterStatsResults .stats-report-panel, #scatterStatsResults table');
     }
-  }
-
-  const session = window.Components?.scatter?.__testHooks?.getSession?.();
-  const status = String(document.getElementById('scatterStatsStatus')?.textContent || '');
-  const resultsText = String(document.getElementById('scatterStatsResults')?.textContent || '');
-  expect({
-    hasPrecomputedStats: !!session?.state?.stats?.precomputedStats,
-    lastRunVersion: session?.state?.stats?.lastRunVersion || 0,
-    contextVersion: session?.state?.stats?.contextVersion || 0,
-    status,
-    resultsText
-  }).toEqual(expect.objectContaining({
-    hasPrecomputedStats: true,
-    status: expect.stringMatching(/Statistics up to date/i)
-  }));
-  return { session, stats: session?.state?.stats || null, results: document.getElementById('scatterStatsResults') };
+  });
+  await awaitScatterReadyForTest('scatter-stats-computed-ready');
+  const session=window.Components.scatter.__testHooks.getSession(ownerId);
+  return {session,stats:session.state.stats,results:window.Shared.workspaceTabs.getMountedRoot(ownerId,'scatter').querySelector('#scatterStatsResults')};
 }
 
 async function loadScatterSeedAndComputeStats(scatterComponent, regressionMode = 'linear'){
   scatterComponent.loadFromPayload(createSeedPayload(scatterComponent), { source: `test-scatter-stats-${regressionMode}` });
-  await flushAsyncWork(20);
+  await settleScatterOwner();
   return computeCurrentScatterStats(regressionMode);
 }
 
@@ -104,7 +90,7 @@ async function waitForScatterRegressionOverlays(){
     if(counts.trend > 0 && counts.confidence > 0 && counts.prediction > 0){
       return counts;
     }
-    await flushAsyncWork(2);
+    await settleScatterOwner();
     await awaitScatterReadyForTest('scatter-overlays-ready-retry');
     counts = getScatterOverlayCounts();
   }
@@ -120,7 +106,7 @@ async function enableScatterRegressionOverlays(){
   expect(showLine.disabled).toBe(false);
   showLine.checked = true;
   showLine.dispatchEvent(new window.Event('change', { bubbles: true }));
-  await flushAsyncWork(20);
+  await settleScatterOwner();
   [showStats, showCI, showPI].forEach(control => {
     expect(control.disabled).toBe(false);
     control.checked = true;
@@ -178,24 +164,10 @@ describe('Scatter stats defaults isolation', () => {
     }
     window.localStorage?.clear?.();
     window.sessionStorage?.clear?.();
-    if(typeof window !== 'undefined'){
-      delete window.Main;
-      delete window.Components;
-      delete window.Shared;
-    }
-    if(typeof global !== 'undefined'){
-      delete global.Main;
-      delete global.Components;
-      delete global.Shared;
-    }
-    if(window.Components){
-      delete window.Components.scatter;
-    }
-    if(global.Components){
-      delete global.Components.scatter;
-    }
+    resetProductionNamespaces();
 
     loadProductionBootstrap({
+      fixtureLifetime:true,
       vendorMode: 'fake',
       preloadComponents: ['scatter']
     });
@@ -206,6 +178,7 @@ describe('Scatter stats defaults isolation', () => {
       restoreJStat();
       restoreJStat = null;
     }
+    resetProductionNamespaces();
     if(typeof global.__suppressTestDebugLogs === 'function'){
       global.__suppressTestDebugLogs();
     }
@@ -219,7 +192,7 @@ describe('Scatter stats defaults isolation', () => {
     const sessionA = scatter.__testHooks.getSession(tabA.id);
 
     Main.tabs.handleAddTabClick();
-    await flushAsyncWork(4);
+    await settleScatterOwner();
     await activateWorkspace('scatter');
     await ensureEmptyDuplicateTab();
     const tabB = Main.tabs.getActiveTab();
@@ -232,6 +205,141 @@ describe('Scatter stats defaults isolation', () => {
     expect(scatter.isIdleForSnapshot({ tabId: tabB.id })).toBe(true);
   });
 
+  test('a stale Scatter font event with no owner session cannot schedule the active sibling', async () => {
+    await activateWorkspace('scatter');
+    const Main = window.Main;
+    const scatter = window.Components.scatter;
+    const seedA = Main.tabs.getActiveTab();
+    scatter.loadFromPayload(createSeedPayload(scatter), { source: 'scatter-font-owner-a' });
+    await awaitScatterReadyForTest('scatter-font-owner-a-ready');
+
+    Main.tabs.handleAddTabClick();
+    await settleScatterOwner();
+    await activateWorkspace('scatter');
+    await ensureEmptyDuplicateTab();
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB.type).toBe('scatter');
+    expect(tabB.id).not.toBe(seedA.id);
+    scatter.loadFromPayload(createSeedPayload(scatter), { source: 'scatter-font-owner-b' });
+    await awaitScatterReadyForTest('scatter-font-owner-b-ready');
+
+    const sessionB = scatter.__testHooks.getSession(tabB.id);
+    const payloadBefore = JSON.stringify(tabB.payload);
+    const drawRuntimeBefore = JSON.stringify(sessionB.timers.drawRuntime);
+    const renderRuntimeBefore = JSON.stringify(sessionB.cache.renderRuntime);
+    const staleTabId = 'scatter-stale-font-owner-without-session';
+    window.document.dispatchEvent(new CustomEvent('fontControls:styleChanged', {
+      detail: {
+        scopeId: 'scatter',
+        key: '__labels__',
+        storeKey: `scatter::tabbed::${staleTabId}::__labels__`,
+        tabId: staleTabId
+      }
+    }));
+
+    expect(JSON.stringify(tabB.payload)).toBe(payloadBefore);
+    expect(JSON.stringify(sessionB.timers.drawRuntime)).toBe(drawRuntimeBefore);
+    expect(JSON.stringify(sessionB.cache.renderRuntime)).toBe(renderRuntimeBefore);
+  });
+
+  test('loading an inactive Scatter payload cannot replace the active sibling projection', async () => {
+    await activateWorkspace('scatter');
+    const Main = window.Main;
+    const scatter = window.Components.scatter;
+    const tabA = Main.tabs.getActiveTab();
+    const payloadA = createSeedPayload(scatter);
+    payloadA.config.title = 'Inactive A';
+    scatter.loadFromPayload(payloadA, { reason: 'test-scatter-inactive-a' });
+    await settleScatterOwner();
+
+    Main.tabs.handleAddTabClick();
+    await settleScatterOwner();
+    await activateWorkspace('scatter');
+    await ensureEmptyDuplicateTab();
+    const tabB = Main.tabs.getActiveTab();
+    const sessionB = scatter.__testHooks.getSession(tabB.id);
+    const payloadB = createSeedPayload(scatter);
+    payloadB.config.title = 'Active B';
+    scatter.loadFromPayload(payloadB, { reason: 'test-scatter-active-b' });
+    await settleScatterOwner();
+    const payloadBBefore = JSON.stringify(tabB.payload);
+    const stateBBefore = JSON.stringify(sessionB.state);
+    expect(tabB.id).not.toBe(tabA.id);
+    expect(scatter.__boundTabId).toBe(tabB.id);
+
+    expect(scatter.loadFromPayload(payloadA, { tabId: tabA.id, skipDraw: true, reason: 'test-scatter-inactive-payload' })).toBe(false);
+
+    expect(scatter.__boundTabId).toBe(tabB.id);
+    expect(JSON.stringify(tabB.payload)).toBe(payloadBBefore);
+    expect(JSON.stringify(sessionB.state)).toBe(stateBBefore);
+  });
+
+  test('an inactive Scatter table press cannot activate the sibling toolbar section', async () => {
+    await activateWorkspace('scatter');
+    const Main = window.Main;
+    const scatter = window.Components.scatter;
+    const shared = window.Shared;
+    scatter.loadFromPayload(createSeedPayload(scatter), { source: 'test-scatter-toolbar-owner-a' });
+    await settleScatterOwner();
+    const tabA = Main.session.getActiveTab();
+    const rootA = document.querySelector('#scatterPage:not([hidden])');
+    const wrapperA = rootA?.querySelector('#scatterHotWrapper');
+    expect(rootA && wrapperA && tabA?.id).toBeTruthy();
+
+    Main.tabs.handleAddTabClick();
+    await settleScatterOwner();
+    await activateWorkspace('scatter');
+    await ensureEmptyDuplicateTab();
+    const tabB = Main.session.getActiveTab();
+    const rootB = document.querySelector('#scatterPage:not([hidden])');
+    const wrapperB = rootB?.querySelector('#scatterHotWrapper');
+    expect(wrapperB && tabB?.id).toBeTruthy();
+    expect(tabB.id).not.toBe(tabA.id);
+    const activation = jest.spyOn(shared.workspaceToolbar, 'activateSection');
+
+    try{
+      rootA.setAttribute('data-workspace-tab-id', tabA.id);
+      expect(shared.componentLifecycle.resolveTabIdFromTarget(wrapperA)).toBe(tabA.id);
+      wrapperA.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+      expect(activation).not.toHaveBeenCalled();
+
+      wrapperB.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+      expect(activation).toHaveBeenCalledWith('scatter', 'Data');
+    }finally{
+      activation.mockRestore();
+    }
+  });
+
+  test('large-dataset render summaries stay with their Scatter tab', async () => {
+    await activateWorkspace('scatter');
+
+    const scatter = window.Components.scatter;
+    const main = window.Main;
+    const payloadA = createSeedPayload(scatter);
+    scatter.loadFromPayload(payloadA, { source: 'test-render-summary-a' });
+    await settleScatterOwner();
+    const tabA = main.session.getActiveTab();
+    await scatter.draw({ reason: 'test-render-summary-a' });
+    await awaitScatterReadyForTest('test-render-summary-a-ready');
+
+    main.tabs.handleAddTabClick();
+    await settleScatterOwner();
+    await activateWorkspace('scatter');
+    await ensureEmptyDuplicateTab();
+    const tabB = main.session.getActiveTab();
+    expect(tabB.id).not.toBe(tabA.id);
+
+    const payloadB = createSeedPayload(scatter);
+    payloadB.data = payloadB.data.slice(0, 4);
+    scatter.loadFromPayload(payloadB, { source: 'test-render-summary-b' });
+    await settleScatterOwner();
+    await scatter.draw({ reason: 'test-render-summary-b' });
+    await awaitScatterReadyForTest('test-render-summary-b-ready');
+
+    expect(scatter.__testHooks.getLargeDatasetRenderSummary(tabA.id).pointCount).toBe(4);
+    expect(scatter.__testHooks.getLargeDatasetRenderSummary(tabB.id).pointCount).toBe(3);
+  });
+
   test('new empty scatter tab resets association metric to default', async () => {
     await activateWorkspace('scatter');
 
@@ -242,7 +350,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(scatterComponent.createEmptyPayload()?.data?.[0]?.[0]).toBe('Labels');
 
     scatterComponent.loadFromPayload(createSeedPayload(scatterComponent), { source: 'test-scatter-seed-a' });
-    await flushAsyncWork(20);
+    await settleScatterOwner();
 
     const statSelect = document.getElementById('scatterStatType');
     expect(statSelect).toBeTruthy();
@@ -250,7 +358,7 @@ describe('Scatter stats defaults isolation', () => {
 
     statSelect.value = 'spearman';
     statSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
-    await flushAsyncWork(20);
+    await settleScatterOwner();
     expect(document.getElementById('scatterStatType').value).toBe('spearman');
 
     const defaultsPayload = window.Main?.domControls?.ensureDefaultPayload?.(
@@ -261,7 +369,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(defaultsPayload?.config?.stats?.statType).toBe('auto');
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleScatterOwner();
     await activateWorkspace('scatter');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -269,7 +377,7 @@ describe('Scatter stats defaults isolation', () => {
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(25);
+      await settleScatterOwner();
     }
 
     expect(document.getElementById('scatterStatType').value).toBe('auto');
@@ -282,7 +390,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(scatterComponent).toBeTruthy();
 
     await loadScatterSeedAndComputeStats(scatterComponent);
-    await flushAsyncWork(20);
+    await settleScatterOwner();
 
     const session = scatterComponent.__testHooks?.getSession?.();
     expect(session?.state?.stats).toBeTruthy();
@@ -315,7 +423,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(scatterConfig).toBeTruthy();
 
     scatterComponent.loadFromPayload(createSeedPayload(scatterComponent), { source: 'test-scatter-seed-b' });
-    await flushAsyncWork(30);
+    await settleScatterOwner();
 
     const contaminated = scatterComponent.createEmptyPayload();
     contaminated.config = contaminated.config || {};
@@ -340,7 +448,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(sanitizedDefaults?.config?.stats?.contextSignature).toBeNull();
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(12);
+    await settleScatterOwner();
     await activateWorkspace('scatter');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -348,7 +456,7 @@ describe('Scatter stats defaults isolation', () => {
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(30);
+      await settleScatterOwner();
     }
 
     expect(document.getElementById('scatterStatType').value).toBe('auto');
@@ -373,7 +481,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(showLine.disabled).toBe(false);
     showLine.checked = true;
     showLine.dispatchEvent(new window.Event('change', { bubbles: true }));
-    await flushAsyncWork(25);
+    await settleScatterOwner();
     expect(document.getElementById('scatterShowLine').checked).toBe(true);
     const livePayloadBeforePersist = scatterComponent.getPayload();
     expect(livePayloadBeforePersist?.config?.showLine).toBe(true);
@@ -385,7 +493,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(tabA.payload?.config?.showLine).toBe(true);
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleScatterOwner();
     await activateWorkspace('scatter');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -393,7 +501,7 @@ describe('Scatter stats defaults isolation', () => {
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(25);
+      await settleScatterOwner();
     }
 
     const tabB = main.session.getActiveTab();
@@ -406,7 +514,7 @@ describe('Scatter stats defaults isolation', () => {
     payloadB.config.viewMode = '2d';
     payloadB.config.showLine = false;
     scatterComponent.loadFromPayload(payloadB, { source: 'test-trendline-b' });
-    await flushAsyncWork(25);
+    await settleScatterOwner();
     expect(document.getElementById('scatterShowLine').checked).toBe(false);
     main.session.persistActiveTabState(tabB, {
       workspaces: main.components.registry,
@@ -419,7 +527,7 @@ describe('Scatter stats defaults isolation', () => {
     if(switchToA && typeof switchToA.then === 'function'){
       await switchToA;
     }
-    await flushAsyncWork(25);
+    await settleScatterOwner();
     expect(document.getElementById('scatterShowLine').checked).toBe(true);
     expect(scatterComponent.getPayload()?.config?.showLine).toBe(true);
 
@@ -427,7 +535,7 @@ describe('Scatter stats defaults isolation', () => {
     if(switchToB && typeof switchToB.then === 'function'){
       await switchToB;
     }
-    await flushAsyncWork(25);
+    await settleScatterOwner();
     expect(document.getElementById('scatterShowLine').checked).toBe(false);
     expect(scatterComponent.getPayload()?.config?.showLine).toBe(false);
   });
@@ -463,7 +571,7 @@ describe('Scatter stats defaults isolation', () => {
     resultsA.replaceChildren(sentinelA);
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleScatterOwner();
     await activateWorkspace('scatter');
     await ensureEmptyDuplicateTab();
 
@@ -511,7 +619,7 @@ describe('Scatter stats defaults isolation', () => {
     });
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleScatterOwner();
     await activateWorkspace('scatter');
     await ensureEmptyDuplicateTab();
     await loadScatterSeedAndComputeStats(scatterComponent);
@@ -560,7 +668,7 @@ describe('Scatter stats defaults isolation', () => {
       payloadA.config.showLine = false;
       payloadA.config.showSignificantLabels = false;
       scatterComponent.loadFromPayload(payloadA, { source: 'test-graph-type-scatter' });
-      await flushAsyncWork(25);
+      await settleScatterOwner();
 
       const tabA = main.session.getActiveTab();
       expect(tabA?.type).toBe('scatter');
@@ -575,7 +683,7 @@ describe('Scatter stats defaults isolation', () => {
       expect(tabA.payload?.config?.showLine).toBe(false);
 
       main.tabs.handleAddTabClick();
-      await flushAsyncWork(10);
+      await settleScatterOwner();
       await activateWorkspace('scatter');
 
       const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -583,7 +691,7 @@ describe('Scatter stats defaults isolation', () => {
         const emptyButton = document.getElementById('duplicateEmpty');
         expect(emptyButton).toBeTruthy();
         emptyButton.click();
-        await flushAsyncWork(25);
+        await settleScatterOwner();
       }
 
       const tabB = main.session.getActiveTab();
@@ -591,9 +699,9 @@ describe('Scatter stats defaults isolation', () => {
       expect(tabB?.id).not.toBe(tabA.id);
 
       scatterComponent.loadFromPayload(createVolcanoPayload(scatterComponent), { source: 'test-graph-type-volcano' });
-      await flushAsyncWork(30);
+      await settleScatterOwner();
       expect(document.getElementById('scatterGraphType').value).toBe('volcano');
-      expect(document.getElementById('scatterSignificantOptions').style.display).toBe('flex');
+      expect(document.getElementById('scatterSignificantOptions').hidden).toBe(false);
       expect(document.getElementById('scatterShowSignificantLabels').disabled).toBe(false);
       main.session.persistActiveTabState(tabB, {
         workspaces: main.components.registry,
@@ -606,10 +714,10 @@ describe('Scatter stats defaults isolation', () => {
       if(switchToA && typeof switchToA.then === 'function'){
         await switchToA;
       }
-      await flushAsyncWork(35);
+      await settleScatterOwner();
       expect(tabA.payload?.config?.showLine).toBe(false);
       expect(document.getElementById('scatterGraphType').value).toBe('scatter');
-      expect(document.getElementById('scatterSignificantOptions').style.display).toBe('none');
+      expect(document.getElementById('scatterSignificantOptions').hidden).toBe(true);
       expect(document.getElementById('scatterShowLine').checked).toBe(false);
       expect(scatterComponent.getPayload()?.config?.graphType).toBe('scatter');
       expect(scatterComponent.getPayload()?.config?.showLine).toBe(false);
@@ -618,9 +726,9 @@ describe('Scatter stats defaults isolation', () => {
       if(switchToB && typeof switchToB.then === 'function'){
         await switchToB;
       }
-      await flushAsyncWork(35);
+      await settleScatterOwner();
       expect(document.getElementById('scatterGraphType').value).toBe('volcano');
-      expect(document.getElementById('scatterSignificantOptions').style.display).toBe('flex');
+      expect(document.getElementById('scatterSignificantOptions').hidden).toBe(false);
       expect(scatterComponent.getPayload()?.config?.graphType).toBe('volcano');
 
       const hookErrors = consoleErrorSpy.mock.calls.filter(call => String(call[0] || '').includes('workspaceTabs hook error'));

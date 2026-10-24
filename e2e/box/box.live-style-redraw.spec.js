@@ -1,3 +1,4 @@
+const { selectReplicateMode, clickExampleButton } = require('../helpers/uiDriver');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
@@ -16,7 +17,7 @@ test('Box live styles avoid exposed full-frame redraws', async ({ page }) => {
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxLoadExample').click();
+  await clickExampleButton(page, 'box');
   await page.locator('#boxGraphType').selectOption('box');
   await waitForBoxIdle(page);
 
@@ -59,7 +60,7 @@ test('Box trace border stays independent and meets bar whiskers', async ({ page 
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxLoadExample').click();
+  await clickExampleButton(page, 'box');
   await page.locator('#boxGraphType').selectOption('bar');
   await page.locator('#boxPointMode').selectOption('overlay');
   await waitForBoxIdle(page);
@@ -125,8 +126,8 @@ test('Box grouped formatting scopes trace styles to the selected series', async 
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxTableFormat').selectOption('grouped');
-  await page.locator('#boxLoadExample').click();
+  await selectReplicateMode(page, 'box', 'grouped');
+  await clickExampleButton(page, 'box');
   await page.locator('#boxGraphType').selectOption('bar');
   await page.locator('#boxShowLegend').check();
   await waitForBoxIdle(page);
@@ -208,7 +209,7 @@ test('Box palette and color-mode changes preserve the active graph type', async 
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxLoadExample').click();
+  await clickExampleButton(page, 'box');
   await waitForBoxIdle(page);
   await page.locator('#boxGraphType').selectOption('bar');
   await waitForBoxIdle(page);
@@ -243,7 +244,7 @@ test('Box palette changes keep median overlays visible in box variants', async (
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxLoadExample').click();
+  await clickExampleButton(page, 'box');
   await waitForBoxIdle(page);
 
   for (const graphType of ['box', 'notched', 'violin']) {
@@ -283,16 +284,31 @@ test('Box palette changes keep median overlays visible in box variants', async (
   }
 });
 
-test('Violin palette keeps the inset summary styling after dataset reorder', async ({ page }) => {
+test('Violin defaults to opaque fill and keeps inset styling after dataset reorder', async ({ page }) => {
   test.setTimeout(90_000);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxLoadExample').click();
+  await clickExampleButton(page, 'box');
   await waitForBoxIdle(page);
+  await page.locator('#boxGraphType').selectOption('box');
+  await waitForBoxIdle(page);
+  const boxOpacity = await page.locator('#boxSvg [data-box-shape="body"][data-trace="0"]')
+    .first().evaluate(node => ({
+      fillOpacity: node.getAttribute('fill-opacity'),
+      computedFillOpacity: getComputedStyle(node).fillOpacity
+    }));
+  expect(boxOpacity).toEqual({ fillOpacity: null, computedFillOpacity: '1' });
   await page.locator('#boxGraphType').selectOption('violin');
   await page.locator('#boxPointMode').selectOption('none');
   await waitForBoxIdle(page);
+  const violinOpacity = await page.locator('#boxSvg path[data-box-violin-density="1"][data-trace="0"]')
+    .evaluateAll(nodes => nodes.map(node => ({
+      fillOpacity: node.getAttribute('fill-opacity'),
+      computedFillOpacity: getComputedStyle(node).fillOpacity
+    })));
+  expect(violinOpacity.length).toBeGreaterThan(0);
+  expect(violinOpacity.every(style => style.fillOpacity === null && style.computedFillOpacity === '1')).toBe(true);
   await page.locator('#boxColorSchemeSelect').selectOption('grayscale');
   await waitForBoxIdle(page);
   await page.locator('#boxColorSchemeSelect').selectOption('soft');
@@ -374,7 +390,7 @@ test('Box Density samples updates only the violin layer', async ({ page }) => {
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxLoadExample').click();
+  await clickExampleButton(page, 'box');
   await page.locator('#boxGraphType').selectOption('violin');
   await page.locator('#boxPointMode').selectOption('none');
   await waitForBoxIdle(page);

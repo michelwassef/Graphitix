@@ -1,7 +1,19 @@
+const { installSvgTextGeometry } = require('../setup/svgTextGeometry');
+
 describe('Shared.plot3d helper', () => {
+  let restoreSvgTextGeometry;
   beforeAll(() => {
+    require('../../js/shared/textBlock.js');
     require('../../js/shared/chartStyle.js');
     require('../../js/shared/plot3d.js');
+  });
+
+  beforeEach(() => {
+    restoreSvgTextGeometry = installSvgTextGeometry();
+  });
+
+  afterEach(() => {
+    restoreSvgTextGeometry();
   });
 
   function createPointerEvent(type, props){
@@ -61,6 +73,23 @@ describe('Shared.plot3d helper', () => {
       plotWidth: 260,
       fontSize: 12
     }).y).toBeCloseTo(19.2);
+  });
+
+  it('fits legend offsets within unused projector space without consuming axis margins', () => {
+    const { plot3d } = global.Shared;
+    const corners = [{ x: -1, y: -1 }, { x: 1, y: 1 }];
+    const options = { rotatedCorners: corners, width: 300, height: 200, margin: { left: 40, right: 40, top: 40, bottom: 40 } };
+    const centered = plot3d.createProjector(options);
+    for(const shiftX of [-100, 100]){
+      const shifted = plot3d.createProjector({ ...options, shiftX });
+      const points = corners.map(shifted.project);
+      expect(Math.min(...points.map(point => point.x))).toBeGreaterThanOrEqual(40);
+      expect(Math.max(...points.map(point => point.x))).toBeLessThanOrEqual(260);
+      expect(shifted.scale).toBe(centered.scale);
+    }
+    const fitted = plot3d.createProjector({ ...options, width: 200, shiftX: -100 });
+    expect(fitted.project(corners[0]).x).toBe(40);
+    expect(fitted.project(corners[1]).x).toBe(160);
   });
 
   it('extends 3D title frames by exactly their added lines and keeps the projected plot size', () => {
@@ -425,6 +454,79 @@ describe('Shared.plot3d helper', () => {
     });
   });
 
+  it.each([
+    { fontSize: 12, expectedGap: 2 },
+    { fontSize: 16, expectedGap: 3 },
+    { fontSize: 24, expectedGap: 4 },
+    { fontSize: 16, axisTitleGap: 6, expectedGap: 6 },
+    { fontSize: 16, axisTitleGap: 0, expectedGap: 0 }
+  ])('keeps one exact tick-to-title gap at oblique angles: %o', ({ fontSize, axisTitleGap, expectedGap }) => {
+    const { plot3d } = global.Shared;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const project = point => ({ x: 100 + point.x * 30 + point.y * 8 + point.z * 20, y: 100 + point.x * 25 - point.y * 30 - point.z * 12, depth: point.z });
+    plot3d.renderAxesAndGrid({
+      svg,
+      rotatePoint: point => point,
+      project,
+      axisRanges: { x: { min: -1, max: 1 }, y: { min: -1, max: 1 }, z: { min: -1, max: 1 } },
+      axisTicks: { x: [-1], y: [-1], z: [-1] },
+      axisLabels: { x: 'X', y: 'Y', z: 'Z' },
+      tickLength: 5,
+      tickLabelGap: 4,
+      fontSize,
+      axisTitleGap,
+      showGrid: false,
+      showFrame: false,
+      showPanes: false,
+      createElement: (tag, attrs, text, target) => {
+        const node = document.createElementNS(svg.namespaceURI, tag);
+        Object.entries(attrs || {}).forEach(([key, value]) => node.setAttribute(key, value));
+        node.textContent = text || '';
+        if(tag === 'text'){
+          node.getBBox = () => {
+            const width = node.textContent.length * 7;
+            return { x: Number(node.getAttribute('x')) - width / 2, y: Number(node.getAttribute('y')) - 6, width, height: 12 };
+          };
+        }
+        (target || svg).appendChild(node);
+        return node;
+      }
+    });
+    for(const axis of ['x', 'y', 'z']){
+      const line = svg.querySelector(`[data-axis-line][data-axis-key="${axis}"]`);
+      const start = { x: Number(line.getAttribute('x1')), y: Number(line.getAttribute('y1')) };
+      const end = { x: Number(line.getAttribute('x2')), y: Number(line.getAttribute('y2')) };
+      const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+      const length = Math.hypot(end.x - start.x, end.y - start.y);
+      let normal = { x: -(end.y - start.y) / length, y: (end.x - start.x) / length };
+      if(normal.x * (100 - midpoint.x) + normal.y * (100 - midpoint.y) > 0){
+        normal = { x: -normal.x, y: -normal.y };
+      }
+      const tick = svg.querySelector(`[data-axis-tick-label][data-axis-key="${axis}"]`);
+      const x = Number(tick.getAttribute('x'));
+      const y = Number(tick.getAttribute('y'));
+      const angle = Number(tick.getAttribute('transform').match(/rotate\(([^ ]+)/)[1]) * Math.PI / 180;
+      const box = tick.getBBox();
+      const projections = [box.x, box.x + box.width].flatMap(cx => [box.y, box.y + box.height].map(cy => {
+        const px = x + (cx - x) * Math.cos(angle) - (cy - y) * Math.sin(angle);
+        const py = y + (cx - x) * Math.sin(angle) + (cy - y) * Math.cos(angle);
+        return (px - start.x) * normal.x + (py - start.y) * normal.y;
+      }));
+      expect(Math.min(...projections)).toBeCloseTo(9, 6);
+      const title = svg.querySelector(`[data-axis-label][data-axis-key="${axis}"]`);
+      const titleX = Number(title.getAttribute('x'));
+      const titleY = Number(title.getAttribute('y'));
+      const titleAngle = Number(title.getAttribute('transform').match(/rotate\(([^ ]+)/)[1]) * Math.PI / 180;
+      const titleBox = title.getBBox();
+      const titleProjections = [titleBox.x, titleBox.x + titleBox.width].flatMap(cx => [titleBox.y, titleBox.y + titleBox.height].map(cy => {
+        const px = titleX + (cx - titleX) * Math.cos(titleAngle) - (cy - titleY) * Math.sin(titleAngle);
+        const py = titleY + (cx - titleX) * Math.sin(titleAngle) + (cy - titleY) * Math.cos(titleAngle);
+        return (px - midpoint.x) * normal.x + (py - midpoint.y) * normal.y;
+      }));
+      expect(Math.min(...titleProjections)).toBeCloseTo(Math.max(...projections) + expectedGap, 6);
+    }
+  });
+
   it('keeps axis titles and tick labels inside the requested label layer', () => {
     const { plot3d } = global.Shared;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -434,7 +536,7 @@ describe('Shared.plot3d helper', () => {
     plot3d.renderAxesAndGrid({
       svg,
       rotatePoint: point => point,
-      project: point => ({ x: 100 + point.x * 25, y: 100 - point.y * 25, depth: point.z }),
+      project: point => ({ x: 100 + point.x * 25 + point.z * 15, y: 100 - point.y * 25 - point.z * 15, depth: point.z }),
       axisRanges: {
         x: { min: -1, max: 1 },
         y: { min: -1, max: 1 },
@@ -452,6 +554,45 @@ describe('Shared.plot3d helper', () => {
     expect(labelLayer.querySelectorAll('[data-axis-tick-label]').length).toBeGreaterThan(0);
     expect(svg.querySelectorAll(':scope > [data-axis-label]').length).toBe(0);
     expect(svg.querySelectorAll(':scope > [data-axis-tick-label]').length).toBe(0);
+  });
+
+  it('keeps collapsed axis geometry without inventing overlapping annotations', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    global.Shared.plot3d.renderAxesAndGrid({
+      svg,
+      rotatePoint: point => point,
+      project: point => ({ x: 100 + point.x * 50, y: 100 - point.y * 50, depth: point.z }),
+      axisRanges: { x: { min: -1, max: 1 }, y: { min: -1, max: 1 }, z: { min: -1, max: 1 } },
+      axisTicks: { z: [-1, 0, 1] },
+      showFrame: false,
+      showGrid: false
+    });
+    expect(svg.querySelector('[data-axis-line][data-axis-key="z"]')).not.toBeNull();
+    expect(svg.querySelector('[data-axis-label][data-axis-key="z"]')).toBeNull();
+    expect(svg.querySelector('[data-axis-tick-label][data-axis-key="z"]')).toBeNull();
+    expect(svg.querySelectorAll('[data-axis-label]').length).toBe(2);
+  });
+
+  it('thins dense ticks using the bound font while retaining endpoints and axis geometry', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    global.Shared.plot3d.renderAxesAndGrid({
+      svg,
+      rotatePoint: point => point,
+      project: point => ({ x: 150 + point.x * 100, y: 150 - point.y * 100, depth: point.z }),
+      axisRanges: { x: { min: -1, max: 1 }, y: { min: -1, max: 1 }, z: { min: -1, max: 1 } },
+      axisTicks: { x: Array.from({ length: 21 }, (_, index) => (index - 10) / 10) },
+      onAxisTickLabel: node => node.setAttribute('font-size', '24'),
+      showFrame: false,
+      showGrid: false
+    });
+    const ticks = Array.from(svg.querySelectorAll('[data-axis-tick-label][data-axis-key="x"]'));
+    const visible = ticks.filter(node => node.getAttribute('display') !== 'none');
+    expect(visible.length).toBeGreaterThan(2);
+    expect(visible.length).toBeLessThan(ticks.length);
+    expect(visible).toContain(ticks[0]);
+    expect(visible).toContain(ticks[ticks.length - 1]);
+    const axis = svg.querySelector('[data-axis-line][data-axis-key="x"]');
+    expect(Math.abs(Number(axis.getAttribute('x2')) - Number(axis.getAttribute('x1')))).toBe(200);
   });
 
 });

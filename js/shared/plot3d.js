@@ -2,6 +2,8 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
+  // Cached geometry must match the graph frame and annotation spacing.
+  plot3d.FRAME_LAYOUT_VERSION = 3;
   const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
 
   function debugLog(){
@@ -23,7 +25,15 @@
 
   const TAU = Math.PI * 2;
   const NS = 'http://www.w3.org/2000/svg';
+  function resolveAxisTitleGap(fontSize, requestedGap){
+    if(Number.isFinite(requestedGap)){ return Math.max(0, requestedGap); }
+    return Shared.chartStyle?.createAxisMetrics?.(fontSize)?.axisTitleGap
+      ?? Math.max(2, Math.round(fontSize * 0.175));
+  }
   const activeRotationControls = new Set();
+  const rotationKeyboardShortcuts = 'Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown';
+  const rotationKeyboardDescription = 'Hold Shift and use the arrow keys to rotate the 3D graph.';
+  const rotationKeyboardRootAttributes = new WeakMap();
 
   function resolveAxisTickDecimalDigits(values){
     const ticks = Array.isArray(values)
@@ -476,9 +486,7 @@
       : (typeof chartStyle.resolveTickLabelGap === 'function'
         ? Math.max(0, Number(chartStyle.resolveTickLabelGap(fontSize)) || 0)
         : Math.max(2, Math.round(fontSize * 0.2)));
-    const axisTitleGap = Number.isFinite(Number(opts.axisTitleGap))
-      ? Math.max(0, Number(opts.axisTitleGap))
-      : Math.max(4, Math.round(fontSize * 0.75));
+    const axisTitleGap = resolveAxisTitleGap(fontSize, opts.axisTitleGap);
     const textHeight = size => Math.max(1, size * 1.2);
     const measure = (value, size) => {
       const text = value == null ? '' : String(value);
@@ -533,7 +541,8 @@
       const baselineTitle = String(titleBlock?.text ?? labels[axis] ?? axis.toUpperCase())
         .replace(/\r\n?/g, '\n')
         .split('\n')[0];
-      const title = measure(baselineTitle, fontSize);
+      const titleFontSize = Math.max(1, Number(titleBlock?.fontSize) || fontSize);
+      const title = measure(baselineTitle, titleFontSize);
       let maxTick = { width: 0, height: textHeight(tickFontSize), text: '' };
       const values = Array.isArray(ticks[axis]) ? ticks[axis] : [];
       values.forEach(value => {
@@ -543,21 +552,18 @@
           maxTick = { ...measured, text };
         }
       });
-      const tickDiagonal = Math.hypot(maxTick.width, maxTick.height);
-      const titleDiagonal = Math.hypot(title.width, title.height);
-      // Match renderAxesAndGrid's actual label placement. The old estimate
-      // added the full tick diagonal and an extra title gap, which reserved
-      // space twice and made the usable 3D frame unnecessarily small.
+      // Ticks face perpendicular to their axis, so their complete width
+      // extends outward from the tick clearance. Titles face along the
+      // axis; include their complete height beyond the title clearance.
+      // These radii cover every camera angle without changing on rotation.
       const tickCenterOffset = tickLength + tickLabelGap;
-      const tickRadius = tickDiagonal / 2;
-      const titleCenterOffset = Math.max(
-        fontSize * 1.2,
-        tickCenterOffset + tickFontSize + axisTitleGap
-      );
-      const titleRadius = titleDiagonal / 2;
+      const tickNormalExtent = tickCenterOffset + maxTick.width;
+      const tickRadius = Math.hypot(tickNormalExtent, maxTick.height / 2);
+      const titleNormalExtent = tickNormalExtent + axisTitleGap + title.height;
+      const titleRadius = Math.hypot(titleNormalExtent, title.width / 2);
       const reserve = Math.max(
-        tickCenterOffset + tickRadius,
-        titleCenterOffset + titleRadius
+        tickRadius,
+        titleRadius
       ) + (axisStrokeWidth / 2) + 2;
       maxReserve = Math.max(maxReserve, reserve);
       axisDiagnostics[axis] = {
@@ -925,6 +931,12 @@
         existingControl.managesGraphEditGesture = opts.managesGraphEditGesture === true;
         existingControl.ownerSession = nextOwnerSession;
         existingControl.componentKey = nextComponentKey;
+        existingControl.keyboardFocusTarget = opts.keyboardFocusTarget === true;
+        existingControl.keyboardLabel = String(opts.keyboardLabel || '3D graph');
+        plot3d.syncRotationKeyboardSemantics(svgEl, {
+          focusTarget: existingControl.keyboardFocusTarget,
+          label: existingControl.keyboardLabel
+        });
         if(!existingControl.pointerState?.active){
           clearManagedRotationClickSuppression(existingControl);
         }
@@ -948,6 +960,8 @@
       managesGraphEditGesture: opts.managesGraphEditGesture === true,
       ownerSession: opts.ownerSession || null,
       componentKey: String(opts.componentKey || '').trim(),
+      keyboardFocusTarget: opts.keyboardFocusTarget === true,
+      keyboardLabel: String(opts.keyboardLabel || '3D graph'),
       suppressNextClick: false,
       suppressClickGeneration: 0,
       bindingGeneration: 1,
@@ -958,6 +972,10 @@
     };
     svgEl.__plot3dRotationControl = control;
     svgEl.dataset.rotationControlsAttached = 'true';
+    plot3d.syncRotationKeyboardSemantics(svgEl, {
+      focusTarget: control.keyboardFocusTarget,
+      label: control.keyboardLabel
+    });
     svgEl.style.cursor = 'grab';
     svgEl.style.touchAction = 'none';
     svgEl.style.userSelect = 'none';
@@ -1019,6 +1037,39 @@
       ownerSession: control.ownerSession || null,
       componentKey: control.componentKey || ''
     });
+    control.rotateByKeyboard = event => {
+      const key = String(event?.key || '');
+      if(!event || !event.shiftKey || event.altKey || event.ctrlKey || event.metaKey
+        || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)
+        || pointerState.active || control.endingGesture){
+        return false;
+      }
+      const binding = captureBinding();
+      if(!isBindingOwnerActive(binding)){
+        return false;
+      }
+      const step = 12;
+      const dx = key === 'ArrowRight' ? step : key === 'ArrowLeft' ? -step : 0;
+      const dy = key === 'ArrowDown' ? step : key === 'ArrowUp' ? -step : 0;
+      const scale = binding.rotationScale || 0.01;
+      event.preventDefault?.();
+      invokeBindingCallback(binding, 'onStart', [event, binding.state]);
+      const state = binding.state;
+      const yawQuat = axisAngleQuaternion(0, 1, 0, dx * scale);
+      const pitchQuat = axisAngleQuaternion(1, 0, 0, dy * scale);
+      const deltaQuat = normalizeQuaternion(multiplyQuaternions(yawQuat, pitchQuat));
+      const currentQuat = ensureQuaternion(state);
+      state.quaternion = normalizeQuaternion(multiplyQuaternions(deltaQuat, currentQuat));
+      plot3d.normalizeRotation(state);
+      invokeBindingCallback(binding, 'onChange', [event, state, { reason: 'keyboard', key }]);
+      invokeBindingCallback(binding, 'onEnd', [event, state, {
+        reason: 'keyboard',
+        didMove: true,
+        canceled: false,
+        rolledBack: false
+      }]);
+      return true;
+    };
     const invokeBindingCallback = (binding, callbackName, args) => {
       const callback = binding?.[callbackName];
       if(typeof callback !== 'function'){
@@ -1195,40 +1246,81 @@
       stopDrag(evt, 'pointerleave', { canceled: true });
     });
     svgEl.addEventListener('lostpointercapture', function(evt){ stopDrag(evt, 'lostpointercapture', { canceled: true }); });
+    svgEl.addEventListener('keydown', function(evt){
+      if(evt?.target === svgEl){
+        control.rotateByKeyboard?.(evt);
+      }
+    });
   };
 
-  plot3d.resolveLegendShiftX = function(options){
-    const opts = options || {};
-    if(!opts.legendVisible){
-      return 0;
+  plot3d.rotateByKeyboard = function(svgEl, event){
+    return svgEl?.__plot3dRotationControl?.rotateByKeyboard?.(event) === true;
+  };
+
+  plot3d.syncRotationKeyboardSemantics = function(svgEl, options = {}){
+    if(!svgEl || typeof svgEl.setAttribute !== 'function'){
+      return false;
     }
-    const margin = opts.margin || {};
-    const marginLeft = Number.isFinite(margin.left) ? margin.left : 0;
-    const fontSize = Number.isFinite(opts.fontSize) ? opts.fontSize : 12;
-    const minLeftPadding = Number.isFinite(opts.minLeftPadding)
-      ? opts.minLeftPadding
-      : Math.max(fontSize * 1.4, 18);
-    const maxShift = Math.max(0, marginLeft - minLeftPadding);
-    if(maxShift <= 0){
-      return 0;
+    const root = svgEl.closest?.('.chart-point-navigation-root') || null;
+    const shortcuts = rotationKeyboardShortcuts;
+    if(root){
+      if(!rotationKeyboardRootAttributes.has(root)){
+        rotationKeyboardRootAttributes.set(root, {
+          ariaKeyshortcuts: root.getAttribute('aria-keyshortcuts'),
+          ariaDescription: root.getAttribute('aria-description')
+        });
+      }
+      const original = rotationKeyboardRootAttributes.get(root);
+      const originalShortcuts = original.ariaKeyshortcuts || '';
+      root.setAttribute('aria-keyshortcuts', [originalShortcuts, shortcuts].filter(Boolean).join(' '));
+      const originalDescription = original.ariaDescription || '';
+      root.setAttribute('aria-description', [originalDescription, rotationKeyboardDescription].filter(Boolean).join(' '));
+      root.dataset.plot3dKeyboardRotation = 'true';
+      if(svgEl.dataset.plot3dKeyboardTabstop === 'true'){
+        svgEl.removeAttribute('tabindex');
+        delete svgEl.dataset.plot3dKeyboardTabstop;
+      }
+      return true;
     }
-    const legendWidth = Number.isFinite(opts.legendWidth) ? opts.legendWidth : 0;
-    const baseShift = Math.max(fontSize * 1.6, 22);
-    const legendBoost = legendWidth > 0 ? Math.min(legendWidth * 0.15, fontSize * 1.6) : 0;
-    const desiredShift = baseShift + legendBoost;
-    const shift = -Math.min(maxShift, desiredShift);
-    if(shift !== 0){
-      debugLog('Debug: plot3d legend shift resolved', {
-        shift,
-        marginLeft,
-        minLeftPadding,
-        baseShift,
-        legendBoost,
-        desiredShift,
-        maxShift
-      });
+    if(options.focusTarget !== true){
+      return false;
     }
-    return shift;
+    if(!svgEl.__plot3dKeyboardOriginalAttributes){
+      svgEl.__plot3dKeyboardOriginalAttributes = {
+        tabindex: svgEl.getAttribute('tabindex'),
+        ariaKeyshortcuts: svgEl.getAttribute('aria-keyshortcuts'),
+        ariaDescription: svgEl.getAttribute('aria-description'),
+        ariaLabel: svgEl.getAttribute('aria-label')
+      };
+    }
+    if(!svgEl.hasAttribute('tabindex')){
+      svgEl.setAttribute('tabindex', '0');
+      svgEl.dataset.plot3dKeyboardTabstop = 'true';
+    }
+    const original = svgEl.__plot3dKeyboardOriginalAttributes;
+    svgEl.setAttribute('aria-keyshortcuts', [original.ariaKeyshortcuts, shortcuts].filter(Boolean).join(' '));
+    svgEl.setAttribute('aria-description', [original.ariaDescription, rotationKeyboardDescription].filter(Boolean).join(' '));
+    if(!original.ariaLabel && !svgEl.querySelector?.('title')){
+      svgEl.setAttribute('aria-label', `${String(options.label || '3D graph').trim()}. ${rotationKeyboardDescription}`);
+    }
+    return true;
+  };
+
+  plot3d.clearRotationKeyboardSemantics = function(root){
+    if(!root || !rotationKeyboardRootAttributes.has(root)){
+      return false;
+    }
+    const original = rotationKeyboardRootAttributes.get(root);
+    [['aria-keyshortcuts', original.ariaKeyshortcuts], ['aria-description', original.ariaDescription]].forEach(([name, value]) => {
+      if(value == null){
+        root.removeAttribute(name);
+      }else{
+        root.setAttribute(name, value);
+      }
+    });
+    delete root.dataset.plot3dKeyboardRotation;
+    rotationKeyboardRootAttributes.delete(root);
+    return true;
   };
 
   plot3d.createProjector = function(options){
@@ -1266,8 +1358,10 @@
     const uniformScale = Math.min(plotWidth / rangeX, plotHeight / rangeY);
     const scaledWidth = rangeX * uniformScale;
     const scaledHeight = rangeY * uniformScale;
-    const shiftX = Number.isFinite(opts.shiftX) ? opts.shiftX : 0;
-    const offsetX = (margin.left || 0) + (plotWidth - scaledWidth) / 2 + shiftX;
+    const horizontalSlack = Math.max(0, (plotWidth - scaledWidth) / 2);
+    // A requested legend offset can use spare space, never the axis margins.
+    const shiftX = clamp(Number.isFinite(opts.shiftX) ? opts.shiftX : 0, -horizontalSlack, horizontalSlack);
+    const offsetX = (margin.left || 0) + horizontalSlack + shiftX;
     const offsetY = (margin.top || 0) + (plotHeight - scaledHeight) / 2;
     const project = (pt) => {
       const x = Number.isFinite(pt?.x) ? pt.x : 0;
@@ -1398,28 +1492,13 @@
       : (typeof chartStyle.resolveTickLabelGap === 'function'
         ? chartStyle.resolveTickLabelGap(fontSize)
         : Math.max(2, Math.round(fontSize * 0.2)));
-    const axisTitleGap = Number.isFinite(cfg.axisTitleGap) ? cfg.axisTitleGap : Math.max(4, Math.round(fontSize * 0.75));
+    const axisTitleGap = resolveAxisTitleGap(fontSize, cfg.axisTitleGap);
     const tickTextColor = cfg.tickTextColor || chartStyle.TEXT_COLOR || '#333';
     const axisLabelColor = cfg.axisLabelColor || tickTextColor || chartStyle.TEXT_COLOR || '#333';
-    const makeTickFont = size => (typeof chartStyle.makeFont === 'function'
-      ? chartStyle.makeFont(size)
-      : `${size}px Arial, Helvetica, sans-serif`);
-
-    const readTextFontSize = (node, fallback) => {
-      if(!node){ return fallback; }
-      let raw = null;
-      try{ raw = node.getAttribute && node.getAttribute('font-size'); }catch(_err){ raw = null; }
-      if((raw === null || raw === undefined || raw === '') && node.style){
-        raw = node.style.fontSize;
-      }
-      const match = String(raw || '').match(/(-?\d*\.?\d+)/);
-      const numeric = match ? Number(match[1]) : NaN;
-      return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
-    };
     const axisTickLabelRegistry = {
-      x: { entries: [], angle: 0, unitAxis2d: null },
-      y: { entries: [], angle: 0, unitAxis2d: null },
-      z: { entries: [], angle: 0, unitAxis2d: null }
+      x: { entries: [] },
+      y: { entries: [] },
+      z: { entries: [] }
     };
     const axisLabelRegistry = { x: null, y: null, z: null };
     const fallbackAxisTickFormatters = {};
@@ -2017,9 +2096,10 @@
       const labelBasePos = project(labelRot);
       const axisVec2d = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
       const axisVecLength = Math.hypot(axisVec2d.x, axisVec2d.y);
-      const unitAxis2d = axisVecLength > 1e-6
-        ? { x: axisVec2d.x / axisVecLength, y: axisVec2d.y / axisVecLength }
-        : { x: 1, y: 0 };
+      // An edge-on axis has no screen direction or room for annotations.
+      // Keep its geometry, but do not invent a direction for its labels.
+      if(axisVecLength <= 1e-6){ continue; }
+      const unitAxis2d = { x: axisVec2d.x / axisVecLength, y: axisVec2d.y / axisVecLength };
       const perp2d = { x: -unitAxis2d.y, y: unitAxis2d.x };
       const axisMid3d = {
         x: (def.start.x + def.end.x) / 2,
@@ -2041,10 +2121,8 @@
       }
       const axisTickMeta = axisTickLabelRegistry[def.key];
       if(axisTickMeta){
-        axisTickMeta.angle = tickLabelAngle;
-        axisTickMeta.axisAngle = readableAngle;
-        axisTickMeta.unitAxis2d = unitAxis2d;
         axisTickMeta.outwardPerp = outwardPerp;
+        axisTickMeta.length = axisVecLength;
       }
       const tickValues = Array.isArray(def.ticks) ? def.ticks : [];
       const startAxisValue = Number(def.start[def.key]);
@@ -2124,9 +2202,7 @@
             if(axisTickMeta && tickLabelEl){
               axisTickMeta.entries.push({
                 el: tickLabelEl,
-                text: tickLabelEl.textContent || labelText,
-                fontSize: readTextFontSize(tickLabelEl, tickFontSize),
-                axisCoord: (tickPos.x * unitAxis2d.x) + (tickPos.y * unitAxis2d.y),
+                angle: tickLabelAngle,
                 tickPos: { x: tickPos.x, y: tickPos.y },
                 x: labelX,
                 y: labelY
@@ -2139,8 +2215,8 @@
       if(tickCount){
         debugLog('Debug: plot3d ticks rendered', { label: debugLabel, axis: def.key, count: tickCount });
       }
-      const minLabelOffset = tickLabelOffset + tickFontSize + axisTitleGap;
-      const offsetMagnitude = Math.max(fontSize * 1.2, minLabelOffset);
+      // The final position below uses the painted tick and title edges.
+      const offsetMagnitude = tickLabelOffset + axisTitleGap;
       const labelPos = {
         x: labelBasePos.x + outwardPerp.x * offsetMagnitude,
         y: labelBasePos.y + outwardPerp.y * offsetMagnitude
@@ -2172,8 +2248,7 @@
         el: axisLabelEl,
         basePos: axisMidPos,
         outwardPerp,
-        baseAngle: readableAngle,
-        baseOffset: offsetMagnitude
+        baseAngle: readableAngle
       };
       if(onAxisLabel){
         try {
@@ -2183,162 +2258,73 @@
         }
       }
     }
-    const measureTickLabel = (entryOrText) => {
-      const isEntry = entryOrText && typeof entryOrText === 'object';
-      const text = isEntry ? entryOrText.text : entryOrText;
-      const size = isEntry && Number.isFinite(Number(entryOrText.fontSize)) && Number(entryOrText.fontSize) > 0
-        ? Number(entryOrText.fontSize)
-        : tickFontSize;
-      if(typeof chartStyle.measureText === 'function'){
-        return chartStyle.measureText(text || '', makeTickFont(size));
-      }
-      return (String(text || '').length || 0) * size * 0.6;
-    };
-    const normalizeDeg = (deg) => {
-      let value = Number.isFinite(deg) ? deg : 0;
-      while(value <= -180){ value += 360; }
-      while(value > 180){ value -= 360; }
-      return value;
-    };
-      const tiltMax = Number.isFinite(cfg.tickLabelTiltMax) ? cfg.tickLabelTiltMax : 55;
-
-      const minGap = Number.isFinite(cfg.tickLabelMinGap) ? cfg.tickLabelMinGap : Math.max(2, Math.round(tickFontSize * 0.15));
-      const tickLabelClearance = Number.isFinite(cfg.tickLabelTickClearance)
-        ? cfg.tickLabelTickClearance
-        : tickLabelGap;
+    const tickLabelClearance = Number.isFinite(cfg.tickLabelTickClearance)
+      ? cfg.tickLabelTickClearance
+      : tickLabelGap;
     const axisKeys = ['x', 'y', 'z'];
+    // getBBox() is local to the text, before its rotation. Clearance must use
+    // the same projected corners as the rendered glyphs.
+    const readTextCorners = entry => {
+      const box = entry.el.getBBox();
+      const angle = entry.angle * Math.PI / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      return [
+        { x: box.x, y: box.y },
+        { x: box.x + box.width, y: box.y },
+        { x: box.x + box.width, y: box.y + box.height },
+        { x: box.x, y: box.y + box.height }
+      ].map(corner => {
+        const dx = corner.x - entry.x;
+        const dy = corner.y - entry.y;
+        return { x: entry.x + dx * cos - dy * sin, y: entry.y + dx * sin + dy * cos };
+      });
+    };
     for(let k = 0; k < axisKeys.length; k += 1){
       const axisKey = axisKeys[k];
       const meta = axisTickLabelRegistry[axisKey];
       const entries = meta && Array.isArray(meta.entries) ? meta.entries : [];
-      if(entries.length < 2){ continue; }
-      const unitAxis2d = meta.unitAxis2d || { x: 1, y: 0 };
-      const baseAngle = Number.isFinite(meta.angle) ? meta.angle : 0;
-      const axisAngle = Number.isFinite(meta.axisAngle) ? meta.axisAngle : baseAngle;
-      const baseRelDeg = Math.abs(normalizeDeg(baseAngle - axisAngle));
-      const sorted = entries.slice().sort((a, b) => (a.axisCoord || 0) - (b.axisCoord || 0));
-      let requiredAngle = 0;
-      let overlapPairs = 0;
-      for(let j = 1; j < sorted.length; j += 1){
-        const prev = sorted[j - 1];
-        const curr = sorted[j];
-        if(!prev || !curr){ continue; }
-        if(!Number.isFinite(prev.width)){
-          prev.width = measureTickLabel(prev);
-        }
-        if(!Number.isFinite(curr.width)){
-          curr.width = measureTickLabel(curr);
-        }
-        const spacing = (curr.axisCoord || 0) - (prev.axisCoord || 0);
-        const denom = prev.width + curr.width;
-        if(!(denom > 0)){ continue; }
-        const ratio = ((spacing - minGap) * 2) / denom;
-        if(ratio < 1){
-          const angle = Math.acos(clamp(ratio, 0, 1));
-          if(angle > requiredAngle){
-            requiredAngle = angle;
-          }
-          overlapPairs += 1;
-        }
-      }
-      if(requiredAngle <= 1e-3){ continue; }
-      const requiredDeg = requiredAngle * (180 / Math.PI);
-      const cappedRequiredDeg = Math.min(90, requiredDeg);
-      if(cappedRequiredDeg <= baseRelDeg + 0.1){ continue; }
-      const tiltDeg = Math.min(tiltMax, Math.max(0, cappedRequiredDeg - baseRelDeg));
-      if(tiltDeg <= 0.01){ continue; }
-      const relSign = normalizeDeg(baseAngle - axisAngle) >= 0 ? 1 : -1;
-      let appliedAngle = baseAngle + relSign * tiltDeg;
-      if(appliedAngle > 90 || appliedAngle < -90){
-        appliedAngle += appliedAngle > 0 ? -180 : 180;
-      }
-      const anchor = Math.abs(unitAxis2d.x) >= 0.2
-        ? (unitAxis2d.x >= 0 ? 'end' : 'start')
-        : 'middle';
+      const outwardPerp = meta?.outwardPerp;
+      if(!entries.length || !outwardPerp){ continue; }
+      const desiredMin = tickLength + tickLabelClearance;
+      let alignedCount = 0;
       for(let j = 0; j < entries.length; j += 1){
         const entry = entries[j];
         const el = entry && entry.el;
-        if(!el){ continue; }
-        const x = entry.x;
-        const y = entry.y;
-        if(!Number.isFinite(x) || !Number.isFinite(y)){ continue; }
-        el.setAttribute('transform', `rotate(${appliedAngle} ${x} ${y})`);
-        if(anchor !== 'middle'){
-          el.setAttribute('text-anchor', anchor);
-          el.setAttribute('dy', '0.35em');
+        const tickPos = entry && entry.tickPos;
+        if(!el || !tickPos || typeof el.getBBox !== 'function'){ continue; }
+        const corners = readTextCorners(entry);
+        let minProjection = Infinity;
+        for(let c = 0; c < corners.length; c += 1){
+          const corner = corners[c];
+          const dx = corner.x - tickPos.x;
+          const dy = corner.y - tickPos.y;
+          const projection = (dx * outwardPerp.x) + (dy * outwardPerp.y);
+          if(projection < minProjection){
+            minProjection = projection;
+          }
         }
+        if(!Number.isFinite(minProjection)){ continue; }
+        const shift = desiredMin - minProjection;
+        if(Math.abs(shift) <= 0.05){ continue; }
+        const x = entry.x + outwardPerp.x * shift;
+        const y = entry.y + outwardPerp.y * shift;
+        entry.x = x;
+        entry.y = y;
+        el.setAttribute('x', String(x));
+        el.setAttribute('y', String(y));
+        el.setAttribute('transform', `rotate(${entry.angle} ${x} ${y})`);
+        alignedCount += 1;
       }
-      debugLog('Debug: plot3d tick label tilt applied', {
-        label: debugLabel,
-        axis: axisKey,
-        baseAngle,
-        appliedAngle,
-        tiltDeg,
-        overlapPairs
-      });
-      if(cappedRequiredDeg > tiltMax + 0.01){
-        debugLog('Debug: plot3d tick label tilt capped', {
+      if(alignedCount){
+        debugLog('Debug: plot3d tick label offset updated', {
           label: debugLabel,
           axis: axisKey,
-          requiredDeg: cappedRequiredDeg,
-          tiltMax
+          desiredMin,
+          alignedCount
         });
       }
     }
-      for(let k = 0; k < axisKeys.length; k += 1){
-        const axisKey = axisKeys[k];
-        const meta = axisTickLabelRegistry[axisKey];
-        const entries = meta && Array.isArray(meta.entries) ? meta.entries : [];
-        const outwardPerp = meta?.outwardPerp;
-        if(!entries.length || !outwardPerp){ continue; }
-        const desiredMin = tickLength + tickLabelClearance;
-        let alignedCount = 0;
-        for(let j = 0; j < entries.length; j += 1){
-          const entry = entries[j];
-          const el = entry && entry.el;
-          const tickPos = entry && entry.tickPos;
-          if(!el || !tickPos || typeof el.getBBox !== 'function'){ continue; }
-          const box = el.getBBox();
-          const corners = [
-            { x: box.x, y: box.y },
-            { x: box.x + box.width, y: box.y },
-            { x: box.x, y: box.y + box.height },
-            { x: box.x + box.width, y: box.y + box.height }
-          ];
-          let minProjection = Infinity;
-          for(let c = 0; c < corners.length; c += 1){
-            const corner = corners[c];
-            const dx = corner.x - tickPos.x;
-            const dy = corner.y - tickPos.y;
-            const projection = (dx * outwardPerp.x) + (dy * outwardPerp.y);
-            if(projection < minProjection){
-              minProjection = projection;
-            }
-          }
-          if(!Number.isFinite(minProjection)){ continue; }
-          const shift = desiredMin - minProjection;
-          if(Math.abs(shift) <= 0.05){ continue; }
-          const x = entry.x + outwardPerp.x * shift;
-          const y = entry.y + outwardPerp.y * shift;
-          entry.x = x;
-          entry.y = y;
-          el.setAttribute('x', String(x));
-          el.setAttribute('y', String(y));
-          el.setAttribute('transform', `rotate(${meta.angle} ${x} ${y})`);
-          alignedCount += 1;
-        }
-        if(alignedCount){
-          debugLog('Debug: plot3d tick label offset updated', {
-            label: debugLabel,
-            axis: axisKey,
-            desiredMin,
-            alignedCount
-          });
-        }
-      }
-      const axisLabelPad = Number.isFinite(cfg.axisLabelTickGap)
-        ? cfg.axisLabelTickGap
-        : Math.max(6, Math.round(tickFontSize * 0.5));
     for(let k = 0; k < axisKeys.length; k += 1){
       const axisKey = axisKeys[k];
       const labelMeta = axisLabelRegistry[axisKey];
@@ -2350,13 +2336,7 @@
         const entry = tickEntries[j];
         const el = entry && entry.el;
         if(!el || typeof el.getBBox !== 'function'){ continue; }
-        const box = el.getBBox();
-        const corners = [
-          { x: box.x, y: box.y },
-          { x: box.x + box.width, y: box.y },
-          { x: box.x, y: box.y + box.height },
-          { x: box.x + box.width, y: box.y + box.height }
-        ];
+        const corners = readTextCorners(entry);
         for(let c = 0; c < corners.length; c += 1){
           const corner = corners[c];
           const dx = corner.x - labelMeta.basePos.x;
@@ -2367,21 +2347,75 @@
           }
         }
       }
-      const minOffset = Math.max(labelMeta.baseOffset || 0, maxProjection + axisTitleGap + axisLabelPad);
+      const titleX = Number(labelMeta.el.getAttribute('x'));
+      const titleY = Number(labelMeta.el.getAttribute('y'));
+      const titleCorners = readTextCorners({ el: labelMeta.el, angle: labelMeta.baseAngle, x: titleX, y: titleY });
+      const titleInnerExtent = Math.min(...titleCorners.map(corner =>
+        (corner.x - titleX) * labelMeta.outwardPerp.x + (corner.y - titleY) * labelMeta.outwardPerp.y));
+      const minOffset = maxProjection + axisTitleGap - titleInnerExtent;
       const labelPos = {
         x: labelMeta.basePos.x + labelMeta.outwardPerp.x * minOffset,
         y: labelMeta.basePos.y + labelMeta.outwardPerp.y * minOffset
       };
-      labelMeta.el.setAttribute('x', String(labelPos.x));
-      labelMeta.el.setAttribute('y', String(labelPos.y));
-      labelMeta.el.setAttribute('transform', `rotate(${labelMeta.baseAngle} ${labelPos.x} ${labelPos.y})`);
+      Shared.textBlock.setPosition(labelMeta.el, { ...labelPos, angle: labelMeta.baseAngle });
       debugLog('Debug: plot3d axis label offset updated', {
         label: debugLabel,
         axis: axisKey,
-        baseOffset: labelMeta.baseOffset,
         appliedOffset: minOffset,
         maxProjection
       });
+    }
+    // Publish a legible annotation set for this projection. Titles take
+    // precedence; endpoint values take precedence over interior ticks.
+    // Measurements include the actual font and multiline title formatting.
+    const spacing = Math.max(2, tickFontSize * 0.15);
+    const overlaps = (a, b) => {
+      for(const polygon of [a, b]){
+        for(let i = 0; i < polygon.length; i += 1){
+          const next = polygon[(i + 1) % polygon.length];
+          const edge = { x: next.x - polygon[i].x, y: next.y - polygon[i].y };
+          const length = Math.hypot(edge.x, edge.y);
+          if(!length){ continue; }
+          const normal = { x: -edge.y / length, y: edge.x / length };
+          const projectCorners = corners => corners.map(point => point.x * normal.x + point.y * normal.y);
+          const pa = projectCorners(a);
+          const pb = projectCorners(b);
+          if(Math.max(...pa) + spacing <= Math.min(...pb) || Math.max(...pb) + spacing <= Math.min(...pa)){
+            return false;
+          }
+        }
+      }
+      return true;
+    };
+    const selected = [];
+    const selectLabel = entry => {
+      const corners = readTextCorners(entry);
+      const visible = !selected.some(existing => overlaps(corners, existing));
+      if(visible){ selected.push(corners); }
+      else { entry.el.setAttribute('display', 'none'); }
+      return visible;
+    };
+    const orderedAxes = axisKeys.slice().sort((a, b) =>
+      (axisTickLabelRegistry[b].length || 0) - (axisTickLabelRegistry[a].length || 0));
+    const visibleAxes = orderedAxes.filter(key => {
+      const title = axisLabelRegistry[key];
+      if(!title){ return false; }
+      return selectLabel({
+        el: title.el,
+        angle: title.baseAngle,
+        x: Number(title.el.getAttribute('x')),
+        y: Number(title.el.getAttribute('y'))
+      });
+    });
+    for(const key of orderedAxes){
+      const entries = axisTickLabelRegistry[key].entries;
+      const candidates = entries.length > 1
+        ? [entries[0], entries[entries.length - 1], ...entries.slice(1, -1)]
+        : entries;
+      for(const entry of candidates){
+        if(visibleAxes.includes(key)){ selectLabel(entry); }
+        else { entry.el.setAttribute('display', 'none'); }
+      }
     }
     debugLog('Debug: plot3d axes rendered', { label: debugLabel });
     return {

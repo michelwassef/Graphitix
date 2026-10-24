@@ -200,6 +200,19 @@ describe('componentLifecycle — live projection authority', () => {
       component, projectedSession: sessionA, session: sessionA
     })).toBe(true);
   });
+
+  test('activation authority resolves a registered workspace tab object by its id and type', () => {
+    const rootA = document.createElement('section');
+    rootA.dataset.workspaceTabId = 'tab-a';
+    document.body.appendChild(rootA);
+    const component = { __componentKey: 'box', __boundTabId: 'tab-a' };
+    installWorkspace('tab-a', { 'tab-a': rootA });
+    const [activeTab, inactiveTab] = window.Main.session.workspaceState.tabs;
+
+    expect(lc.isOwnerActivationTarget('box', activeTab, { component })).toBe(true);
+    expect(lc.isOwnerActivationTarget('box', inactiveTab, { component })).toBe(false);
+    expect(lc.isOwnerActivationTarget('box', { id: 'tab-a' }, { component })).toBe(false);
+  });
 });
 
 describe('componentLifecycle — notes control ownership', () => {

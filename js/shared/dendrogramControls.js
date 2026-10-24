@@ -102,6 +102,12 @@
     );
   }
 
+  function isOwnerActive(config){
+    const ownerTabId = resolveConfigOwnerTabId(config);
+    const activeTabId = getActiveTabId();
+    return !!ownerTabId && !!activeTabId && ownerTabId === activeTabId;
+  }
+
   function configsMatch(a, b){
     if(!a || !b){ return false; }
     const orientationA = a.orientation || '';
@@ -251,7 +257,6 @@
       ariaLabel: 'Dendrogram controls'
     });
     panelEl = panelParts.panel;
-    panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.hidden = true;
     const row = panelParts.row;
@@ -260,7 +265,7 @@
     dendrogramGroup.className = 'dendrogram-controls-panel__summary';
     const dendrogramLabelTitle = doc.createElement('span');
     dendrogramLabelTitle.className = 'dendrogram-controls-panel__summary-label';
-    dendrogramLabelTitle.textContent = 'Dendrogram';
+    dendrogramLabelTitle.textContent = 'Scope';
     dendrogramLabelEl = doc.createElement('span');
     dendrogramLabelEl.className = 'dendrogram-controls-panel__summary-value';
     dendrogramGroup.appendChild(dendrogramLabelTitle);
@@ -281,7 +286,7 @@
     });
     const modeFieldParts = toolbarApi.createLabeledField({
       fieldClass: 'dendrogram-controls-panel__field',
-      label: 'Width mode',
+      label: 'Thickness mode',
       labelClass: 'dendrogram-controls-panel__field-label',
       control: modeSelect
     });
@@ -522,7 +527,6 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
-    panelEl.style.display = 'none';
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
     if(activeHost){
@@ -558,8 +562,13 @@
   }
 
   function openPanel(config){
+    const ownerTabId = resolveConfigOwnerTabId(config);
+    if(!config || !ownerTabId || !isOwnerActive({ ...config, ownerTabId })){
+      return false;
+    }
+    config = { ...config, ownerTabId };
     ensurePanel();
-    if(!panelEl){ return; }
+    if(!panelEl){ return false; }
     try {
       const fontControls = global.Shared?.fontControls;
       if(fontControls && typeof fontControls.close === 'function'){
@@ -581,28 +590,11 @@
     activeConfig = config;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
-      try{
-        if(host.__heatmapPaletteDocClickHandler && global.document){
-          global.document.removeEventListener('click', host.__heatmapPaletteDocClickHandler, true);
-          host.__heatmapPaletteDocClickHandler = null;
-        }
-        host.querySelectorAll('.heatmap-palette-controls-panel').forEach(node => {
-          const panel = node.closest ? node.closest('.workspace-toolbar__panel') : null;
-          if(panel && panel.parentNode){
-            panel.parentNode.removeChild(panel);
-            return;
-          }
-          if(node.parentNode){
-            node.parentNode.removeChild(node);
-          }
-        });
-        host.classList.remove('font-toolbar-host--heatmap-dual');
-      }catch(clearErr){
-        logDebug('heatmap palette clear failed before dendrogram open', { error: clearErr?.message || String(clearErr) });
+      if(host.__heatmapPaletteDocClickHandler && global.document){
+        global.document.removeEventListener('click', host.__heatmapPaletteDocClickHandler, true);
+        host.__heatmapPaletteDocClickHandler = null;
       }
-      if(panelEl.parentElement !== host){
-        host.appendChild(panelEl);
-      }
+      Shared.getWorkspaceToolbarApi().mountPanels(host, [panelEl]);
       clearHostSizing(host);
       showToolbarHost(host, 'font-toolbar-host--dendrogram', resolveConfigOwnerTabId(config));
       activeHost = host;
@@ -611,21 +603,28 @@
       logDebug('host unavailable for open',{ scopeId: config.scopeId });
     }
     updatePanelInputs(config);
-    panelEl.style.display = 'flex';
     panelEl.hidden = false;
     panelEl.dataset.open = '1';
     logDebug('panel opened',{ orientation: config.orientation, scopeId: config.scopeId });
+    return true;
   }
 
   function registerDendrogramElement(element, config){
     if(!element || !config){ return; }
+    const registeredConfig = {
+      ...config,
+      ownerTabId: resolveConfigOwnerTabId({ ...config, target: config.target || element })
+    };
+    element.__dendrogramControlConfig = registeredConfig;
     element.dataset.dendrogramControl = '1';
     element.style.cursor = 'pointer';
     const overlayInfo = ensureDendrogramOverlay(element);
     const handler = evt => {
       evt.preventDefault();
       evt.stopPropagation();
-      logDebug('dendrogram clicked',{ orientation: config.orientation, scopeId: config.scopeId });
+      const liveConfig = element.__dendrogramControlConfig || registeredConfig;
+      if(!isOwnerActive(liveConfig)){ return; }
+      logDebug('dendrogram clicked',{ orientation: liveConfig.orientation, scopeId: liveConfig.scopeId });
       try {
         const editHighlight = Shared.editHighlight;
         if(editHighlight && typeof editHighlight.highlightDendrogram === 'function'){
@@ -635,25 +634,34 @@
       } catch(highlightErr){
         console.error('dendrogramControls registerDendrogramElement highlight error', highlightErr);
       }
-      const ownerTabId = normalizeTabId(config.ownerTabId || config.tabId || resolveOwnerTabId(element) || getActiveTabId());
       openPanel({
-        orientation: config.orientation,
-        scopeId: config.scopeId,
-        ownerTabId,
-        getMode: config.getMode,
-        getThickness: config.getThickness,
-        getColor: config.getColor,
-        onModeChange: config.onModeChange,
-        onThicknessChange: config.onThicknessChange,
-        onColorChange: config.onColorChange
+        orientation: liveConfig.orientation,
+        scopeId: liveConfig.scopeId,
+        ownerTabId: liveConfig.ownerTabId,
+        getMode: liveConfig.getMode,
+        getThickness: liveConfig.getThickness,
+        getColor: liveConfig.getColor,
+        onModeChange: liveConfig.onModeChange,
+        onThicknessChange: liveConfig.onThicknessChange,
+        onColorChange: liveConfig.onColorChange
       });
     };
     element.addEventListener('click', handler);
     if(overlayInfo){
+      overlayInfo.element.__dendrogramControlConfig = registeredConfig;
       overlayInfo.element.addEventListener('click', handler);
     }
     logDebug('dendrogram element registered',{ orientation: config.orientation, scopeId: config.scopeId, overlay: overlayInfo ? overlayInfo.meta : null });
   }
+
+  dendrogramControls.deactivateTab = function deactivateTab(tabLike, meta = {}){
+    const tabId = normalizeTabId(tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike);
+    if(!tabId || !activeConfig || resolveConfigOwnerTabId(activeConfig) !== tabId){
+      return false;
+    }
+    closePanel(meta.reason || 'owner-deactivated');
+    return true;
+  };
 
   dendrogramControls.ensurePanel = ensurePanel;
   dendrogramControls.registerDendrogramElement = registerDendrogramElement;

@@ -19,6 +19,7 @@ function resolveScriptPath(rootDir, source) {
 }
 
 function resetProductionNamespaces() {
+  globalThis.window?.__GRAPHITIX_TEST_FIXTURE_LIFETIME__?.dispose();
   const targets = typeof window !== 'undefined' && globalThis !== window
     ? [window, globalThis]
     : [globalThis];
@@ -62,6 +63,10 @@ function loadProductionBootstrap(options = {}) {
   }
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     throw new Error('Production browser bootstrap requires a DOM environment');
+  }
+
+  if(options.fixtureLifetime===true){
+    require('./productionFixtureLifetime').installProductionFixtureLifetime(window);
   }
 
   const loaded = [];

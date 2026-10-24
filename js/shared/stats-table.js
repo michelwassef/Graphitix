@@ -1323,7 +1323,7 @@
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-    wrapper.appendChild(table);
+    mountTableViewport(wrapper, table, model.caption);
 
     if (model.footnotes.length) {
       const footnoteList = doc.createElement('div');
@@ -1570,10 +1570,28 @@
     return refreshed;
   };
 
-  // Re-mount the Download/Copy export controls for every stats-table card under `root`.
-  // Interactive controls cannot survive DOM serialization, so any restore path that
-  // replays a serialized stats panel (render-cache replay) leaves them dead/mangled; this
-  // rebuilds them from the card's live model when available, otherwise from its DOM.
+  // Keep overflow inside the semantic table; export menus remain outside it.
+  function mountTableViewport(card, table, caption) {
+    const parent = table.parentElement;
+    if (parent && parent.classList.contains('stats-table-viewport')) {
+      return parent;
+    }
+    const viewport = table.ownerDocument.createElement('div');
+    viewport.className = 'stats-table-viewport';
+    viewport.tabIndex = 0;
+    viewport.setAttribute('role', 'region');
+    viewport.setAttribute('aria-label', caption ? `${caption} table` : 'Statistics table');
+    if (parent === card) {
+      card.insertBefore(viewport, table);
+    } else {
+      card.appendChild(viewport);
+    }
+    viewport.appendChild(table);
+    return viewport;
+  }
+
+  // Re-mount controls after serialized-DOM restore, using the live model when
+  // available and reconstructing it from the saved table otherwise.
   statsTable.rehydrateExportControls = function rehydrateExportControls(root) {
     if (!root || typeof root.querySelectorAll !== 'function') {
       return 0;
@@ -1593,6 +1611,11 @@
         : reconstructModelFromCard(card);
       if (!model || !Array.isArray(model.columns) || !model.columns.length) {
         return;
+      }
+      // Cached cards from older files predate the table-only scroll region.
+      const table = card.querySelector('table.stats-table');
+      if (table) {
+        mountTableViewport(card, table, model.caption);
       }
       card.__statsTableModel = model;
       actions.innerHTML = '';

@@ -1,6 +1,7 @@
 'use strict';
 
 const { ensureJStatStub, activateWorkspace, getExampleData, flushAsyncWork } = require('../../test-support/uiEventsTestSetup');
+const { installSvgTextGeometry } = require('../setup/svgTextGeometry');
 
 describe('UI events: Histogram and statistics', () => {
 
@@ -316,13 +317,25 @@ describe('UI events: Histogram and statistics', () => {
   });
 
   test('Surface Plot: Load Example populates data', async () => {
-    await activateWorkspace('surface');
-    const btn = document.getElementById('surfaceLoadExample');
-    expect(btn).toBeTruthy();
-    btn.click();
-    await flushAsyncWork();
-    const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'surfaceHot');
-    expect(loads.length).toBeGreaterThan(0);
+    const restoreSvgTextGeometry = installSvgTextGeometry();
+    try {
+      await activateWorkspace('surface');
+      const btn = document.getElementById('surfaceLoadExample');
+      expect(btn).toBeTruthy();
+      btn.click();
+      await flushAsyncWork();
+      const surface = window.Components?.surface;
+      const readiness = await surface?.awaitReadyForSnapshot?.({
+        reason: 'surface-example-populates-data',
+        timeoutMs: 10000,
+        settleFrames: 1
+      });
+      expect(readiness?.ok).toBe(true);
+      const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'surfaceHot');
+      expect(loads.length).toBeGreaterThan(0);
+    } finally {
+      restoreSvgTextGeometry();
+    }
   });
 
   test('ROC: Load Example populates data', async () => {
@@ -427,19 +440,17 @@ describe('UI events: Histogram and statistics', () => {
     expect(typeof loadedData[0][2]).toBe('number');
     const directSummary = window.Components.survival.__testHooks?.collectSeries?.();
     expect(directSummary?.series?.length).toBeGreaterThan(1);
+    // Cox fitting is optional and user-triggered; calling draw alone does not
+    // request it, so this workload test invokes the production fitter directly.
     const start = performance.now();
-    await window.Components.survival.draw({ reason: 'test-survival-large-cox' });
+    const coxModel = window.Components.survival.__testHooks.fitCoxModel(directSummary, { enabled: true });
     const elapsed = performance.now() - start;
     expect(elapsed).toBeLessThan(5000);
-    const summary = state.lastSummary;
-    expect(Array.isArray(summary?.series)).toBe(true);
-    expect(summary.series.length).toBeGreaterThan(1);
-    expect(summary?.flags?.coxEnabled).toBe(true);
-    expect(summary?.coxModel?.available).toBe(true);
-    expect(summary?.coxModel?.debug?.recordCount).toBe(rows);
-    expect(summary?.coxModel?.debug?.eventGroupCount).toBeGreaterThan(0);
-    expect(summary?.coxModel?.debug?.maxRiskCount).toBeGreaterThan(0);
-    const prepared = window.Components.survival.__testHooks?.prepareCoxData(summary);
+    expect(coxModel.available).toBe(true);
+    expect(coxModel.debug?.recordCount).toBe(rows);
+    expect(coxModel.debug?.eventGroupCount).toBeGreaterThan(0);
+    expect(coxModel.debug?.maxRiskCount).toBeGreaterThan(0);
+    const prepared = window.Components.survival.__testHooks?.prepareCoxData(directSummary);
     expect(prepared?.available).toBe(true);
     expect(Array.isArray(prepared?.eventsByTime)).toBe(true);
     expect(prepared.eventsByTime.every(evt => evt && evt.riskSet === undefined)).toBe(true);

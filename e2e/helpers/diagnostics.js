@@ -498,24 +498,20 @@ async function clickAnalysisButtons(pageRoot, maxCount = 6) {
 
 async function adjustVisibleZoomControls(pageRoot) {
   const start = Date.now();
-  const zoomIn = pageRoot.locator('button[aria-label="Zoom in graph view"]:visible').first();
-  const zoomOut = pageRoot.locator('button[aria-label="Zoom out graph view"]:visible').first();
-  let zoomInClicks = 0;
-  let zoomOutClicks = 0;
-  if (await zoomIn.count()) {
-    await zoomIn.click().catch(() => {});
-    zoomInClicks += 1;
-    await waitForAnimationFrame(pageRoot.page(), 2);
-    await zoomIn.click().catch(() => {});
-    zoomInClicks += 1;
-    await waitForAnimationFrame(pageRoot.page(), 2);
+  const zoom = pageRoot.locator('input[aria-label="Zoom level percent"]:visible').first();
+  const present = await zoom.count() > 0;
+  let changes = 0;
+  if(present){
+    const initial = Number(await zoom.inputValue());
+    const bounds = await zoom.evaluate(input => ({ min: Number(input.min), max: Number(input.max) }));
+    for(const offset of [10, 20, 10]){
+      await zoom.fill(String(Math.min(bounds.max, Math.max(bounds.min, initial + offset))));
+      await zoom.press('Enter');
+      changes += 1;
+      await waitForAnimationFrame(pageRoot.page(), 2);
+    }
   }
-  if (await zoomOut.count()) {
-    await zoomOut.click().catch(() => {});
-    zoomOutClicks += 1;
-    await waitForAnimationFrame(pageRoot.page(), 2);
-  }
-  return { zoomInClicks, zoomOutClicks, durationMs: toMs(Date.now() - start) };
+  return { present, changes, durationMs: toMs(Date.now() - start) };
 }
 
 async function dragPanelResizer(page, pageRoot) {

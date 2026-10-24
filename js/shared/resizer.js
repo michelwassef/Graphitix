@@ -3,6 +3,11 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  function debugLog(...args){
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug(...args);
+    }
+  }
   const aspectLockNS = Shared.aspectLock = Shared.aspectLock || {};
   let resizerScopeCounter = 0;
 
@@ -247,7 +252,7 @@
         }) || invalidated;
       }
       if(invalidated){
-        console.debug('Debug: resizer start cache invalidation applied', {
+        debugLog('Debug: resizer start cache invalidation applied', {
           tabId: tab.id || null,
           component: opts.componentName || tab.type || null,
           reason
@@ -275,7 +280,7 @@
         reason: reason || 'resizer-aspect-lock'
       }) === true;
     if(restoreTransactionActive){
-      console.debug('Debug: resizer aspect lock tab persistence skipped during restore transaction', {
+      debugLog('Debug: resizer aspect lock tab persistence skipped during restore transaction', {
         tabId,
         component: componentName,
         aspectLocked: !!aspectLockedValue,
@@ -295,7 +300,7 @@
       && hasExplicitLayoutAspect
       && hasMatchingPayloadAspect
       && existingLayoutAspect !== (aspectLockedValue ? 'true' : 'false')){
-      console.debug('Debug: resizer aspect lock clean archive layout preserved from synthetic sync', {
+      debugLog('Debug: resizer aspect lock clean archive layout preserved from synthetic sync', {
         tabId,
         component: componentName,
         requestedAspectLocked: !!aspectLockedValue,
@@ -342,7 +347,7 @@
         type: componentName
       });
     }
-    console.debug('Debug: resizer aspect lock persisted to tab', {
+    debugLog('Debug: resizer aspect lock persisted to tab', {
       tabId,
       component: componentName,
       aspectLocked: !!aspectLockedValue,
@@ -423,6 +428,37 @@
 
   const undoManager = Shared.undoManager;
   const resizerNamespace = Shared.resizer = Shared.resizer || {};
+  function normalizeGraphView(view, legacyZoom = 1){
+    if(view?.mode === 'fit') return { version: 1, mode: 'fit' };
+    return { version: 1, mode: 'manual', zoomLevel: parsePositive(view?.zoomLevel) || parsePositive(legacyZoom) || 1 };
+  }
+
+  // The owner session holds viewing intent. Automatic fit scale is a local
+  // projection and must never become saved figure geometry or viewing intent.
+  resizerNamespace.getGraphViewState = function getGraphViewState(tabLike){
+    if(!normalizeTabId(typeof tabLike === 'object' ? tabLike?.id : tabLike)) return null;
+    const tab = Shared.workspaceTabs?.resolveTab?.(tabLike);
+    if(!tab?.id || !tab.type) return null;
+    const record = Shared.workspaceTabs.ensureSessionRecord?.(tab, tab.type, { reason: 'graph-view' });
+    if(!record) return null;
+    if(!record.runtime.graphView){
+      const layout = tab.layoutState;
+      record.runtime.graphView = layout
+        ? normalizeGraphView(layout.graphView, layout.svgBox?.dataset?.resizerZoomLevel || layout.svgBox?.dataset?.resizerZoom)
+        : { version: 1, mode: 'fit' };
+    }
+    return record.runtime.graphView;
+  };
+
+  resizerNamespace.restoreGraphViewState = function restoreGraphViewState(tabLike, layout){
+    if(!normalizeTabId(typeof tabLike === 'object' ? tabLike?.id : tabLike)) return null;
+    const tab = Shared.workspaceTabs?.resolveTab?.(tabLike);
+    if(!tab?.id || !tab.type) return null;
+    const record = Shared.workspaceTabs.ensureSessionRecord?.(tab, tab.type, { reason: 'graph-view-hydrate' });
+    if(!record) return null;
+    record.runtime.graphView = normalizeGraphView(layout?.graphView, layout?.svgBox?.dataset?.resizerZoomLevel || layout?.svgBox?.dataset?.resizerZoom);
+    return record.runtime.graphView;
+  };
   const displayOnlyZoomResizeRegistry = new WeakMap();
   const matchesDisplayOnlyZoomResize = (target, size = {}) => {
     const expected = target ? displayOnlyZoomResizeRegistry.get(target) : null;
@@ -555,12 +591,11 @@
       syncPanels,
       computeMinSvgWidth,
       onMinSvgWidth,
-      minTableWidth = 0,
       diagramSelector = '.diagram-area'
     } = opts || {};
     const label = debugLabel || panelResizer?.id || tablePanel?.id || 'panel';
     if(!panelResizer || !tablePanel || !graphPanel){
-      console.debug('Debug: Shared.resizer.attachPanelDragResizer skipped', {
+      debugLog('Debug: Shared.resizer.attachPanelDragResizer skipped', {
         label,
         hasPanelResizer: !!panelResizer,
         hasTable: !!tablePanel,
@@ -570,10 +605,176 @@
     }
     const doc = global.document;
     if(!doc){
-      console.debug('Debug: Shared.resizer.attachPanelDragResizer skipped (no document)', { label });
+      debugLog('Debug: Shared.resizer.attachPanelDragResizer skipped (no document)', { label });
       return { detach(){ /* no-op */ } };
     }
+    const resolveActiveResizeOwner = () => {
+      const ownerTab = resolveResizerTab(graphPanel || panelResizer || tablePanel, opts);
+      const activeTabId = normalizeTabId(
+        Shared.workspaceTabs?.resolveTab?.(null)?.id
+        || global.Main?.session?.workspaceState?.activeTabId
+        || global.Main?.session?.getActiveTab?.()?.id
+      );
+      const page = panelResizer.closest?.('.workspace-page') || null;
+      if(!ownerTab?.id || !activeTabId || normalizeTabId(ownerTab.id) !== activeTabId || page?.hidden){
+        return null;
+      }
+      return ownerTab;
+    };
+    const isVerticalPanelSplit = () => {
+      if(typeof global.getComputedStyle !== 'function'){ return false; }
+      try{
+        return String(global.getComputedStyle(panelResizer.parentElement)?.flexDirection || '').toLowerCase() === 'column';
+      }catch(_err){ return false; }
+    };
+    const resolvePanelSplitCapacity = (tableWidth, graphWidth) => {
+      if(isVerticalPanelSplit()){ return 0; }
+      const wrap = panelResizer.parentElement;
+      if(wrap && typeof global.getComputedStyle === 'function'){
+        try{
+          const wrapStyle = global.getComputedStyle(wrap);
+          const padding = (Number.parseFloat(wrapStyle.paddingLeft) || 0)
+            + (Number.parseFloat(wrapStyle.paddingRight) || 0);
+          const childGap = Number.parseFloat(wrapStyle.columnGap || wrapStyle.gap) || 0;
+          const wrapWidth = Number(wrap.clientWidth)
+            || Number(wrap.getBoundingClientRect?.()?.width);
+          const dividerWidth = Number(panelResizer.getBoundingClientRect?.()?.width);
+          const measured = wrapWidth - padding - (Number.isFinite(dividerWidth) ? dividerWidth : 0) - childGap * 2;
+          if(measured > 0){ return measured; }
+        }catch(_err){ /* use measured panel widths below */ }
+      }
+      const paneWidths = Number(tableWidth) + Number(graphWidth);
+      const dividerRectWidth = Number(panelResizer.getBoundingClientRect?.()?.width) || 0;
+      const dividerStyle = global.getComputedStyle ? global.getComputedStyle(panelResizer) : null;
+      const margins = (Number.parseFloat(dividerStyle?.marginLeft) || 0)
+        + (Number.parseFloat(dividerStyle?.marginRight) || 0);
+      return paneWidths + dividerRectWidth + margins;
+    };
+    const resolveConfiguredDividerGap = () => {
+      if(typeof global.getComputedStyle !== 'function'){ return 0; }
+      try{
+        const style = global.getComputedStyle(panelResizer);
+        const token = Number.parseFloat(style?.getPropertyValue?.('--panel-resizer-gap'));
+        if(Number.isFinite(token) && token >= 0){ return token; }
+        return Math.max(0, Number.parseFloat(style?.marginRight) || 0);
+      }catch(_err){ return 0; }
+    };
+    const resolveSplitBounds = capacity => ({
+      minTable: 0,
+      maxTable: Math.max(0, Number(capacity) || 0),
+      minPercent: 0,
+      maxPercent: 100,
+      valid: Number.isFinite(Number(capacity)) && Number(capacity) > 0
+    });
+    const updateSeparatorValue = (tableWidth, graphWidth) => {
+      const total = resolvePanelSplitCapacity(tableWidth, graphWidth);
+      if(!(total > 0)){ return; }
+      const value = Math.max(0, Math.min(100, Math.round(Number(tableWidth) / total * 100)));
+      Shared.componentLayout?.projectWorkspacePanelSplit?.(tablePanel, graphPanel, Number(tableWidth) / total);
+      panelResizer.setAttribute('aria-valuemin', '0');
+      panelResizer.setAttribute('aria-valuemax', '100');
+      panelResizer.setAttribute('aria-valuenow', String(value));
+      panelResizer.setAttribute('aria-valuetext', `Table ${value} percent; graph ${100 - value} percent`);
+    };
+    const applyPanelSizes = (context, proposedTable, reason) => {
+      const bounds = resolveSplitBounds(context.capacity);
+      if(!bounds.valid){ return null; }
+      const { maxTable } = bounds;
+      const newTable = Math.max(0, Math.min(maxTable, proposedTable));
+      const remaining = maxTable - newTable;
+      const resizerGap = Math.min(context.resizerGap, remaining);
+      const newGraph = Math.max(0, remaining - resizerGap);
+      const tablePx = `${Math.round(newTable)}px`;
+      const graphPx = `${Math.round(newGraph)}px`;
+      Object.assign(tablePanel.style, {
+        flex: `0 0 ${tablePx}`,
+        flexBasis: tablePx,
+        width: tablePx,
+        minWidth: '0px',
+        maxWidth: 'none'
+      });
+      Object.assign(graphPanel.style, {
+        flex: `0 0 ${graphPx}`,
+        flexBasis: graphPx,
+        width: graphPx,
+        minWidth: '0px',
+        maxWidth: 'none'
+      });
+      panelResizer.style.marginRight = `${resizerGap}px`;
+      Shared.componentLayout?.projectWorkspacePanelSplit?.(tablePanel, graphPanel, newTable / context.capacity);
+      tablePanel.dataset.panelManualWidth = 'true';
+      tablePanel.dataset.panelMinWidth = '0';
+      graphPanel.dataset.panelManualWidth = 'true';
+      if(typeof syncPanels === 'function'){
+        try{
+          syncPanels({
+            phase: 'drag',
+            source: context.source,
+            reason,
+            minSvgWidth: context.minSvgWidth,
+            newTable,
+            newGraph,
+            minTable: 0
+          });
+        }catch(err){
+          console.error('Shared.resizer.attachPanelDragResizer syncPanels error', err);
+        }
+      }
+      const actualTable = Number(tablePanel.getBoundingClientRect?.()?.width);
+      const actualGraph = Number(graphPanel.getBoundingClientRect?.()?.width);
+      updateSeparatorValue(actualTable, actualGraph);
+      return { newTable, newGraph };
+    };
+    const finishPanelResize = context => {
+      if(typeof syncPanels === 'function'){
+        try{
+          syncPanels({
+            phase: 'end',
+            source: context.source,
+            reason: `${label}-${context.source}-end`,
+            minSvgWidth: context.minSvgWidth
+          });
+        }catch(err){
+          console.error('Shared.resizer.attachPanelDragResizer syncPanels end error', err);
+        }
+      }
+      updateSeparatorValue(
+        Number(tablePanel.getBoundingClientRect?.()?.width),
+        Number(graphPanel.getBoundingClientRect?.()?.width)
+      );
+      const layoutCommitted = commitResizerPanelLayout(
+        graphPanel || panelResizer || tablePanel,
+        opts,
+        `${label}-${context.source}`
+      );
+      if(undoManager && typeof undoManager.captureTabState === 'function' && typeof undoManager.recordTabStateChange === 'function' && context.activeTabId && context.beforeTabState){
+        const afterTabState = undoManager.captureTabState(context.activeTabId, {
+          reason: `${label}-${context.source}-post`,
+          persistActive: true,
+          forcePreviewCapture: true
+        });
+        if(afterTabState){
+          undoManager.recordTabStateChange({
+            tabId: context.activeTabId,
+            label: `panel-layout:${label}`,
+            scope: label,
+            from: context.beforeTabState,
+            to: afterTabState,
+            undoReason: `${label}-${context.source}-undo`,
+            redoReason: `${label}-${context.source}-redo`
+          });
+        }
+      }
+      debugLog('Debug: Shared.resizer.attachPanelDragResizer resize end', {
+        label,
+        tabId: context.activeTabId || null,
+        source: context.source,
+        layoutCommitted
+      });
+    };
     const handlePointerDown = (event) => {
+      const resolvedPanelTab = resolveActiveResizeOwner();
+      if(!resolvedPanelTab){ return; }
       try{
         if(event?.preventDefault){ event.preventDefault(); }
       }catch(err){
@@ -584,7 +785,7 @@
       const startTable = rectTable?.width;
       const startGraph = rectGraph?.width;
       if(!Number.isFinite(startTable) || !Number.isFinite(startGraph)){
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer invalid start sizes', {
+        debugLog('Debug: Shared.resizer.attachPanelDragResizer invalid start sizes', {
           label,
           startTable,
           startGraph
@@ -592,7 +793,6 @@
         return;
       }
       const startX = Number(event?.clientX) || 0;
-      const resolvedPanelTab = resolveResizerTab(graphPanel || panelResizer || tablePanel || null, opts);
       const activeTabId = normalizeTabId(resolvedPanelTab?.id) || undoManager?.getActiveTabId?.() || null;
       const beforeTabState = (undoManager && typeof undoManager.captureTabState === 'function' && activeTabId)
         ? undoManager.captureTabState(activeTabId, {
@@ -631,155 +831,150 @@
           console.error('Shared.resizer.attachPanelDragResizer onMinSvgWidth error', err);
         }
       }
-      const total = startTable + startGraph;
+      const capacity = resolvePanelSplitCapacity(startTable, startGraph);
+      const resizerGap = resolveConfiguredDividerGap();
       const tableDataset = tablePanel.dataset || {};
-      const baseMinTable = Number.isFinite(minTableWidth) && minTableWidth >= 0 ? Math.round(minTableWidth) : 0;
-      if(!Number.isFinite(Number.parseFloat(tableDataset.panelDefaultWidth)) || Number.parseFloat(tableDataset.panelDefaultWidth) <= 0){
+      if(startTable > 0 && (!Number.isFinite(Number.parseFloat(tableDataset.panelDefaultWidth)) || Number.parseFloat(tableDataset.panelDefaultWidth) <= 0)){
         tableDataset.panelDefaultWidth = String(Math.round(startTable));
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer stored default', { label, defaultTableWidth: tableDataset.panelDefaultWidth }); // Debug: capture default width
+        debugLog('Debug: Shared.resizer.attachPanelDragResizer stored default', { label, defaultTableWidth: tableDataset.panelDefaultWidth }); // Debug: capture default width
       }
-      const minTable = baseMinTable;
-      tableDataset.panelMinWidth = String(minTable);
-      if(tablePanel?.style){
-        const existingMin = Number.parseFloat(tablePanel.style.minWidth) || 0;
-        const enforcedMin = Math.max(existingMin, minTable);
-        if(Number.isFinite(enforcedMin) && enforcedMin > 0 && enforcedMin !== existingMin){
-          tablePanel.style.minWidth = `${Math.round(enforcedMin)}px`;
-          console.debug('Debug: Shared.resizer.attachPanelDragResizer enforced table min', { label, enforcedMin, existingMin }); // Debug: align style minimum
-        }
-      }
-      console.debug('Debug: Shared.resizer.attachPanelDragResizer drag start', {
+      tableDataset.panelMinWidth = '0';
+      const context = { activeTabId, beforeTabState, minSvgWidth, capacity, resizerGap, source: 'panel-drag' };
+      debugLog('Debug: Shared.resizer.attachPanelDragResizer drag start', {
         label,
         startTable,
         startGraph,
         gap,
         minSvgWidth,
-        total
+        capacity,
+        resizerGap
       });
       const onMove = (ev) => {
         const clientX = Number(ev?.clientX) || 0;
         const dx = clientX - startX;
         const growRight = dx >= 0;
         const proposedTable = startTable + dx;
-        const clampedBase = Number.isFinite(total) ? Math.min(total, proposedTable) : proposedTable;
-        const newTable = Math.max(minTable, clampedBase);
-        const newGraph = Number.isFinite(total)
-          ? Math.max(0, total - newTable)
-          : Math.max(0, startGraph - dx);
-        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled() && Number.isFinite(total) && clampedBase !== proposedTable){
-          console.debug('Debug: Shared.resizer.attachPanelDragResizer table clamp', {
+        const sizes = applyPanelSizes(context, proposedTable, `${label}-panel-drag`);
+        if(!sizes){ return; }
+        const { newTable, newGraph } = sizes;
+        const clampedBase = Math.min(capacity, proposedTable);
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled() && clampedBase !== proposedTable){
+          debugLog('Debug: Shared.resizer.attachPanelDragResizer table clamp', {
             label,
             proposedTable,
             clampedTable: clampedBase,
-            total,
+            capacity,
             newTable,
             newGraph
           });
         }
-        if(tablePanel?.style){
-          const tablePx = `${Math.round(newTable)}px`;
-          tablePanel.style.flex = `0 0 ${tablePx}`;
-          tablePanel.style.flexBasis = tablePx;
-          tablePanel.style.width = tablePx;
-          tablePanel.style.minWidth = `${Math.round(minTable)}px`;
-          tablePanel.style.maxWidth = 'none';
-        }
-        if(graphPanel?.style){
-          const graphPx = `${Math.max(0, Math.round(newGraph))}px`;
-          graphPanel.style.flex = `0 0 ${graphPx}`;
-          graphPanel.style.flexBasis = graphPx;
-          graphPanel.style.width = graphPx;
-          graphPanel.style.minWidth = graphPx;
-          graphPanel.style.maxWidth = 'none';
-        }
-        if(tablePanel?.dataset){
-          tablePanel.dataset.panelManualWidth = 'true';
-        }
-        if(graphPanel?.dataset){
-          graphPanel.dataset.panelManualWidth = 'true';
-        }
-        if(typeof syncPanels === 'function'){
-          try{
-            syncPanels({
-              phase: 'drag',
-              source: 'panel-drag',
-              reason: `${label}-panel-drag`,
-              minSvgWidth,
-              newTable,
-              newGraph,
-              minTable
-            });
-          }catch(err){
-            console.error('Shared.resizer.attachPanelDragResizer syncPanels error', err);
-          }
-        }
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer drag move', {
+        debugLog('Debug: Shared.resizer.attachPanelDragResizer drag move', {
           label,
           dx,
           proposedTable,
           newTable,
           newGraph,
           growRight,
-          minTable,
+          minTable: 0,
           minSvgWidth
         });
       };
       const onUp = () => {
         doc.removeEventListener('pointermove', onMove);
         doc.removeEventListener('pointerup', onUp);
-        if(typeof syncPanels === 'function'){
-          try{
-            syncPanels({
-              phase: 'end',
-              source: 'panel-drag',
-              reason: `${label}-panel-drag-end`,
-              minSvgWidth
-            });
-          }catch(err){
-            console.error('Shared.resizer.attachPanelDragResizer syncPanels end error', err);
-          }
-        }
-        const layoutCommitted = commitResizerPanelLayout(
-          graphPanel || panelResizer || tablePanel,
-          opts,
-          `${label}-panel-drag`
-        );
-        if(undoManager && typeof undoManager.captureTabState === 'function' && typeof undoManager.recordTabStateChange === 'function' && activeTabId && beforeTabState){
-          const afterTabState = undoManager.captureTabState(activeTabId, {
-            reason: `${label}-panel-drag-post`,
-            persistActive: true,
-            forcePreviewCapture: true
-          });
-          if(afterTabState){
-            undoManager.recordTabStateChange({
-              tabId: activeTabId,
-              label: `panel-layout:${label}`,
-              scope: label,
-              from: beforeTabState,
-              to: afterTabState,
-              undoReason: `${label}-panel-drag-undo`,
-              redoReason: `${label}-panel-drag-redo`
-            });
-          }
-        }
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer drag end', {
-          label,
-          tabId: activeTabId || null,
-          layoutCommitted
-        });
+        finishPanelResize(context);
       };
       doc.addEventListener('pointermove', onMove);
       doc.addEventListener('pointerup', onUp);
     };
     panelResizer.addEventListener('pointerdown', handlePointerDown);
-    console.debug('Debug: Shared.resizer.attachPanelDragResizer attached', {
+    const handleKeyDown = event => {
+      if(event.target !== panelResizer || event.altKey || event.ctrlKey || event.metaKey){ return; }
+      const step = event.shiftKey ? 0.1 : 0.02;
+      let targetFraction;
+      if(event.key === 'ArrowLeft' || event.key === 'ArrowRight'){
+        const direction = event.key === 'ArrowLeft' ? -1 : 1;
+        targetFraction = direction * step;
+      }else if(event.key !== 'Home' && event.key !== 'End'){
+        return;
+      }
+      const ownerTab = resolveActiveResizeOwner();
+      if(!ownerTab){ return; }
+      event.preventDefault();
+      const currentTabId = normalizeTabId(ownerTab.id);
+      const startTable = Number(tablePanel.getBoundingClientRect?.()?.width);
+      const startGraph = Number(graphPanel.getBoundingClientRect?.()?.width);
+      if(!Number.isFinite(startTable) || !Number.isFinite(startGraph)){ return; }
+      const capacity = resolvePanelSplitCapacity(startTable, startGraph);
+      const resizerGap = resolveConfiguredDividerGap();
+      const splitBounds = resolveSplitBounds(capacity);
+      const { minTable, maxTable } = splitBounds;
+      if(!splitBounds.valid){ return; }
+      let minSvgWidth = 0;
+      if(typeof computeMinSvgWidth === 'function'){
+        try{
+          const computed = computeMinSvgWidth({ tablePanel, graphPanel, configPanel, debugLabel: label });
+          if(Number.isFinite(computed) && computed > 0){ minSvgWidth = computed; }
+        }catch(err){
+          console.error('Shared.resizer.attachPanelDragResizer computeMinSvgWidth error', err);
+        }
+      }
+      if(typeof onMinSvgWidth === 'function'){
+        try{ onMinSvgWidth(minSvgWidth); }
+        catch(err){ console.error('Shared.resizer.attachPanelDragResizer onMinSvgWidth error', err); }
+      }
+      const tableDataset = tablePanel.dataset || {};
+      if(startTable > 0 && (!Number.isFinite(Number.parseFloat(tableDataset.panelDefaultWidth)) || Number.parseFloat(tableDataset.panelDefaultWidth) <= 0)){
+        tableDataset.panelDefaultWidth = String(Math.round(startTable));
+      }
+      tableDataset.panelMinWidth = '0';
+      const beforeTabState = undoManager?.captureTabState?.(currentTabId, {
+        reason: `${label}-panel-keyboard-pre`,
+        persistActive: true,
+        forcePreviewCapture: true
+      }) || null;
+      const context = {
+        activeTabId: currentTabId,
+        beforeTabState,
+        minSvgWidth,
+        capacity,
+        resizerGap,
+        minTable: 0,
+        source: 'panel-keyboard'
+      };
+      const currentFraction = startTable / capacity;
+      const proposedTable = event.key === 'Home'
+        ? minTable
+        : (event.key === 'End' ? maxTable : Math.round(capacity * (currentFraction + targetFraction)));
+      const nextTable = Math.max(minTable, Math.min(maxTable, proposedTable));
+      if(Math.abs(nextTable - startTable) < 1 && panelResizer.dataset.panelSplitEdge !== (nextTable === 0 ? 'start' : (nextTable === capacity ? 'end' : ''))){ return; }
+      applyPanelSizes(context, nextTable, `${label}-panel-keyboard`);
+      finishPanelResize(context);
+    };
+    panelResizer.addEventListener('keydown', handleKeyDown);
+    let separatorResizeObserver = null;
+    if(typeof global.ResizeObserver === 'function'){
+      separatorResizeObserver = new global.ResizeObserver(() => updateSeparatorValue(
+        Number(tablePanel.getBoundingClientRect?.()?.width),
+        Number(graphPanel.getBoundingClientRect?.()?.width)
+      ));
+      separatorResizeObserver.observe(tablePanel);
+      separatorResizeObserver.observe(graphPanel);
+    }
+    updateSeparatorValue(
+      Number(tablePanel.getBoundingClientRect?.()?.width),
+      Number(graphPanel.getBoundingClientRect?.()?.width)
+    );
+    debugLog('Debug: Shared.resizer.attachPanelDragResizer attached', {
       label,
       hasSync: typeof syncPanels === 'function'
     }); // Debug: confirm helper wiring
     return {
       detach(){
         panelResizer.removeEventListener('pointerdown', handlePointerDown);
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer detached', { label }); // Debug: helper detach
+        panelResizer.removeEventListener('keydown', handleKeyDown);
+        separatorResizeObserver?.disconnect?.();
+        debugLog('Debug: Shared.resizer.attachPanelDragResizer detached', { label }); // Debug: helper detach
       }
     };
   };
@@ -803,32 +998,22 @@
     const svgNs = 'http://www.w3.org/2000/svg';
     const svg = doc.createElementNS(svgNs, 'svg');
     svg.setAttribute('class', 'resizer-options-icon');
-    svg.setAttribute('viewBox', '0 0 1280 1280');
+    svg.setAttribute('viewBox', '0 0 24 24');
     svg.setAttribute('aria-hidden', 'true');
     svg.setAttribute('focusable', 'false');
-    const group = doc.createElementNS(svgNs, 'g');
-    group.setAttribute('transform', 'translate(0,1280) scale(0.1,-0.1)');
-    group.setAttribute('fill', 'currentColor');
-    group.setAttribute('stroke', 'none');
-    const path = doc.createElementNS(svgNs, 'path');
-    path.setAttribute('d', 'M5860 12792 c0 -4 -29 -174 -65 -377 -36 -204 -95 -541 -131 -750 -37 -209 -68 -381 -69 -383 -1 -1 -61 -14 -133 -27 -233 -45 -467 -108 -691 -187 -110 -38 -114 -39 -131 -21 -9 10 -225 268 -480 573 -255 305 -470 563 -480 573 -16 17 -38 5 -476 -248 -252 -146 -460 -269 -462 -274 -2 -5 115 -332 259 -727 l262 -717 -40 -36 c-289 -261 -333 -304 -614 -615 l-36 -39 -704 257 c-387 142 -714 258 -726 259 -19 2 -58 -61 -288 -457 -253 -438 -265 -460 -248 -476 10 -10 270 -228 578 -485 308 -257 566 -473 573 -479 10 -10 5 -35 -27 -127 -85 -249 -141 -456 -185 -688 -14 -74 -27 -135 -28 -136 -2 -1 -174 -32 -383 -69 -209 -36 -546 -95 -750 -131 -203 -36 -373 -65 -377 -65 -4 0 -8 -243 -8 -540 0 -297 4 -540 8 -540 4 0 174 -29 377 -65 204 -36 541 -95 750 -131 209 -37 381 -68 383 -69 1 -1 14 -62 28 -136 44 -232 100 -439 185 -688 32 -92 37 -117 27 -127 -7 -6 -265 -222 -573 -479 -308 -257 -568 -475 -578 -485 -17 -16 -5 -38 248 -476 230 -396 269 -459 288 -457 12 1 339 117 726 259 l704 257 36 -39 c281 -311 325 -354 614 -615 l40 -36 -262 -717 c-144 -395 -261 -722 -259 -727 2 -5 210 -128 462 -274 438 -253 460 -265 476 -248 10 10 225 268 480 573 255 305 471 563 480 573 17 18 21 17 131 -21 224 -79 458 -142 691 -187 72 -13 132 -26 133 -27 1 -2 32 -174 69 -383 36 -209 95 -546 131 -750 36 -203 65 -373 65 -377 0 -4 242 -8 538 -8 l538 0 52 292 c28 161 88 502 133 758 44 256 82 466 84 468 1 1 69 16 151 32 254 50 420 94 673 181 92 32 117 37 127 27 6 -7 222 -265 479 -573 257 -308 475 -568 485 -578 16 -17 38 -5 476 248 252 146 460 269 462 274 2 7 -163 465 -465 1290 l-57 154 65 56 c217 190 384 356 570 570 l55 64 185 -67 c708 -260 1250 -456 1257 -456 5 0 94 147 198 327 103 181 223 388 266 462 63 108 76 137 66 146 -7 7 -267 225 -578 485 -311 260 -571 478 -578 484 -10 10 -5 35 27 127 84 246 150 491 191 712 12 64 26 117 30 117 4 0 227 38 496 85 269 47 604 106 744 130 140 25 258 45 262 45 5 0 8 243 8 540 0 297 -4 540 -8 540 -4 0 -172 29 -372 64 -201 35 -539 95 -752 132 l-387 68 -21 115 c-41 219 -107 465 -191 710 -32 92 -37 117 -27 127 7 6 267 224 578 484 311 260 571 478 578 485 10 9 -3 38 -66 146 -43 74 -163 281 -266 462 -104 180 -193 327 -198 327 -7 0 -549 -196 -1257 -456 l-185 -67 -55 64 c-186 214 -353 380 -570 570 l-65 56 57 154 c302 825 467 1283 465 1290 -2 5 -210 128 -462 274 -438 253 -460 265 -476 248 -10 -10 -228 -270 -485 -578 -257 -308 -473 -566 -479 -573 -10 -10 -35 -5 -127 27 -253 87 -419 131 -673 181 -82 16 -150 31 -151 32 -2 2 -40 212 -84 468 -45 256 -105 597 -133 758 l-52 292 -538 0 c-296 0 -538 -4 -538 -8z');
-    group.appendChild(path);
-    svg.appendChild(group);
-    // Centre hub: a small dark dot reads as the gear's axle, adding depth
-    // without re-opening the hollow centre. Crisp, no blur. Centre is 640,640
-    // in the 1280 viewBox.
-    const hubRing = doc.createElementNS(svgNs, 'circle');
-    hubRing.setAttribute('class', 'resizer-options-icon-hub-ring');
-    hubRing.setAttribute('cx', '640');
-    hubRing.setAttribute('cy', '640');
-    hubRing.setAttribute('r', '320');
-    svg.appendChild(hubRing);
-    const hub = doc.createElementNS(svgNs, 'circle');
-    hub.setAttribute('class', 'resizer-options-icon-hub');
-    hub.setAttribute('cx', '640');
-    hub.setAttribute('cy', '640');
-    hub.setAttribute('r', '160');
-    svg.appendChild(hub);
+
+    const tracks = doc.createElementNS(svgNs, 'path');
+    tracks.setAttribute('d', 'M4 6h16M4 12h16M4 18h16');
+    svg.appendChild(tracks);
+
+    [[8, 6], [15, 12], [11, 18]].forEach(([x, y]) => {
+      const knob = doc.createElementNS(svgNs, 'circle');
+      knob.setAttribute('class', 'resizer-options-icon-knob');
+      knob.setAttribute('cx', String(x));
+      knob.setAttribute('cy', String(y));
+      knob.setAttribute('r', '1.75');
+      svg.appendChild(knob);
+    });
     return svg;
   }
 
@@ -839,6 +1024,69 @@
     Array.from(menu.querySelectorAll('.resizer-axeslength-control')).forEach(control => {
       control.setAttribute('open', '');
     });
+  }
+
+  function resetGraphOptionsMenuViewportOffset(menu){
+    if(!menu?.style){
+      return;
+    }
+    menu.style.removeProperty('--resizer-options-shift-x');
+    menu.style.removeProperty('--resizer-options-shift-y');
+  }
+
+  function updateGraphOptionsMenuViewportOffset(menu){
+    if(!menu?.style || typeof menu.getBoundingClientRect !== 'function'){
+      return;
+    }
+    const getViewportCorrection = Shared.menuPosition?.getViewportCorrection;
+    if(typeof getViewportCorrection !== 'function'){
+      return;
+    }
+    const doc = menu.ownerDocument;
+    const win = doc?.defaultView || global;
+    const viewportWidth = Number(win.innerWidth || doc?.documentElement?.clientWidth || 0);
+    const viewportHeight = Number(win.innerHeight || doc?.documentElement?.clientHeight || 0);
+    if(viewportWidth <= 0 || viewportHeight <= 0){
+      return;
+    }
+
+    resetGraphOptionsMenuViewportOffset(menu);
+    const rect = menu.getBoundingClientRect();
+    const correction = getViewportCorrection(rect, { viewportWidth, viewportHeight });
+    menu.style.setProperty('--resizer-options-shift-x', `${correction.x}px`);
+    menu.style.setProperty('--resizer-options-shift-y', `${correction.y}px`);
+  }
+
+  function syncGraphOptionsMenuViewportTracking(control, doc, open){
+    if(!control){
+      return;
+    }
+    const win = doc?.defaultView || global;
+    if(!control.__resizerOptionsViewportHandler){
+      control.__resizerOptionsViewportHandler = () => {
+        const menu = control.querySelector('.resizer-options-menu');
+        if(control.hasAttribute('open')){
+          updateGraphOptionsMenuViewportOffset(menu);
+        }else{
+          resetGraphOptionsMenuViewportOffset(menu);
+        }
+      };
+      control.__resizerOptionsViewportWindow = win;
+    }
+    const handler = control.__resizerOptionsViewportHandler;
+    const viewportWindow = control.__resizerOptionsViewportWindow || win;
+    if(open && !control.__resizerOptionsViewportTracking){
+      viewportWindow.addEventListener('resize', handler);
+      viewportWindow.addEventListener('scroll', handler, true);
+      control.__resizerOptionsViewportTracking = true;
+    }else if(!open){
+      if(control.__resizerOptionsViewportTracking){
+        viewportWindow.removeEventListener('resize', handler);
+        viewportWindow.removeEventListener('scroll', handler, true);
+        control.__resizerOptionsViewportTracking = false;
+      }
+      resetGraphOptionsMenuViewportOffset(control.querySelector('.resizer-options-menu'));
+    }
   }
 
   const AXIS_TITLE_ROLES = ['xTitle', 'yTitle', 'zTitle'];
@@ -859,15 +1107,15 @@
     return !!svgBox?.querySelector?.(AXIS_TITLE_SELECTOR);
   }
 
-  function syncTitleVisibilityControls(svgBox, opts){
+  function syncTitleVisibilityControls(svgBox, opts, menu){
     const fontControls = Shared.fontControls;
     const scopeId = String(opts?.componentName || '').trim();
     if(!svgBox || !scopeId || typeof fontControls?.areRolesVisible !== 'function'){
       return;
     }
     const tabId = resolveTitleVisibilityTabId(svgBox, opts);
-    const graphInput = svgBox.querySelector('.resizer-graph-title-checkbox');
-    const axesInput = svgBox.querySelector('.resizer-axes-title-checkbox');
+    const graphInput = menu.querySelector('.resizer-graph-title-checkbox');
+    const axesInput = menu.querySelector('.resizer-axes-title-checkbox');
     const axesControl = axesInput?.closest('.resizer-title-control');
     if(graphInput){
       graphInput.checked = fontControls.areRolesVisible(scopeId, 'graphTitle', { tabId });
@@ -915,7 +1163,8 @@
     }
     const setup = ensureGraphOptionsMenu(svgBox, doc, {
       debugLabel: `${scopeId}-title-options`,
-      title: 'Graph options'
+      title: 'Graph options',
+      controlsHost: opts?.controlsHost
     });
     if(!setup?.menu){
       return;
@@ -950,7 +1199,7 @@
           undoLabel: `title-visibility:${className === 'resizer-graph-title-control' ? 'graph' : 'axes'}`,
           undoScope: svgBox.closest?.('.panel')?.id || scopeId
         });
-        syncTitleVisibilityControls(svgBox, opts);
+        syncTitleVisibilityControls(svgBox, opts, setup.menu);
       };
       input?.addEventListener('change', onChange);
       if(input){
@@ -961,9 +1210,9 @@
     ensureControl('resizer-graph-title-control', 'Show graph title', 'graphTitle');
     ensureControl('resizer-axes-title-control', 'Show axes titles', AXIS_TITLE_ROLES);
     normalizeGraphOptionsMenuOrder(setup);
-    setup.control.__resizerTitleVisibilitySync = () => syncTitleVisibilityControls(svgBox, opts);
+    setup.control.__resizerTitleVisibilitySync = () => syncTitleVisibilityControls(svgBox, opts, setup.menu);
     ensureAxisTitleApplicabilityObserver(svgBox, setup.control);
-    syncTitleVisibilityControls(svgBox, opts);
+    syncTitleVisibilityControls(svgBox, opts, setup.menu);
   }
 
   const GRAPH_OPTIONS_ORDER = Object.freeze([
@@ -1014,16 +1263,64 @@
     });
   }
 
+  function resolveGraphControlsHost(svgBox, opts = {}){
+    if(opts.controlsHost && typeof opts.controlsHost.querySelector === 'function'){
+      return opts.controlsHost;
+    }
+    const frame = svgBox?.closest?.('.graph-frame');
+    return frame?.querySelector?.(':scope > .graph-controls-header') || svgBox;
+  }
+
+  function resolveGraphControlTray(svgBox, opts = {}){
+    const host = resolveGraphControlsHost(svgBox, opts);
+    return host?.querySelector?.(':scope > .resizer-control-tray') || null;
+  }
+
+  function syncGraphResizeBoundary(svgBox){
+    const frame = svgBox?.closest?.('.graph-frame');
+    if(!frame){ return; }
+    const boxRect = svgBox.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    const reserve = side => Number.parseFloat(svgBox.style.getPropertyValue(`--graph-content-extra-${side}`)) || 0;
+    // The header is outside the resize surface. Compare its other three edges
+    // with the already-published content envelope, never with SVG text bounds.
+    const detached = boxRect.width > 0 && frameRect.width > 0 && (
+      Math.abs(boxRect.left - reserve('left') - frameRect.left) > 1.5
+      || Math.abs(boxRect.right + reserve('right') - frameRect.right) > 1.5
+      || Math.abs(boxRect.bottom + reserve('bottom') - frameRect.bottom) > 1.5
+    );
+    frame.toggleAttribute('data-graph-resize-detached', detached);
+  }
+
+  function syncGraphFramePresentation(svgBox){
+    const frame = svgBox?.closest?.('.graph-frame');
+    if(!frame || !svgBox){
+      return;
+    }
+    const background = global.getComputedStyle?.(svgBox)?.backgroundColor;
+    // A transparent graph body uses the standard white frame surface.
+    const surface = background && background !== 'rgba(0, 0, 0, 0)' && background !== 'transparent'
+      ? background
+      : '#ffffff';
+    frame.style.setProperty('--graph-frame-surface', surface);
+    const exportControls = frame.nextElementSibling?.classList?.contains('graph-export-controls')
+      ? frame.nextElementSibling
+      : null;
+    exportControls?.style?.setProperty('--graph-export-seam-color', surface);
+    syncGraphResizeBoundary(svgBox);
+  }
+
   function ensureGraphOptionsMenu(svgBox, doc, opts = {}){
     if(!svgBox || !doc){
       return null;
     }
-    let tray = svgBox.querySelector('.resizer-control-tray');
+    const controlsHost = resolveGraphControlsHost(svgBox, opts);
+    let tray = resolveGraphControlTray(svgBox, opts);
     if(!tray){
       tray = doc.createElement('div');
       tray.className = 'resizer-control-tray';
-      svgBox.appendChild(tray);
-      console.debug('Debug: resizer options tray created', {
+      controlsHost.appendChild(tray);
+      debugLog('Debug: resizer options tray created', {
         label: opts.debugLabel || null,
         trayChildren: tray.childElementCount
       });
@@ -1045,7 +1342,7 @@
       control.appendChild(summary);
       control.appendChild(menu);
       tray.insertBefore(control, tray.firstChild || null);
-      console.debug('Debug: resizer options menu created', {
+      debugLog('Debug: resizer options menu created', {
         label: opts.debugLabel || null,
         trayChildren: tray.childElementCount
       });
@@ -1064,8 +1361,13 @@
       const onToggle = () => {
         if(control.hasAttribute('open')){
           closeSiblingOptionsMenus(control);
+          control.__resizerSyncGraphSizeControls?.();
           openAxesLengthOptionsInMenu(control.querySelector('.resizer-options-menu'));
           control.__resizerTitleVisibilitySync?.();
+          syncGraphOptionsMenuViewportTracking(control, doc, true);
+          control.__resizerOptionsViewportHandler?.();
+        }else{
+          syncGraphOptionsMenuViewportTracking(control, doc, false);
         }
       };
       control.addEventListener('toggle', onToggle);
@@ -1100,6 +1402,7 @@
     }
     const setup = {
       tray,
+      controlsHost,
       control,
       summary: control.querySelector('.resizer-options-summary'),
       menu: control.querySelector('.resizer-options-menu')
@@ -1113,6 +1416,15 @@
       });
       observer.observe(tray, { childList: true });
       tray.__resizerOptionsObserver = observer;
+    }
+    if(setup.menu && !control.__resizerOptionsMenuSizeObserver && typeof global.ResizeObserver === 'function'){
+      const observer = new global.ResizeObserver(() => {
+        if(control.hasAttribute('open')){
+          updateGraphOptionsMenuViewportOffset(setup.menu);
+        }
+      });
+      observer.observe(setup.menu);
+      control.__resizerOptionsMenuSizeObserver = observer;
     }
     return setup;
   }
@@ -1131,7 +1443,7 @@
       if(optionControl.classList?.contains('resizer-axeslength-control')){
         optionControl.setAttribute('open', '');
       }
-      console.debug('Debug: resizer option moved into menu', {
+      debugLog('Debug: resizer option moved into menu', {
         label: opts.debugLabel || null,
         className: optionControl.className || null,
         menuChildren: setup.menu.childElementCount
@@ -1146,7 +1458,7 @@
     if(!svgBox || !menu){
       return;
     }
-    const tray = setup.tray || svgBox.querySelector('.resizer-control-tray');
+    const tray = setup.tray || resolveGraphControlTray(svgBox, opts);
     if(!tray){
       return;
     }
@@ -1156,10 +1468,10 @@
           return;
         }
         menu.appendChild(control);
-        if(control.classList?.contains('resizer-axeslength-control')){
+        if(control.classList?.contains('resizer-axeslength-control') && setup.control?.hasAttribute('open')){
           openAxesLengthOptionsInMenu(menu);
         }
-        console.debug('Debug: resizer known option moved into menu', {
+        debugLog('Debug: resizer known option moved into menu', {
           label: opts.debugLabel || null,
           selector,
           menuChildren: menu.childElementCount
@@ -1180,6 +1492,30 @@
     return setup;
   };
 
+  resizerNamespace.getGraphControlsHost = function getGraphControlsHost(options = {}){
+    return resolveGraphControlsHost(options.svgBox || null, options);
+  };
+
+  resizerNamespace.getGraphControlTray = function getGraphControlTray(options = {}){
+    return resolveGraphControlTray(options.svgBox || null, options);
+  };
+
+  resizerNamespace.syncGraphFramePresentation = syncGraphFramePresentation;
+
+  resizerNamespace.closeTransientUiForRoot = function closeTransientUiForRoot(root){
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return 0;
+    }
+    const selector = '.resizer-options-control[open], .resizer-axeslength-control[open]';
+    const openControls = [];
+    if(root.matches?.(selector)){
+      openControls.push(root);
+    }
+    openControls.push(...Array.from(root.querySelectorAll(selector)));
+    openControls.forEach(control => control.removeAttribute('open'));
+    return openControls.length;
+  };
+
   resizerNamespace.ensureLegendControlPlacement = function ensureLegendControlPlacement(options){
     const opts = options || {};
     const svgBox = opts.svgBox;
@@ -1189,7 +1525,8 @@
     }
     const setup = moveGraphOptionIntoMenu(svgBox, control, {
       debugLabel: opts.debugLabel || 'legend-option',
-      title: 'Graph options'
+      title: 'Graph options',
+      controlsHost: opts.controlsHost
     });
     if(!setup){
       return null;
@@ -1211,20 +1548,10 @@
     const style = Shared.chartStyle || {};
     const widthCandidate = Number(style.DEFAULT_WIDTH);
     if(Number.isFinite(widthCandidate) && widthCandidate > 0){
-      console.debug('Debug: resizer resolveSquareSize using chartStyle', { label, widthCandidate }); // Debug: use chartStyle width
+      debugLog('Debug: resizer resolveSquareSize using chartStyle', { label, widthCandidate }); // Debug: use chartStyle width
       return widthCandidate;
     }
-    const doc = global.document || null;
-    const winWidth = Number(global.innerWidth) || 0;
-    const docWidth = doc?.documentElement?.clientWidth || 0;
-    const bodyWidth = doc?.body?.clientWidth || 0;
-    let reference = Math.max(winWidth, docWidth, bodyWidth);
-    if(!Number.isFinite(reference) || reference <= 0){
-      reference = 960;
-    }
-    const normalized = Math.max(256, Math.round((reference / 3) * 0.8));
-    console.debug('Debug: resizer resolveSquareSize fallback', { label, reference, normalized }); // Debug: fallback width calc
-    return normalized;
+    return 360;
   }
 
   function enforceAspectRatio(opts){
@@ -1243,7 +1570,7 @@
     } = opts || {};
     const debugLabel = label || 'resizer';
     if(!Number.isFinite(ratio) || ratio <= 0){
-      console.debug('Debug: enforceAspectRatio skipped', { debugLabel, ratio }); // Debug: invalid ratio guard
+      debugLog('Debug: enforceAspectRatio skipped', { debugLabel, ratio }); // Debug: invalid ratio guard
       return {
         width: clampDimension(width, minWidth, maxWidth),
         height: clampDimension(height, minHeight, maxHeight)
@@ -1296,7 +1623,7 @@
       }
     }
     if(!Number.isFinite(widthCandidate) || !Number.isFinite(heightCandidate)){
-      console.debug('Debug: enforceAspectRatio fallback insufficient', {
+      debugLog('Debug: enforceAspectRatio fallback insufficient', {
         debugLabel,
         width,
         height,
@@ -1320,7 +1647,7 @@
       heightCandidate = adjustedHeight;
     }
 
-    console.debug('Debug: enforceAspectRatio result', {
+    debugLog('Debug: enforceAspectRatio result', {
       debugLabel,
       axis,
       output: { width: widthCandidate, height: heightCandidate },
@@ -1335,7 +1662,6 @@
 
   const RESIZER_ZOOM_MIN = 0.5;
   const RESIZER_ZOOM_MAX = 3;
-  const RESIZER_ZOOM_STEP = 0.1;
   const RESIZER_ZOOM_EPSILON = 0.0001;
 
   function normalizeZoomLevel(value, bounds = {}){
@@ -1464,7 +1790,7 @@
       }
     }
     if(helperSizing){
-      console.debug('Debug: attachResizableBox helper sizing applied', { context: helperContext, helperSizing });
+      debugLog('Debug: attachResizableBox helper sizing applied', { context: helperContext, helperSizing });
     }
     const fallbackLabel = helperContext;
     const squareFallback = Number.isFinite(helperSizing?.width) && helperSizing.width > 0
@@ -1516,7 +1842,7 @@
     if(previousApi && typeof previousApi.destroy === 'function'){
       try{
         previousApi.destroy({ reason: 'reattach' });
-        console.debug('Debug: resizer previous api destroyed', { container: containerLabel });
+        debugLog('Debug: resizer previous api destroyed', { container: containerLabel });
       }catch(err){
         console.error('Shared.attachResizableBox previous api destroy error', err);
       }
@@ -1531,8 +1857,8 @@
       MIN_H = minFromDefaultHeight;
     }
     MIN_H = Math.max(MIN_H, minFromDefaultHeight);
-    const BASE_MIN_W = MIN_W;
-    const BASE_MIN_H = MIN_H;
+    let BASE_MIN_W = MIN_W;
+    let BASE_MIN_H = MIN_H;
     const parsedMaxWidth = Number(opts.maxWidth);
     const parsedMaxHeight = Number(opts.maxHeight);
     const helperMaxWidth = Number.isFinite(helperSizing?.maxWidth) && helperSizing.maxWidth > 0;
@@ -1547,7 +1873,7 @@
     let MAX_W;
     if(allowUnlimitedWidth){
       MAX_W = Number.POSITIVE_INFINITY;
-      console.debug('Debug: attachResizableBox unlimited width enabled', {
+      debugLog('Debug: attachResizableBox unlimited width enabled', {
         container: containerLabel,
         helperMaxWidth,
         hasExplicitMaxWidth,
@@ -1569,7 +1895,7 @@
     let MAX_H;
     if(allowUnlimitedHeight){
       MAX_H = Number.POSITIVE_INFINITY;
-      console.debug('Debug: attachResizableBox unlimited height enabled', {
+      debugLog('Debug: attachResizableBox unlimited height enabled', {
         container: containerLabel,
         helperMaxHeight,
         hasExplicitMaxHeight,
@@ -1595,18 +1921,24 @@
     data.resizerResized = data.resizerResized || 'false';
     const parsedZoomMin = Number(opts.zoomMin);
     const parsedZoomMax = Number(opts.zoomMax);
-    const parsedZoomStep = Number(opts.zoomStep);
     const zoomBounds = {
       min: Number.isFinite(parsedZoomMin) && parsedZoomMin > 0 ? parsedZoomMin : RESIZER_ZOOM_MIN,
       max: Number.isFinite(parsedZoomMax) && parsedZoomMax > 0 ? parsedZoomMax : RESIZER_ZOOM_MAX,
-      step: Number.isFinite(parsedZoomStep) && parsedZoomStep > 0 ? parsedZoomStep : RESIZER_ZOOM_STEP,
       fallback: 1
     };
     zoomBounds.max = Math.max(zoomBounds.min, zoomBounds.max);
-    let zoomLevel = normalizeZoomLevel(data.resizerZoomLevel || data.resizerZoom, zoomBounds);
+    const persistedZoomLevel = normalizeZoomLevel(data.resizerZoomLevel || data.resizerZoom, zoomBounds);
+    const graphView = () => resizerNamespace.getGraphViewState(resolveResizerTab(container, opts));
+    const getFitZoomLevel = () => normalizeZoomLevel(
+      Math.floor(chartStyle.getDefaultGraphViewScale() * 1000) / 1000,
+      zoomBounds
+    );
+    let zoomLevel = graphView()?.mode === 'fit' ? getFitZoomLevel() : persistedZoomLevel;
     data.resizerZoom = String(zoomLevel);
     data.resizerZoomLevel = String(zoomLevel);
-    const zoomScaleForBase = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+    // Existing inline dimensions still use the persisted scale. Fit zoom is a
+    // viewport projection and must not change the canonical base frame.
+    const zoomScaleForBase = Number.isFinite(persistedZoomLevel) && persistedZoomLevel > 0 ? persistedZoomLevel : 1;
     const initialBaseWidth = (parsePositive(rect.width) || defaultWidth) / zoomScaleForBase;
     const initialBaseHeight = (parsePositive(rect.height) || defaultHeight) / zoomScaleForBase;
     if(!parsePositive(data.resizerBaseWidth)){
@@ -1620,20 +1952,206 @@
       if(!isZoomDebugEnabled()){
         return;
       }
-      console.debug(`Debug: resizer zoom ${message}`, Object.assign({
+      debugLog(`Debug: resizer zoom ${message}`, Object.assign({
         container: containerLabel,
         zoomLevel
       }, payload));
     };
     let zoomTarget = null;
     let zoomControl = null;
-    let zoomOutButton = null;
-    let zoomInButton = null;
     let zoomValue = null;
     let suppressObserveResizeUntil = 0;
     let manualResizeActive = false;
     let resizeObserver = null;
     let lastResizeNotificationSize = null;
+    let graphWidthInput = null;
+    let graphHeightInput = null;
+    let graphOptionsControl = null;
+    let graphSizeControlBindings = [];
+    let userResizeTransaction = null;
+    let graphFrame = null;
+    let resizeBoundaryObserver = null;
+    let fitFrame = null;
+    let fitObserver = null;
+    let fitMutationObserver = null;
+    let destroyed = false;
+    let fitButton = null;
+    let actualButton = null;
+    const fitPanel = opts.graphPanel || container.closest('[id$="GraphPanel"]');
+
+    function syncGraphSizeControls(){
+      if(!graphWidthInput || !graphHeightInput){
+        return;
+      }
+      const rect = container.getBoundingClientRect?.();
+      if(!Number.isFinite(rect?.width) || !Number.isFinite(rect?.height)){
+        return;
+      }
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const dimensions = [
+        { input: graphWidthInput, value: rect.width, minimum: MIN_W },
+        { input: graphHeightInput, value: rect.height, minimum: MIN_H }
+      ];
+      dimensions.forEach(({ input, value, minimum }) => {
+        input.min = String(Math.ceil(minimum));
+        if(global.document?.activeElement !== input){
+          input.value = String(Math.round(value / zoomScale));
+        }
+      });
+    }
+
+    function clearGraphSizeControlBindings(){
+      graphSizeControlBindings.forEach(({ input, type, handler }) => {
+        input.removeEventListener(type, handler);
+      });
+      graphSizeControlBindings = [];
+    }
+
+    function beginManualResizeTransaction(axis, rect, startW, startH, reason){
+      const view = graphView();
+      if(view){
+        view.mode = 'manual';
+        view.zoomLevel = zoomLevel;
+        syncZoomControls();
+      }
+      invalidateResizerTabRenderCaches(container, opts, `resizer-start-${axis}`);
+      if(aspectLocked){
+        captureLockedGeometry({ resetRatio: false });
+      }
+      const usesCartesianLayout = isCartesianLayoutTransactionEnabled();
+      if(aspectLocked && usesCartesianLayout && (committedCartesianPlan || readPersistedCartesianTransaction())){
+        const transactionPlan = committedCartesianPlan || readPersistedCartesianTransaction()?.plan;
+        const frameChrome = resolveCartesianFrameChrome(transactionPlan, rect);
+        activeCartesianResizeTransaction = {
+          plan: transactionPlan,
+          plotRatio: readCartesianPlotRatio(transactionPlan),
+          frameChromeWidth: frameChrome.width,
+          frameChromeHeight: frameChrome.height
+        };
+      }else{
+        activeCartesianResizeTransaction = null;
+      }
+      manualResizeActive = true;
+      suppressObserverResize(220);
+      if(!usesCartesianLayout){
+        markOrthogonalViewportLock(axis, reason, { durationMs: 6000 });
+      }
+      container.style.boxSizing = 'border-box';
+      container.style.width = px(startW);
+      container.style.height = px(startH);
+      container.style.flex = '0 0 auto';
+      container.style.maxWidth = 'none';
+      container.style.maxHeight = 'none';
+      container.dataset.resizerResized = 'true';
+      container.dataset.resizerWidth = container.style.width;
+      container.dataset.resizerHeight = container.style.height;
+      if(!usesCartesianLayout
+        && shouldApplyLiveViewportLock(axis)
+        && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
+        try{
+          Shared.graphViewport.applyLiveResizeLock(container, { axis, reason });
+        }catch(err){
+          console.error('resizer graph viewport live lock error', err);
+        }
+      }
+      debugLog('Debug: resizer drag start', { axis, startW, startH, MIN_W, MIN_H });
+      notifyResize('start');
+      return true;
+    }
+
+    function finishManualResizeTransaction(axis, snapshot, finishReason, mode, trigger, dirtyReason){
+      manualResizeActive = false;
+      suppressObserverResize(320);
+      debugLog('Debug: resizer drag end');
+      markOrthogonalViewportLock(axis, finishReason, { capture: false, durationMs: 6000 });
+      const endSnapshot = makeResizeSnapshot(finishReason);
+      const changed = resizeSnapshotsDiffer(snapshot, endSnapshot);
+      notifyUndoableResize(mode, snapshot, endSnapshot, trigger);
+      if(changed){
+        markResizerTabUserModified(container, opts, dirtyReason);
+      }
+      notifyResize('end');
+      return changed;
+    }
+
+    function beginUserResize(axis){
+      const ownerTab = resolveResizerTab(container, opts);
+      const ownerTabId = normalizeTabId(ownerTab?.id);
+      const activeTabId = normalizeTabId(
+        Shared.workspaceTabs?.resolveTab?.(null)?.id
+        || global.Main?.session?.workspaceState?.activeTabId
+        || global.Main?.session?.getActiveTab?.()?.id
+      );
+      if(!ownerTabId || !activeTabId || ownerTabId !== activeTabId){
+        return false;
+      }
+      const rect = container.getBoundingClientRect();
+      if(!(rect.width > 0) || !(rect.height > 0)){
+        return false;
+      }
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const startW = Math.min(MAX_W, Math.max(MIN_W, rect.width / zoomScale)) * zoomScale;
+      const startH = Math.min(MAX_H, Math.max(MIN_H, rect.height / zoomScale)) * zoomScale;
+      const snapshot = makeResizeSnapshot('keyboard-start');
+      if(!beginManualResizeTransaction(axis, rect, startW, startH, `keyboard-start-${axis}`)){
+        return false;
+      }
+      userResizeTransaction = { axis, snapshot, ownerTabId };
+      return true;
+    }
+
+    function updateUserResize(axis, value){
+      const dimension = Number(value);
+      if(!Number.isFinite(dimension) || dimension <= 0){
+        return false;
+      }
+      if(userResizeTransaction && userResizeTransaction.axis !== axis){
+        finishUserResize('keyboard-axis-change');
+      }
+      if(!userResizeTransaction && !beginUserResize(axis)){
+        return false;
+      }
+      const activeTabId = normalizeTabId(
+        Shared.workspaceTabs?.resolveTab?.(null)?.id
+        || global.Main?.session?.workspaceState?.activeTabId
+        || global.Main?.session?.getActiveTab?.()?.id
+      );
+      if(activeTabId !== userResizeTransaction.ownerTabId){
+        finishUserResize('keyboard-owner-change');
+        return false;
+      }
+      const size = dimension;
+      const applied = applyProgrammaticResize({
+        axis,
+        width: axis === 'x' ? size : undefined,
+        height: axis === 'y' ? size : undefined,
+        forceExact: false,
+        preserveAspectLock: true,
+        updateAspectRatio: false,
+        resizePhase: 'move',
+        reason: `keyboard-resize-${axis}`
+      });
+      syncGraphSizeControls();
+      return applied?.changed === true;
+    }
+
+    function finishUserResize(reason = 'keyboard-end'){
+      const transaction = userResizeTransaction;
+      if(!transaction){
+        return false;
+      }
+      userResizeTransaction = null;
+      const changed = finishManualResizeTransaction(
+        transaction.axis,
+        transaction.snapshot,
+        reason,
+        `keyboard-${transaction.axis}`,
+        'keyboard',
+        `resizer-keyboard-${transaction.axis}`
+      );
+      syncGraphSizeControls();
+      return changed;
+    }
 
     function notifyResize(phase, errorLabel = 'resizer onResize error'){
       if(typeof opts.onResize !== 'function'){
@@ -1665,6 +2183,7 @@
       if(Number.isFinite(rect?.width) && Number.isFinite(rect?.height)){
         lastResizeNotificationSize = { width: rect.width, height: rect.height };
       }
+      syncGraphSizeControls();
     }
 
     const activeResizerTab = resolveResizerTab(container, opts);
@@ -1696,7 +2215,7 @@
       }
       data.resizerProportionalFontResize = initialProportionalResize ? 'true' : 'false';
     }
-    console.debug('Debug: resizer proportional font resize scope resolved', {
+    debugLog('Debug: resizer proportional font resize scope resolved', {
       container: containerLabel,
       scope: fontResizeScope,
       existingScope,
@@ -1718,7 +2237,7 @@
     const overrideAspectRatio = parsePositive(opts.aspectRatio);
     if(!Number.isFinite(aspectRatio) && Number.isFinite(overrideAspectRatio) && overrideAspectRatio > 0){
       aspectRatio = overrideAspectRatio;
-      console.debug('Debug: resizer aspect ratio override', { container: containerLabel, overrideAspectRatio }); // Debug: aspect ratio override applied
+      debugLog('Debug: resizer aspect ratio override', { container: containerLabel, overrideAspectRatio }); // Debug: aspect ratio override applied
     }
     if(!Number.isFinite(aspectRatio)){
       aspectRatio = Number.isFinite(ratioFromRect) ? ratioFromRect : ratioFromDefaults;
@@ -1745,11 +2264,11 @@
       : (typeof opts.aspectLocked === 'boolean' ? opts.aspectLocked : undefined);
     if(!hasPersistedAspectLock && typeof defaultAspectLocked === 'boolean'){
       aspectLocked = defaultAspectLocked;
-      console.debug('Debug: resizer aspect lock default applied', { container: containerLabel, aspectLocked }); // Debug: aspect lock default applied
+      debugLog('Debug: resizer aspect lock default applied', { container: containerLabel, aspectLocked }); // Debug: aspect lock default applied
     }
     if(forcedAspectLocked !== null){
       aspectLocked = forcedAspectLocked;
-      console.debug('Debug: resizer aspect lock forced', { container: containerLabel, aspectLocked }); // Debug: aspect lock forced
+      debugLog('Debug: resizer aspect lock forced', { container: containerLabel, aspectLocked }); // Debug: aspect lock forced
     }
     if(aspectLocked && (!Number.isFinite(aspectRatio) || aspectRatio <= 0)){
       aspectLocked = false;
@@ -1922,7 +2441,9 @@
         const plannedTarget = Number(plan?.lock?.targetRatio);
         const renderedRatio = plotWidth / plotHeight;
         const planRatio = Number.isFinite(plannedTarget) && plannedTarget > 0 ? plannedTarget : renderedRatio;
-        if(refreshCartesianRatioOnCommit || !parsePositive(data.resizerCartesianPlotRatio)){
+        // Metric renderers own their coordinate-span ratio; ordinary ratio
+        // locks retain the ratio chosen by the user across layout changes.
+        if(opts.cartesianRatioSource === 'layout' || refreshCartesianRatioOnCommit || !parsePositive(data.resizerCartesianPlotRatio)){
           setCartesianPlotRatio(planRatio);
           refreshCartesianRatioOnCommit = false;
         }
@@ -1976,7 +2497,7 @@
       if(!Number.isFinite(nextRatio) || nextRatio <= 0) return;
       aspectRatio = nextRatio;
       data.resizerAspectRatio = String(nextRatio);
-      console.debug('Debug: resizer aspect ratio set', { container: containerLabel, aspectRatio }); // Debug: aspect ratio set
+      debugLog('Debug: resizer aspect ratio set', { container: containerLabel, aspectRatio }); // Debug: aspect ratio set
     }
 
     function getActiveRatio(){
@@ -1985,7 +2506,7 @@
       }
       const fallback = Number.isFinite(ratioFromDefaults) && ratioFromDefaults > 0 ? ratioFromDefaults : 1;
       setAspectRatio(fallback);
-      console.debug('Debug: resizer aspect ratio fallback', { container: containerLabel, fallback }); // Debug: aspect ratio fallback
+      debugLog('Debug: resizer aspect ratio fallback', { container: containerLabel, fallback }); // Debug: aspect ratio fallback
       return aspectRatio;
     }
 
@@ -1996,7 +2517,7 @@
       if(Number.isFinite(liveWidth) && Number.isFinite(liveHeight) && liveHeight > 0){
         const ratio = liveWidth / liveHeight;
         setAspectRatio(ratio);
-        console.debug('Debug: resizer aspect ratio from rect', { container: containerLabel, ratio }); // Debug: aspect ratio from rect
+        debugLog('Debug: resizer aspect ratio from rect', { container: containerLabel, ratio }); // Debug: aspect ratio from rect
         return ratio;
       }
       return getActiveRatio();
@@ -2118,6 +2639,7 @@
           container.style.removeProperty(property);
         }
       });
+      syncGraphFramePresentation(container);
     }
 
     function syncZoomPresentation(){
@@ -2142,6 +2664,7 @@
         // rendered footprint. The outer frame uses the same zoom scale.
         const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
         zoomSetup.content.style.setProperty('--resizer-content-zoom', String(zoomScale));
+        container.style.setProperty('--resizer-view-scale', String(zoomScale));
       }
     }
 
@@ -2166,6 +2689,7 @@
     function applyResize({ width, height, axis, fallbackWidth, fallbackHeight, reason, aspectLockedOverride, graphAuthority }){
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
       const writesGraphAuthority = graphAuthority !== false && !/^zoom(?:-|$)/.test(String(reason || ''));
+      const minimumWidth = MIN_W;
       if(!/^zoom(?:-|$)/.test(String(reason || ''))){
         displayOnlyZoomResizeRegistry.delete(container);
       }
@@ -2179,7 +2703,12 @@
         ? aspectLockedOverride
         : aspectLocked;
       const usesCartesianLayout = isCartesianLayoutTransactionEnabled();
-      if(effectiveAspectLocked && usesCartesianLayout){
+      if(!writesGraphAuthority){
+        // Viewing projects the canonical frame. Resize constraints must not
+        // solve a different frame while applying display-only magnification.
+        finalBaseWidth = requestedBaseWidth;
+        finalBaseHeight = requestedBaseHeight;
+      }else if(effectiveAspectLocked && usesCartesianLayout){
         const cartesianLayout = Shared.cartesianLayout;
         const transaction = activeCartesianResizeTransaction;
         const cartesianPlan = transaction?.plan || committedCartesianPlan || readPersistedCartesianTransaction()?.plan;
@@ -2209,7 +2738,7 @@
             axisFrameModel: cartesianPlan.axisFrameModel,
             targetRatio: plotRatio,
             drive: axis === 'x' ? 'width' : (axis === 'y' ? 'height' : 'both'),
-            bounds: { minWidth: Math.max(1, MIN_W - frameChromeWidth), minHeight: Math.max(1, MIN_H - frameChromeHeight), maxWidth: Math.max(1, MAX_W - frameChromeWidth), maxHeight: Math.max(1, MAX_H - frameChromeHeight) },
+            bounds: { minWidth: Math.max(1, minimumWidth - frameChromeWidth), minHeight: Math.max(1, MIN_H - frameChromeHeight), maxWidth: Math.max(1, MAX_W - frameChromeWidth), maxHeight: Math.max(1, MAX_H - frameChromeHeight) },
             minimumPlot: cartesianPlan.minimumPlot
           });
           if(solved?.valid !== false
@@ -2248,7 +2777,7 @@
           const enforcedPlot = enforceAspectRatio({
             width: Number.isFinite(requestedBaseWidth) ? Math.max(1, requestedBaseWidth - geometryInsetX) : NaN,
             height: Number.isFinite(requestedBaseHeight) ? Math.max(1, requestedBaseHeight - geometryInsetY) : NaN,
-            minWidth: Math.max(1, MIN_W - geometryInsetX),
+            minWidth: Math.max(1, minimumWidth - geometryInsetX),
             maxWidth: Number.isFinite(MAX_W) ? Math.max(1, MAX_W - geometryInsetX) : MAX_W,
             minHeight: Math.max(1, MIN_H - geometryInsetY),
             maxHeight: Number.isFinite(MAX_H) ? Math.max(1, MAX_H - geometryInsetY) : MAX_H,
@@ -2264,7 +2793,7 @@
           const enforced = enforceAspectRatio({
             width: requestedBaseWidth,
             height: requestedBaseHeight,
-            minWidth: MIN_W,
+            minWidth: minimumWidth,
             maxWidth: MAX_W,
             minHeight: MIN_H,
             maxHeight: MAX_H,
@@ -2279,7 +2808,7 @@
         }
       }
       if(!Number.isFinite(finalBaseWidth) && axis !== 'y'){
-        finalBaseWidth = clampDimension(requestedBaseWidth, MIN_W, MAX_W);
+        finalBaseWidth = clampDimension(requestedBaseWidth, minimumWidth, MAX_W);
       }
       if(!Number.isFinite(finalBaseHeight) && axis !== 'x'){
         finalBaseHeight = clampDimension(requestedBaseHeight, MIN_H, MAX_H);
@@ -2306,7 +2835,7 @@
           container.dataset.svgHeight = String(Math.round(finalBaseHeight));
         }
       }
-      if(effectiveAspectLocked && Number.isFinite(finalBaseWidth) && Number.isFinite(finalBaseHeight) && finalBaseHeight > 0){
+      if(writesGraphAuthority && effectiveAspectLocked && Number.isFinite(finalBaseWidth) && Number.isFinite(finalBaseHeight) && finalBaseHeight > 0){
         // resizerAspectRatio remains the historical frame-ratio mirror. Migrated
         // Cartesian charts keep their rendered-axis target separately.
         setAspectRatio(finalBaseWidth / finalBaseHeight);
@@ -2340,7 +2869,7 @@
       syncZoomPresentation();
       const changed = (Number.isFinite(finalWidth) && container.style.width !== previousWidth)
         || (Number.isFinite(finalHeight) && container.style.height !== previousHeight);
-      console.debug('Debug: resizer applyResize helper', {
+      debugLog('Debug: resizer applyResize helper', {
         container: containerLabel,
         reason,
         axis,
@@ -2396,7 +2925,7 @@
           : 1);
       if(Number.isFinite(styleScaleBase) && styleScaleBase > 0){
         data.resizerUnlockedStyleScaleBase = String(styleScaleBase);
-        console.debug('Debug: resizer unlocked style scale base synced', {
+        debugLog('Debug: resizer unlocked style scale base synced', {
           container: containerLabel,
           reason: reason || 'sync',
           styleScaleBase,
@@ -2429,7 +2958,7 @@
         : NaN;
       if(Number.isFinite(lockedStyleScaleBase) && lockedStyleScaleBase > 0){
         data.resizerLockedStyleScaleBase = String(lockedStyleScaleBase);
-        console.debug('Debug: resizer locked style scale base synced', {
+        debugLog('Debug: resizer locked style scale base synced', {
           container: containerLabel,
           reason: reason || 'sync',
           lockedStyleScaleBase,
@@ -2465,7 +2994,7 @@
           console.error('resizer graph viewport stable capture error', err);
         }
       }
-      console.debug('Debug: resizer orthogonal viewport lock marked', {
+      debugLog('Debug: resizer orthogonal viewport lock marked', {
         container: containerLabel,
         axis: normalizedAxis,
         reason: reason || null,
@@ -2509,7 +3038,7 @@
           syncUnlockedStyleScaleBase('programmatic-simulated-unlock');
         }
         syncAspectCheckboxState();
-        console.debug('Debug: resizer programmatic simulated aspect lock', {
+        debugLog('Debug: resizer programmatic simulated aspect lock', {
           container: containerLabel,
           reason,
           requestedSimulateAspectLock,
@@ -2578,7 +3107,7 @@
         delete data.resizerUnlockedStyleScaleBase;
       }
       syncAspectCheckboxState();
-      console.debug('Debug: resizer applyProgrammaticResize', {
+      debugLog('Debug: resizer applyProgrammaticResize', {
         container: containerLabel,
         reason,
         authorityMode,
@@ -2606,6 +3135,13 @@
           suppressObserverResize(180);
         }
         notifyResize(notifyPhase, `resizer onResize ${notifyPhase} error`);
+      }else{
+        // Passive layout restore already owns this geometry. Its observer
+        // notification must not turn the projection into a component redraw.
+        const rect = container.getBoundingClientRect?.();
+        if(Number.isFinite(rect?.width) && Number.isFinite(rect?.height)){
+          lastResizeNotificationSize = { width: rect.width, height: rect.height };
+        }
       }
       return applied;
     }
@@ -2658,15 +3194,18 @@
     }
 
     function syncZoomControls(){
-      const canZoomOut = zoomLevel > zoomBounds.min + RESIZER_ZOOM_EPSILON;
-      const canZoomIn = zoomLevel < zoomBounds.max - RESIZER_ZOOM_EPSILON;
-      if(zoomOutButton){
-        zoomOutButton.disabled = !canZoomOut;
+      const bounds = zoomBounds;
+      const view = graphView();
+      if(fitButton){
+        fitButton.setAttribute('aria-pressed', view?.mode === 'fit' ? 'true' : 'false');
       }
-      if(zoomInButton){
-        zoomInButton.disabled = !canZoomIn;
+      if(actualButton){
+        const isActualSize = view?.mode === 'manual'
+          && Math.abs((parsePositive(view.zoomLevel) || 1) - 1) <= RESIZER_ZOOM_EPSILON;
+        actualButton.setAttribute('aria-pressed', isActualSize ? 'true' : 'false');
       }
       if(zoomValue){
+        zoomValue.min = String(Math.ceil(bounds.min * 100));
         const displayPercent = String(Math.round(zoomLevel * 100));
         if(zoomValue.tagName === 'INPUT'){
           if(doc.activeElement !== zoomValue){
@@ -2712,6 +3251,12 @@
 
     function applyZoomLevel(nextLevel, options = {}){
       const reason = options.reason || 'zoom';
+      const view = graphView();
+      const manualChange = options.mode === 'manual'
+        || reason === 'input' || reason === 'wheel-live';
+      const ownerTab = resolveResizerTab(container, opts);
+      if(manualChange && ownerTab?.id && global.Main?.session?.workspaceState?.activeTabId !== ownerTab.id) return zoomLevel;
+      const previousMode = view?.mode;
       const previousZoom = resolveZoomScale();
       const currentRect = container.getBoundingClientRect();
       const baseWidth = parsePositive(data.graphWidthPx || data.svgWidth || data.graphDefaultWidth)
@@ -2724,6 +3269,10 @@
         || defaultHeight;
       const zoomEnvelopeBase = captureZoomEnvelopeBase(previousZoom);
       const normalized = normalizeZoomLevel(nextLevel, zoomBounds);
+      if(manualChange && view){
+        view.mode = 'manual';
+        view.zoomLevel = normalized;
+      }
       const changed = Math.abs(normalized - zoomLevel) > RESIZER_ZOOM_EPSILON;
       zoomLevel = normalized;
       data.resizerZoom = String(zoomLevel);
@@ -2755,18 +3304,61 @@
         });
       }
       const markUserModified = options.markUserModified === true
-        || (changed && (reason === 'button-plus' || reason === 'button-minus' || reason === 'input'));
+        || (manualChange && previousMode === 'fit')
+        || (changed && reason === 'input');
       if(markUserModified){
         markResizerTabUserModified(container, opts, 'resizer-zoom-change');
       }
       return zoomLevel;
     }
 
-    function adjustZoom(direction){
-      const delta = direction > 0 ? zoomBounds.step : -zoomBounds.step;
-      return applyZoomLevel(zoomLevel + delta, {
-        reason: direction > 0 ? 'button-plus' : 'button-minus'
+    function refreshFit(){
+      const tab = resolveResizerTab(container, opts);
+      const activeId = global.Main?.session?.workspaceState?.activeTabId;
+      if(destroyed || !tab?.id || activeId !== tab.id || graphView()?.mode !== 'fit'
+        || manualResizeActive || !container.isConnected || !fitPanel) return;
+      const panelRect = fitPanel.getBoundingClientRect();
+      if(!(panelRect.width > 0) || fitPanel.hidden || fitPanel.inert) return;
+      const baseWidth = parsePositive(data.graphWidthPx || data.resizerBaseWidth) || defaultWidth;
+      const baseHeight = parsePositive(data.graphHeightPx || data.resizerBaseHeight) || defaultHeight;
+      const envelope = captureZoomEnvelopeBase(zoomLevel);
+      const nextScale = getFitZoomLevel();
+      const envelopeMatches = ['left', 'top', 'right', 'bottom'].every(side => {
+        const current = Number.parseFloat(container.style.getPropertyValue(`--graph-content-extra-${side}`)) || 0;
+        return Math.abs(current - (envelope?.[side]?.value || 0) * nextScale) <= 0.5;
       });
+      const rect = container.getBoundingClientRect();
+      if(Math.abs(nextScale - zoomLevel) <= RESIZER_ZOOM_EPSILON && envelopeMatches
+        && Math.abs(rect.width - Math.round(baseWidth * nextScale)) <= 0.5
+        && Math.abs(rect.height - Math.round(baseHeight * nextScale)) <= 0.5) return;
+      applyZoomLevel(nextScale, { reason: 'auto-fit' });
+    }
+
+    function requestFit(){
+      if(destroyed || fitFrame !== null || graphView()?.mode !== 'fit') return;
+      const ownerTabId = resolveResizerTab(container, opts)?.id;
+      if(!ownerTabId) return;
+      fitFrame = global.requestAnimationFrame(() => {
+        fitFrame = null;
+        if(resolveResizerTab(container, opts)?.id === ownerTabId) refreshFit();
+      });
+    }
+
+    function setViewMode(mode){
+      const tab = resolveResizerTab(container, opts);
+      if(!tab?.id || global.Main?.session?.workspaceState?.activeTabId !== tab.id) return;
+      const view = graphView();
+      if(!view) return;
+      view.mode = mode === 'fit' ? 'fit' : 'manual';
+      if(view.mode === 'fit'){
+        delete view.zoomLevel;
+        refreshFit();
+      }else{
+        view.zoomLevel = 1;
+        applyZoomLevel(1, { mode: 'manual', reason: 'actual-size' });
+      }
+      syncZoomControls();
+      markResizerTabUserModified(container, opts, 'resizer-zoom-change');
     }
 
     function commitZoomFromInput(rawValue, options = {}){
@@ -2828,7 +3420,7 @@
           reason
         });
       }
-      console.debug('Debug: resizer intrinsic min size updated', {
+      debugLog('Debug: resizer intrinsic min size updated', {
         container: containerLabel,
         reason,
         minWidth: MIN_W,
@@ -2921,7 +3513,7 @@
         const afterAspect = makeResizeSnapshot('aspect-toggle-after');
         notifyUndoableResize('aspect-toggle', beforeAspect, afterAspect, 'checkbox');
       }
-      console.debug('Debug: resizer aspect state applied', {
+      debugLog('Debug: resizer aspect state applied', {
         container: containerLabel,
         aspectLocked,
         changed,
@@ -2949,10 +3541,12 @@
         defaultHeight = Math.round(nextDefaultHeight);
       }
       if(Number.isFinite(nextMinWidth)){
-        MIN_W = Math.max(BASE_MIN_W, Math.round(nextMinWidth));
+        BASE_MIN_W = Math.round(nextMinWidth);
+        MIN_W = BASE_MIN_W;
       }
       if(Number.isFinite(nextMinHeight)){
-        MIN_H = Math.max(BASE_MIN_H, Math.round(nextMinHeight));
+        BASE_MIN_H = Math.round(nextMinHeight);
+        MIN_H = BASE_MIN_H;
       }
       if(unlimitedWidth || Number.isFinite(nextMaxWidth)){
         MAX_W = unlimitedWidth ? Number.POSITIVE_INFINITY : Math.max(defaultWidth, Math.round(nextMaxWidth));
@@ -2976,7 +3570,7 @@
       container.style.minHeight = px(MIN_H * zoomScale);
       container.style.maxWidth = Number.isFinite(MAX_W) ? px(MAX_W * zoomScale) : 'none';
       container.style.maxHeight = Number.isFinite(MAX_H) ? px(MAX_H * zoomScale) : 'none';
-      console.debug('Debug: resizer sizing state restored', {
+      debugLog('Debug: resizer sizing state restored', {
         container: containerLabel,
         reason: options.reason || null,
         defaultWidth,
@@ -3001,11 +3595,18 @@
 
     container.__sharedResizableBoxApi = {
       applySize: applyProgrammaticResize,
+      beginUserResize,
+      updateUserResize,
+      finishUserResize,
       restoreSizingState,
       setAspectLocked: setAspectLockedState,
       setIntrinsicMinSize: updateIntrinsicMinSize,
-      setZoomLevel: (level, options = {}) => applyZoomLevel(level, options),
+      setZoomLevel: (level, options = {}) => applyZoomLevel(level, { mode: 'manual', ...options }),
       getZoomLevel: () => zoomLevel,
+      getFitZoomLevel,
+      refreshFit: requestFit,
+      setViewMode,
+      getViewState: () => graphView(),
       getState: () => ({
         defaultWidth,
         defaultHeight,
@@ -3042,6 +3643,20 @@
       },
       isCartesianLayoutTransactionEnabled,
       destroy(options = {}){
+        destroyed = true;
+        resizeBoundaryObserver?.disconnect();
+        graphFrame?.removeAttribute('data-graph-resize-active');
+        if(fitFrame !== null) global.cancelAnimationFrame(fitFrame);
+        fitObserver?.disconnect();
+        fitMutationObserver?.disconnect();
+        global.removeEventListener('resize', requestFit);
+        if(userResizeTransaction){
+          finishUserResize('destroy');
+        }
+        clearGraphSizeControlBindings();
+        if(graphOptionsControl?.__resizerSyncGraphSizeControls === syncGraphSizeControls){
+          delete graphOptionsControl.__resizerSyncGraphSizeControls;
+        }
         displayOnlyZoomResizeRegistry.delete(container);
         if(resizeObserver){
           try{
@@ -3057,7 +3672,7 @@
         if(container.__sharedResizableBoxApi === this){
           delete container.__sharedResizableBoxApi;
         }
-        console.debug('Debug: resizer api destroyed', {
+        debugLog('Debug: resizer api destroyed', {
           container: containerLabel,
           reason: options?.reason || null
         });
@@ -3066,7 +3681,7 @@
     Shared.applyResizableBoxSize = function applyResizableBoxSize(target, options = {}){
       const api = target && target.__sharedResizableBoxApi;
       if(!api || typeof api.applySize !== 'function'){
-        console.debug('Debug: Shared.applyResizableBoxSize skipped', {
+        debugLog('Debug: Shared.applyResizableBoxSize skipped', {
           hasTarget: !!target,
           hasApi: !!api
         });
@@ -3079,7 +3694,7 @@
       const requestedLevel = options.level;
       if(!api || typeof api.setZoomLevel !== 'function'){
         if(isZoomDebugEnabled()){
-          console.debug('Debug: Shared.applyResizableBoxZoom skipped', {
+          debugLog('Debug: Shared.applyResizableBoxZoom skipped', {
             hasTarget: !!target,
             hasApi: !!api
           });
@@ -3089,7 +3704,7 @@
       return api.setZoomLevel(requestedLevel, options);
     };
 
-    console.debug('Debug: attachResizableBox defaults', {
+    debugLog('Debug: attachResizableBox defaults', {
       defaultWidth,
       defaultHeight,
       MIN_W,
@@ -3103,12 +3718,12 @@
     }); // Debug: resizer defaults
 
     if(doc){
-      let controlTray = container.querySelector('.resizer-control-tray');
+      let controlTray = resolveGraphControlTray(container, opts);
       if(!controlTray){
         controlTray = doc.createElement('div');
         controlTray.className = 'resizer-control-tray';
-        container.appendChild(controlTray);
-        console.debug('Debug: resizer control tray created', { container: containerLabel }); // Debug: tray creation trace
+        resolveGraphControlsHost(container, opts).appendChild(controlTray);
+        debugLog('Debug: resizer control tray created', { container: containerLabel }); // Debug: tray creation trace
       }
       let aspectControl = controlTray.querySelector('.resizer-aspect-control');
       if(!showAspectControl){
@@ -3117,7 +3732,7 @@
         }
         aspectControl = null;
         aspectCheckbox = null;
-        console.debug('Debug: resizer aspect control suppressed', { container: containerLabel }); // Debug: control suppression
+        debugLog('Debug: resizer aspect control suppressed', { container: containerLabel }); // Debug: control suppression
       }else{
         if(!aspectControl){
           aspectControl = doc.createElement('label');
@@ -3133,7 +3748,7 @@
           aspectControl.appendChild(checkbox);
           aspectControl.appendChild(textSpan);
           controlTray.appendChild(aspectControl);
-          console.debug('Debug: resizer aspect control created', { container: containerLabel }); // Debug: control creation
+          debugLog('Debug: resizer aspect control created', { container: containerLabel }); // Debug: control creation
           aspectCheckbox = checkbox;
         }else{
           if(aspectControl.parentNode !== controlTray){
@@ -3177,7 +3792,7 @@
         fontResizeControl.appendChild(textSpan);
         controlTray.appendChild(fontResizeControl);
         fontResizeCheckbox = fontCheckbox;
-        console.debug('Debug: resizer proportional font resize control created', { container: containerLabel }); // Debug: proportional font resize control creation
+        debugLog('Debug: resizer proportional font resize control created', { container: containerLabel }); // Debug: proportional font resize control creation
       }else{
         if(fontResizeControl.parentNode !== controlTray){
           controlTray.appendChild(fontResizeControl);
@@ -3194,7 +3809,7 @@
             scopeId: fontResizeScope,
             svgBox: container
           });
-          console.debug('Debug: resizer proportional font resize registered', { container: containerLabel, scope: fontResizeScope }); // Debug: proportional font resize registration
+          debugLog('Debug: resizer proportional font resize registered', { container: containerLabel, scope: fontResizeScope }); // Debug: proportional font resize registration
         }else{
           if(typeof chartStyle.isProportionalFontResizeEnabled === 'function'){
             try {
@@ -3209,7 +3824,7 @@
           const onProportionalFontResizeChange = () => {
             const enabled = !!fontResizeCheckbox.checked;
             container.dataset.resizerProportionalFontResize = enabled ? 'true' : 'false';
-            console.debug('Debug: resizer proportional font resize fallback change', { container: containerLabel, enabled, scope: fontResizeScope }); // Debug: fallback handler
+            debugLog('Debug: resizer proportional font resize fallback change', { container: containerLabel, enabled, scope: fontResizeScope }); // Debug: fallback handler
             if(typeof chartStyle.setProportionalFontResize === 'function'){
               chartStyle.setProportionalFontResize(enabled, { origin: `${containerLabel}-fallback`, scopeId: fontResizeScope, svgBox: container });
             }
@@ -3222,7 +3837,7 @@
               const scoped = !!enabledValue;
               fontResizeCheckbox.checked = scoped;
               container.dataset.resizerProportionalFontResize = scoped ? 'true' : 'false';
-              console.debug('Debug: resizer proportional font resize fallback sync', {
+              debugLog('Debug: resizer proportional font resize fallback sync', {
                 container: containerLabel,
                 origin: eventOrigin,
                 scope: fontResizeScope,
@@ -3235,8 +3850,67 @@
 
       const optionsSetup = ensureGraphOptionsMenu(container, doc, {
         debugLabel: `${containerLabel}-options`,
-        title: 'Graph options'
+        title: 'Graph options',
+        controlsHost: opts.controlsHost
       });
+      controlTray = optionsSetup?.tray || controlTray;
+      graphOptionsControl = optionsSetup?.control || null;
+      if(optionsSetup?.menu){
+        let sizeGroup = optionsSetup.menu.querySelector(':scope > .resizer-size-control-group');
+        if(!sizeGroup){
+          sizeGroup = doc.createElement('div');
+          sizeGroup.className = 'resizer-size-control-group';
+          sizeGroup.setAttribute('role', 'group');
+          sizeGroup.setAttribute('aria-label', 'Graph size controls');
+          optionsSetup.menu.insertBefore(sizeGroup, optionsSetup.menu.firstChild || null);
+        }
+        const createSizeField = (axis, labelText, accessibleName) => {
+          const fieldClass = axis === 'x' ? 'resizer-size-width' : 'resizer-size-height';
+          let field = sizeGroup.querySelector(`input.${fieldClass}`);
+          if(!field){
+            const label = doc.createElement('label');
+            label.className = 'resizer-size-field';
+            const caption = doc.createElement('span');
+            caption.className = 'resizer-size-label';
+            caption.textContent = labelText;
+            field = doc.createElement('input');
+            field.type = 'number';
+            field.className = fieldClass;
+            field.step = '10';
+            field.setAttribute('aria-label', accessibleName);
+            const unit = doc.createElement('span');
+            unit.className = 'resizer-size-unit';
+            unit.textContent = 'px';
+            label.append(caption, field, unit);
+            sizeGroup.appendChild(label);
+          }
+          return field;
+        };
+        graphWidthInput = createSizeField('x', 'Width', 'Graph width in pixels');
+        graphHeightInput = createSizeField('y', 'Height', 'Graph height in pixels');
+        optionsSetup.menu.insertBefore(sizeGroup, optionsSetup.menu.firstChild || null);
+        if(graphOptionsControl){
+          graphOptionsControl.__resizerSyncGraphSizeControls = syncGraphSizeControls;
+        }
+        clearGraphSizeControlBindings();
+        const bindSizeField = (input, axis) => {
+          const onInput = () => updateUserResize(axis, input.valueAsNumber);
+          const onCommit = () => finishUserResize('keyboard-end');
+          const onKeyDown = event => {
+            if(event.key === 'Enter'){
+              finishUserResize('keyboard-enter');
+            }
+          };
+          [['input', onInput], ['change', onCommit], ['blur', onCommit], ['keydown', onKeyDown]]
+            .forEach(([type, handler]) => {
+              input.addEventListener(type, handler);
+              graphSizeControlBindings.push({ input, type, handler });
+            });
+        };
+        bindSizeField(graphWidthInput, 'x');
+        bindSizeField(graphHeightInput, 'y');
+        syncGraphSizeControls();
+      }
       if(aspectControl){
         moveGraphOptionIntoMenu(container, aspectControl, { debugLabel: `${containerLabel}-aspect-option` });
       }
@@ -3247,7 +3921,8 @@
 
       const zoomSetup = ensureZoomElements();
       if(zoomSetup){
-        zoomControl = container.querySelector('.resizer-zoom-control');
+        zoomControl = controlTray?.querySelector('.resizer-zoom-control')
+          || container.querySelector('.resizer-zoom-control');
         if(!zoomControl){
           zoomControl = doc.createElement('div');
           zoomControl.className = 'resizer-zoom-control';
@@ -3274,15 +3949,6 @@
             controlTray.insertBefore(zoomControl, controlTray.firstChild || null);
           }
         }
-        let decreaseButton = zoomControl.querySelector('.resizer-zoom-button--decrease');
-        if(!decreaseButton){
-          decreaseButton = doc.createElement('button');
-          decreaseButton.type = 'button';
-          decreaseButton.className = 'resizer-zoom-button resizer-zoom-button--decrease';
-          decreaseButton.textContent = '-';
-          decreaseButton.setAttribute('aria-label', 'Zoom out graph view');
-          zoomControl.appendChild(decreaseButton);
-        }
         let zoomValueNode = zoomControl.querySelector('input.resizer-zoom-value');
         if(!zoomValueNode){
           const legacyNode = zoomControl.querySelector('.resizer-zoom-value');
@@ -3306,34 +3972,14 @@
           zoomUnitNode.textContent = '%';
           zoomControl.appendChild(zoomUnitNode);
         }
-        let increaseButton = zoomControl.querySelector('.resizer-zoom-button--increase');
-        if(!increaseButton){
-          increaseButton = doc.createElement('button');
-          increaseButton.type = 'button';
-          increaseButton.className = 'resizer-zoom-button resizer-zoom-button--increase';
-          increaseButton.textContent = '+';
-          increaseButton.setAttribute('aria-label', 'Zoom in graph view');
-          zoomControl.appendChild(increaseButton);
+        let zoomValueControl = zoomControl.querySelector('.resizer-zoom-value-control');
+        if(!zoomValueControl){
+          zoomValueControl = doc.createElement('span');
+          zoomValueControl.className = 'resizer-zoom-value-control';
         }
-        if(decreaseButton && zoomValueNode && zoomUnitNode && increaseButton){
-          if(zoomControl.firstChild !== decreaseButton){
-            zoomControl.insertBefore(decreaseButton, zoomControl.firstChild || null);
-          }
-          if(zoomValueNode.previousSibling !== decreaseButton){
-            zoomControl.insertBefore(zoomValueNode, decreaseButton.nextSibling);
-          }
-          if(zoomUnitNode.previousSibling !== zoomValueNode){
-            zoomControl.insertBefore(zoomUnitNode, zoomValueNode.nextSibling);
-          }
-          if(increaseButton.previousSibling !== zoomUnitNode){
-            zoomControl.appendChild(increaseButton);
-          }
-          if(decreaseButton.__resizerZoomHandler){
-            decreaseButton.removeEventListener('click', decreaseButton.__resizerZoomHandler);
-          }
-          if(increaseButton.__resizerZoomHandler){
-            increaseButton.removeEventListener('click', increaseButton.__resizerZoomHandler);
-          }
+        if(zoomValueNode && zoomUnitNode){
+          zoomValueControl.appendChild(zoomValueNode);
+          zoomValueControl.appendChild(zoomUnitNode);
           if(zoomValueNode.__resizerZoomCommitHandler){
             zoomValueNode.removeEventListener('change', zoomValueNode.__resizerZoomCommitHandler);
             zoomValueNode.removeEventListener('blur', zoomValueNode.__resizerZoomCommitHandler);
@@ -3344,14 +3990,6 @@
           if(zoomValueNode.__resizerZoomKeyHandler){
             zoomValueNode.removeEventListener('keydown', zoomValueNode.__resizerZoomKeyHandler);
           }
-          const onDecrease = (event) => {
-            if(event?.preventDefault){ event.preventDefault(); }
-            adjustZoom(-1);
-          };
-          const onIncrease = (event) => {
-            if(event?.preventDefault){ event.preventDefault(); }
-            adjustZoom(1);
-          };
           const getNumericWheelPhase = () => {
             const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
             return toolbarApi?.getNumericWheelPhase?.(zoomValueNode) || null;
@@ -3383,21 +4021,38 @@
               zoomValueNode.blur();
             }
           };
-          decreaseButton.addEventListener('click', onDecrease);
-          increaseButton.addEventListener('click', onIncrease);
           zoomValueNode.addEventListener('input', onZoomInput);
           zoomValueNode.addEventListener('change', onZoomCommit);
           zoomValueNode.addEventListener('blur', onZoomCommit);
           zoomValueNode.addEventListener('keydown', onZoomKeyDown);
-          decreaseButton.__resizerZoomHandler = onDecrease;
-          increaseButton.__resizerZoomHandler = onIncrease;
           zoomValueNode.__resizerZoomInputHandler = onZoomInput;
           zoomValueNode.__resizerZoomCommitHandler = onZoomCommit;
           zoomValueNode.__resizerZoomKeyHandler = onZoomKeyDown;
-          zoomOutButton = decreaseButton;
-          zoomInButton = increaseButton;
           zoomValue = zoomValueNode;
           applyZoomLevel(zoomLevel, { reason: 'init', logUnchanged: true });
+          fitButton = zoomControl.querySelector('.resizer-zoom-fit');
+          if(!fitButton){
+            fitButton = doc.createElement('button');
+            fitButton.type = 'button';
+            fitButton.className = 'resizer-zoom-fit resizer-view-button';
+            fitButton.textContent = 'Fit';
+            fitButton.setAttribute('aria-label', 'Fit graph to window');
+            zoomControl.appendChild(fitButton);
+          }
+          fitButton.onclick = () => setViewMode('fit');
+          actualButton = zoomControl.querySelector('.resizer-zoom-actual');
+          if(!actualButton){
+            actualButton = doc.createElement('button');
+            actualButton.type = 'button';
+            actualButton.className = 'resizer-zoom-actual resizer-view-button';
+            actualButton.textContent = '100%';
+            actualButton.setAttribute('aria-label', 'View graph at actual size');
+            zoomControl.appendChild(actualButton);
+          }
+          actualButton.onclick = () => setViewMode('manual');
+          [zoomValueControl, fitButton, actualButton]
+            .forEach(control => zoomControl.appendChild(control));
+          syncZoomControls();
         }
       }else{
         logZoom('target-missing', { reason: 'init' });
@@ -3411,7 +4066,14 @@
     const vHandle = container.querySelector('.resizer-vertical');
     const hHandle = container.querySelector('.resizer-horizontal');
     const cHandle = container.querySelector('.resizer-corner');
-    console.debug('Debug: attachResizableBox on', containerLabel); // Debug: resizer attach
+    graphFrame = container.closest('.graph-frame');
+    resizeBoundaryObserver = graphFrame && global.ResizeObserver
+      ? new global.ResizeObserver(() => syncGraphResizeBoundary(container))
+      : null;
+    resizeBoundaryObserver?.observe(graphFrame);
+    resizeBoundaryObserver?.observe(container);
+    syncGraphResizeBoundary(container);
+    debugLog('Debug: attachResizableBox on', containerLabel); // Debug: resizer attach
     applyZoomBoundsStyles();
 
     const hasUndo = undoManager && typeof undoManager.record === 'function';
@@ -3500,6 +4162,7 @@
       const rectWidth = parsePositive(liveRect.width);
       const rectHeight = parsePositive(liveRect.height);
       const snapshotZoom = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const view = graphView();
       const snapshot = {
         tag,
         width: Number.isFinite(rectWidth) ? Math.round(rectWidth) : parseStylePx(container.style.width),
@@ -3520,9 +4183,10 @@
         aspectChecked: !!aspectLocked,
         aspectRatio: Number.isFinite(aspectRatio) ? aspectRatio : Number(data.resizerAspectRatio),
         zoomLevel,
+        graphView: view ? { ...view } : null,
         dataset: captureResizeDataset()
       };
-      console.debug('Debug: resizer snapshot captured', {
+      debugLog('Debug: resizer snapshot captured', {
         container: containerLabel,
         tag,
         width: snapshot.width,
@@ -3563,7 +4227,9 @@
         const afterDataset = after.dataset || {};
         return RESIZE_SNAPSHOT_DATA_KEYS.some(key => (beforeDataset[key] || '') !== (afterDataset[key] || ''));
       })();
-      return widthChanged || heightChanged || aspectChanged || zoomChanged || datasetChanged;
+      const viewChanged = before.graphView?.mode !== after.graphView?.mode
+        || before.graphView?.zoomLevel !== after.graphView?.zoomLevel;
+      return widthChanged || heightChanged || aspectChanged || zoomChanged || datasetChanged || viewChanged;
     };
 
     const notifyUndoableResize = (mode, before, after, trigger) => {
@@ -3578,12 +4244,12 @@
         target: container,
         element: container,
         undo: () => {
-          console.debug('Debug: resizer undo snapshot apply', { container: containerLabel, mode, trigger });
+          debugLog('Debug: resizer undo snapshot apply', { container: containerLabel, mode, trigger });
           applySnapshot(before, 'undo');
           notifyResize('undo', 'resizer onResize undo error');
         },
         redo: () => {
-          console.debug('Debug: resizer redo snapshot apply', { container: containerLabel, mode, trigger });
+          debugLog('Debug: resizer redo snapshot apply', { container: containerLabel, mode, trigger });
           applySnapshot(after, 'redo');
           notifyResize('redo', 'resizer onResize redo error');
         }
@@ -3592,6 +4258,9 @@
 
     function applySnapshot(snapshot, reason){
       if(!snapshot) return;
+      if(snapshot.graphView){
+        resizerNamespace.restoreGraphViewState(resolveResizerTab(container, opts), { graphView: snapshot.graphView });
+      }
       const snapshotDataset = snapshot.dataset && typeof snapshot.dataset === 'object' ? snapshot.dataset : {};
       const snapshotAspectLocked = typeof snapshot.aspectLocked === 'boolean'
         ? snapshot.aspectLocked
@@ -3674,7 +4343,8 @@
       data.resizerLastAxis = 'both';
       syncZoomPresentation();
       syncZoomControls();
-      console.debug('Debug: resizer applySnapshot complete', {
+      requestFit();
+      debugLog('Debug: resizer applySnapshot complete', {
         container: containerLabel,
         reason,
         widthApplied: applied.width,
@@ -3699,6 +4369,7 @@
       let startSnapshot = null;
       const onPointerDown = (e) => {
         e.preventDefault();
+        graphFrame?.setAttribute('data-graph-resize-active', '');
         pointerId = e.pointerId;
         try { handle.setPointerCapture(pointerId); } catch(_) {}
         const rect = container.getBoundingClientRect();
@@ -3716,54 +4387,7 @@
             return;
           }
           pointerResizeStarted = true;
-          invalidateResizerTabRenderCaches(container, opts, `resizer-start-${axis}`);
-          if(aspectLocked){
-            // Keep the user's established lock target across successive drags.
-            // Re-measuring here would promote any prior resize drift to the new
-            // target before the drag has even started.
-            captureLockedGeometry({ resetRatio: false });
-          }
-          const usesCartesianLayout = isCartesianLayoutTransactionEnabled();
-          if(aspectLocked && usesCartesianLayout && (committedCartesianPlan || readPersistedCartesianTransaction())){
-            const transactionPlan = committedCartesianPlan || readPersistedCartesianTransaction()?.plan;
-            const frameChrome = resolveCartesianFrameChrome(transactionPlan, rect);
-            activeCartesianResizeTransaction = {
-              plan: transactionPlan,
-              plotRatio: readCartesianPlotRatio(transactionPlan),
-              frameChromeWidth: frameChrome.width,
-              frameChromeHeight: frameChrome.height
-            };
-          }else{
-            activeCartesianResizeTransaction = null;
-          }
-          manualResizeActive = true;
-          suppressObserverResize(220);
-          if(!usesCartesianLayout){
-            markOrthogonalViewportLock(axis, 'pointer-start', { durationMs: 6000 });
-          }
-          container.style.boxSizing = 'border-box';
-          container.style.width = px(startW);
-          container.style.height = px(startH);
-          container.style.flex = '0 0 auto';
-          container.style.maxWidth = 'none';
-          container.style.maxHeight = 'none';
-          container.dataset.resizerResized = 'true';
-          container.dataset.resizerWidth = container.style.width;
-          container.dataset.resizerHeight = container.style.height;
-          if(!usesCartesianLayout
-            && shouldApplyLiveViewportLock(axis)
-            && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
-            try{
-              Shared.graphViewport.applyLiveResizeLock(container, {
-                axis,
-                reason: 'pointer-start'
-              });
-            }catch(err){
-              console.error('resizer graph viewport live lock error', err);
-            }
-          }
-          console.debug('Debug: resizer drag start', { axis, startW, startH, MIN_W, MIN_H }); // Debug: resizer drag start
-          notifyResize('start');
+          beginManualResizeTransaction(axis, rect, startW, startH, 'pointer-start');
           document.documentElement.style.userSelect = 'none';
           document.documentElement.style.touchAction = 'none';
         };
@@ -3787,7 +4411,7 @@
             fallbackHeight: startH,
             reason: 'pointer-move'
           });
-          console.debug('Debug: resizer drag move', {
+          debugLog('Debug: resizer drag move', {
             axis,
             dx,
             dy,
@@ -3802,15 +4426,19 @@
           notifyResize('move');
         };
         let pointerFinished = false;
+        let unregisterPointerGesture = () => {};
         const finishPointerResize = (finishReason = 'pointer-end') => {
           if(pointerFinished){
             return;
           }
           pointerFinished = true;
+          graphFrame?.removeAttribute('data-graph-resize-active');
           try { handle.releasePointerCapture(pointerId); } catch(_) {}
           document.removeEventListener('pointermove', onPointerMove);
           document.removeEventListener('pointerup', onPointerUp);
           document.removeEventListener('pointercancel', onPointerCancel);
+          unregisterPointerGesture();
+          unregisterPointerGesture = () => {};
           if(!pointerResizeStarted){
             activeCartesianResizeTransaction = null;
             startSnapshot = null;
@@ -3818,20 +4446,17 @@
           }
           document.documentElement.style.userSelect = '';
           document.documentElement.style.touchAction = '';
-          manualResizeActive = false;
-          suppressObserverResize(320);
-          console.debug('Debug: resizer drag end'); // Debug: resizer drag end
-          markOrthogonalViewportLock(axis, 'pointer-end', { capture: false, durationMs: 6000 });
           if(startSnapshot){
-            const endSnapshot = makeResizeSnapshot(finishReason);
-            const changed = resizeSnapshotsDiffer(startSnapshot, endSnapshot);
-            notifyUndoableResize(`drag-${axis}`, startSnapshot, endSnapshot, 'pointer');
-            if(changed){
-              markResizerTabUserModified(container, opts, `resizer-drag-${axis}`);
-            }
+            finishManualResizeTransaction(
+              axis,
+              startSnapshot,
+              finishReason,
+              `drag-${axis}`,
+              'pointer',
+              `resizer-drag-${axis}`
+            );
             startSnapshot = null;
           }
-          notifyResize('end');
         };
         const onPointerUp = () => {
           finishPointerResize('pointer-end');
@@ -3839,6 +4464,10 @@
         const onPointerCancel = () => {
           finishPointerResize('pointer-cancel');
         };
+        unregisterPointerGesture = Shared.registerSvgPointerGestureForTab?.(
+          resolveResizerTab(container, opts),
+          () => finishPointerResize('owner-deactivation')
+        ) || (() => {});
         document.addEventListener('pointermove', onPointerMove);
         document.addEventListener('pointerup', onPointerUp);
         document.addEventListener('pointercancel', onPointerCancel);
@@ -3902,7 +4531,7 @@
         if(applied?.changed){
           markResizerTabUserModified(container, opts, 'resizer-reset');
         }
-        console.debug('Debug: resizer size reset', {
+        debugLog('Debug: resizer size reset', {
           width: container.style.width,
           height: container.style.height,
           automaticFrameReserves: {
@@ -3952,10 +4581,23 @@
         ){
           return;
         }
-        console.debug('Debug: resizer observer triggered'); // Debug: resize observer
+        debugLog('Debug: resizer observer triggered'); // Debug: resize observer
         notifyResize('observe');
       });
       resizeObserver.observe(container);
+    }
+    if(fitPanel){
+      if(global.ResizeObserver){
+        fitObserver = new global.ResizeObserver(requestFit);
+        fitObserver.observe(fitPanel);
+        if(zoomControl) fitObserver.observe(zoomControl);
+      }
+      if(global.MutationObserver){
+        fitMutationObserver = new global.MutationObserver(requestFit);
+        fitMutationObserver.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['width', 'height', 'viewBox', 'style'] });
+      }
+      global.addEventListener('resize', requestFit);
+      requestFit();
     }
   };
 
@@ -3965,9 +4607,8 @@
     const preserveSvgBoxPresentation = opts.preserveSvgBoxPresentation === true;
     const disableAutoWidthClamp = opts.disableAutoWidthClamp === true;
     const forceDefaultWidth = opts.forceDefaultWidth === true;
-    const lockGraphPanelWidth = opts.lockGraphPanelWidth !== false;
     if(!tablePanel || !graphPanel || !configPanel){
-      console.debug('Debug: Shared.syncPanelWidths skipped', {
+      debugLog('Debug: Shared.syncPanelWidths skipped', {
         label: debugLabel,
         hasTable: !!tablePanel,
         hasGraph: !!graphPanel,
@@ -3975,6 +4616,14 @@
       });
       return null;
     }
+    const requestedWorkspaceRaw = opts.workspaceSplit?.tableFraction
+      ?? opts.workspaceTableFraction;
+    const requestedWorkspaceFraction = requestedWorkspaceRaw == null ? NaN : Number(requestedWorkspaceRaw);
+    const hasWorkspaceSplit = Number.isFinite(requestedWorkspaceFraction)
+      && requestedWorkspaceFraction >= 0
+      && requestedWorkspaceFraction <= 1;
+    const hasManualPanelSizing = tablePanel.dataset?.panelManualWidth === 'true'
+      || graphPanel.dataset?.panelManualWidth === 'true';
     const docBody = global.document && global.document.body;
     const STYLE_EPSILON = 0.5;
     let layoutMutated = false;
@@ -4005,23 +4654,35 @@
       layoutMutated = true;
       return true;
     };
-    const tableManualPanel = tablePanel?.dataset?.panelManualWidth === 'true';
-    const graphManualPanel = graphPanel?.dataset?.panelManualWidth === 'true';
-    const hasManualPanelSizing = tableManualPanel || graphManualPanel;
-    const requestedWorkspaceFraction = Number(
-      opts.workspaceSplit?.tableFraction
-        ?? opts.workspaceTableFraction
-    );
-    const hasWorkspaceSplit = Number.isFinite(requestedWorkspaceFraction)
-      && requestedWorkspaceFraction > 0
-      && requestedWorkspaceFraction < 1;
+    const panelWrap = graphPanel.parentElement || tablePanel.parentElement || null;
+    let stackedPanelLayout = false;
+    if(panelWrap && global.getComputedStyle){
+      try{
+        stackedPanelLayout = String(global.getComputedStyle(panelWrap)?.flexDirection || '').toLowerCase() === 'column';
+      }catch(err){
+        console.error('Shared.syncPanelWidths panel direction error', err);
+      }
+    }
+    if(stackedPanelLayout){
+      const panelLayoutStyles = ['width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight', 'flex', 'flexBasis'];
+      [tablePanel, graphPanel].forEach(panel => {
+        panelLayoutStyles.forEach(prop => setStyleValueIfChanged(panel.style, prop, ''));
+      });
+      if(panelWrap.dataset?.panelMinWidthLocked === 'true'){
+        setStyleValueIfChanged(panelWrap.style, 'minWidth', '');
+        delete panelWrap.dataset.panelMinWidthLocked;
+      }
+    }
+    const lockGraphPanelWidth = opts.lockGraphPanelWidth !== false
+      && !(hasWorkspaceSplit && !stackedPanelLayout)
+      && !hasManualPanelSizing;
     const applyWorkspaceSplit = () => {
       // Persisted split state outranks stale pixel-sizing markers from the
       // divider drag that originally produced that split.
       if(!hasWorkspaceSplit){
         return false;
       }
-      const fraction = Math.min(0.95, Math.max(0.05, requestedWorkspaceFraction));
+      const fraction = requestedWorkspaceFraction;
       const graphFraction = 1 - fraction;
       const wrap = graphPanel?.parentElement || tablePanel?.parentElement || null;
       let vertical = false;
@@ -4032,25 +4693,13 @@
           vertical = false;
         }
       }
-      const isResponsivePanel = panel => {
-        if(!panel?.style) return false;
-        const flex = String(panel.style.flex || '').trim();
-        return !panel.style.width
-          && !panel.style.height
-          && String(panel.style.flexBasis || '').trim() === '0px'
-          && /^\S+\s+1\s+0px$/.test(flex);
-      };
       const panelStyleProps = [
         'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight',
         'flex', 'flexBasis'
       ];
       [tablePanel, graphPanel].forEach(panel => {
         if(panel?.style){
-          const preserveResponsiveMin = isResponsivePanel(panel);
-          panelStyleProps.forEach(prop => {
-            if(preserveResponsiveMin && prop === 'minWidth') return;
-            setStyleValueIfChanged(panel.style, prop, '');
-          });
+          panelStyleProps.forEach(prop => setStyleValueIfChanged(panel.style, prop, ''));
         }
         if(panel?.dataset){
           delete panel.dataset.panelManualWidth;
@@ -4071,11 +4720,18 @@
       if(tablePanel?.style){
         setStyleValueIfChanged(tablePanel.style, 'flex', `${fraction} 1 0px`);
         setStyleValueIfChanged(tablePanel.style, 'flexBasis', '0px');
+        setStyleValueIfChanged(tablePanel.style, 'minWidth', '0px');
+        setStyleValueIfChanged(tablePanel.style, 'maxWidth', 'none');
       }
       if(graphPanel?.style){
         setStyleValueIfChanged(graphPanel.style, 'flex', `${graphFraction} 1 0px`);
         setStyleValueIfChanged(graphPanel.style, 'flexBasis', '0px');
+        setStyleValueIfChanged(graphPanel.style, 'minWidth', '0px');
+        setStyleValueIfChanged(graphPanel.style, 'maxWidth', 'none');
       }
+      Shared.componentLayout?.projectWorkspacePanelSplit?.(tablePanel, graphPanel, fraction);
+      const resizer = opts.panelResizer || Array.from(wrap?.children || []).find(child => child?.classList?.contains('panel-resizer'));
+      if(resizer?.style){ resizer.style.marginRight = ''; }
       return true;
     };
     if(!lockGraphPanelWidth && !hasManualPanelSizing && !hasWorkspaceSplit && graphPanel?.style){
@@ -4117,7 +4773,7 @@
     const tableHidden = isElementHidden(tablePanel);
     const graphHidden = isElementHidden(graphPanel);
     if (tableHidden || graphHidden) {
-      console.debug('Debug: Shared.syncPanelWidths skipped (hidden)', {
+      debugLog('Debug: Shared.syncPanelWidths skipped (hidden)', {
         label: debugLabel,
         tableHidden,
         graphHidden
@@ -4189,7 +4845,7 @@
       if(Number.isFinite(measuredDefault)){
         defaultTableWidth = measuredDefault;
         tableDataset.panelDefaultWidth = String(defaultTableWidth);
-        console.debug('Debug: Shared.syncPanelWidths default width captured', {
+        debugLog('Debug: Shared.syncPanelWidths default width captured', {
           label: debugLabel,
           defaultTableWidth
         }); // Debug: capture table default width during sync
@@ -4212,7 +4868,7 @@
     if(!Number.isFinite(storedMinTableWidth)){
       storedMinTableWidth = baseMinTable;
       tableDataset.panelMinWidth = String(storedMinTableWidth);
-      console.debug('Debug: Shared.syncPanelWidths table min stored', {
+      debugLog('Debug: Shared.syncPanelWidths table min stored', {
         label: debugLabel,
         storedMinTableWidth,
         minTableHint: sanitizedMinTableHint
@@ -4220,7 +4876,7 @@
     }else if(Number.isFinite(baseMinTable) && storedMinTableWidth < baseMinTable){
       storedMinTableWidth = baseMinTable;
       tableDataset.panelMinWidth = String(storedMinTableWidth);
-      console.debug('Debug: Shared.syncPanelWidths table min normalized', {
+      debugLog('Debug: Shared.syncPanelWidths table min normalized', {
         label: debugLabel,
         storedMinTableWidth,
         minTableHint: sanitizedMinTableHint
@@ -4229,7 +4885,7 @@
     const effectiveMinTable = Number.isFinite(storedMinTableWidth) ? storedMinTableWidth : baseMinTable;
     const minPx = Math.max(0, Math.round(effectiveMinTable));
     if(setStylePxIfChanged(tablePanel.style, 'minWidth', minPx)){
-      console.debug('Debug: Shared.syncPanelWidths table min enforced', {
+      debugLog('Debug: Shared.syncPanelWidths table min enforced', {
         label: debugLabel,
         minPx
       }); // Debug: enforce locked min width style
@@ -4238,7 +4894,7 @@
       setStyleValueIfChanged(tablePanel.style, 'flex', '0 0 ' + minPx + 'px');
       setStylePxIfChanged(tablePanel.style, 'flexBasis', minPx);
       setStylePxIfChanged(tablePanel.style, 'width', minPx);
-      console.debug('Debug: Shared.syncPanelWidths table width corrected', {
+      debugLog('Debug: Shared.syncPanelWidths table width corrected', {
         label: debugLabel,
         minPx,
         tableWidth
@@ -4260,7 +4916,7 @@
         const border = readNumeric(graphStyle.borderLeftWidth) + readNumeric(graphStyle.borderRightWidth);
         graphInset = pad + border;
         graphContentWidth = Math.max(0, graphWidth - graphInset);
-        console.debug('Debug: Shared.syncPanelWidths graph inset', {
+        debugLog('Debug: Shared.syncPanelWidths graph inset', {
           label: debugLabel,
           graphWidth,
           graphContentWidth,
@@ -4302,7 +4958,7 @@
       maxAvailable = Math.max(manualWidth, maxAvailable || 0);
     }
     if((!Number.isFinite(availableRaw) || maxAvailable <= 0) && !(isManualResize && Number.isFinite(manualWidth) && manualWidth > 0) && !shouldForceDefaultWidth){
-      console.debug('Debug: Shared.syncPanelWidths skipped (no width available)', {
+      debugLog('Debug: Shared.syncPanelWidths skipped (no width available)', {
         label: debugLabel,
         available: availableRaw,
         maxAvailable,
@@ -4326,7 +4982,7 @@
       if(shouldForceDefaultWidth){
         baseWidth = preferredAutoWidth;
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.syncPanelWidths force default width', {
+          debugLog('Debug: Shared.syncPanelWidths force default width', {
             label: debugLabel,
             preferredAutoWidth,
             baseWidth
@@ -4336,14 +4992,14 @@
         baseWidth = maxAvailable;
         if(!disableAutoWidthClamp && !isManualResize && Number.isFinite(preferredAutoWidth) && preferredAutoWidth > 0){
           baseWidth = Math.min(baseWidth, preferredAutoWidth);
-          console.debug('Debug: Shared.syncPanelWidths auto default clamp', {
+          debugLog('Debug: Shared.syncPanelWidths auto default clamp', {
             label: debugLabel,
             preferredAutoWidth,
             maxAvailable,
             clampedWidth: baseWidth
           });
         }
-        console.debug('Debug: Shared.syncPanelWidths baseWidth auto-fill', {
+        debugLog('Debug: Shared.syncPanelWidths baseWidth auto-fill', {
           label: debugLabel,
           baseWidth,
           maxAvailable,
@@ -4358,7 +5014,7 @@
         }
         if(!disableAutoWidthClamp && !isManualResize && Number.isFinite(preferredAutoWidth) && preferredAutoWidth > 0){
           baseWidth = Math.min(baseWidth, preferredAutoWidth);
-          console.debug('Debug: Shared.syncPanelWidths auto fallback clamp', {
+          debugLog('Debug: Shared.syncPanelWidths auto fallback clamp', {
             label: debugLabel,
             preferredAutoWidth,
             availableRaw,
@@ -4484,7 +5140,7 @@
               svgDataset.resizerHeight = svgBox.style.height;
             }
           }
-          console.debug('Debug: Shared.syncPanelWidths aspect enforcement', {
+          debugLog('Debug: Shared.syncPanelWidths aspect enforcement', {
             label: debugLabel,
             aspectLocked,
             widthToApply,
@@ -4497,7 +5153,7 @@
         appliedWidth = widthToApply;
       }
     }
-    if(isManualResize && !hasWorkspaceSplit){
+    if(isManualResize && !hasWorkspaceSplit && !hasManualPanelSizing && !stackedPanelLayout){
       const safeAppliedWidth = Number.isFinite(appliedWidth) && appliedWidth > 0 ? appliedWidth : manualWidth;
       const liveTableWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : (tablePanel.getBoundingClientRect().width || 0);
       const lockedTableWidth = Number.isFinite(liveTableWidth) && liveTableWidth > 0
@@ -4538,7 +5194,7 @@
         }
       }
       const latestGraphWidth = graphPanel?.getBoundingClientRect()?.width || finalGraphWidth;
-      console.debug('Debug: Shared.syncPanelWidths manual lock', {
+      debugLog('Debug: Shared.syncPanelWidths manual lock', {
         label: debugLabel,
         appliedWidth: safeAppliedWidth,
         tableWidth: finalTableWidth,
@@ -4571,7 +5227,7 @@
     const targetGraphWidth = Number.isFinite(appliedWidth) && Number.isFinite(configWidth)
       ? appliedWidth + configWidth + gap
       : null;
-    if(lockGraphPanelWidth && graphPanel && Number.isFinite(targetGraphWidth) && targetGraphWidth > 0){
+    if(!stackedPanelLayout && lockGraphPanelWidth && graphPanel && Number.isFinite(targetGraphWidth) && targetGraphWidth > 0){
       setStyleValueIfChanged(graphPanel.style, 'flex', '0 0 auto');
       setStyleValueIfChanged(graphPanel.style, 'maxWidth', 'none');
       setStylePxIfChanged(graphPanel.style, 'minWidth', targetGraphWidth);
@@ -4583,7 +5239,7 @@
       }
       if(!Number.isFinite(graphContentWidth) || contentDiff > 1){
         setStylePxIfChanged(graphPanel.style, 'width', targetGraphWidth);
-        console.debug('Debug: Shared.syncPanelWidths graph width applied', {
+        debugLog('Debug: Shared.syncPanelWidths graph width applied', {
           label: debugLabel,
           targetGraphWidth,
           existingGraphWidth: graphWidth,
@@ -4593,14 +5249,14 @@
       }
     }
     const wrap = graphPanel?.parentElement || null;
-      if(lockGraphPanelWidth && wrap && Number.isFinite(tableWidth) && Number.isFinite(targetGraphWidth)){
+    if(!stackedPanelLayout && lockGraphPanelWidth && wrap && Number.isFinite(tableWidth) && Number.isFinite(targetGraphWidth)){
         const wrapMin = tableWidth + targetGraphWidth + graphInset + resizerSpace;
         if(Number.isFinite(wrapMin) && wrapMin > 0){
           setStylePxIfChanged(wrap.style, 'minWidth', wrapMin);
           if(wrap.dataset){
             wrap.dataset.panelMinWidthLocked = 'true';
           }
-          console.debug('Debug: Shared.syncPanelWidths wrap minWidth', {
+          debugLog('Debug: Shared.syncPanelWidths wrap minWidth', {
             label: debugLabel,
             wrapMin,
           tableWidth,
@@ -4612,7 +5268,7 @@
         }); // Debug: wrap width enforcement
       }
     }
-    console.debug('Debug: Shared.syncPanelWidths manual state', {
+    debugLog('Debug: Shared.syncPanelWidths manual state', {
       label: debugLabel,
       isManualResize,
       datasetMinWidth,
@@ -4642,7 +5298,7 @@
         console.error(debugLabel + ' sync schedule error', err);
       }
     }
-    console.debug('Debug: Shared.syncPanelWidths applied', {
+    debugLog('Debug: Shared.syncPanelWidths applied', {
       label: debugLabel,
       tableWidth,
       graphWidth,

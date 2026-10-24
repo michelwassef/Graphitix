@@ -12,6 +12,8 @@ const { installProductionTestEventTracker } = require('../../test-support/produc
 let integrationEventTracker = null;
 
 beforeEach(() => {
+  window.__GRAPHITIX_TEST_FIXTURE_LIFETIME__?.dispose();
+  delete window.__GRAPHITIX_TEST_FIXTURE_TEARDOWN__;
   if (process.env.TEST_ENFORCE_INTEGRATION_LEAKS === '1') {
     if (!integrationEventTracker) {
       integrationEventTracker = installProductionTestEventTracker({ window, document });
@@ -47,8 +49,16 @@ afterEach(() => {
   let consoleFailure = null;
   let leakFailure = null;
   try {
+    const scopedTeardown=window.__GRAPHITIX_TEST_FIXTURE_LIFETIME__?.dispose()
+      || window.__GRAPHITIX_TEST_FIXTURE_TEARDOWN__ || null;
+    if(scopedTeardown && (scopedTeardown.disposalUnavailable || scopedTeardown.disposalFailures.length>0
+      || scopedTeardown.pendingScopes.length>0
+      || scopedTeardown.resourcesAfter.observers>0 || scopedTeardown.resourcesAfter.timers>0
+      || scopedTeardown.resourcesAfter.frames>0 || scopedTeardown.resourcesAfter.listeners.length>0)){
+      leakFailure=new Error(`Production fixture retirement failed: ${formatIntegrationLeakReport(scopedTeardown)}`);
+    }
     if (process.env.TEST_ENFORCE_INTEGRATION_LEAKS === '1') {
-      const teardown = inspectIntegrationTeardown(window, integrationEventTracker);
+      const teardown = scopedTeardown || inspectIntegrationTeardown(window, integrationEventTracker);
       if (teardown.disposalUnavailable || teardown.disposalFailures.length > 0
         || teardown.pendingScopes.length > 0) {
         leakFailure = new Error(`Integration resources leaked across test boundary: ${formatIntegrationLeakReport({

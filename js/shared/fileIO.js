@@ -846,24 +846,40 @@
       return false;
     }
     const opts = write ? { mode: 'readwrite' } : {};
+    const requestPermission = typeof handle.requestPermission === 'function'
+      ? handle.requestPermission.bind(handle)
+      : null;
+    const queryPermission = typeof handle.queryPermission === 'function'
+      ? handle.queryPermission.bind(handle)
+      : null;
+    let requestAttempted = false;
     try{
-      if(typeof handle.queryPermission === 'function'){
-        const query = await handle.queryPermission(opts);
+      // A manual Save has fresh user activation. Ask for write access before
+      // awaiting any permission query so a slow browser response cannot expire it.
+      if(write && requestPermission && hasUserActivation()){
+        requestAttempted = true;
+        const request = await requestPermission(opts);
+        debug('verifyPermission.request', { write, request });
+        if(request === 'granted') return true;
+      }
+      if(queryPermission){
+        const query = await queryPermission(opts);
         debug('verifyPermission.query', { write, query });
         if(query === 'granted') return true;
       }
-      if(typeof handle.requestPermission === 'function'){
+      if(requestPermission && !requestAttempted){
         if(!hasUserActivation()){
           debug('verifyPermission.requestSkippedNoActivation', { write });
           return false;
         }
-        const request = await handle.requestPermission(opts);
+        requestAttempted = true;
+        const request = await requestPermission(opts);
         debug('verifyPermission.request', { write, request });
         return request === 'granted';
       }
     }catch(err){
       if(isUserActivationError(err)){
-        debug('verifyPermission.activationError', { write });
+        debug('verifyPermission.activationError', { write, requestAttempted });
         return false;
       }
       console.error('fileIO.verifyPermission error', err);
@@ -881,9 +897,6 @@
       setFileName,
       fileName,
       downloadFileName,
-      fileTypes,
-      mimeType,
-      allowFallback = true,
       owner,
       operation: suppliedOperation
     } = options || {};
@@ -933,46 +946,21 @@
           if(fileHandle.name) ensureSetter(setFileName, fileHandle.name, operation);
           return { status: 'saved', via: 'existingHandle', fileHandle, fileName: fileHandle.name, payload: data, operation };
         }
-      }
-
-      if(allowFallback === false){
-        debug('saveGraphFile.noFallback', { context, targetName, operationId: operation.id });
-        return { status: 'skipped', reason: 'no-existing-write-target', fileName: targetName, operation };
-      }
-
-      if(global.showSaveFilePicker){
-        debug('saveGraphFile.deferToSaveAs', { context, operationId: operation.id });
-        return fileIO.saveGraphFileAs({
-          context,
-          getPayload,
-          payload,
-          setFileHandle,
-          setFileName,
+        return {
+          status: 'error',
+          reason: 'existing-file-write-permission-denied',
           fileName: targetName,
-          downloadFileName: targetName,
-          fileTypes,
-          mimeType,
-          owner,
           operation
-        });
+        };
       }
 
-      const data = await resolvePayloadWithGraphSizing(context, getPayload, payload, { operation });
-      const normalized = normalizeWritablePayload(data);
-      debug('saveGraphFile.payloadReady', {
-        context,
-        payloadKind: normalized.kind,
-        payloadLength: normalized.length,
-        via: 'download',
-        operationId: operation.id
-      });
-      debug('saveGraphFile.downloadFallback', { context, operationId: operation.id });
-      if(isBinaryLike(data)){
-        fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
-      }else{
-        fileIO.downloadJSON(data, targetName);
-      }
-      return { status: 'downloaded', via: 'download', fileName: targetName, payload: data, operation };
+      debug('saveGraphFile.existingHandleUnavailable', { context, targetName, operationId: operation.id });
+      return {
+        status: 'error',
+        reason: 'existing-file-handle-unavailable',
+        fileName: targetName,
+        operation
+      };
     }catch(err){
       if(isGraphFileOwnerError(err)){
         return graphFileOwnerFailureResult(err, operation, 'save');

@@ -159,6 +159,7 @@ function selectPublicationPreset(type, presetId) {
   );
   if (!select) throw new Error(`Publication style select not found for type "${type}"`);
   select.value = presetId;
+  select.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
 // ─── init() ────────────────────────────────────────────────────────────────
@@ -199,10 +200,38 @@ describe('publicationStyles — init()', () => {
     expect(selects.length).toBeGreaterThanOrEqual(11);
   });
 
+  test('publication preset starts with a helpful prompt and Apply stays disabled until a choice', () => {
+    buildMain('scatter');
+    ps.init();
+    const select = document.querySelector('select[data-publication-style-select="1"][data-component-type="scatter"]');
+    const applyButton = document.querySelector('button[data-publication-style-apply="1"][data-component-type="scatter"]');
+
+    expect(select.value).toBe('');
+    expect(select.options[0].textContent).toBe('Choose a publisher style');
+    expect(select.options[0].defaultSelected).toBe(true);
+    expect(applyButton.disabled).toBe(true);
+
+    const clonedFieldset = select.closest('[data-publication-style-fieldset="1"]').cloneNode(true);
+    const clonedSelect = clonedFieldset.querySelector('select[data-publication-style-select="1"]');
+    expect(clonedSelect.value).toBe('');
+    document.body.appendChild(clonedFieldset);
+
+    select.value = 'npg_single';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(applyButton.disabled).toBe(false);
+
+    clonedSelect.value = 'npg_single';
+    clonedSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(clonedSelect.title).toMatch(/Nature \/ NPG/i);
+    expect(clonedFieldset.querySelector('button[data-publication-style-apply="1"]').disabled).toBe(false);
+  });
+
   test('init() exposes the documented publisher style presets in stable order', () => {
     ps.init();
     const select = document.querySelector('select[data-publication-style-select="1"]');
-    const options = Array.from(select.options).map(option => ({ value: option.value, text: option.textContent }));
+    const options = Array.from(select.options)
+      .filter(option => option.value)
+      .map(option => ({ value: option.value, text: option.textContent }));
     expect(options.map(option => option.value)).toEqual([
       'npg_single',
       'npg_15col_120',
@@ -237,6 +266,7 @@ describe('publicationStyles — NPG single preset on scatter (via DOM click)', (
     ps = loadModule();
     ps.init();
     scaffold = buildMain('scatter');
+    selectPublicationPreset('scatter', 'npg_single');
   });
 
   afterEach(() => { delete window.Main; });
@@ -308,8 +338,64 @@ describe('publicationStyles — NPG single preset on scatter (via DOM click)', (
     const options = scaffold.domControls.applyWorkspacePayload.mock.calls.at(-1)?.[2];
     expect(options).toEqual(expect.objectContaining({
       tabId: 'workspace-1',
-      sessionGeneration: 7
+      sessionGeneration: 7,
+      publicationStyle: true,
+      styleOnly: true,
+      skipDataLoad: true,
+      viewOnly: true,
+      payloadSizingOptions: expect.objectContaining({ updateDefaults: false })
     }));
+  });
+
+  test('captures the live owner before patching a stale saved style snapshot', () => {
+    const liveGeometry = { pointSizing: { baseCategorySpanPx: 312, baseValueSpanPx: 264 } };
+    scaffold.session.persistActiveTabState.mockImplementation((tab, options) => {
+      if (options.snapshotIntent?.captureLivePayload) {
+        tab.payload.layout = { graphGeometry: liveGeometry };
+        tab.payload.notes = { text: 'live note' };
+      }
+    });
+    clickApplyButton('scatter');
+    expect(scaffold.session.persistActiveTabState).toHaveBeenCalledWith(scaffold.tab, expect.objectContaining({
+      origin: 'user',
+      snapshotIntent: expect.objectContaining({ captureLivePayload: true, allowSkipLivePayloadCapture: false })
+    }));
+    expect(scaffold.tab.payload.layout.graphGeometry).toEqual(liveGeometry);
+    expect(scaffold.tab.payload.notes).toEqual({ text: 'live note' });
+  });
+
+  test('reuses the completed live capture for the undo snapshot', () => {
+    window.Shared.undoManager = {
+      captureTabState: jest.fn(() => ({ tabId: scaffold.tab.id, payload: scaffold.tab.payload })),
+      recordTabStateChange: jest.fn()
+    };
+    clickApplyButton('scatter');
+    expect(scaffold.session.persistActiveTabState).toHaveBeenCalledWith(scaffold.tab, expect.objectContaining({
+      snapshotIntent: expect.objectContaining({ captureLivePayload: true }),
+      forcePreviewCapture: true
+    }));
+    expect(window.Shared.undoManager.captureTabState.mock.calls[0][1]).toEqual(expect.objectContaining({
+      persistActive: false
+    }));
+    expect(window.Shared.undoManager.recordTabStateChange).toHaveBeenCalled();
+  });
+
+  test('presentation edits neither capture nor rewrite defaults for other tabs', () => {
+    clickApplyButton('scatter');
+    expect(scaffold.domControls.ensureDefaultPayload).not.toHaveBeenCalled();
+    expect(scaffold.domControls.setWorkspaceDefaultPayload).not.toHaveBeenCalled();
+    expect(scaffold.workspace.captureEmptyPayloadTemplate).not.toHaveBeenCalled();
+    expect(scaffold.workspace.restoreEmptyPayloadTemplate).not.toHaveBeenCalled();
+  });
+
+  test('uses live geometry even when persistence retains the saved layout', () => {
+    scaffold.tab.payload.layout = { graphGeometry: { pointSizing: { baseCategorySpanPx: 0 } } };
+    scaffold.workspace.getPayload.mockImplementation(() => ({
+      ...scaffold.tab.payload,
+      layout: { graphGeometry: { pointSizing: { baseCategorySpanPx: 312 } } }
+    }));
+    clickApplyButton('scatter');
+    expect(scaffold.tab.payload.layout.graphGeometry.pointSizing.baseCategorySpanPx).toBe(312);
   });
 
   test('direct sizing fallback passes the exact publication owner element', () => {
@@ -385,6 +471,7 @@ describe('publicationStyles — canonical font-size persistence path', () => {
     scaffold.tab.payload = type === 'venn'
       ? { type, data: {}, style: {}, config: { colorScheme: 'scientific', axis: {} } }
       : { type, data: [], config: { colorScheme: 'scientific', axis: {} } };
+    selectPublicationPreset(type, 'npg_single');
 
     clickApplyButton(type);
 
@@ -407,6 +494,7 @@ describe('publicationStyles — NPG single preset on box/single (via DOM click)'
       colors: ['#ff0000', '#00ff00'],
       borderColors: ['#ff0000', '#00ff00']
     });
+    selectPublicationPreset('box', 'npg_single');
   });
 
   afterEach(() => { delete window.Main; });
@@ -444,9 +532,11 @@ describe('publicationStyles — NPG single preset on box/single (via DOM click)'
     expect(scaffold.tab.payload.config?.colorMode).toBe('individual');
   });
 
-  test('single-format box: dataset spacing x is 0.6', () => {
+  test.each([0.6, 1, 1.4])('single-format box: preserves user dataset spacing %s', spacing => {
+    scaffold.tab.payload.config.axis = { datasetSpacing: { x: spacing }, datasetSpacingX: spacing };
     clickApplyButton('box');
-    expect(scaffold.tab.payload.config?.axis?.datasetSpacing?.x).toBe(0.6);
+    expect(scaffold.tab.payload.config?.axis?.datasetSpacing?.x).toBe(spacing);
+    expect(scaffold.tab.payload.config?.axis?.datasetSpacingX).toBe(spacing);
   });
 
   test('single-values box: publication style keeps point sizing in explicit auto mode', () => {
@@ -469,6 +559,7 @@ describe('publicationStyles — NPG single preset on box/grouped (via DOM click)
     ps = loadModule();
     ps.init();
     scaffold = buildMain('box', { tableFormat: 'grouped' });
+    selectPublicationPreset('box', 'npg_single');
   });
 
   afterEach(() => { delete window.Main; });
@@ -495,13 +586,16 @@ describe('publicationStyles — documented publisher presets', () => {
 
   afterEach(() => { delete window.Main; });
 
-  test('PLOS text-column preset applies 8 pt text and 0.2 mm line width', () => {
-    selectPublicationPreset('scatter', 'plos_text');
-    clickApplyButton('scatter');
+  test.each(['plos_text', 'plos_full'])(
+    'PLOS %s preset applies 8 pt text and 0.2 mm axis width',
+    (presetId) => {
+      selectPublicationPreset('scatter', presetId);
+      clickApplyButton('scatter');
 
-    expect(scaffold.tab.payload.config?.fontSize).toBe(8);
-    expect(scaffold.tab.payload.config?.axis?.strokeWidth).toBeCloseTo(0.567, 3);
-  });
+      expect(scaffold.tab.payload.config?.fontSize).toBe(8);
+      expect(scaffold.tab.payload.config?.axis?.strokeWidth).toBeCloseTo(0.756, 3);
+    }
+  );
 
   test('Science one-column preset applies the documented 57 mm width', () => {
     window.Shared.graphSizing = {
@@ -529,22 +623,61 @@ describe('publicationStyles — documented publisher presets', () => {
     expect(scaffold.tab.payload.config?.showGrid).toBe(false);
   });
 
+  test.each([
+    ['npg_single', 0.3647540984, 0.25], ['npg_15col_120', 0.4918032787, 0.25],
+    ['npg_15col_136', 0.5573770492, 0.25], ['npg_double', 0.75, 0.25],
+    ['science_1col', 0.5, 0.5], ['science_2col', 0.5, 0.5], ['science_3col', 0.75, 0.5],
+    ['cell_press_single', 0.5, 0.5], ['jcb_max', 0.75, 0.5], ['jcs_full', 0.75, 0.5],
+    ['embo_single', 0.3625, 0.3], ['embo_double', 0.75, 0.3],
+    ['jci_single', 0.5, 0.5], ['jci_double', 0.75, 0.5]
+  ])(
+    '%s scales axis weight with print width, within its stroke policy',
+    (presetId, expectedPt, minimumPt) => {
+      selectPublicationPreset('scatter', presetId);
+      clickApplyButton('scatter');
+      const points = scaffold.tab.payload.config.axis.strokeWidth * 72 / 96;
+      expect(points).toBeCloseTo(expectedPt, 8);
+      expect(points).toBeGreaterThanOrEqual(minimumPt);
+      expect(points).toBeLessThanOrEqual(0.75);
+    }
+  );
+
+  test('unsourced numerical limits are identified as application choices in hover help', () => {
+    selectPublicationPreset('scatter', 'science_3col');
+    const select = document.querySelector('[data-publication-style-select="1"][data-component-type="scatter"]');
+    expect(select.title).toMatch(/Graphitix 0.5-0.75 pt; no verified publisher range/);
+    selectPublicationPreset('scatter', 'embo_double');
+    expect(select.title).toMatch(/minimum 0.3 pt.*Graphitix maximum 0.75 pt/);
+  });
+
 
   test('Nature/NPG variants are grouped and explained as width variants, not separate visual styles', () => {
     const select = document.querySelector(
       'select[data-publication-style-select="1"][data-component-type="scatter"]'
     );
-    const hint = select.closest('[data-publication-style-fieldset="1"]')
-      .querySelector('[data-publication-style-hint="1"]');
 
     expect(select.querySelector('optgroup[label="Nature / NPG — choose final width"]')).not.toBeNull();
-    expect(hint.textContent).toMatch(/89 mm single column/i);
-    expect(hint.textContent).toMatch(/Arial\/Helvetica, 7 pt/i);
+    expect(select.closest('[data-publication-style-fieldset="1"]')
+      .querySelector('[data-publication-style-hint="1"]')).toBeNull();
+    expect(select.title).toBe('');
+    expect(select.querySelector('option[value="npg_double"]').title)
+      .toMatch(/183 mm double column/i);
+
+    select.value = 'npg_single';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(select.title).toMatch(/Nature \/ NPG/i);
+    expect(select.title).toMatch(/89 mm single column/i);
+    expect(select.title).toMatch(/Arial\/Helvetica, 7 pt/i);
 
     select.value = 'npg_double';
-    select.dispatchEvent(new window.Event('change'));
-    expect(hint.textContent).toMatch(/183 mm double column/i);
-    expect(hint.textContent).toMatch(/0\.25-1 pt strokes/i);
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(select.title).toMatch(/Nature \/ NPG/i);
+    expect(select.title).toMatch(/183 mm double column/i);
+    expect(select.title).toMatch(/0\.25-1 pt strokes/i);
+
+    select.value = 'science_1col';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(select.title).toMatch(/Science \/ AAAS/i);
   });
 });
 

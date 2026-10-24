@@ -37,6 +37,78 @@ describe('cross-component statistical corrections', () => {
     expect(result.pairs[2].p).toBeCloseTo(0.01113867, 4);
   });
 
+  test('Tukey and Games-Howell match unequal-size SciPy references and 99% intervals', () => {
+    const groups=[[1,2,3],[4,6,7,9],[2,3,5,8,11]];
+    const labels=['A','B','C'];
+    const tukey=window.Shared.boxStatsModel.computeTukeyComparisons(groups,labels,{ ciLevel:0.99 });
+    const gamesHowell=window.Shared.boxStatsModel.computeGamesHowellComparisons(groups,labels,{ ciLevel:0.99 });
+    expect(tukey.ok).toBe(true);
+    expect(tukey.df).toBe(9);
+    expect(tukey.pairs[0].pAdj).toBeCloseTo(0.14140013,4);
+    expect(tukey.pairs[0].ciLow).toBeCloseTo(-12.66381436,4);
+    expect(tukey.pairs[0].ciHigh).toBeCloseTo(3.66381436,4);
+    expect(gamesHowell.ok).toBe(true);
+    expect(gamesHowell.pairs[0].df).toBeCloseTo(4.49222798,6);
+    expect(gamesHowell.pairs[0].p).toBeCloseTo(0.03450072,4);
+    expect(gamesHowell.pairs[0].ciLow).toBeCloseTo(-10.78255298,4);
+    expect(gamesHowell.pairs[0].ciHigh).toBeCloseTo(1.78255298,4);
+  });
+
+  test('Games-Howell keeps zero group variance exact and rejects zero pairwise variance', () => {
+    const oneConstant=window.Shared.boxStatsModel.computeGamesHowellComparisons(
+      [[1,1,1],[1,2,3],[2,3,4]],['A','B','C'],{ ciLevel:0.95 }
+    );
+    expect(oneConstant.ok).toBe(true);
+    expect(oneConstant.pairs[0].varI).toBe(0);
+    expect(oneConstant.pairs[0].df).toBeCloseTo(2,10);
+    expect(oneConstant.pairs[0].p).toBeCloseTo(0.37787384,4);
+
+    const allConstant=window.Shared.boxStatsModel.computeGamesHowellComparisons(
+      [[1,1,1],[2,2,2],[3,3,3]],['A','B','C'],{ ciLevel:0.95 }
+    );
+    expect(allConstant.ok).toBe(false);
+    expect(allConstant.message).toMatch(/positive pairwise variance/i);
+  });
+
+  test('studentized-range distribution handles support boundaries and invalid parameters', () => {
+    const model = window.Shared.boxStatsModel;
+    expect(model.studentizedRangeCDF(0, 3, 6)).toBe(0);
+    expect(model.studentizedRangeSF(0, 3, 6)).toBe(1);
+    expect(model.studentizedRangeCDF(Number.POSITIVE_INFINITY, 3, 6)).toBe(1);
+    expect(model.studentizedRangeSF(Number.POSITIVE_INFINITY, 3, 6)).toBe(0);
+    const representableExtremeTail = model.studentizedRangeSF(1e50, 3, 6);
+    expect(Number.isFinite(representableExtremeTail)).toBe(true);
+    expect(representableExtremeTail).toBeGreaterThan(0);
+    expect(model.studentizedRangeCDF(Number.NaN, 3, 6)).toBeNaN();
+    expect(model.studentizedRangeSF(2, 1, 6)).toBeNaN();
+    expect(model.studentizedRangeCDF(2, 3.5, 6)).toBeNaN();
+    expect(model.studentizedRangeSF(2, 3, 0)).toBeNaN();
+    expect(model.studentizedRangeCDF(2, 3, Number.NaN)).toBeNaN();
+  });
+
+  test('BRCA1 Tukey probabilities and simultaneous intervals match SciPy references', () => {
+    const groups = [
+      [1.22918958, 2.52757502, 2.29278175],
+      [-0.97978524, -1.31618847, -0.63270399],
+      [-3.78427131, -3.55639335, -3.70043972]
+    ];
+    const result = window.Shared.boxStatsModel.computeTukeyComparisons(groups, ['A', 'B', 'C'], { ciLevel: 0.95 });
+    const expected = [
+      { q: 11.506997985317202, p: 0.0004540625622713179, low: 1.86420289497591, high: 4.1212798050240895 },
+      { q: 21.90434126199713, p: 1.135483993397468e-5, low: 4.568345121642576, high: 6.825422031690756 },
+      { q: 10.397343276679928, p: 0.0007921269446995449, low: 1.575603771642577, high: 3.8326806816907566 }
+    ];
+    expect(result.ok).toBe(true);
+    expect(result.df).toBe(6);
+    result.pairs.forEach((pair, index) => {
+      const reference = expected[index];
+      expect(Math.abs(pair.q - reference.q)).toBeLessThan(1e-12);
+      expect(Math.abs(pair.pAdj - reference.p)).toBeLessThan(reference.p * 0.005);
+      expect(Math.abs(pair.ciLow - reference.low)).toBeLessThan(2e-7);
+      expect(Math.abs(pair.ciHigh - reference.high)).toBeLessThan(2e-7);
+    });
+  });
+
   test('binary logistic regression rejects non-binary responses instead of clamping', () => {
     const result = window.Shared.regressionTools.fitRegression([{x:1,y:2},{x:2,y:0}], { mode: 'logistic' });
     expect(result.warnings.join(' ')).toMatch(/encoded exactly as 0 or 1/i);
@@ -113,11 +185,14 @@ describe('cross-component statistical corrections', () => {
 
   test('Box statistical UI labels describe the implemented procedures truthfully', () => {
     const source = fs.readFileSync(path.join(__dirname, '../..', 'js/components/box.js'), 'utf8');
-    expect(source).toContain('pooled t + Sidak control comparisons');
-    expect(source).toContain('Welch + Sidak control comparisons');
-    expect(source).toContain('Friedman pairwise max-statistic permutation');
-    expect(source).toContain("['rout','MAD + BH']");
-    expect(source).toContain("'FDR q:'");
+    const statsModel = fs.readFileSync(path.join(__dirname, '../..', 'js/shared/boxStatsModel.js'), 'utf8');
+    expect(statsModel).toContain('Control comparisons (pooled t + Sidak)');
+    expect(statsModel).toContain('Control comparisons (Welch + Sidak)');
+    expect(source).toContain('optionResolution.effectiveLabel');
+    expect(statsModel).toContain('Friedman pairwise comparisons calibrated by a Monte Carlo maximum-statistic within-row permutation test');
+    expect(source.includes("['rout','MAD + BH flags (keep all)']")).toBe(true);
+    expect(source.includes("'BH score cutoff:'")).toBe(true);
+    expect(source.includes("'FDR q:'")).toBe(false);
     expect(source).toContain('Rows-random repeated-measures model');
     expect(source).toContain('Unreplicated three-factor ANOVA (ABC as error)');
   });

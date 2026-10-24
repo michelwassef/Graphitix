@@ -88,6 +88,57 @@ describe('tableImport.handlePaste with AG Grid hot instance', () => {
     expect(scheduleDraw).toHaveBeenCalled();
   });
 
+  test('a delayed tableImport paste cannot clear a newer table clipboard outline', async () => {
+    const Shared = global.window.Shared;
+    const createHot = id => {
+      const container = document.createElement('div');
+      container.id = id;
+      document.body.appendChild(container);
+      return Shared.hot.createStandardTable(container, { rows: 3, cols: 3 }, () => {}, {
+        debugLabel: id,
+        data: Shared.createEmptyData(3, 3)
+      });
+    };
+    const firstHot = createHot('agPasteOwnerA');
+    const secondHot = createHot('agPasteOwnerB');
+    firstHot.selectCell(0, 0);
+    secondHot.selectCell(0, 0);
+    const outline = clipboardText => ({
+      mode: 'copy',
+      ranges: [{ from: { row: 0, col: 0 }, to: { row: 0, col: 0 } }],
+      clipboardText
+    });
+    firstHot.__hotSetClipboardOutlineState(outline('A_OLD_COPY'), 'test-a-old-copy');
+
+    let resolveClipboardText;
+    const pasteEvent = {
+      clipboardData: {
+        getData: () => '',
+        items: [{
+          kind: 'string',
+          type: 'text/plain',
+          getAsString: callback => { resolveClipboardText = callback; }
+        }]
+      },
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn()
+    };
+    const pendingPaste = Shared.tableImport.handlePaste(pasteEvent, firstHot, {
+      minCols: 3,
+      minRows: 3,
+      debugLabel: 'delayed-owner-a'
+    });
+    expect(resolveClipboardText).toEqual(expect.any(Function));
+
+    secondHot.__hotSetClipboardOutlineState(outline('B_NEW_COPY'), 'test-b-new-copy');
+    expect(Shared.hot.__activeClipboardSelectionOwner).toBe(secondHot);
+    resolveClipboardText('A_LATE_PASTE');
+    await pendingPaste;
+
+    expect(firstHot.getDataAtCell(0, 0)).toBe('A_LATE_PASTE');
+    expect(Shared.hot.__activeClipboardSelectionOwner).toBe(secondHot);
+  });
+
   test('overwrites an existing value when pasting a single cell', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

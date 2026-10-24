@@ -130,3 +130,81 @@ test('AG Grid arrow keys move the highlighted cell instead of scrolling a visibl
 
   expect(issues.critical).toEqual([]);
 });
+
+test('AG Grid pinned-row wheel scrolling uses the single shared horizontal scrollbar', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+
+  await page.evaluate(() => {
+    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+    if(!hot?.loadData){
+      throw new Error('Scatter table API is unavailable');
+    }
+    const headers = Array.from({ length: 24 }, (_, index) => `Column ${index + 1}`);
+    headers[0] = 'Sample';
+    headers[1] = 'X';
+    headers[2] = 'Y';
+    hot.loadData([
+      headers,
+      headers.map((_, index) => index === 0 ? 'Sample A' : index === 1 ? 1 : index === 2 ? 2 : index),
+      headers.map((_, index) => index === 0 ? 'Sample B' : index === 1 ? 2 : index === 2 ? 3 : index + 1)
+    ], { source: 'e2e-pinned-grid-wheel-scroll', skipUndo: true });
+  });
+
+  await page.waitForFunction(() => {
+    const root = document.querySelector('#scatterPage:not([hidden]) #scatterHot');
+    const horizontal = root?.querySelector('.ag-body-horizontal-scroll-viewport');
+    const pinned = root?.querySelector('.ag-floating-top');
+    return !!horizontal && !!pinned && horizontal.scrollWidth > horizontal.clientWidth + 100;
+  });
+
+  const before = await page.evaluate(() => {
+    const root = document.querySelector('#scatterPage:not([hidden]) #scatterHot');
+    const horizontal = root?.querySelector('.ag-body-horizontal-scroll-viewport');
+    const pinned = root?.querySelector('.ag-floating-top');
+    const entryStops = Array.from(root?.querySelectorAll('.ag-floating-top-viewport, .ag-body-viewport, .ag-center-cols-viewport') || [])
+      .filter(node => node.tabIndex >= 0).length;
+    const pinnedViewport = root?.querySelector('.hot-pinned-row-scroll-region');
+    const maxScroll = horizontal ? horizontal.scrollWidth - horizontal.clientWidth : 0;
+    const scrollLeftBefore = Number(horizontal?.scrollLeft) || 0;
+    const event = new WheelEvent('wheel', { deltaX: 128, bubbles: true, cancelable: true });
+    pinned?.dispatchEvent(event);
+    return {
+      scrollLeftBefore,
+      maxScroll,
+      entryStops,
+      pinnedViewportTabIndex: pinnedViewport?.tabIndex ?? null,
+      pinnedViewportName: pinnedViewport?.getAttribute('aria-label') || '',
+      scrollRegionTitles: Array.from(root?.querySelectorAll('.hot-grid-scroll-region, .hot-pinned-row-scroll-region') || [])
+        .map(node => node.getAttribute('title') || ''),
+      wheelPrevented: event.defaultPrevented
+    };
+  });
+
+  expect(before.maxScroll).toBeGreaterThan(100);
+  expect(before.entryStops).toBe(2);
+  expect(before.pinnedViewportTabIndex).toBe(0);
+  expect(before.pinnedViewportName).toMatch(/Scatter data table pinned rows horizontal scroll area/);
+  expect(before.scrollRegionTitles.every(title => !title)).toBe(true);
+  expect(before.wheelPrevented).toBe(true);
+  await expect.poll(() => page.locator('#scatterPage:not([hidden]) #scatterHot .ag-body-horizontal-scroll-viewport')
+    .evaluate(node => node.scrollLeft)).toBeGreaterThan(before.scrollLeftBefore);
+
+  const alignment = await page.evaluate(() => {
+    const root = document.querySelector('#scatterPage:not([hidden]) #scatterHot');
+    const horizontal = root?.querySelector('.ag-body-horizontal-scroll-viewport');
+    const bodyCell = root?.querySelector('.ag-body-viewport .ag-cell[col-id="c4"]');
+    const pinnedCell = root?.querySelector('.ag-floating-top .ag-cell[col-id="c4"]');
+    const bodyRect = bodyCell?.getBoundingClientRect();
+    const pinnedRect = pinnedCell?.getBoundingClientRect();
+    return {
+      horizontalScrollLeft: Number(horizontal?.scrollLeft) || 0,
+      bodyColumnLeft: bodyRect?.left ?? null,
+      pinnedColumnLeft: pinnedRect?.left ?? null
+    };
+  });
+  expect(alignment.bodyColumnLeft, JSON.stringify(alignment)).not.toBeNull();
+  expect(alignment.pinnedColumnLeft, JSON.stringify(alignment)).not.toBeNull();
+  expect(Math.abs(alignment.bodyColumnLeft - alignment.pinnedColumnLeft), JSON.stringify(alignment)).toBeLessThanOrEqual(1);
+});

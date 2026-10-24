@@ -11,6 +11,32 @@ describe('statsFigureSummary renderer layout and viewport contracts', () => {
   beforeEach(harness.setup);
   afterEach(harness.cleanup);
 
+  test.each([0.75, 1, 1.25])('summary toggles preserve SVG scale at display zoom %s', displayZoom => {
+    const tabId = harness.installWorkspace();
+    const box = harness.svg.closest('.svgbox');
+    box.dataset.resizerZoomLevel = String(displayZoom);
+    const zoom = document.createElement('div');
+    zoom.className = 'resizer-zoom-content';
+    box.appendChild(zoom);
+    zoom.appendChild(harness.svg.parentElement);
+    harness.svg.getBoundingClientRect = () => {
+      const width = Number(harness.svg.getAttribute('width')) * displayZoom;
+      const height = Number(harness.svg.getAttribute('height')) * displayZoom;
+      return { width, height, x:0, y:0, left:0, top:0, right:width, bottom:height };
+    };
+    require('../../js/shared/statsFigureSummary.js');
+    const summary = window.Shared.statsFigureSummary;
+    for(let cycle = 0; cycle < 4; cycle++){
+      summary.setEnabledInSharedState(tabId, true);
+      summary.renderForTab(tabId, { reportModel:harness.reportWithValue('Stable graph scale'), componentType:'box' });
+      expect(Number(harness.svg.getAttribute('width'))).toBeCloseTo(400, 3);
+      summary.setEnabledInSharedState(tabId, false);
+      summary.renderForTab(tabId, { componentType:'box' });
+      expect(Number(harness.svg.getAttribute('width'))).toBeCloseTo(400, 3);
+      expect(Number(harness.svg.getAttribute('height'))).toBeCloseTo(300, 3);
+    }
+  });
+
   test('long canonical text is never ellipsized and grows the bottom SVG reserve without accumulating', () => {
     const tabId = harness.installWorkspace();
     require('../../js/shared/statsFigureSummary.js');

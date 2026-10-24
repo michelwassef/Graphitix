@@ -336,32 +336,226 @@
     visit(0);
     return permutations;
   }
-  function resolveStudentizedRangeCritical(alpha,r,df){
-    const tailAlpha=Number.isFinite(alpha) && alpha>0 && alpha<1 ? alpha : 0.05;
-    const groups=Math.max(2,Math.round(Number(r) || 2));
-    const dof=Number.isFinite(df) ? df : Number.POSITIVE_INFINITY;
-    let low=0;
-    let high=12;
-    let cdf=studentizedRangeCDF(high,groups,dof);
-    let guard=0;
-    while(cdf < 1-tailAlpha && high < 200 && guard < 40){
-      low=high;
-      high*=1.5;
-      cdf=studentizedRangeCDF(high,groups,dof);
-      guard+=1;
+  function tryResolveStudentizedRangeCritical(alpha,groups,df,initialGuess){
+    let q=Number(initialGuess);
+    let evaluations=0;
+    if(!(Number.isFinite(q) && q>0)) return { critical:NaN,evaluations };
+    for(let iteration=0;iteration<8;iteration+=1){
+      evaluations+=1;
+      const evaluation=studentizedRangeSurvivalAndDensity(q,groups,df);
+      if(!evaluation || !(Number.isFinite(evaluation.probability) && Number.isFinite(evaluation.density))){
+        return { critical:NaN,evaluations };
+      }
+      const residual=evaluation.probability-alpha;
+      const quantileTolerance=1e-8*Math.max(1,Math.abs(q));
+      if(!(evaluation.density>0)) return { critical:NaN,evaluations };
+      const correction=residual/evaluation.density;
+      if(!(Number.isFinite(correction) && Math.abs(correction)<=Math.max(0.5,Math.abs(q)*0.5))){
+        return { critical:NaN,evaluations };
+      }
+      if(Math.abs(correction)<=quantileTolerance*32){
+        if(residual>0){
+          evaluations+=1;
+          const upperTail=studentizedRangeSF(q+quantileTolerance,groups,df);
+          if(Number.isFinite(upperTail) && upperTail<=alpha){
+            return { critical:q+(quantileTolerance/2),evaluations };
+          }
+        }else if(residual<0){
+          const lower=Math.max(0,q-quantileTolerance);
+          evaluations+=1;
+          const lowerTail=studentizedRangeSF(lower,groups,df);
+          if(Number.isFinite(lowerTail) && lowerTail>=alpha){
+            return { critical:(lower+q)/2,evaluations };
+          }
+        }else{
+          const lower=Math.max(0,q-quantileTolerance);
+          evaluations+=2;
+          const lowerTail=studentizedRangeSF(lower,groups,df);
+          const upperTail=studentizedRangeSF(q+quantileTolerance,groups,df);
+          if(Number.isFinite(lowerTail) && Number.isFinite(upperTail) && lowerTail>=alpha && upperTail<=alpha){
+            return { critical:q,evaluations };
+          }
+        }
+      }
+      const next=q+correction;
+      if(!(Number.isFinite(next) && next>0 && next!==q)) return { critical:NaN,evaluations };
+      q=next;
     }
-    for(let iter=0; iter<60; iter++){
-      const mid=(low+high)/2;
-      const midCdf=studentizedRangeCDF(mid,groups,dof);
-      if(midCdf >= 1-tailAlpha){
-        high=mid;
-      }else{
-        low=mid;
+    return { critical:NaN,evaluations };
+  }
+
+  function resolveStudentizedRangeCritical(alpha,r,df,initialGuess=null){
+    const tailAlpha=Number(alpha);
+    const groups=Number(r);
+    const dof=Number(df);
+    if(!(Number.isFinite(tailAlpha) && tailAlpha>=0 && tailAlpha<=1)
+      || !(Number.isInteger(groups) && groups>=2)
+      || !(dof===Number.POSITIVE_INFINITY || (Number.isFinite(dof) && dof>0))){
+      return NaN;
+    }
+    if(tailAlpha===0) return Number.POSITIVE_INFINITY;
+    if(tailAlpha===1) return 0;
+
+    if(groups===2){
+      const quantileProbability=1-(tailAlpha/2);
+      const quantile=dof===Number.POSITIVE_INFINITY
+        ? global.jStat?.normal?.inv?.(quantileProbability,0,1)
+        : global.jStat?.studentt?.inv?.(quantileProbability,dof);
+      if(Number.isFinite(quantile) && quantile>=0){
+        return Math.SQRT2*quantile;
       }
     }
-    const critical=(low+high)/2;
-    logDebug('Debug: box studentizedRange critical',{ alpha:tailAlpha, groups, df:dof, critical });
-    return critical;
+
+    let low=0;
+    let lowTail=1;
+    let high=Math.max(4,Math.sqrt(2*Math.log(groups))+3);
+    let highTail=NaN;
+    const evaluateTail=q=>studentizedRangeSF(q,groups,dof);
+    let evaluations=0;
+    const evaluate=q=>{
+      evaluations+=1;
+      return evaluateTail(q);
+    };
+    const finish=critical=>{
+      logDebug('Debug: box studentizedRange critical',{ alpha:tailAlpha, groups, df:dof, critical, evaluations });
+      return critical;
+    };
+    const jStat=global.jStat;
+    const studentTInverse=jStat?.studentt?.inv;
+    const suppliedGuess=Number(initialGuess);
+    const hasSuppliedGuess=Number.isFinite(suppliedGuess) && suppliedGuess>0;
+    const tailGuess=hasSuppliedGuess
+      ? suppliedGuess
+      : (typeof studentTInverse==='function'
+        ? Math.SQRT2*studentTInverse(1-(tailAlpha/(2*groups)),dof)
+        : NaN);
+    const probabilityTolerance=tailAlpha*1e-9;
+    if(tailAlpha>=1e-8 && Number.isFinite(tailGuess) && tailGuess>0){
+      const fastResult=tryResolveStudentizedRangeCritical(tailAlpha,groups,dof,tailGuess);
+      evaluations+=fastResult.evaluations;
+      if(Number.isFinite(fastResult.critical)) return finish(fastResult.critical);
+    }
+    let initialEvaluation=null;
+    if(Number.isFinite(tailGuess) && tailGuess>0 && Number.isFinite(tailGuess*1.25)){
+      evaluations+=1;
+      initialEvaluation=studentizedRangeSurvivalAndDensity(tailGuess,groups,dof);
+      if(!initialEvaluation || !(Number.isFinite(initialEvaluation.probability) && Number.isFinite(initialEvaluation.density))) return NaN;
+      const initialResidual=initialEvaluation.probability-tailAlpha;
+      if(Math.abs(initialResidual)<=probabilityTolerance) return finish(tailGuess);
+      let step=Math.max(tailGuess*(hasSuppliedGuess?0.01:0.25),hasSuppliedGuess?0.01:0.5);
+      let guard=0;
+      if(initialResidual>0){
+        low=tailGuess;
+        lowTail=initialEvaluation.probability;
+        high=tailGuess+step;
+        if(!Number.isFinite(high)) return Number.POSITIVE_INFINITY;
+        highTail=evaluate(high);
+        if(!Number.isFinite(highTail)) return NaN;
+        while(highTail>tailAlpha && guard<128){
+          low=high;
+          lowTail=highTail;
+          step*=2;
+          high=tailGuess+step;
+          if(!Number.isFinite(high)) return Number.POSITIVE_INFINITY;
+          highTail=evaluate(high);
+          if(!Number.isFinite(highTail)) return NaN;
+          guard+=1;
+        }
+        if(highTail>tailAlpha) return NaN;
+      }else{
+        high=tailGuess;
+        highTail=initialEvaluation.probability;
+        low=Math.max(0,tailGuess-step);
+        lowTail=low>0 ? evaluate(low) : 1;
+        if(!Number.isFinite(lowTail)) return NaN;
+        while(lowTail<=tailAlpha && low>0 && guard<128){
+          high=low;
+          highTail=lowTail;
+          step*=2;
+          low=Math.max(0,tailGuess-step);
+          lowTail=low>0 ? evaluate(low) : 1;
+          if(!Number.isFinite(lowTail)) return NaN;
+          guard+=1;
+        }
+        if(lowTail<=tailAlpha) return NaN;
+      }
+    }else{
+      low=0;
+      lowTail=1;
+      highTail=evaluate(high);
+      if(!Number.isFinite(highTail)) return NaN;
+      let guard=0;
+      while(highTail>tailAlpha && guard<128){
+        low=high;
+        lowTail=highTail;
+        high*=2;
+        if(!Number.isFinite(high)) return Number.POSITIVE_INFINITY;
+        highTail=evaluate(high);
+        if(!Number.isFinite(highTail)) return NaN;
+        guard+=1;
+      }
+      if(highTail>tailAlpha) return NaN;
+    }
+
+    let a=low;
+    let b=high;
+    let fa=lowTail-tailAlpha;
+    let fb=highTail-tailAlpha;
+    if(!(fa>=0 && fb<=0)) return NaN;
+    let candidate=Number.isFinite(tailGuess) && tailGuess>=a && tailGuess<=b
+      ? tailGuess
+      : ((a+b)/2);
+    let candidateEvaluation=initialEvaluation && candidate===tailGuess ? initialEvaluation : null;
+    for(let iteration=0;iteration<64;iteration+=1){
+      const tolerance=1e-7*Math.max(1,Math.abs(b));
+      if(Math.abs(b-a)<=tolerance) return finish((a+b)/2);
+      evaluations+=1;
+      const evaluation=candidateEvaluation || studentizedRangeSurvivalAndDensity(candidate,groups,dof);
+      candidateEvaluation=null;
+      if(!evaluation || !(Number.isFinite(evaluation.probability) && Number.isFinite(evaluation.density))) return NaN;
+      const residual=evaluation.probability-tailAlpha;
+      if(Math.abs(residual)<=probabilityTolerance) return finish(candidate);
+      if(residual>0){
+        a=candidate;
+      }else{
+        b=candidate;
+      }
+      if(Math.abs(b-a)<=tolerance) return finish((a+b)/2);
+      let next=evaluation.density>0 ? candidate+(residual/evaluation.density) : NaN;
+      if(!(Number.isFinite(next) && next>a && next<b)
+        || Math.abs(next-candidate)<(tolerance/4)){
+        next=(a+b)/2;
+      }
+      candidate=next;
+    }
+    return Math.abs(b-a)<=1e-7*Math.max(1,Math.abs(b)) ? finish((a+b)/2) : NaN;
+  }
+  function resolveStudentizedRangeCriticalValues(alpha,groups,degreesOfFreedom){
+    const uniqueDfs=Array.from(new Set((Array.isArray(degreesOfFreedom)?degreesOfFreedom:[]).map(Number)))
+      .filter(df=>df===Number.POSITIVE_INFINITY || (Number.isFinite(df) && df>0))
+      .sort((left,right)=>left-right);
+    const values=[];
+    for(const df of uniqueDfs){
+      let initialGuess=values.length?values[values.length-1].critical:null;
+      if(values.length>=2 && Number.isFinite(df)){
+        const previous=values[values.length-1];
+        const prior=values[values.length-2];
+        const currentCoordinate=1/Math.sqrt(df);
+        const previousCoordinate=1/Math.sqrt(previous.df);
+        const priorCoordinate=1/Math.sqrt(prior.df);
+        const slope=(previous.critical-prior.critical)/(previousCoordinate-priorCoordinate);
+        const predicted=previous.critical+(currentCoordinate-previousCoordinate)*slope;
+        if(Number.isFinite(predicted) && predicted>0
+          && Math.abs(predicted-previous.critical)<=Math.max(0.5,previous.critical*0.5)){
+          initialGuess=predicted;
+        }
+      }
+      values.push({
+        df,
+        critical:resolveStudentizedRangeCritical(alpha,groups,df,initialGuess)
+      });
+    }
+    return values;
   }
   function resolveStatsAlpha(options){
     return sanitizeStatsAlpha(options?.alpha, ASSUMPTION_ALPHA);
@@ -408,7 +602,7 @@
     const m = values.length || 1;
     return values.map(v => {
       const p = fallbackSanitizeP(v);
-      return fallbackClampUnit(1 - Math.pow(1 - p, m));
+      return fallbackClampUnit(-Math.expm1(m * Math.log1p(-p)));
     });
   }
 
@@ -435,7 +629,7 @@
     let running = 0;
     ordered.forEach((entry, idx) => {
       const rank = m - idx;
-      const raw = fallbackClampUnit(1 - Math.pow(1 - entry.p, rank));
+      const raw = fallbackClampUnit(-Math.expm1(rank * Math.log1p(-entry.p)));
       running = Math.max(running, raw);
       adjusted[entry.index] = fallbackClampUnit(running);
     });
@@ -497,49 +691,49 @@
     none: {
       label: 'None (unadjusted)',
       shortLabel: 'None',
-      footnote: count => `p-values are unadjusted${count > 0 ? ` (${count} comparison${count === 1 ? '' : 's'})` : ''}.`,
+      footnote: count => `P-values are unadjusted${count > 0 ? ` (${count} comparison${count === 1 ? '' : 's'})` : ''}.`,
       adjust: fallbackAdjustNone
     },
     bonferroni: {
       label: 'Bonferroni',
       shortLabel: 'Bonferroni',
-      footnote: count => `Bonferroni-adjusted p-values across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Bonferroni adjustment was applied across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustBonferroni
     },
     holm: {
       label: 'Holm',
       shortLabel: 'Holm',
-      footnote: count => `Holm correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Holm correction was applied across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustHolm
     },
     'holm-sidak': {
       label: 'Holm-Sidak',
       shortLabel: 'Holm-Sidak',
-      footnote: count => `Holm-Sidak correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Holm-Sidak correction was applied across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustHolmSidak
     },
     sidak: {
       label: 'Sidak',
       shortLabel: 'Sidak',
-      footnote: count => `Sidak correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Sidak correction was applied across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustSidak
     },
     hochberg: {
       label: 'Hochberg',
       shortLabel: 'Hochberg',
-      footnote: count => `Hochberg correction applied across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Hochberg correction was applied across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustHochberg
     },
     bh: {
       label: 'Benjamini-Hochberg (FDR)',
       shortLabel: 'BH',
-      footnote: count => `Benjamini-Hochberg FDR correction across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Benjamini-Hochberg procedure controlled the false discovery rate across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustBH
     },
     by: {
       label: 'Benjamini-Yekutieli (FDR)',
       shortLabel: 'BY',
-      footnote: count => `Benjamini-Yekutieli FDR correction across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `The Benjamini-Yekutieli procedure controlled the false discovery rate across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustBY
     }
   };
@@ -626,6 +820,8 @@
       gamesHowell: 'games-howell',
       tamhaneT2: 'tamhane-t2',
       nemenyi: 'nemenyi',
+      dunnettTest:'dunnett-test',
+      dunnettT3Test:'dunnett-t3-test',
       dunnett: 'dunnett',
       dunnettT3: 'dunnett-t3'
     };
@@ -951,7 +1147,20 @@
     return value === 'classic' || value === 'lognormalClassic';
   }
 
+  const STUDENTIZED_RANGE_CACHE_VERSION = 'studentized-range-direct-sf-v2';
   const POST_HOC_META = {
+    auto: {
+      value: 'auto',
+      label: 'Automatic',
+      shortLabel: 'Automatic',
+      tooltip: 'Choose a post-hoc procedure from the selected primary analysis and comparison scope.',
+      summary: context => {
+        const resolution = resolvePostHocProcedure({ ...context, requestedProcedure: 'auto' });
+        return resolution.effectiveProcedure
+          ? `Automatic (${resolution.effectiveLabel}).`
+          : (resolution.reason || 'Automatic post-hoc selection is unavailable.');
+      }
+    },
     standard: {
       value: 'standard',
       label: 'Pairwise + correction',
@@ -960,12 +1169,24 @@
       applies: context => context?.mode !== 'custom',
       summary: () => 'Pairwise tests with the chosen correction.'
     },
+    anovaPooled: {
+      value: 'anovaPooled',
+      label: 'ANOVA-pooled t-tests',
+      shortLabel: 'ANOVA-pooled',
+      tooltip: 'Two-sided pairwise t-tests using the common residual mean square from an independent classic one-way ANOVA.',
+      applies: context => context?.mode === 'all'
+        && context?.paired !== true
+        && context?.groupCount >= 3
+        && (context?.analysisId === 'oneWayAnova' || context?.analysisId === 'lognormalAnova'),
+      summary: context => `Two-sided pairwise t-tests use the common ANOVA residual mean square (df = N − k).`
+    },
     tukey: {
       value: 'tukey',
       label: 'Tukey HSD',
       shortLabel: 'Tukey',
       tooltip: 'Parametric Tukey Honestly Significant Difference using the studentized range distribution (unpaired, ≥3 groups).',
-      applies: context => context && context.mode !== 'custom' && context.test === 'parametric' && isEqualVarianceParametricVariant(context.variant) && !context.paired && context.groupCount >= 3,
+      numericalCacheVersion: STUDENTIZED_RANGE_CACHE_VERSION,
+      applies: context => context && context.mode !== 'custom' && context.analysisId !== 'oneSampleT' && context.analysisId !== 'oneSampleWilcoxon' && context.test === 'parametric' && isEqualVarianceParametricVariant(context.variant) && !context.paired && context.groupCount >= 3,
       summary: context => `Tukey HSD on ${context?.groupCount || 0} groups (family-wise adjusted).`
     },
     gamesHowell: {
@@ -973,7 +1194,8 @@
       label: 'Games-Howell',
       shortLabel: 'Games-Howell',
       tooltip: 'Games-Howell post-hoc test using Welch-standardized differences (unpaired, ≥3 groups, unequal variances).',
-      applies: context => context && context.mode !== 'custom' && context.test === 'parametric' && !context.paired && context.groupCount >= 3 && (isWelchStyleParametricVariant(context.variant) || context.varianceConcern === true),
+      numericalCacheVersion: STUDENTIZED_RANGE_CACHE_VERSION,
+      applies: context => context && context.mode !== 'custom' && context.analysisId !== 'oneSampleT' && context.analysisId !== 'oneSampleWilcoxon' && context.test === 'parametric' && !context.paired && context.groupCount >= 3 && (isWelchStyleParametricVariant(context.variant) || context.varianceConcern === true),
       summary: context => `Games-Howell comparisons across ${context?.groupCount || 0} groups with Welch-standardized SE.`
     },
     tamhaneT2: {
@@ -997,8 +1219,23 @@
       label: "Friedman pairwise post-hoc",
       shortLabel: 'Friedman post-hoc',
       tooltip: 'Pairwise comparisons of mean ranks after Friedman; calibration is exact/Monte Carlo max-statistic permutation when selected, otherwise the Nemenyi studentized-range approximation.',
-      applies: context => context && context.mode !== 'custom' && context.test === 'nonparametric' && context.paired && context.groupCount >= 3,
+      numericalCacheVersion: STUDENTIZED_RANGE_CACHE_VERSION,
+      applies: context => context && context.mode !== 'custom' && context.analysisId !== 'oneSampleT' && context.analysisId !== 'oneSampleWilcoxon' && context.test === 'nonparametric' && context.paired && context.groupCount >= 3,
       summary: context => `Nemenyi pairwise mean-rank comparisons across ${context?.groupCount || 0} paired groups after Friedman.`
+    },
+    dunnettTest: {
+      value:'dunnettTest',label:'Dunnett',shortLabel:'Dunnett',
+      tooltip:'Two-sided comparisons against one control, using correlated multivariate t calibration and common ANOVA residual variance.',
+      numericalCacheVersion:'dunnett-multivariate-t-v1',
+      applies:context=>context && context.mode==='reference' && context.test==='parametric' && !context.paired && context.groupCount>=3 && isEqualVarianceParametricVariant(context.variant),
+      summary:context=>`Dunnett simultaneous comparisons against the reference across ${Math.max(0,(context?.groupCount||0)-1)} treatments.`
+    },
+    dunnettT3Test: {
+      value:'dunnettT3Test',label:'Dunnett T3',shortLabel:'Dunnett T3',
+      tooltip:'Two-sided all-pairs unequal-variance comparisons, using the studentized maximum modulus and pair-specific Welch degrees of freedom.',
+      numericalCacheVersion:'dunnett-t3-maximum-modulus-v1',
+      applies:context=>context && context.mode==='all' && context.test==='parametric' && !context.paired && context.groupCount>=3,
+      summary:context=>`Dunnett T3 unequal-variance simultaneous comparisons across all ${context?.groupCount||0} groups.`
     },
     dunnett: {
       value: 'dunnett',
@@ -1017,61 +1254,174 @@
       summary: context => `Welch t comparisons versus the reference with Sidak family-wise adjustment across ${Math.max(0, (context?.groupCount || 0) - 1)} group${(context?.groupCount || 0) === 2 ? '' : 's'}.`
     }
   };
-  const POST_HOC_ORDER = ['standard', 'tukey', 'gamesHowell', 'tamhaneT2', 'dunn', 'nemenyi', 'dunnett', 'dunnettT3'];
+  const POST_HOC_ORDER = ['auto', 'standard', 'anovaPooled', 'tukey', 'gamesHowell', 'tamhaneT2', 'dunn', 'nemenyi', 'dunnettTest', 'dunnettT3Test', 'dunnett', 'dunnettT3'];
 
-  function isPostHocSupported(method, context){
-    const meta = POST_HOC_META[method];
-    if(!meta || typeof meta.applies !== 'function'){
-      return false;
+  function inferPostHocAnalysisId(context = {}){
+    const mode = String(context.mode || context.scope || 'all');
+    const groupCount = Math.max(0, Number(context.groupCount) || 0);
+    const paired = context.design === 'paired' || context.paired === true;
+    const family = context.test || context.family || 'parametric';
+    const variant = context.variant || context.parametricVariant || 'classic';
+    if(mode === 'oneSample'){
+      return family === 'nonparametric' ? 'oneSampleWilcoxon' : 'oneSampleT';
     }
-    try{
-      return !!meta.applies(context || {});
-    }catch(err){
-      logDebug('Debug: box worker isPostHocSupported error', { method, message: err?.message || String(err) });
-      return false;
+    if(family === 'nonparametric'){
+      if(paired){
+        return groupCount >= 3 ? 'friedman' : 'wilcoxonSignedRank';
+      }
+      return groupCount >= 3 ? 'kruskalWallis' : 'mannWhitney';
     }
+    if(mode === 'reference' || mode === 'custom' || groupCount <= 2){
+      if(paired){
+        return variant === 'ratioT' ? 'ratioT' : 'pairedT';
+      }
+      return variant === 'welch' ? 'welchT'
+        : variant === 'lognormalClassic' ? 'lognormalT'
+          : variant === 'lognormalWelch' ? 'lognormalWelchT'
+            : 'studentT';
+    }
+    if(paired){
+      return 'repeatedMeasuresAnova';
+    }
+    return variant === 'welch' ? 'welchAnova'
+      : variant === 'lognormalClassic' ? 'lognormalAnova'
+        : variant === 'lognormalWelch' ? 'lognormalWelchAnova'
+          : 'oneWayAnova';
   }
 
-  function ensureValidPostHoc(method, context){
-    const ctxRef = context || {};
-    const rawRequested = typeof method === 'string' ? method.trim() : '';
-    const requested = POST_HOC_ORDER.find(key => key.toLowerCase() === rawRequested.toLowerCase()) || rawRequested;
-    if(requested && isPostHocSupported(requested, ctxRef)){
-      return requested;
+  function resolvePostHocProcedure(input = {}){
+    const scope = String(input.scope || input.mode || 'all');
+    const design = input.design === 'paired' || input.paired === true ? 'paired' : 'independent';
+    const groupCount = Math.max(0, Number(input.groupCount) || 0);
+    const analysisId = String(input.analysisId || input.analysis?.id || inferPostHocAnalysisId({
+      mode: scope,
+      test: input.test,
+      family: input.family,
+      paired: design === 'paired',
+      variant: input.variant || input.analysis?.variant,
+      groupCount
+    }));
+    const rawRequested = String(input.requestedProcedure ?? input.requested ?? 'standard').trim();
+    const requestedProcedure = POST_HOC_ORDER.find(key => key.toLowerCase() === rawRequested.toLowerCase()) || rawRequested;
+    const automatic = requestedProcedure === 'auto';
+    const analysisMeta = SINGLE_TEST_META[analysisId] || {};
+    const context = {
+      mode: scope,
+      scope,
+      test: analysisMeta.family || input.test || input.family || null,
+      paired: design === 'paired',
+      design,
+      groupCount,
+      variant: analysisMeta.variant || input.variant || input.analysis?.variant || null,
+      varianceConcern: input.varianceConcern === true,
+      analysisId
+    };
+    const automaticChoices = {
+      oneWayAnova: 'tukey',
+      lognormalAnova: 'tukey',
+      welchAnova: 'gamesHowell',
+      lognormalWelchAnova: 'gamesHowell'
+    };
+    let candidate = requestedProcedure;
+    if(automatic){
+      candidate = scope === 'all'
+        && design === 'independent'
+        && groupCount >= 3
+        && automaticChoices[analysisId]
+        ? automaticChoices[analysisId]
+        : 'standard';
     }
-    if(ctxRef.mode === 'reference' && ctxRef.variant === 'welch' && isPostHocSupported('dunnettT3', ctxRef)){
-      if(requested && requested !== 'dunnettT3'){
-        logDebug('Debug: box worker postHoc reference fallback', { requested, fallback: 'dunnettT3' });
+    const meta = POST_HOC_META[candidate];
+    let supported = false;
+    try{
+      supported = !!meta && typeof meta.applies === 'function' && !!meta.applies(context);
+    }catch(err){
+      logDebug('Debug: box worker resolvePostHocProcedure applicability failed', {
+        requestedProcedure,
+        candidate,
+        message: err?.message || String(err)
+      });
+    }
+    let reason = null;
+    if(!supported){
+      if(candidate === 'anovaPooled'){
+        reason = 'ANOVA-pooled t-tests require All pairwise scope, at least three independent groups, and classic one-way ANOVA on the original or log scale.';
+      }else if(candidate === 'auto'){
+        reason = 'Automatic post-hoc selection could not resolve a supported procedure.';
+      }else if(!meta){
+        reason = `Unknown post-hoc procedure: ${requestedProcedure}.`;
+      }else{
+        reason = `${meta.label || candidate} is not supported for ${analysisId} in ${scope} scope with ${design} groups and ${groupCount} selected groups.`;
       }
-      return 'dunnettT3';
     }
-    if(ctxRef.mode === 'reference' && isPostHocSupported('dunnett', ctxRef)){
-      if(requested && requested !== 'dunnett'){
-        logDebug('Debug: box worker postHoc reference fallback', { requested, fallback: 'dunnett' });
-      }
-      return 'dunnett';
-    }
-    if(isWelchStyleParametricVariant(ctxRef.variant) && isPostHocSupported('gamesHowell', ctxRef)){
-      if(requested && requested !== 'gamesHowell'){
-        logDebug('Debug: box worker postHoc welch fallback', { requested, fallback: 'gamesHowell' });
-      }
-      return 'gamesHowell';
-    }
-    if(ctxRef.paired && ctxRef.test === 'nonparametric' && isPostHocSupported('nemenyi', ctxRef)){
-      if(requested && requested !== 'nemenyi'){
-        logDebug('Debug: box worker postHoc paired nonparametric fallback', { requested, fallback: 'nemenyi' });
-      }
-      return 'nemenyi';
-    }
-    for(const key of POST_HOC_ORDER){
-      if(isPostHocSupported(key, ctxRef)){
-        if(requested && requested !== key){
-          logDebug('Debug: box worker postHoc fallback', { requested, fallback: key });
-        }
-        return key;
-      }
-    }
-    return 'standard';
+    const labels = {
+      standard: context.paired ? 'Paired pairwise tests' : (context.test === 'parametric' ? 'Independent pairwise t-tests' : 'Independent pairwise rank tests'),
+      anovaPooled: 'ANOVA-pooled t-tests'
+    };
+    const pairwiseTestLabels = {
+      studentT: 'Student independent two-sample t-tests',
+      welchT: 'Welch independent two-sample t-tests',
+      lognormalT: 'Student independent two-sample t-tests on log-transformed observations',
+      lognormalWelchT: 'Welch independent two-sample t-tests on log-transformed observations',
+      pairedT: 'paired Student t-tests',
+      ratioT: 'paired ratio t-tests on log-transformed values',
+      mannWhitney: 'Mann–Whitney U tests',
+      kolmogorovSmirnov: 'Kolmogorov–Smirnov two-sample tests',
+      wilcoxonSignedRank: 'Wilcoxon signed-rank tests',
+      oneWayAnova: 'independent pair-specific Student t-tests',
+      welchAnova: 'independent pair-specific Welch t-tests',
+      lognormalAnova: 'independent pair-specific Student t-tests on log-transformed observations',
+      lognormalWelchAnova: 'independent pair-specific Welch t-tests on log-transformed observations',
+      repeatedMeasuresAnova: 'paired pairwise t-tests',
+      kruskalWallis: 'independent pairwise rank tests',
+      friedman: 'paired pairwise rank tests'
+    };
+    const standardVarianceEstimators = {
+      studentT: 'pairSpecificPooledVariance',
+      welchT: 'pairSpecificWelchVariance',
+      lognormalT: 'pairSpecificPooledVarianceOnLogScale',
+      lognormalWelchT: 'pairSpecificWelchVarianceOnLogScale',
+      oneWayAnova: 'pairSpecificPooledVariance',
+      welchAnova: 'pairSpecificWelchVariance',
+      lognormalAnova: 'pairSpecificPooledVarianceOnLogScale',
+      lognormalWelchAnova: 'pairSpecificWelchVarianceOnLogScale'
+    };
+    const effectiveLabel = candidate === 'standard'
+      ? labels.standard
+      : (POST_HOC_META[candidate]?.label || candidate);
+    const alternative = ['tukey', 'gamesHowell', 'anovaPooled','dunnettTest','dunnettT3Test'].includes(candidate) ? 'two-sided' : null;
+    const varianceEstimator = candidate === 'standard'
+      ? (standardVarianceEstimators[analysisId] || (context.test === 'parametric' ? 'pairSpecificVariance' : null))
+      : candidate === 'anovaPooled' || candidate === 'tukey' || candidate==='dunnettTest'
+      ? 'anovaResidualMSE'
+      : candidate === 'gamesHowell' || candidate === 'tamhaneT2' || candidate === 'dunnettT3' || candidate==='dunnettT3Test'
+        ? 'groupSampleVariances'
+        : null;
+    return {
+      requestedProcedure,
+      effectiveProcedure: supported ? candidate : null,
+      automatic,
+      supported,
+      reason,
+      analysisId,
+      scope,
+      design,
+      groupCount,
+      effectiveLabel,
+      pairwiseTest: candidate === 'standard'
+        ? (pairwiseTestLabels[analysisId] || effectiveLabel)
+        : candidate === 'anovaPooled'
+          ? 'two-sided t-tests using the common ANOVA residual mean square'
+          : candidate === 'tukey'
+            ? 'Tukey HSD studentized-range comparisons'
+            : candidate === 'gamesHowell'
+              ? 'Games-Howell studentized-range comparisons'
+              : (POST_HOC_META[candidate]?.label || candidate),
+      effectiveAlternative: alternative,
+      varianceEstimator,
+      intrinsicCorrection: ['tukey', 'gamesHowell', 'tamhaneT2', 'nemenyi', 'dunnett', 'dunnettT3','dunnettTest','dunnettT3Test'].includes(candidate),
+      numericalCacheVersion: supported ? (meta?.numericalCacheVersion || null) : null
+    };
   }
 
   function listPostHocOptions(){
@@ -1084,7 +1434,20 @@
   }
 
   function getPostHocSummary(method, context){
-    const meta = POST_HOC_META[method];
+    const resolution = resolvePostHocProcedure({ ...(context || {}), requestedProcedure: method });
+    if(!resolution.supported){
+      return resolution.reason;
+    }
+    if(resolution.automatic){
+      return `Automatic (${resolution.effectiveLabel}); ${POST_HOC_META[resolution.effectiveProcedure]?.tooltip || 'pairwise comparisons use the selected primary analysis'}`;
+    }
+    if(resolution.effectiveProcedure === 'standard'){
+      return `${resolution.effectiveLabel} with the selected multiple-testing correction.`;
+    }
+    if(resolution.effectiveProcedure === 'anovaPooled'){
+      return 'Two-sided pairwise t-tests use the common ANOVA residual mean square; selected multiplicity control applies across all pairwise comparisons.';
+    }
+    const meta = POST_HOC_META[resolution.effectiveProcedure];
     if(!meta){
       return method || 'standard';
     }
@@ -1869,47 +2232,134 @@
     return {available:true,slope,intercept,t:tValue,df,p:resolveStudentTPValue(tValue,df,options.alternative)};
   }
 
-  function sanitizeOutlierMode(value){return value==='grubbs'||value==='rout'?value:'none';}
+  function sanitizeOutlierMode(value){return ['grubbs','rout','routTest'].includes(value)?value:'none';}
+  function sanitizeOutlierAlpha(value,fallback=0.05){
+    const numeric=Number(value);
+    return Number.isFinite(numeric)&&numeric>0&&numeric<0.25?numeric:fallback;
+  }
+  function sanitizeOutlierQ(value,fallback=0.01){
+    const numeric=Number(value);
+    return Number.isFinite(numeric)&&numeric>0&&numeric<0.25?numeric:fallback;
+  }
+  function resolveStatsOutlierAlpha(options){return sanitizeOutlierAlpha(options?.statsOutlierAlpha,0.05);}
+  function resolveStatsOutlierQ(options){return sanitizeOutlierQ(options?.statsOutlierQ,0.01);}
   function detectGrubbsOutliers(values,options={}){
     const working=normalizeFiniteSample(values).map((value,index)=>({value,index}));
-    const removed=[];const alpha=sanitizeStatsAlpha(options.alpha,0.05);const inv=global.jStat?.studentt?.inv;
+    const removed=[];const alpha=sanitizeOutlierAlpha(options.alpha,0.05);const inv=global.jStat?.studentt?.inv;
     if(typeof inv!=='function') return {kept:working.map(item=>item.value),removed,note:'Student-t inverse unavailable; Grubbs screening skipped.'};
-    const maxRemoved=Math.max(1,Math.floor(working.length*0.2));
-    while(working.length>=3&&removed.length<maxRemoved){
+    // Grubbs tests one extreme, not a sequence of selected hypotheses.
+    if(working.length>=3){
       const center=mean(working.map(item=>item.value));
       const sd=Math.sqrt(working.reduce((sum,item)=>sum+Math.pow(item.value-center,2),0)/(working.length-1));
-      if(!(sd>0)) break;
+      if(!(sd>0)) return {kept:working.map(item=>item.value),removed};
       let maxIndex=0,maxG=-Infinity;working.forEach((item,index)=>{const g=Math.abs(item.value-center)/sd;if(g>maxG){maxG=g;maxIndex=index;}});
       const n=working.length;const tc=inv(1-(alpha/(2*n)),n-2);const critical=((n-1)/Math.sqrt(n))*Math.sqrt((tc*tc)/(n-2+(tc*tc)));
-      if(!(maxG>critical)) break;
-      removed.push({...working[maxIndex],statistic:maxG,critical});working.splice(maxIndex,1);
+      if(maxG>critical){
+        removed.push({...working[maxIndex],statistic:maxG,critical});working.splice(maxIndex,1);
+      }
     }
     return {kept:working.map(item=>item.value),removed};
   }
-  function detectRoutStyleOutliers(values,options={}){
+  function flagMadBhObservations(values,options={}){
     const source=normalizeFiniteSample(values).map((value,index)=>({value,index}));
-    if(source.length<4) return {kept:source.map(item=>item.value),removed:[]};
+    if(source.length<4) return {kept:source.map(item=>item.value),removed:[],flags:[],note:'MAD heuristic needs at least four observations.'};
     const sorted=source.map(item=>item.value).sort((a,b)=>a-b);const median=quantileFromUnsorted(sorted,0.5);
-    const mad=quantileFromUnsorted(source.map(item=>Math.abs(item.value-median)).sort((a,b)=>a-b),0.5);const sigma=Math.max(1.4826*mad,Number.EPSILON);
+    const mad=quantileFromUnsorted(source.map(item=>Math.abs(item.value-median)).sort((a,b)=>a-b),0.5);
+    if(!(mad>0)) return {kept:source.map(item=>item.value),removed:[],flags:[],note:'MAD is zero; heuristic scores are undefined and no observations were flagged.'};
+    const sigma=1.4826*mad;
     const scores=source.map(item=>({z:Math.abs((item.value-median)/sigma)}));
-    const adjusted=applyPValueCorrection(scores.map(item=>normalTwoSidedPValue(item.z)),'bh');const q=Number.isFinite(Number(options.q))?Number(options.q):0.01;
-    const removed=[];const kept=[];source.forEach((item,index)=>{if(Number(adjusted[index])<=q&&scores[index].z>=3) removed.push({...item,robustZ:scores[index].z,adjP:adjusted[index]});else kept.push(item.value);});
-    return {kept,removed};
+    const adjusted=applyPValueCorrection(scores.map(item=>normalTwoSidedPValue(item.z)),'bh');const q=sanitizeOutlierQ(options.q,0.01);
+    const flags=[];source.forEach((item,index)=>{if(Number(adjusted[index])<=q&&scores[index].z>=3) flags.push({...item,robustZ:scores[index].z,adjustedScore:adjusted[index]});});
+    return {kept:source.map(item=>item.value),removed:[],flags};
+  }
+  function detectRoutOutliers(values,options={}){
+    const source=normalizeFiniteSample(values).map((value,index)=>({value,index}));
+    const unchanged=note=>({kept:source.map(item=>item.value),removed:[],note});
+    const n=source.length;
+    if(n<4) return unchanged('ROUT needs at least four observations to screen the largest 30% of residuals.');
+    const origin=quantileFromUnsorted(source.map(item=>item.value),0.5);
+    const unit=source.reduce((largest,item)=>Math.max(largest,Math.abs(item.value-origin)),0);
+    if(!(unit>0 && Number.isFinite(unit))) return unchanged('ROUT residual scale is unavailable; no observations excluded.');
+    const sample=source.map(item=>(item.value-origin)/unit);
+    const scaleAt=center=>quantileFromUnsorted(sample.map(value=>Math.abs(value-center)),0.6827)*n/(n-1);
+    const merit=(center,scale)=>sample.reduce((sum,value)=>sum+Math.log1p(Math.pow((value-center)/scale,2)),0);
+    let center=mean(sample),scale=scaleAt(center),damping=0.001,converged=false;
+    // Motulsky & Brown (2006), equations 15-16, specialized to a constant
+    // location model (K=1). Compare both merits using the candidate RSDR.
+    for(let iteration=0;iteration<500;iteration+=1){
+      if(!(scale>0)) return unchanged('ROUT residual scale is zero; no observations excluded.');
+      let weightedResidual=0,weightSum=0;
+      sample.forEach(value=>{const residual=value-center,weight=1/(1+Math.pow(residual/scale,2));weightedResidual+=weight*residual;weightSum+=weight;});
+      const direction=weightedResidual/weightSum;
+      if(Math.abs(direction)<=1e-8*Math.max(scale,1e-8)){converged=true;break;}
+      const candidate=center+direction/(1+damping),candidateScale=scaleAt(candidate);
+      if(!(candidateScale>0)) return unchanged('ROUT residual scale is zero; no observations excluded.');
+      if(merit(candidate,candidateScale)<merit(center,candidateScale)){
+        center=candidate;scale=candidateScale;damping=Math.max(1e-12,damping/10);
+      }else{
+        damping*=10;
+        if(damping>1e12) break;
+      }
+    }
+    if(!converged) return unchanged('ROUT robust fit did not converge; no observations excluded.');
+    const ranked=sample.map((value,index)=>({index,residual:Math.abs(value-center)})).sort((a,b)=>a.residual-b.residual||a.index-b.index);
+    const q=sanitizeOutlierQ(options.q,0.01),removed=[];
+    for(let index=n-Math.floor(0.3*n);index<n;index+=1){
+      const p=studentTTwoSidedPValue(ranked[index].residual/scale,n-1),threshold=q*(n-index)/n;
+      if(p<threshold){
+        ranked.slice(index).forEach(item=>removed.push({...source[item.index],residual:item.residual*unit,p:studentTTwoSidedPValue(item.residual/scale,n-1)}));
+        break;
+      }
+    }
+    const excluded=new Set(removed.map(item=>item.index));
+    return {kept:source.filter(item=>!excluded.has(item.index)).map(item=>item.value),removed,center:origin+center*unit,rsdr:scale*unit,df:n-1,q,converged:true};
+  }
+  function screenStatsSample(values,mode,options){
+    if(mode==='grubbs') return detectGrubbsOutliers(values,{alpha:options.alpha});
+    if(mode==='routTest') return detectRoutOutliers(values,{q:options.q});
+    return flagMadBhObservations(values,{q:options.q});
   }
   function preprocessStatsGroups(groups,labels,payload){
-    const mode=sanitizeOutlierMode(payload.statsOutlierMode);const cleaned=(groups||[]).map(normalizeFiniteSample);const auditNotes=[];const exclusions=[];
-    if(mode==='none') return {groups:cleaned,auditNotes,exclusions};
-    if(payload.statsPaired&&cleaned.length>2){auditNotes.push('Outlier screening was not applied to repeated-measures designs with more than two groups to preserve row alignment.');return {groups:cleaned,auditNotes,exclusions};}
-    if(payload.statsPaired&&cleaned.length===2){
-      const pairs=computePairedSamples(cleaned[0],cleaned[1]);const differences=pairs.map(pair=>pair.a-pair.b);
-      const result=mode==='grubbs'?detectGrubbsOutliers(differences,{alpha:payload.statsOutlierAlpha}):detectRoutStyleOutliers(differences,{q:payload.statsOutlierQ});
-      const removedIndices=new Set(result.removed.map(item=>item.index));const kept=pairs.filter((_,index)=>!removedIndices.has(index));
-      result.removed.forEach(item=>exclusions.push({group:'paired-differences',index:item.index,value:item.value}));
-      auditNotes.push(`Outlier screening on paired differences excluded ${result.removed.length} row(s).`);
-      return {groups:[kept.map(pair=>pair.a),kept.map(pair=>pair.b)],auditNotes,exclusions};
+    const mode=sanitizeOutlierMode(payload.statsOutlierMode);
+    const paired=payload.statsPaired && payload.statsMode!=='oneSample';
+    const aligned=paired ? alignCompleteRows(groups,payload.rowIndicesByGroup) : null;
+    const cleaned=paired ? aligned.groups : (groups||[]).map(normalizeFiniteSample);
+    const auditNotes=[];const exclusions=[];const flags=[];
+    if(aligned?.excludedRows){
+      const count=aligned.excludedRows;
+      auditNotes.push(`${count} ${count===1?'row':'rows'} with missing or non-numeric values across the selected groups ${count===1?'was':'were'} excluded to preserve paired/repeated-measures alignment.`);
     }
-    const processed=cleaned.map((group,index)=>{const result=mode==='grubbs'?detectGrubbsOutliers(group,{alpha:payload.statsOutlierAlpha}):detectRoutStyleOutliers(group,{q:payload.statsOutlierQ});result.removed.forEach(item=>exclusions.push({group:labels[index],index:item.index,value:item.value}));if(result.removed.length)auditNotes.push(`${labels[index]}: excluded ${result.removed.length} value(s) using ${mode==='grubbs'?'Grubbs':'MAD + BH outlier screen'} screening.`);return result.kept;});
-    return {groups:processed,auditNotes,exclusions};
+    if(mode==='none') return {groups:cleaned,auditNotes,exclusions,flags};
+    auditNotes.push(mode==='grubbs'
+      ? 'Single-outlier Grubbs exclusion assumes normal data with at most one outlier per screened sample. Exclusion-based inference is exploratory: p-values and confidence intervals do not account for data-dependent selection.'
+      : mode==='routTest'
+        ? 'ROUT uses adaptive Lorentzian constant-location fitting and residual screening (Q per sample; maximum 30% excluded). Subsequent inference is exploratory and does not account for data-dependent exclusion.'
+        : 'MAD + BH scores are heuristic flags, not ROUT or validated FDR control; all observations are retained.');
+    if(paired&&cleaned.length>2){auditNotes.push('Outlier screening was not applied to repeated-measures designs with more than two groups to preserve row alignment.');return {groups:cleaned,auditNotes,exclusions,flags};}
+    if(paired&&cleaned.length===2){
+      const pairs=computePairedSamples(cleaned[0],cleaned[1]);const differences=pairs.map(pair=>pair.a-pair.b);
+      const result=screenStatsSample(differences,mode,{alpha:payload.statsOutlierAlpha,q:payload.statsOutlierQ});
+      const removedIndices=new Set(result.removed.map(item=>item.index));const kept=pairs.filter((_,index)=>!removedIndices.has(index));
+      result.removed.forEach(item=>exclusions.push({group:'paired-differences',index:aligned.rows[item.index],value:item.value}));
+      (result.flags||[]).forEach(item=>flags.push({...item,group:'paired-differences',index:aligned.rows[item.index]}));
+      if(result.note) auditNotes.push(result.note);
+      auditNotes.push(`Outlier screening on paired differences excluded ${result.removed.length} row${result.removed.length === 1 ? '' : 's'}.`);
+      if(flags.length) auditNotes.push(`Flagged paired differences: ${flags.map(item=>formatStatNumber(item.value)).join(', ')}; none excluded.`);
+      if(exclusions.length) auditNotes.push(`Excluded paired differences: ${exclusions.map(item=>formatStatNumber(item.value)).join(', ')}.`);
+      return {groups:[kept.map(pair=>pair.a),kept.map(pair=>pair.b)],auditNotes,exclusions,flags};
+    }
+    const screenAlpha=resolveStatsOutlierAlpha(payload)/Math.max(1,cleaned.length);
+    if(mode==='grubbs') auditNotes.push(`Grubbs screening uses Bonferroni α = ${formatStatNumber(screenAlpha)} across ${cleaned.length} selected samples.`);
+    const processed=cleaned.map((group,index)=>{
+      const result=screenStatsSample(group,mode,{alpha:screenAlpha,q:payload.statsOutlierQ});
+      result.removed.forEach(item=>exclusions.push({group:labels[index],index:item.index,value:item.value}));
+      (result.flags||[]).forEach(item=>flags.push({...item,group:labels[index]}));
+      if(result.note) auditNotes.push(`${labels[index]}: ${result.note}`);
+      if(result.removed.length) auditNotes.push(`${labels[index]}: excluded ${result.removed.map(item=>formatStatNumber(item.value)).join(', ')} by ${mode==='routTest'?'ROUT':'a single Grubbs test'}; n = ${group.length} → ${result.kept.length}.`);
+      if(result.flags?.length) auditNotes.push(`${labels[index]}: flagged ${result.flags.map(item=>formatStatNumber(item.value)).join(', ')}; none excluded.`);
+      return result.kept;
+    });
+    return {groups:processed,auditNotes,exclusions,flags};
   }
 
   function computeAssumptionDiagnostics(groups,labels,options={}){
@@ -1921,10 +2371,17 @@
     const qqSampleLimit=Number.isFinite(options.qqSampleLimit)?Math.max(25,Math.floor(options.qqSampleLimit)):ASSUMPTION_QQ_SAMPLE_LIMIT;
     const summaryList=Array.isArray(options.summaries)?options.summaries:null;
     let normalityFailures=0;
-    groups.forEach((group,index)=>{
-      const label=labels[index]||`Group ${index+1}`;const cleaned=normalizeFiniteSample(group);const unique=new Set(cleaned).size;
+    const pairedContrasts=options.paired===true && groups.length>=2;
+    const transformed=pairedContrasts || options.lognormal===true;
+    const diagnosticGroups=pairedContrasts
+      ? groups.slice(1).map(group=>computePairedSamples(group,groups[0]).map(pair=>options.ratio===true?Math.log(pair.a/pair.b):subtractRankObservation(pair.a,pair.b)))
+      : options.lognormal===true?groups.map(group=>normalizeFiniteSample(group).map(value=>value>0?Math.log(value):NaN)):groups;
+    diagnostics.normalityTarget=pairedContrasts?(options.ratio===true?'within-subject-log-ratios':'within-subject-contrasts'):options.lognormal===true?'log-observations':'group-observations';
+    diagnosticGroups.forEach((group,index)=>{
+      const label=pairedContrasts?`${labels[index+1] || `Group ${index+2}`} ${options.ratio===true?'/':'−'} ${labels[0] || 'Group 1'} (${options.ratio===true?'log ratios':'paired differences'})`:`${labels[index]||`Group ${index+1}`}${options.lognormal===true?' (log values)':''}`;
+      const cleaned=normalizeFiniteSample(group);const unique=new Set(cleaned).size;
       let method=requestedNormality==='auto'?(cleaned.length<=5000&&unique===cleaned.length?'shapiro-wilk':'dagostino'):requestedNormality;
-      let normality=method==='shapiro-wilk'?computeShapiroWilk(cleaned):computeDagostino(cleaned,summaryList?.[index]);
+      let normality=method==='shapiro-wilk'?computeShapiroWilk(cleaned):computeDagostino(cleaned,transformed?null:summaryList?.[index]);
       if(method==='dagostino'&&(!Number.isFinite(normality?.pValue)||cleaned.length<8)&&cleaned.length<=5000){method='shapiro-wilk';normality=computeShapiroWilk(cleaned);}
       normality={...normality,method,alpha,passed:isValidProbability(normality?.pValue)?normality.pValue>=alpha:normality?.passed??null};
       diagnostics.groups.push({label,size:cleaned.length,normality,qqPoints:cleaned.length?computeQQPoints(cleaned,{maxSampleSize:qqSampleLimit}):[]});
@@ -1936,10 +2393,23 @@
       }
       if(distributionDiagnostic==='normal-vs-lognormal'){const comparison=computeDistributionComparison(cleaned);if(comparison)diagnostics.distributionComparisons.push({label,...comparison});}
     });
-    const variance=varianceMethod==='bartlett'?computeBartlettVarianceDiagnostics(groups,labels,{alpha}):computeVarianceDiagnostics(groups,labels,{alpha,summaries:summaryList});
+    const variance=pairedContrasts
+      ? {method:'not-applicable',passed:null,pValue:null,reason:'Between-group variance equality is not a paired-test assumption.'}
+      : varianceMethod==='bartlett'?computeBartlettVarianceDiagnostics(diagnosticGroups,labels,{alpha}):computeVarianceDiagnostics(diagnosticGroups,labels,{alpha,summaries:transformed?null:summaryList});
     diagnostics.variance=variance;diagnostics.varianceConcern=variance?.passed===false;diagnostics.normalityFailures=normalityFailures;
     if(diagnostics.varianceConcern) diagnostics.warnings.push(`Variance diagnostic (${varianceMethod}) flagged heterogeneity (${formatPExpression(variance.pValue)}).`);
-    diagnostics.recommendWelch=diagnostics.varianceConcern&&normalityFailures===0;diagnostics.recommendNonParametric=normalityFailures>0;
+    diagnostics.recommendWelch=diagnostics.varianceConcern && options.paired!==true;
+    diagnostics.recommendNonParametric=false;
+    diagnostics.guidance=[
+      'A nonsignificant normality test does not establish normality; inspect plots and the study context.',
+      'Small samples have low diagnostic power; large samples detect minor departures. Balance, skew, influential values, and the target effect matter more than a normality-test cutoff.',
+      options.family==='nonparametric'
+        ? 'Rank tests do not need normal observations: signed-rank tests require symmetric differences, and distributional interpretations depend on the design and group shapes.'
+        : options.paired===true
+        ? 'For paired t-tests, assess within-subject differences; repeated-measures ANOVA also needs an appropriate covariance/sphericity model.'
+        : 'For mean comparisons, unequal spreads or unequal sample sizes favor considering Welch; rank tests answer different distributional questions.',
+      'Diagnostics do not select or change the analysis.'
+    ];
     if(options.trendTest===true) diagnostics.trend=computeLinearTrendTest(groups,{alternative:options.alternative});
     return diagnostics;
   }
@@ -1977,7 +2447,29 @@
   }
 
   function normalizeFiniteSample(values){
-    return (Array.isArray(values) ? values : []).map(Number).filter(Number.isFinite);
+    return (Array.isArray(values) ? values : []).map(toFiniteObservation).filter(Number.isFinite);
+  }
+
+  function toFiniteObservation(value){
+    return value==null || (typeof value==='string' && value.trim()==='') ? NaN : Number(value);
+  }
+
+  // Compact renderer samples carry source-row IDs; direct callers use array positions.
+  // Intersect rows before any filtering or screening can shift subject identity.
+  function alignCompleteRows(groups,rowIndicesByGroup=[]){
+    const rowSets=new Set();
+    const maps=(Array.isArray(groups)?groups:[]).map((group,groupIndex)=>{
+      const map=new Map();
+      (Array.isArray(group)?group:[]).forEach((value,index)=>{
+        const row=rowIndicesByGroup?.[groupIndex]?.[index] ?? index;
+        rowSets.add(row);
+        const numeric=toFiniteObservation(value);
+        if(Number.isFinite(numeric)) map.set(row,numeric);
+      });
+      return map;
+    });
+    const rows=[...rowSets].filter(row=>maps.every(map=>map.has(row))).sort((a,b)=>a-b);
+    return {groups:maps.map(map=>rows.map(row=>map.get(row))),rows,excludedRows:rowSets.size-rows.length};
   }
 
   function resolveDegenerateTResult(diff,df,options={}){
@@ -2050,15 +2542,7 @@
   }
 
   function tTestPaired(a, b, options={}){
-    const pairs=[];
-    const limit=Math.max(Array.isArray(a)?a.length:0,Array.isArray(b)?b.length:0);
-    for(let index=0; index<limit; index+=1){
-      const valueA=Number(a?.[index]);
-      const valueB=Number(b?.[index]);
-      if(Number.isFinite(valueA) && Number.isFinite(valueB)){
-        pairs.push(valueA-valueB);
-      }
-    }
+    const pairs=computePairedSamples(a,b).map(pair=>pair.a-pair.b);
     const n=pairs.length;
     if(n<2){
       return createUnavailableStatResult({ t:NaN,df:NaN,p:NaN,n },'Paired t-test needs at least two complete pairs.');
@@ -2146,12 +2630,10 @@
   }
 
   function ratioTTest(a,b,options={}){
-    const checked=requirePositiveSamples(a,b,'Ratio t-test');
+    const [sampleA,sampleB]=alignCompleteRows([a,b]).groups;
+    const checked=requirePositiveSamples(sampleA,sampleB,'Ratio t-test');
     if(!checked.ok){
       return checked.result;
-    }
-    if(checked.sampleA.length!==checked.sampleB.length){
-      return createUnavailableStatResult({ t:NaN,df:NaN,p:NaN },'Ratio t-test requires equal group sizes and complete pairs.');
     }
     const logRatios=checked.sampleA.map((value,index)=>Math.log(value/checked.sampleB[index]));
     const result=tTestOneSample(logRatios,0,options);
@@ -2243,43 +2725,11 @@
   }
 
   function kolmogorovSmirnovTwoSample(a,b,options={}){
-    const sampleA=normalizeFiniteSample(a).sort((x,y)=>x-y);
-    const sampleB=normalizeFiniteSample(b).sort((x,y)=>x-y);
-    const na=sampleA.length;
-    const nb=sampleB.length;
-    if(!na || !nb){
-      return createUnavailableStatResult({ D:NaN,DPlus:NaN,DMinus:NaN,p:NaN,nA:na,nB:nb },'Kolmogorov-Smirnov test needs at least one value per group.');
+    const sharedTest=Shared.stats?.kolmogorovSmirnovTwoSample;
+    if(typeof sharedTest!=='function'){
+      throw new Error('Shared two-sample Kolmogorov-Smirnov test is unavailable.');
     }
-    let i=0;
-    let j=0;
-    let dPlus=0;
-    let dMinus=0;
-    while(i<na || j<nb){
-      const next=Math.min(i<na?sampleA[i]:Infinity,j<nb?sampleB[j]:Infinity);
-      while(i<na && sampleA[i]<=next) i+=1;
-      while(j<nb && sampleB[j]<=next) j+=1;
-      const difference=(i/na)-(j/nb);
-      dPlus=Math.max(dPlus,difference);
-      dMinus=Math.max(dMinus,-difference);
-    }
-    const alternative=sanitizeStatsAlternative(options.alternative);
-    const D=alternative==='greater' ? dMinus : alternative==='less' ? dPlus : Math.max(dPlus,dMinus);
-    const effectiveN=(na*nb)/(na+nb);
-    let p;
-    if(alternative==='two-sided'){
-      const sqrtN=Math.sqrt(effectiveN);
-      const lambda=(sqrtN+0.12+(0.11/(sqrtN||1)))*D;
-      let series=0;
-      for(let k=1;k<=100;k+=1){
-        const term=Math.exp(-2*k*k*lambda*lambda);
-        series+=(k%2===1?1:-1)*term;
-        if(term<1e-12) break;
-      }
-      p=D===0 ? 1 : clamp(2*series,0,1);
-    }else{
-      p=clamp(Math.exp(-2*effectiveN*D*D),0,1);
-    }
-    return { D,DPlus:dPlus,DMinus:dMinus,p,nA:na,nB:nb,method:'kolmogorov-smirnov',alternative };
+    return sharedTest(a,b,options);
   }
 
   function rankArray(arr){
@@ -2381,15 +2831,23 @@
     };
   }
 
-  function computeSignedRankFromDifferences(differences,options={}){
-    const cleaned=(Array.isArray(differences)?differences:[]).map(Number).filter(Number.isFinite);
-    const nonZero=cleaned.filter(value=>value!==0);
-    const n=cleaned.length;
-    const effectiveN=nonZero.length;
-    const median=quantileFromUnsorted(cleaned,0.5);
-    if(!effectiveN){
-      return { W:0,WPositive:0,WNegative:0,z:0,p:1,n,effectiveN,median,method:'degenerate',alternative:sanitizeStatsAlternative(options.alternative) };
-    }
+  // Subtract the shortest round-trip decimal representations exactly. This
+  // repairs arithmetic-created ties without applying a tolerance to observations.
+  function subtractRankObservation(a,b){
+    if(Number.isSafeInteger(a) && Number.isSafeInteger(b) && Number.isSafeInteger(a-b)) return a-b;
+    const decimal=value=>{
+      const [mantissa,power='0']=String(value).toLowerCase().split('e');
+      const [integer,fraction='']=mantissa.split('.');
+      return {coefficient:BigInt(integer+fraction),exponent:Number(power)-fraction.length};
+    };
+    const left=decimal(a),right=decimal(b);
+    const exponent=Math.min(left.exponent,right.exponent);
+    const difference=left.coefficient*10n**BigInt(left.exponent-exponent)-right.coefficient*10n**BigInt(right.exponent-exponent);
+    return Number(`${difference}e${exponent}`);
+  }
+
+  function computeSignedRankSums(differences){
+    const nonZero=differences.filter(value=>value!==0);
     const rankInfo=rankArray(nonZero.map(Math.abs));
     let wPositive=0;
     let wNegative=0;
@@ -2400,6 +2858,18 @@
         wNegative+=rank;
       }
     });
+    return {nonZero,rankInfo,wPositive,wNegative};
+  }
+
+  function computeSignedRankFromDifferences(differences,options={}){
+    const cleaned=(Array.isArray(differences)?differences:[]).map(Number).filter(Number.isFinite);
+    const {nonZero,rankInfo,wPositive,wNegative}=computeSignedRankSums(cleaned);
+    const n=cleaned.length;
+    const effectiveN=nonZero.length;
+    const median=quantileFromUnsorted(cleaned,0.5);
+    if(!effectiveN){
+      return { W:0,WPositive:0,WNegative:0,z:0,p:1,n,effectiveN,median,method:'degenerate',alternative:sanitizeStatsAlternative(options.alternative) };
+    }
     const alternative=sanitizeStatsAlternative(options.alternative);
     const totalRank=wPositive+wNegative;
     const center=totalRank/2;
@@ -2465,21 +2935,11 @@
     if(!cleaned.length){
       return createUnavailableStatResult({ W:NaN,z:NaN,p:NaN,n:0,effectiveN:0,median:NaN },'One-sample Wilcoxon test needs at least one value.');
     }
-    return computeSignedRankFromDifferences(cleaned.map(value=>value-target),options);
+    return computeSignedRankFromDifferences(cleaned.map(value=>subtractRankObservation(value,target)),options);
   }
 
   function wilcoxonSignedRank(a,b,options={}){
-    const sampleA=Array.isArray(a)?a:[];
-    const sampleB=Array.isArray(b)?b:[];
-    const pairCount=Math.min(sampleA.length,sampleB.length);
-    const differences=[];
-    for(let index=0;index<pairCount;index+=1){
-      const valueA=Number(sampleA[index]);
-      const valueB=Number(sampleB[index]);
-      if(Number.isFinite(valueA) && Number.isFinite(valueB)){
-        differences.push(valueA-valueB);
-      }
-    }
+    const differences=computePairedSamples(a,b).map(pair=>subtractRankObservation(pair.a,pair.b));
     if(!differences.length){
       return createUnavailableStatResult({ W:NaN,z:NaN,p:NaN,n:0,effectiveN:0,median:NaN },'Wilcoxon signed-rank test needs at least one complete numeric pair.');
     }
@@ -2490,11 +2950,13 @@
   function anova(groups){
     const k=groups.length;
     const n=groups.reduce((s,g)=>s+g.length,0);
+    const counts=groups.map(group=>group.length);
+    const means=groups.map(group=>mean(group));
     const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n;
     let ssBetween=0;
     let ssWithin=0;
-    groups.forEach(g=>{
-      const m=mean(g);
+    groups.forEach((g,index)=>{
+      const m=means[index];
       ssBetween+=g.length*Math.pow(m-grand,2);
       ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0);
     });
@@ -2504,7 +2966,7 @@
     const msWithin=ssWithin/dfWithin;
     const F=msBetween/msWithin;
     const p=fUpperTailPValue(F, dfBetween, dfWithin);
-    return {F,p,dfBetween,dfWithin,ssBetween,ssWithin,ssTotal:ssBetween+ssWithin,msWithin};
+    return {F,p,dfBetween,dfWithin,ssBetween,ssWithin,ssTotal:ssBetween+ssWithin,msWithin,means,counts,totalN:n};
   }
 
   function kruskalWallis(groups){
@@ -2556,7 +3018,7 @@
   }
 
   function computeRepeatedMeasuresAnova(groups){
-    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
+    const cleaned=alignCompleteRows(groups).groups;
     const k=cleaned.length;
     if(k<3){
       return { ok:false, message:'Repeated-measures ANOVA requires at least three groups.' };
@@ -2564,9 +3026,6 @@
     const n=cleaned[0]?.length || 0;
     if(n<2){
       return { ok:false, message:'Repeated-measures ANOVA needs at least two paired rows.' };
-    }
-    if(cleaned.some(group=>group.length!==n)){
-      return { ok:false, message:'Repeated-measures ANOVA requires equal group sizes.' };
     }
     const grandN=n*k;
     let totalSum=0;
@@ -2707,7 +3166,7 @@
   }
 
   function computeFriedmanTest(groups,options={}){
-    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
+    const cleaned=alignCompleteRows(groups).groups;
     const k=cleaned.length;
     if(k<3){
       return { ok:false, message:'Friedman test requires at least three groups.' };
@@ -2715,9 +3174,6 @@
     const n=cleaned[0]?.length || 0;
     if(n<2){
       return { ok:false, message:'Friedman test needs at least two paired rows.' };
-    }
-    if(cleaned.some(group=>group.length!==n)){
-      return { ok:false, message:'Friedman test requires equal group sizes.' };
     }
     const rowRanks=[];
     const rankSums=new Array(k).fill(0);
@@ -2743,17 +3199,17 @@
       }
     }
     const df=k-1;
-    const resamplingMode=resolveStatsResamplingMode(options);
+    const requestedResamplingMode=resolveStatsResamplingMode(options);
+    const resamplingMode=resolveRankResamplingMode(options,Math.pow(factorialInt(k),n),n<=12);
     const iterations=resolveStatsMonteCarloIterations(options);
     const seed=resolveStatsSeed(options);
-    const exactEligible=tieTermSum===0 && Math.pow(factorialInt(k),n)<=200000;
-    if(resamplingMode!=='asymptotic' && exactEligible){
-      const perms=generatePermutations(Array.from({ length:k },(_,idx)=>idx+1));
+    if(resamplingMode==='exact'){
+      const perms=generatePermutations(Array.from({ length:k },(_,idx)=>idx));
       let total=0;
       let hits=0;
       function visit(rowIndex,currentSums){
         if(rowIndex>=n){
-          let simQ=(12/(n*k*(k+1)))*currentSums.reduce((sum,val)=>sum+val*val,0)-3*n*(k+1);
+          const simQ=((12/(n*k*(k+1)))*currentSums.reduce((sum,val)=>sum+val*val,0)-3*n*(k+1))/(tieCorrection>0?tieCorrection:1);
           total+=1;
           if(simQ>=Q-1e-12){
             hits+=1;
@@ -2762,11 +3218,11 @@
         }
         perms.forEach(perm=>{
           for(let col=0; col<k; col++){
-            currentSums[col]+=perm[col];
+            currentSums[col]+=rowRanks[rowIndex][perm[col]];
           }
           visit(rowIndex+1,currentSums);
           for(let col=0; col<k; col++){
-            currentSums[col]-=perm[col];
+            currentSums[col]-=rowRanks[rowIndex][perm[col]];
           }
         });
       }
@@ -2781,22 +3237,22 @@
         n,
         k,
         kendallsW:computeKendallsW(Q,n,k),
-        footnote:'Friedman exact permutation distribution over within-row rank assignments.'
+        calibrationMethod:'exact',
+        footnote:'Friedman exact permutation distribution over observed within-row rank assignments (ties retained).'
       };
     }
-    if(resamplingMode==='monte-carlo' || (resamplingMode==='auto' && n<=12)){
-      const perms=Array.from({ length:k },(_,idx)=>idx+1);
+    if(resamplingMode==='monte-carlo'){
       const nextRand=createSeededRandom(seed + n*211 + k*19);
       const simulations=[];
       for(let iter=0; iter<iterations; iter++){
         const simSums=new Array(k).fill(0);
         for(let row=0; row<n; row++){
-          const perm=shuffleInPlace(perms.slice(),nextRand);
+          const perm=shuffleInPlace(rowRanks[row].slice(),nextRand);
           for(let col=0; col<k; col++){
             simSums[col]+=perm[col];
           }
         }
-        const simQ=(12/(n*k*(k+1)))*simSums.reduce((sum,val)=>sum+val*val,0)-3*n*(k+1);
+        const simQ=((12/(n*k*(k+1)))*simSums.reduce((sum,val)=>sum+val*val,0)-3*n*(k+1))/(tieCorrection>0?tieCorrection:1);
         simulations.push(simQ);
       }
       const p=computeEmpiricalPValue(Q,simulations,'greater',{ mode:'signed' });
@@ -2811,9 +3267,10 @@
         kendallsW:computeKendallsW(Q,n,k),
         iterations,
         seed,
-        footnote:tieTermSum>0
+        calibrationMethod:'monte-carlo',
+        footnote:(requestedResamplingMode==='exact'?'Requested exact calibration exceeded the 200,000-state limit; Monte Carlo was used. ':'')+(tieTermSum>0
           ? `Friedman Monte Carlo calibration (${iterations} iterations; ties retained by rank permutation).`
-          : `Friedman Monte Carlo calibration (${iterations} iterations).`
+          : `Friedman Monte Carlo calibration (${iterations} iterations).`)
       };
     }
     const p=chiSquareUpperTailPValue(Q, df);
@@ -2826,6 +3283,7 @@
       n,
       k,
       kendallsW:computeKendallsW(Q,n,k),
+      calibrationMethod:'asymptotic',
       footnote:tieTermSum>0
         ? `Friedman tie correction applied (factor ${tieCorrection.toFixed(4)}).`
         : 'Friedman test on paired ranks.'
@@ -2847,8 +3305,7 @@
       const m=means[idx];
       const sumSq=group.reduce((sum,val)=>sum+Math.pow(val-m,2),0);
       const denom=Math.max(group.length-1,1);
-      const variance=sumSq/denom;
-      return variance>0?variance:Number.EPSILON;
+      return sumSq/denom;
     });
     const weights=variances.map((variance,idx)=>counts[idx]/variance);
     const weightSum=weights.reduce((sum,val)=>sum+val,0);
@@ -2901,42 +3358,347 @@
     };
   }
 
+  // The distribution is evaluated from its normal-range/chi-square mixture,
+  // as documented by SciPy and Algorithm AS 190. The survival integral below
+  // is derived from the conditional minimum density; it does not copy either
+  // implementation. SciPy is BSD-licensed; R's ptukey implementation is GPL.
+  // Neither source implementation is copied or used as a runtime dependency.
+  function createGaussLegendreRule(order){
+    const nodes=new Array(order);
+    const weights=new Array(order);
+    const halfCount=Math.ceil(order/2);
+    for(let index=0;index<halfCount;index+=1){
+      let root=Math.cos(Math.PI*(index+0.75)/(order+0.5));
+      let derivative=0;
+      for(let iteration=0;iteration<20;iteration+=1){
+        let previous=1;
+        let current=root;
+        for(let degree=2;degree<=order;degree+=1){
+          const next=((2*degree-1)*root*current-(degree-1)*previous)/degree;
+          previous=current;
+          current=next;
+        }
+        derivative=order*(root*current-previous)/(root*root-1);
+        const delta=current/derivative;
+        root-=delta;
+        if(Math.abs(delta)<1e-15) break;
+      }
+      let previous=1;
+      let current=root;
+      for(let degree=2;degree<=order;degree+=1){
+        const next=((2*degree-1)*root*current-(degree-1)*previous)/degree;
+        previous=current;
+        current=next;
+      }
+      derivative=order*(root*current-previous)/(root*root-1);
+      const weight=2/((1-root*root)*derivative*derivative);
+      nodes[index]=-root;
+      nodes[order-1-index]=root;
+      weights[index]=weight;
+      weights[order-1-index]=weight;
+    }
+    return { nodes, weights };
+  }
+
+  const STUDENTIZED_RANGE_OUTER_RULE=createGaussLegendreRule(12);
+  const STUDENTIZED_RANGE_NORMAL_RULE=createGaussLegendreRule(44);
+  const STUDENTIZED_RANGE_HIGH_GROUP_NORMAL_RULE=createGaussLegendreRule(56);
+  const STUDENTIZED_RANGE_TAIL_LOG_BOUND=760;
+  const STUDENTIZED_RANGE_LOW_H_BOUND=1e-12;
+  const STUDENTIZED_RANGE_HIGH_H=64;
+  const STUDENTIZED_RANGE_MAX_LOG=Math.log(Number.MAX_VALUE);
+
+  function normalSurvival(value,normalCdf=global.jStat?.normal?.cdf){
+    const x=Number(value);
+    if(Number.isNaN(x)) return NaN;
+    if(x===Number.POSITIVE_INFINITY) return 0;
+    if(x===Number.NEGATIVE_INFINITY) return 1;
+    if(x<0) return 1-normalSurvival(-x,normalCdf);
+    if(x<3){
+      return typeof normalCdf==='function' ? normalCdf(-x,0,1) : NaN;
+    }
+    // Laplace's continued fraction for the Mills ratio avoids cancellation in
+    // 1 - Phi(x) while retaining a fixed, small operation count.
+    let fraction=0;
+    for(let numerator=12;numerator>=1;numerator-=1){
+      fraction=numerator/(x+fraction);
+    }
+    return (Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI))/(x+fraction);
+  }
+
+  function normalIntervalProbability(lower,upper,lowerTail,upperTail){
+    if(!(upper>lower)) return 0;
+    let probability;
+    if(lower>=0){
+      probability=lowerTail-upperTail;
+    }else if(upper<=0){
+      probability=lowerTail-upperTail;
+      if(probability<1e-8){
+        probability=normalSurvival(-upper)-normalSurvival(-lower);
+      }
+    }else{
+      probability=lowerTail-upperTail;
+      if(probability<1e-8){
+        probability=1-normalSurvival(-lower)-upperTail;
+      }
+    }
+    return Number.isFinite(probability) ? Math.max(0,Math.min(1,probability)) : NaN;
+  }
+
+  function normalRangeProbability(q,groups,survival,withDensity=false){
+    if(q<=0){
+      return withDensity ? { probability:survival?1:0,density:0 } : (survival ? 1 : 0);
+    }
+    if(q===Number.POSITIVE_INFINITY){
+      return withDensity ? { probability:survival?0:1,density:0 } : (survival ? 0 : 1);
+    }
+    const midpointHalfRange=7;
+    const exponent=groups-1;
+    const rule=groups>=20
+      ? STUDENTIZED_RANGE_HIGH_GROUP_NORMAL_RULE
+      : STUDENTIZED_RANGE_NORMAL_RULE;
+    let sum=0;
+    let densitySum=0;
+    for(let index=0;index<rule.nodes.length;index+=1){
+      const coordinate=midpointHalfRange*rule.nodes[index];
+      // The range CDF is integrated over the minimum observation itself.
+      // Its density stays near the lower normal tail as q grows, so shifting
+      // the integration interval to the range midpoint loses almost all CDF
+      // mass for large q. The survival integral instead uses the midpoint,
+      // where extreme ranges of width q are centered.
+      const lower=survival ? coordinate-(q/2) : coordinate;
+      const upper=survival ? coordinate+(q/2) : coordinate+q;
+      const upperTailAtLower=normalSurvival(lower);
+      const upperTailAtUpper=normalSurvival(upper);
+      const span=normalIntervalProbability(lower,upper,upperTailAtLower,upperTailAtUpper);
+      if(!(Number.isFinite(upperTailAtLower) && Number.isFinite(upperTailAtUpper) && Number.isFinite(span))){
+        return NaN;
+      }
+      let probabilityTerm;
+      if(survival){
+        const ratio=Math.max(0,Math.min(1,span/upperTailAtLower));
+        const logSpanRatio=ratio<0.5
+          ? Math.log(ratio)
+          : Math.log1p(-Math.max(0,Math.min(1,upperTailAtUpper/upperTailAtLower)));
+        const minimumTailPower=Math.exp(exponent*Math.log(upperTailAtLower));
+        probabilityTerm=minimumTailPower*(-Math.expm1(exponent*logSpanRatio));
+      }else{
+        probabilityTerm=Math.pow(span,exponent);
+      }
+      const density=Math.exp(-0.5*lower*lower)/Math.sqrt(2*Math.PI);
+      sum+=rule.weights[index]*density*probabilityTerm;
+      if(withDensity){
+        const intervalDensity=span>0
+          ? Math.exp(Math.log(groups*(groups-1)/(2*Math.PI))
+            -0.5*((lower*lower)+(upper*upper))
+            +((groups-2)*Math.log(span)))
+          : 0;
+        densitySum+=rule.weights[index]*intervalDensity;
+      }
+    }
+    const value=groups*midpointHalfRange*sum;
+    if(!Number.isFinite(value)) return NaN;
+    const probability=Math.max(0,Math.min(1,value));
+    if(!withDensity) return probability;
+    const rangeDensity=midpointHalfRange*densitySum;
+    return Number.isFinite(rangeDensity) ? { probability,density:Math.max(0,rangeDensity) } : NaN;
+  }
+
+  function logAddPositive(left,right){
+    if(left===Number.NEGATIVE_INFINITY) return right;
+    if(right===Number.NEGATIVE_INFINITY) return left;
+    const high=Math.max(left,right);
+    return high+Math.log1p(Math.exp(Math.min(left,right)-high));
+  }
+
+  function regularizedGammaLowerFromLogX(shape,logX){
+    if(!(Number.isFinite(shape) && shape>0) || Number.isNaN(logX)) return NaN;
+    if(logX===Number.NEGATIVE_INFINITY) return 0;
+    if(logX===Number.POSITIVE_INFINITY) return 1;
+    const logThreshold=Math.log(shape+1);
+    if(logX>=logThreshold){
+      if(logX>STUDENTIZED_RANGE_MAX_LOG) return 1;
+      const stats=ensureStats();
+      const upper=stats?.regularizedGammaQ?.(shape,Math.exp(logX));
+      return Number.isFinite(upper) ? Math.max(0,Math.min(1,1-upper)) : NaN;
+    }
+    const x=logX<Math.log(Number.MIN_VALUE) ? 0 : Math.exp(logX);
+    let logTerm=0;
+    let logSum=0;
+    for(let index=1;index<=10000;index+=1){
+      logTerm+=logX-Math.log(shape+index);
+      logSum=logAddPositive(logSum,logTerm);
+      if(logTerm-logSum<Math.log(2e-16)) break;
+      if(x===0) break;
+    }
+    const logProbability=shape*logX-x-logGammaLanczos(shape+1)+logSum;
+    if(logProbability>=0) return 1;
+    if(logProbability<Math.log(Number.MIN_VALUE)) return 0;
+    return Math.exp(logProbability);
+  }
+
+  function regularizedGammaUpperFromLogX(shape,logX){
+    if(!(Number.isFinite(shape) && shape>0) || Number.isNaN(logX)) return NaN;
+    if(logX===Number.NEGATIVE_INFINITY) return 1;
+    if(logX>STUDENTIZED_RANGE_MAX_LOG) return 0;
+    const stats=ensureStats();
+    const upper=stats?.regularizedGammaQ?.(shape,Math.exp(logX));
+    return Number.isFinite(upper) ? Math.max(0,Math.min(1,upper)) : NaN;
+  }
+
+  function studentizedRangeScaleLogBounds(df,tailLogBound=STUDENTIZED_RANGE_TAIL_LOG_BOUND){
+    const shape=df/2;
+    const target=tailLogBound/shape;
+    if(!Number.isFinite(target)){
+      return { lower:Number.NEGATIVE_INFINITY, upper:Number.POSITIVE_INFINITY };
+    }
+    const deviance=logScale=>Math.expm1(2*logScale)-2*logScale;
+    let lowerLow=-Math.max(2,target+2);
+    let lowerHigh=0;
+    for(let iteration=0;iteration<64;iteration+=1){
+      const midpoint=(lowerLow+lowerHigh)/2;
+      if(deviance(midpoint)>target) lowerLow=midpoint;
+      else lowerHigh=midpoint;
+    }
+    let upperLow=0;
+    let upperHigh=1;
+    while(deviance(upperHigh)<target && upperHigh<1024){
+      upperHigh*=2;
+    }
+    if(upperHigh>=1024 && deviance(upperHigh)<target){
+      return { lower:(lowerLow+lowerHigh)/2, upper:Number.POSITIVE_INFINITY };
+    }
+    for(let iteration=0;iteration<64;iteration+=1){
+      const midpoint=(upperLow+upperHigh)/2;
+      if(deviance(midpoint)<target) upperLow=midpoint;
+      else upperHigh=midpoint;
+    }
+    return { lower:(lowerLow+lowerHigh)/2, upper:(upperLow+upperHigh)/2 };
+  }
+
+  function integrateGaussLegendre(fn,lower,upper,rule){
+    if(!(upper>lower)) return 0;
+    const midpoint=(lower+upper)/2;
+    const halfRange=(upper-lower)/2;
+    let sum=0;
+    for(let index=0;index<rule.nodes.length;index+=1){
+      const value=fn(midpoint+(halfRange*rule.nodes[index]));
+      if(!Number.isFinite(value)) return NaN;
+      sum+=rule.weights[index]*value;
+    }
+    return halfRange*sum;
+  }
+
+  function integrateGaussLegendrePair(fn,lower,upper,rule){
+    if(!(upper>lower)) return { probability:0,density:0 };
+    const midpoint=(lower+upper)/2;
+    const halfRange=(upper-lower)/2;
+    let probabilitySum=0;
+    let densitySum=0;
+    for(let index=0;index<rule.nodes.length;index+=1){
+      const value=fn(midpoint+(halfRange*rule.nodes[index]));
+      if(!value || !(Number.isFinite(value.probability) && Number.isFinite(value.density))) return NaN;
+      probabilitySum+=rule.weights[index]*value.probability;
+      densitySum+=rule.weights[index]*value.density;
+    }
+    return {
+      probability:halfRange*probabilitySum,
+      density:halfRange*densitySum
+    };
+  }
+
+  function studentizedRangeFiniteProbability(q,groups,df,survival,withDensity=false){
+    const shape=df/2;
+    if(!(shape>0)) return NaN;
+    const lowH=Math.pow(STUDENTIZED_RANGE_LOW_H_BOUND,1/(groups-1))/Math.sqrt(2/Math.PI);
+    const lowLogH=Math.log(lowH);
+    const highLogH=Math.log(STUDENTIZED_RANGE_HIGH_H);
+    const logQ=Math.log(q);
+    const bounds=studentizedRangeScaleLogBounds(df);
+    const lower=Math.max(lowLogH,logQ+bounds.lower);
+    const upper=Math.min(highLogH,logQ+bounds.upper);
+    const logShape=Math.log(shape);
+    const lowerMass=regularizedGammaLowerFromLogX(shape,logShape+(2*(lowLogH-logQ)));
+    const upperMass=survival ? 0 : regularizedGammaUpperFromLogX(shape,logShape+(2*(highLogH-logQ)));
+    if(!(Number.isFinite(lowerMass) && Number.isFinite(upperMass))) return NaN;
+    if(!(upper>lower)){
+      const probability=Math.max(0,Math.min(1,survival?lowerMass:upperMass));
+      return withDensity ? { probability,density:0 } : probability;
+    }
+
+    const logDensityConstant=Math.log(2)+(shape*logShape)-logGammaLanczos(shape);
+    const integrand=logH=>{
+      const logScale=logH-logQ;
+      const twiceLogScale=2*logScale;
+      const scaledSquare=twiceLogScale>STUDENTIZED_RANGE_MAX_LOG
+        ? Number.POSITIVE_INFINITY
+        : Math.exp(twiceLogScale);
+      const logDensity=logDensityConstant+(df*logScale)-(shape*scaledSquare);
+      if(!Number.isFinite(logDensity)){
+        return logDensity===Number.NEGATIVE_INFINITY
+          ? (withDensity ? { probability:0,density:0 } : 0)
+          : NaN;
+      }
+      if(logDensity<Math.log(Number.MIN_VALUE)) return withDensity ? { probability:0,density:0 } : 0;
+      const conditional=normalRangeProbability(Math.exp(logH),groups,survival,withDensity);
+      if(withDensity){
+        if(!conditional || !(Number.isFinite(conditional.probability) && Number.isFinite(conditional.density))){
+          return { probability:NaN,density:NaN };
+        }
+        const weight=Math.exp(logDensity);
+        return {
+          probability:weight*conditional.probability,
+          density:weight*Math.exp(logScale)*conditional.density
+        };
+      }
+      return Number.isFinite(conditional) ? Math.exp(logDensity)*conditional : NaN;
+    };
+
+    const breakpoints=[lower,upper];
+    const logQInside=logQ>lower && logQ<upper ? logQ : null;
+    if(logQInside!==null) breakpoints.push(logQInside);
+    [0.1,0.5,1,2,4,8,16,32].forEach(h=>{
+      const point=Math.log(h);
+      if(point>lower && point<upper) breakpoints.push(point);
+    });
+    breakpoints.sort((left,right)=>left-right);
+    const uniqueBreakpoints=breakpoints.filter((point,index)=>index===0 || point-breakpoints[index-1]>1e-12);
+    const maxPanelWidth=Math.min(2.5,6/Math.sqrt(df));
+    let integral=0;
+    let densityIntegral=0;
+    for(let index=0;index<uniqueBreakpoints.length-1;index+=1){
+      const panelStart=uniqueBreakpoints[index];
+      const panelEnd=uniqueBreakpoints[index+1];
+      const panelCount=Math.max(1,Math.ceil((panelEnd-panelStart)/maxPanelWidth));
+      for(let panel=0;panel<panelCount;panel+=1){
+        const panelLow=panelStart+((panelEnd-panelStart)*panel/panelCount);
+        const panelHigh=panelStart+((panelEnd-panelStart)*(panel+1)/panelCount);
+        if(withDensity){
+          const area=integrateGaussLegendrePair(integrand,panelLow,panelHigh,STUDENTIZED_RANGE_OUTER_RULE);
+          if(!area || !(Number.isFinite(area.probability) && Number.isFinite(area.density))) return NaN;
+          integral+=area.probability;
+          densityIntegral+=area.density;
+        }else{
+          const area=integrateGaussLegendre(integrand,panelLow,panelHigh,STUDENTIZED_RANGE_OUTER_RULE);
+          if(!Number.isFinite(area)) return NaN;
+          integral+=area;
+        }
+      }
+    }
+    const value=survival ? lowerMass+integral : upperMass+integral;
+    if(!Number.isFinite(value)) return NaN;
+    const probability=Math.max(0,Math.min(1,value));
+    return withDensity ? { probability,density:densityIntegral } : probability;
+  }
+
   function studentizedRangeCDFInfinite(q,r){
-    if(!Number.isFinite(q) || q<=0){
-      return 0;
-    }
-    if(!Number.isFinite(r) || r<2){
-      return 1;
-    }
-    const jStatLib=global.jStat;
-    const normalCdf=(value)=>{
-      if(jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'){
-        return jStatLib.normal.cdf(value,0,1);
-      }
-      return 0.5*(1+Math.erf(value/Math.SQRT2));
-    };
-    const normalPdf=value=>Math.exp(-0.5*value*value)/Math.sqrt(2*Math.PI);
-    const bound=Math.max(8,Math.min(40,q+8));
-    const segments=1024;
-    const step=(2*bound)/segments;
-    const integrand=value=>{
-      const upper=normalCdf(value+q);
-      const lower=normalCdf(value);
-      const span=Math.max(0,Math.min(1,upper-lower));
-      if(!(span>0)){
-        return 0;
-      }
-      return r*normalPdf(value)*Math.pow(span,r-1);
-    };
-    let acc=integrand(-bound)+integrand(bound);
-    for(let idx=1; idx<segments; idx+=1){
-      const x=-bound+(idx*step);
-      acc+=(idx % 2 === 0 ? 2 : 4)*integrand(x);
-    }
-    const result=(step/3)*acc;
-    const clamped=Math.max(0,Math.min(1,result));
-    logDebug('Debug: box studentizedRangeCDFInfinite',{ q, r, result:clamped });
-    return clamped;
+    const survival=normalRangeProbability(q,r,true);
+    if(!Number.isFinite(survival)) return NaN;
+    // Complementation is stable while the CDF is at least 0.01; integrate a
+    // smaller lower tail directly to avoid cancellation.
+    return survival<=0.99
+      ? Math.max(0,Math.min(1,1-survival))
+      : normalRangeProbability(q,r,false);
   }
   function logGammaLanczos(value){
     const coefficients=[676.5203681218851,-1259.1392167224028,771.323428777653,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.98436957801957e-6,1.5056327351493116e-7];
@@ -2950,111 +3712,161 @@
     return 0.5*Math.log(2*Math.PI)+(z+0.5)*Math.log(t)-t+Math.log(x);
   }
 
-  function chiSquarePdf(value,df){
-    if(!(value>0) || !(df>0)) return 0;
-    const halfDf=df/2;
-    const logPdf=(halfDf-1)*Math.log(value)-(value/2)-(halfDf*Math.log(2))-logGammaLanczos(halfDf);
-    return Math.exp(logPdf);
-  }
-
-  function adaptiveSimpsonIntegral(fn,a,b,tolerance=2e-7,maxDepth=16){
-    const simpson=(left,right,fa,fm,fb)=>(right-left)*(fa+4*fm+fb)/6;
-    const recurse=(left,right,fa,fm,fb,whole,depth)=>{
-      const mid=(left+right)/2;
-      const leftMid=(left+mid)/2;
-      const rightMid=(mid+right)/2;
-      const fLeftMid=fn(leftMid);
-      const fRightMid=fn(rightMid);
-      const leftArea=simpson(left,mid,fa,fLeftMid,fm);
-      const rightArea=simpson(mid,right,fm,fRightMid,fb);
-      const delta=leftArea+rightArea-whole;
-      if(depth<=0 || Math.abs(delta)<=15*tolerance){
-        return leftArea+rightArea+delta/15;
-      }
-      return recurse(left,mid,fa,fLeftMid,fm,leftArea,depth-1)+recurse(mid,right,fm,fRightMid,fb,rightArea,depth-1);
-    };
-    const mid=(a+b)/2;
-    const fa=fn(a), fm=fn(mid), fb=fn(b);
-    return recurse(a,b,fa,fm,fb,simpson(a,b,fa,fm,fb),maxDepth);
+  function studentizedRangeParametersAreValid(q,r,df){
+    return !Number.isNaN(q)
+      && Number.isInteger(r) && r>=2
+      && (df===Number.POSITIVE_INFINITY || (Number.isFinite(df) && df>0));
   }
 
   function studentizedRangeCDF(q,r,df){
-    if(!Number.isFinite(q) || q<=0) return 0;
-    if(!Number.isFinite(r) || r<2) return 1;
-    if(!Number.isFinite(df) || df>1e7) return studentizedRangeCDFInfinite(q,r);
-    if(!(df>0)) return NaN;
-    // Q | V=v is the range of r standard normals divided by sqrt(v/df),
-    // with V ~ chi-square(df). Integrating this conditional CDF yields the
-    // finite-df studentized-range distribution used by Tukey/Games-Howell.
-    const epsilon=1e-9;
-    const integrand=t=>{
-      if(t<=0 || t>=1) return 0;
-      const v=df*t/(1-t);
-      const jacobian=df/Math.pow(1-t,2);
-      return studentizedRangeCDFInfinite(q*Math.sqrt(v/df),r)*chiSquarePdf(v,df)*jacobian;
-    };
-    const result=adaptiveSimpsonIntegral(integrand,epsilon,1-epsilon,2e-6,15);
-    const clamped=Math.max(0,Math.min(1,result));
-    logDebug('Debug: box studentizedRangeCDF finite',{q,r,df,result:clamped});
-    return clamped;
+    const value=Number(q);
+    const groups=Number(r);
+    const degrees=Number(df);
+    if(Number.isNaN(value) || !studentizedRangeParametersAreValid(value,groups,degrees)) return NaN;
+    if(value<=0) return 0;
+    if(value===Number.POSITIVE_INFINITY) return 1;
+    if(groups===2){
+      if(degrees===Number.POSITIVE_INFINITY){
+        return studentizedRangeCDFInfinite(value,groups);
+      }
+      const t=value/Math.SQRT2;
+      const ratio=t>Math.sqrt(Number.MAX_VALUE) ? 0 : (degrees/(degrees+(t*t)));
+      const x=1-ratio;
+      const stats=ensureStats();
+      return stats?.regularizedBeta?.(x,0.5,degrees/2) ?? NaN;
+    }
+    if(degrees===Number.POSITIVE_INFINITY || degrees>100000){
+      return studentizedRangeCDFInfinite(value,groups);
+    }
+    const survival=studentizedRangeFiniteProbability(value,groups,degrees,true);
+    if(!Number.isFinite(survival)) return NaN;
+    // Keep CDF/SF consistent above a 0.01 CDF while computing smaller CDFs
+    // directly from their lower-tail integral.
+    if(survival<=0.99) return Math.max(0,Math.min(1,1-survival));
+    return studentizedRangeFiniteProbability(value,groups,degrees,false);
   }
 
-  function computeAnovaComponents(groups){
+  function studentizedRangeSF(q,r,df){
+    const value=Number(q);
+    const groups=Number(r);
+    const degrees=Number(df);
+    if(Number.isNaN(value) || !studentizedRangeParametersAreValid(value,groups,degrees)) return NaN;
+    if(value<=0) return 1;
+    if(value===Number.POSITIVE_INFINITY) return 0;
+    if(groups===2){
+      if(degrees===Number.POSITIVE_INFINITY) return Math.max(0,Math.min(1,2*normalSurvival(value/Math.SQRT2)));
+      return studentTTwoSidedPValue(value/Math.SQRT2,degrees);
+    }
+    const infiniteDegrees=degrees===Number.POSITIVE_INFINITY || degrees>100000;
+    const survival=infiniteDegrees
+      ? normalRangeProbability(value,groups,true)
+      : studentizedRangeFiniteProbability(value,groups,degrees,true);
+    if(!Number.isFinite(survival)) return NaN;
+    if(groups>=20 && survival>0.99){
+      // The high-group quadrature loses precision when the survival value is
+      // nearly one. In this region the lower tail is small, so its direct CDF
+      // is the stable complement and avoids cancellation in 1 - CDF.
+      const lowerTail=infiniteDegrees
+        ? normalRangeProbability(value,groups,false)
+        : studentizedRangeFiniteProbability(value,groups,degrees,false);
+      if(!Number.isFinite(lowerTail)) return NaN;
+      return Math.max(0,Math.min(1,1-lowerTail));
+    }
+    return survival;
+  }
+
+  function studentizedRangeSurvivalAndDensity(q,groups,df){
+    if(df===Number.POSITIVE_INFINITY || df>100000){
+      return normalRangeProbability(q,groups,true,true);
+    }
+    return studentizedRangeFiniteProbability(q,groups,df,true,true);
+  }
+
+  function computeAnovaComponents(groups, suppliedComponents = null){
     const cleaned = (Array.isArray(groups) ? groups : []).map(group => group.filter(Number.isFinite));
     const counts = cleaned.map(group => group.length);
     const validCounts = counts.every(n => n > 0);
     if(!validCounts){
-      return { ok: false, reason: 'Each group needs at least one observation for Tukey HSD.' };
+      return { ok: false, reason: 'Each group needs at least one observation for one-way ANOVA pairwise comparisons.' };
     }
     const k = cleaned.length;
-    const totals = cleaned.map(group => group.reduce((sum, val) => sum + val, 0));
     const totalN = counts.reduce((sum, val) => sum + val, 0);
     if(totalN <= k){
-      return { ok: false, reason: 'Tukey HSD requires more observations than groups.' };
+      return { ok: false, reason: 'One-way ANOVA pairwise comparisons require positive residual degrees of freedom.' };
     }
-    const means = totals.map((sum, idx) => sum / (counts[idx] || 1));
-    const grandMean = totals.reduce((sum, val) => sum + val, 0) / totalN;
-    let sse = 0;
-    cleaned.forEach((group, idx) => {
-      const meanVal = means[idx];
-      group.forEach(value => { sse += Math.pow(value - meanVal, 2); });
-    });
+    const components = suppliedComponents && Number.isFinite(suppliedComponents.ssWithin)
+      ? suppliedComponents
+      : anova(cleaned);
     const dfWithin = totalN - k;
-    const mse = dfWithin > 0 ? sse / dfWithin : NaN;
+    const mse = Number.isFinite(components.msWithin) ? components.msWithin : NaN;
+    const means = Array.isArray(components.means) && components.means.length === k
+      ? components.means
+      : cleaned.map(group => mean(group));
+    const sse = Number.isFinite(components.ssWithin) ? components.ssWithin : NaN;
     return {
       ok: Number.isFinite(mse) && mse > 0 && dfWithin > 0,
       mse,
       dfWithin,
       means,
       counts,
-      grandMean,
       totalN,
       groupCount: k,
       sse
     };
   }
 
-    function computeTukeyComparisons(groups,labels,options={}){
-    const base=computeAnovaComponents(groups);
+  function hasValidReferenceIndex(groupCount, referenceIndex){
+    if(referenceIndex===null || typeof referenceIndex==='undefined') return true;
+    const reference=Number(referenceIndex);
+    return Number.isInteger(reference) && reference>=0 && reference<groupCount;
+  }
+
+  function forEachComparisonPair(groupCount, referenceIndex, visit){
+    if(referenceIndex!==null && typeof referenceIndex!=='undefined'){
+      const reference=Number(referenceIndex);
+      for(let i=0;i<reference;i+=1) visit(i,reference);
+      for(let j=reference+1;j<groupCount;j+=1) visit(reference,j);
+      return;
+    }
+    for(let i=0;i<groupCount;i+=1){
+      for(let j=i+1;j<groupCount;j+=1){
+        visit(i,j);
+      }
+    }
+  }
+
+  function computeTukeyComparisons(groups,labels,options={}){
+    const base=computeAnovaComponents(groups, options?.anovaComponents);
     if(!base.ok){
       logDebug('Debug: box computeTukeyComparisons unavailable',base);
-      return { ok:false, message:base.reason || 'Unable to compute Tukey HSD.' };
+      return { ok:false, message:base.reason || 'Unable to compute Tukey HSD; residual variance must be positive.' };
+    }
+    if(!hasValidReferenceIndex(base.groupCount,options?.referenceIndex)){
+      return { ok:false, message:'Tukey HSD reference group index is invalid.' };
     }
     const pairs=[];
-    const qCritical=resolveStudentizedRangeCritical(resolveStatsAlpha({ alpha: options?.alpha }),base.groupCount,base.dfWithin);
-    for(let i=0;i<base.groupCount;i++){
-      for(let j=i+1;j<base.groupCount;j++){
+    const ciLevel=sanitizeStatsCiLevel(options?.ciLevel,0.95);
+    const qCritical=resolveStudentizedRangeCritical(1-ciLevel,base.groupCount,base.dfWithin);
+    if(!Number.isFinite(qCritical)){
+      return { ok:false, message:'Tukey HSD confidence limits could not be computed from the studentized-range distribution.' };
+    }
+    let failure=null;
+    forEachComparisonPair(base.groupCount,options?.referenceIndex,(i,j)=>{
+        if(failure) return;
         const ni=base.counts[i];
         const nj=base.counts[j];
         const se=Math.sqrt(base.mse*0.5*(1/ni+1/nj));
         if(!Number.isFinite(se) || se<=0){
           logDebug('Debug: box computeTukeyComparisons skip pair',{ i,j,se });
-          continue;
+          return;
         }
         const diff=base.means[i]-base.means[j];
         const q=Math.abs(diff)/se;
-        const cdf=studentizedRangeCDF(q,base.groupCount,base.dfWithin);
-        const pAdj=Math.max(0,Math.min(1,1-cdf));
+        const pAdj=studentizedRangeSF(q,base.groupCount,base.dfWithin);
+        if(!Number.isFinite(pAdj)){
+          failure={ ok:false, message:'Tukey HSD adjusted p-values could not be computed from the studentized-range distribution.' };
+          return;
+        }
         const ciHalf=Number.isFinite(qCritical)?qCritical*se:NaN;
         pairs.push({
           i,
@@ -3072,8 +3884,8 @@
           labelA:labels?.[i],
           labelB:labels?.[j]
         });
-      }
-    }
+    });
+    if(failure) return failure;
     logDebug('Debug: box computeTukeyComparisons summary',{ pairCount:pairs.length, df:base.dfWithin, mse:base.mse });
     return {
       ok:pairs.length>0,
@@ -3086,7 +3898,68 @@
     };
   }
 
-    function computeGamesHowellComparisons(groups,labels,options={}){
+  function computeAnovaPooledComparisons(groups,labels,options={}){
+    const base=computeAnovaComponents(groups, options?.anovaComponents);
+    if(!base.ok){
+      return {
+        ok:false,
+        message:base.reason || 'ANOVA-pooled t-tests require positive residual variance and residual degrees of freedom.'
+      };
+    }
+    const ciLevel=sanitizeStatsCiLevel(options?.ciLevel,0.95);
+    const critical=resolveDirectionalTCritical(base.dfWithin,ciLevel,'two-sided');
+    if(!Number.isFinite(critical)){
+      return { ok:false, message:'ANOVA-pooled confidence intervals could not be computed from the Student t distribution.' };
+    }
+    const pairs=[];
+    for(let i=0;i<base.groupCount;i+=1){
+      for(let j=i+1;j<base.groupCount;j+=1){
+        const ni=base.counts[i];
+        const nj=base.counts[j];
+        const se=Math.sqrt(base.mse*(1/ni+1/nj));
+        const diff=base.means[i]-base.means[j];
+        if(!(Number.isFinite(se) && se>0 && Number.isFinite(diff))){
+          return { ok:false, message:'ANOVA-pooled t-tests require finite pairwise standard errors and mean differences.' };
+        }
+        const t=diff/se;
+        const p=studentTTwoSidedPValue(t,base.dfWithin);
+        if(!Number.isFinite(p) || p<0 || p>1){
+          return { ok:false, message:'ANOVA-pooled t-test p-values could not be computed.' };
+        }
+        const ciHalf=critical*se;
+        pairs.push({
+          i,
+          j,
+          diff,
+          se,
+          t,
+          p,
+          df:base.dfWithin,
+          mse:base.mse,
+          ni,
+          nj,
+          ciLow:diff-ciHalf,
+          ciHigh:diff+ciHalf,
+          ciType:'nominal',
+          ciLevel,
+          labelA:labels?.[i],
+          labelB:labels?.[j]
+        });
+      }
+    }
+    return {
+      ok:pairs.length>0,
+      pairs,
+      df:base.dfWithin,
+      mse:base.mse,
+      counts:base.counts,
+      means:base.means,
+      ciType:'nominal',
+      ciLevel
+    };
+  }
+
+  function computeGamesHowellComparisons(groups,labels,options={}){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
     const counts=cleaned.map(group=>group.length);
     const k=cleaned.length;
@@ -3096,53 +3969,81 @@
     if(counts.some(n=>n<2)){
       return { ok:false, message:'Games–Howell needs ≥2 observations per group.' };
     }
+    if(!hasValidReferenceIndex(k,options?.referenceIndex)){
+      return { ok:false, message:'Games–Howell reference group index is invalid.' };
+    }
     const means=cleaned.map(group=>group.reduce((sum,val)=>sum+val,0)/group.length);
     const variances=cleaned.map((group,idx)=>{
       const m=means[idx];
       const sumSq=group.reduce((sum,val)=>sum+Math.pow(val-m,2),0);
       const denom=Math.max(group.length-1,1);
       const variance=sumSq/denom;
-      return variance>0?variance:Number.EPSILON;
+      return variance;
     });
-    const pairs=[];
-    for(let i=0;i<k;i++){
-      for(let j=i+1;j<k;j++){
-        const ni=counts[i];
-        const nj=counts[j];
-        const varI=variances[i];
-        const varJ=variances[j];
-        const se2=varI/ni+varJ/nj;
-        const welchSe=Math.sqrt(se2>0?se2:Number.EPSILON);
-        const rangeSe=Math.sqrt(0.5*se2);
-        const diff=means[i]-means[j];
-        const q=Math.abs(diff)/rangeSe;
-        const denom=(Math.pow(varI/ni,2)/(ni-1))+(Math.pow(varJ/nj,2)/(nj-1));
-        const df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
-        const cdf=studentizedRangeCDF(q,k,df);
-        const p=Math.max(0,Math.min(1,1-cdf));
-        const qCritical=resolveStudentizedRangeCritical(resolveStatsAlpha({ alpha: options?.alpha }),k,df);
-        const ciHalf=Number.isFinite(qCritical)?qCritical*rangeSe:NaN;
-        pairs.push({
-          i,
-          j,
-          diff,
-          se:welchSe,
-          rangeSe,
-          q,
-          p,
-          pAdj:p,
-          df,
-          ni,
-          nj,
-          varI,
-          varJ,
-          ciLow:Number.isFinite(ciHalf)?diff-ciHalf:NaN,
-          ciHigh:Number.isFinite(ciHalf)?diff+ciHalf:NaN,
-          labelA:labels?.[i],
-          labelB:labels?.[j]
-        });
+    const ciLevel=sanitizeStatsCiLevel(options?.ciLevel,0.95);
+    const pairInputs=[];
+    let failure=null;
+    forEachComparisonPair(k,options?.referenceIndex,(i,j)=>{
+      if(failure) return;
+      const ni=counts[i];
+      const nj=counts[j];
+      const varI=variances[i];
+      const varJ=variances[j];
+      const se2=varI/ni+varJ/nj;
+      if(!(Number.isFinite(se2) && se2>0)){
+        failure={ ok:false, message:'Games–Howell comparisons require positive pairwise variance.' };
+        return;
       }
+      const welchSe=Math.sqrt(se2);
+      const rangeSe=Math.sqrt(0.5*se2);
+      const diff=means[i]-means[j];
+      const q=Math.abs(diff)/rangeSe;
+      const denom=(Math.pow(varI/ni,2)/(ni-1))+(Math.pow(varJ/nj,2)/(nj-1));
+      const df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
+      const p=studentizedRangeSF(q,k,df);
+      if(!Number.isFinite(p)){
+        failure={ ok:false, message:'Games–Howell p-values could not be computed from the studentized-range distribution.' };
+        return;
+      }
+      pairInputs.push({ i,j,diff,welchSe,rangeSe,q,p,df,ni,nj,varI,varJ });
+    });
+    if(failure) return failure;
+
+    const criticalValues=resolveStudentizedRangeCriticalValues(
+      1-ciLevel,
+      k,
+      pairInputs.map(pair=>pair.df)
+    );
+    const criticalByDf=new Map(criticalValues.map(value=>[value.df,value.critical]));
+    if(criticalValues.some(value=>!Number.isFinite(value.critical))){
+        return { ok:false, message:'Games–Howell confidence limits could not be computed from the studentized-range distribution.' };
     }
+
+    const pairs=pairInputs.map(pair=>{
+      const qCritical=criticalByDf.get(pair.df);
+      const ciHalf=qCritical*pair.rangeSe;
+      return {
+        i:pair.i,
+        j:pair.j,
+        diff:pair.diff,
+        se:pair.welchSe,
+        rangeSe:pair.rangeSe,
+        q:pair.q,
+        p:pair.p,
+        pAdj:pair.p,
+        df:pair.df,
+        ni:pair.ni,
+        nj:pair.nj,
+        varI:pair.varI,
+        varJ:pair.varJ,
+        ciLow:Number.isFinite(ciHalf)?pair.diff-ciHalf:NaN,
+        ciHigh:Number.isFinite(ciHalf)?pair.diff+ciHalf:NaN,
+        ciType:'simultaneous',
+        ciLevel,
+        labelA:labels?.[pair.i],
+        labelB:labels?.[pair.j]
+      };
+    });
     logDebug('Debug: box computeGamesHowell summary',{ pairCount:pairs.length, k, variances:variances.map(v=>Number.isFinite(v)?Number(v.toFixed(4)):v) });
     return {
       ok:pairs.length>0,
@@ -3155,7 +4056,7 @@
   }
 
     function computeNemenyiComparisons(groups,labels,options={}){
-    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
+    const cleaned=alignCompleteRows(groups).groups;
     const k=cleaned.length;
     if(k<3){
       return { ok:false, message:"Nemenyi's test requires at least three paired groups." };
@@ -3163,9 +4064,6 @@
     const n=cleaned[0]?.length || 0;
     if(n<2){
       return { ok:false, message:"Nemenyi's test requires at least two paired rows." };
-    }
-    if(cleaned.some(group=>group.length!==n)){
-      return { ok:false, message:"Nemenyi's test requires equal group sizes." };
     }
     const rowRanks=[];
     const rankSums=new Array(k).fill(0);
@@ -3191,7 +4089,10 @@
       for(let j=i+1;j<k;j++){
         const diff=meanRanks[i]-meanRanks[j];
         const q=Math.abs(diff)/se;
-        const p=Math.max(0,Math.min(1,1-studentizedRangeCDF(q*Math.SQRT2,k,Number.POSITIVE_INFINITY)));
+        const p=studentizedRangeSF(q*Math.SQRT2,k,Number.POSITIVE_INFINITY);
+        if(!Number.isFinite(p)){
+          return { ok:false, message:'Nemenyi p-values could not be computed from the studentized-range distribution.' };
+        }
         pairs.push({
           i,
           j,
@@ -3314,7 +4215,7 @@
       return variance>0?variance:Number.EPSILON;
     });
     const pairCount=Math.max(1,(k*(k-1))/2);
-    const sidakAlpha=1-Math.pow(Math.max(1e-9,1-resolveStatsAlpha({ alpha:options?.alpha })),1/pairCount);
+    const sidakAlpha=-Math.expm1(Math.log1p(-resolveStatsAlpha({ alpha:options?.alpha }))/pairCount);
     const pairs=[];
     for(let i=0;i<k;i++){
       for(let j=i+1;j<k;j++){
@@ -3329,7 +4230,7 @@
         const denom=(Math.pow(varI/ni,2)/(ni-1))+(Math.pow(varJ/nj,2)/(nj-1));
         const df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
         const rawP=Number.isFinite(t) ? studentTTwoSidedPValue(t, df) : NaN;
-        const pAdj=Number.isFinite(rawP) ? Math.max(0,Math.min(1,1-Math.pow(Math.max(0,1-rawP),pairCount))) : NaN;
+        const pAdj=Number.isFinite(rawP) ? Math.max(0,Math.min(1,-Math.expm1(pairCount*Math.log1p(-rawP)))) : NaN;
         const tCritical=resolveTCritical(df,sidakAlpha);
         const ciHalf=Number.isFinite(tCritical)?tCritical*se:NaN;
         pairs.push({
@@ -3363,9 +4264,140 @@
     };
   }
 
+  // A shared chi-square scale gives the multivariate-t distribution. Dunnett
+  // uses common-control normal loadings; T3 uses independent normal coordinates.
+  function studentizedMaximumSF(value,df,loadings){
+    const q=Math.abs(value);
+    if(!(df>0) || !Array.isArray(loadings) || !loadings.length || loadings.some(a=>!(a>=0 && a<1))) return NaN;
+    if(q===Infinity) return 0;
+    if(q===0) return 1;
+    if(!Number.isFinite(q)) return NaN;
+    if(loadings.length===1) return df===Infinity?2*normalSurvival(q):studentTTwoSidedPValue(q,df);
+    const normalCdf=global.jStat?.normal?.cdf;
+    const survival=x=>normalSurvival(x,normalCdf);
+    const components=loadings.map(a=>({a,b:Math.sqrt(1-a*a)}));
+    const independent=loadings.every(a=>a===0);
+    const conditional=h=>{
+      if(independent) return -Math.expm1(loadings.length*Math.log1p(-2*survival(h)));
+      const integrand=z=>{
+        let logInside=0;
+        for(const {a,b} of components){
+          const outside=Math.min(1,survival((h-a*z)/b)+survival((h+a*z)/b));
+          logInside+=Math.log1p(-outside);
+        }
+        return Math.exp(-z*z/2)/Math.sqrt(2*Math.PI)*(-Math.expm1(logInside));
+      };
+      const points=Array.from({length:21},(_,index)=>index-10);
+      loadings.forEach(a=>{
+        if(a===0) return;
+        const width=Math.sqrt(1-a*a)/a;
+        if(width>=0.5) return;
+        [-1,1].forEach(sign=>[-8,-4,-2,-1,0,1,2,4,8].forEach(offset=>{
+          const point=sign*h/a+offset*width;
+          if(point>-10 && point<10) points.push(point);
+        }));
+      });
+      points.sort((a,b)=>a-b);
+      let integral=0;
+      for(let index=1;index<points.length;index+=1){
+        integral+=integrateGaussLegendre(integrand,points[index-1],points[index],STUDENTIZED_RANGE_OUTER_RULE);
+      }
+      return integral;
+    };
+    if(df===Infinity) return conditional(q);
+    const shape=df/2;
+    const constant=shape>50
+      ? 0.5*Math.log(df/Math.PI)-1/(12*shape)+1/(360*Math.pow(shape,3))-1/(1260*Math.pow(shape,5))
+      : Math.log(2)+shape*Math.log(shape)-logGammaLanczos(shape)-shape;
+    const bounds=studentizedRangeScaleLogBounds(df,50);
+    const panels=Math.ceil((bounds.upper-bounds.lower)/Math.min(0.5,3/Math.sqrt(df)));
+    let probability=0;
+    for(let panel=0;panel<panels;panel+=1){
+      const lower=bounds.lower+(bounds.upper-bounds.lower)*panel/panels;
+      const upper=bounds.lower+(bounds.upper-bounds.lower)*(panel+1)/panels;
+      probability+=integrateGaussLegendre(logScale=>{
+        const logWeight=constant+shape*(2*logScale-Math.expm1(2*logScale));
+        return Math.exp(logWeight)*conditional(q*Math.exp(logScale));
+      },lower,upper,STUDENTIZED_RANGE_OUTER_RULE);
+    }
+    return Math.max(0,Math.min(1,probability));
+  }
+
+  const studentizedMaximumCriticalCache=new Map();
+  function studentizedMaximumCritical(alpha,df,loadings){
+    if(loadings.length===1) return resolveTCritical(df,alpha);
+    const key=JSON.stringify([alpha,df,loadings]);
+    if(studentizedMaximumCriticalCache.has(key)) return studentizedMaximumCriticalCache.get(key);
+    let lower=0,upper=resolveTCritical(df,alpha/loadings.length);
+    if(!(upper>0 && Number.isFinite(upper))) return NaN;
+    while(studentizedMaximumSF(upper,df,loadings)>alpha) upper*=2;
+    let lowValue=1-alpha,highValue=studentizedMaximumSF(upper,df,loadings)-alpha,lastSide=null,critical=NaN;
+    // Illinois interpolation retains a bracket while avoiding dozens of
+    // costly multivariate integrals required by plain bisection.
+    for(let iteration=0;iteration<60;iteration+=1){
+      const middle=(lower*highValue-upper*lowValue)/(highValue-lowValue);
+      const value=studentizedMaximumSF(middle,df,loadings)-alpha;
+      if(Math.abs(value)<1e-11 || upper-lower<1e-9){critical=middle;break;}
+      if(value>0){
+        lower=middle;lowValue=value;
+        if(lastSide==='lower') highValue/=2;
+        lastSide='lower';
+      }else{
+        upper=middle;highValue=value;
+        if(lastSide==='upper') lowValue/=2;
+        lastSide='upper';
+      }
+    }
+    if(Number.isFinite(critical)){
+      if(studentizedMaximumCriticalCache.size>=64) studentizedMaximumCriticalCache.delete(studentizedMaximumCriticalCache.keys().next().value);
+      studentizedMaximumCriticalCache.set(key,critical);
+    }
+    return critical;
+  }
+
   function computeDunnettComparisons(groups,labels,referenceIndex,options={}){
+    const cleaned=(groups||[]).map(normalizeFiniteSample);
+    const base=computeAnovaComponents(cleaned);
+    const ref=Number.isInteger(referenceIndex)?referenceIndex:0;
+    if(!base.ok || cleaned.length<2 || ref<0 || ref>=cleaned.length || cleaned.some(group=>group.length<2)){
+      return {ok:false,message:'Dunnett requires a valid control and at least two observations per group.'};
+    }
+    if(!(base.mse>0)) return {ok:false,message:'Dunnett requires positive pooled residual variance.'};
+    const comparisons=cleaned.map((_,index)=>index).filter(index=>index!==ref);
+    const loadings=comparisons.map(index=>Math.sqrt(base.counts[index]/(base.counts[index]+base.counts[ref])));
+    const ciLevel=sanitizeStatsCiLevel(options.ciLevel,0.95);
+    const critical=studentizedMaximumCritical(1-ciLevel,base.dfWithin,loadings);
+    const pairs=comparisons.map(j=>{
+      const diff=base.means[ref]-base.means[j];
+      const se=Math.sqrt(base.mse*(1/base.counts[ref]+1/base.counts[j]));
+      const t=diff/se;
+      return {i:ref,j,diff,se,t,df:base.dfWithin,p:studentTTwoSidedPValue(Math.abs(t),base.dfWithin),pAdj:studentizedMaximumSF(t,base.dfWithin,loadings),ciLow:diff-critical*se,ciHigh:diff+critical*se};
+    });
+    return {ok:true,pairs,means:base.means,counts:base.counts,footnote:'Dunnett two-sided many-to-one comparisons use the correlated multivariate-t distribution and simultaneous confidence intervals.'};
+  }
+
+  function computeDunnettT3Comparisons(groups,labels,options={}){
+    const cleaned=(groups||[]).map(normalizeFiniteSample);
+    if(cleaned.length<2 || cleaned.some(group=>group.length<2)) return {ok:false,message:'Dunnett T3 requires at least two groups with two observations each.'};
+    const count=cleaned.length*(cleaned.length-1)/2;
+    const loadings=new Array(count).fill(0);
+    const ciLevel=sanitizeStatsCiLevel(options.ciLevel,0.95);
+    const pairs=[];
+    for(let i=0;i<cleaned.length;i+=1){
+      for(let j=i+1;j<cleaned.length;j+=1){
+        const pair=tTest(cleaned[i],cleaned[j],{alternative:'two-sided',ciLevel});
+        if(!(pair.se>0)) return {ok:false,message:'Dunnett T3 requires positive variance for each compared pair.'};
+        const critical=studentizedMaximumCritical(1-ciLevel,pair.df,loadings);
+        pairs.push({i,j,...pair,pAdj:studentizedMaximumSF(pair.t,pair.df,loadings),ciLow:pair.diff-critical*pair.se,ciHigh:pair.diff+critical*pair.se});
+      }
+    }
+    return {ok:true,pairs,footnote:'Dunnett T3 all-pairs comparisons use the studentized maximum modulus distribution with pair-specific Welch degrees of freedom and simultaneous confidence intervals; unequal-variance calibration is approximate.'};
+  }
+
+  function computeControlSidakComparisons(groups,labels,referenceIndex,options={}){
     const unequalVariances=options?.unequalVariances===true;
     const alpha=Number.isFinite(options?.alpha)?Math.min(0.5,Math.max(1e-6,options.alpha)):0.05;
+    const ciLevel=sanitizeStatsCiLevel(options.ciLevel,1-alpha);
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
     const counts=cleaned.map(group=>group.length);
     const k=cleaned.length;
@@ -3385,7 +4417,7 @@
       const sumSq=group.reduce((sum,val)=>sum+Math.pow(val-mu,2),0);
       const denom=Math.max(group.length-1,1);
       const variance=sumSq/denom;
-      return variance>0?variance:Number.EPSILON;
+      return variance;
     });
     let pooledMse=NaN;
     let pooledDf=NaN;
@@ -3398,7 +4430,7 @@
       pooledDf=anovaParts.dfWithin;
     }
     const comparisonCount=Math.max(1,k-1);
-    const sidakAlpha=1-Math.pow(Math.max(1e-9,1-alpha),1/comparisonCount);
+    const sidakAlpha=-Math.expm1(Math.log(ciLevel)/comparisonCount);
     const pairs=[];
     for(let i=0;i<k;i++){
       if(i===refIdx){ continue; }
@@ -3410,7 +4442,7 @@
         const vi=variances[i];
         const vr=variances[refIdx];
         const se2=(vi/ni)+(vr/nr);
-        se=Math.sqrt(se2>0?se2:Number.EPSILON);
+        se=Math.sqrt(se2);
         const denom=(Math.pow(vi/ni,2)/(ni-1))+(Math.pow(vr/nr,2)/(nr-1));
         df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
       }else{
@@ -3418,12 +4450,11 @@
         df=pooledDf;
       }
       if(!Number.isFinite(se) || se<=0){
-        continue;
+        return {ok:false,message:'Control comparisons require a positive standard error for every contrast; constant samples cannot be calibrated.'};
       }
-      const diff=means[i]-means[refIdx];
+      const diff=means[refIdx]-means[i];
       const tVal=diff/se;
       const rawP=studentTTwoSidedPValue(tVal, df);
-      const pAdj=1-Math.pow(Math.max(0,1-rawP),comparisonCount);
       const tCritical=resolveTCritical(df,sidakAlpha);
       const ciHalf=Number.isFinite(tCritical)?tCritical*se:NaN;
       pairs.push({
@@ -3433,7 +4464,6 @@
         se,
         t:tVal,
         p:rawP,
-        pAdj:Math.max(0,Math.min(1,pAdj)),
         df,
         ciLow:Number.isFinite(ciHalf)?diff-ciHalf:NaN,
         ciHigh:Number.isFinite(ciHalf)?diff+ciHalf:NaN,
@@ -3444,6 +4474,8 @@
     if(!pairs.length){
       return { ok:false, message:'Unable to compute reference comparisons for the selected groups.' };
     }
+    const adjusted=applyPValueCorrection(pairs.map(pair=>pair.p),'sidak');
+    pairs.forEach((pair,index)=>{pair.pAdj=adjusted[index];});
     return {
       ok:true,
       pairs,
@@ -3452,8 +4484,8 @@
       counts,
       variances,
       footnote:unequalVariances
-        ? "Dunnett T3 approximated with Welch t-tests and Sidak family-wise adjustment versus reference."
-        : "Dunnett approximated with pooled-variance t-tests and Sidak family-wise adjustment versus reference."
+        ? "Welch t-tests versus control with Sidak-adjusted p-values and marginal t intervals; Welch calibration is approximate."
+        : "ANOVA-pooled t-tests versus control with Sidak-adjusted p-values and marginal t intervals."
     };
   }
 
@@ -3610,16 +4642,8 @@
   }
 
   function computePairedSamples(a, b){
-    const len = Math.min(Array.isArray(a) ? a.length : 0, Array.isArray(b) ? b.length : 0);
-    const samples = [];
-    for(let i = 0; i < len; i++){
-      const av = Number(a[i]);
-      const bv = Number(b[i]);
-      if(Number.isFinite(av) && Number.isFinite(bv)){
-        samples.push({ a: av, b: bv });
-      }
-    }
-    return samples;
+    const [sampleA,sampleB]=alignCompleteRows([a,b]).groups;
+    return sampleA.map((value,index)=>({a:value,b:sampleB[index]}));
   }
 
   function computeDiffStats(pairedSamples){
@@ -3727,8 +4751,11 @@
       metrics.nonParametric.commonLanguage = clamp(commonLanguage, 0, 1);
     }
     if(paired && diffStats && diffStats.total > 0){
-      const rb = (diffStats.positive - diffStats.negative) / diffStats.total;
-      metrics.nonParametric.rankBiserial = clamp(rb, -1, 1);
+      const signedRanks=computeSignedRankSums(pairedSamples.map(pair=>subtractRankObservation(pair.a,pair.b)));
+      const totalRank=signedRanks.wPositive+signedRanks.wNegative;
+      if(totalRank>0){
+        metrics.nonParametric.rankBiserial=(signedRanks.wPositive-signedRanks.wNegative)/totalRank;
+      }
       const cl = (diffStats.positive + 0.5 * diffStats.ties) / diffStats.total;
       metrics.nonParametric.commonLanguage = clamp(cl, 0, 1);
     }
@@ -4749,6 +5776,131 @@
     };
   }
 
+  function analyzeNestedRepeatedTwoWay(data){
+    const groupsCount = Math.trunc(Number(data?.groupsCount) || 0);
+    const conditionsCount = Math.trunc(Number(data?.conditionsCount) || 0);
+    const rows = Array.isArray(data?.rows) ? data.rows : [];
+    if(groupsCount < 2 || conditionsCount !== 2){
+      return { ok: false, message: 'The nested repeated-measures ANOVA requires at least two independent groups and exactly two repeated conditions.' };
+    }
+    if(Number(data?.partialRowsSkipped || 0) > 0 || rows.length < 2 || Number(data?.rowsWithData || rows.length) !== rows.length){
+      return { ok: false, message: 'The nested repeated-measures ANOVA requires complete data with the same number of subjects in every group.' };
+    }
+    const observations = Array.from({ length: groupsCount }, () => []);
+    for(let rowIndex = 0; rowIndex < rows.length; rowIndex++){
+      const row = rows[rowIndex];
+      if(!Array.isArray(row) || row.length < groupsCount){
+        return { ok: false, message: 'Grouped data are incomplete for the nested repeated-measures ANOVA.' };
+      }
+      for(let groupIndex = 0; groupIndex < groupsCount; groupIndex++){
+        const cell = row[groupIndex];
+        if(!Array.isArray(cell) || cell.length !== 2 || !Number.isFinite(Number(cell[0])) || !Number.isFinite(Number(cell[1]))){
+          return { ok: false, message: 'Every subject must have numeric observations for both conditions in every group.' };
+        }
+        observations[groupIndex].push([Number(cell[0]), Number(cell[1])]);
+      }
+    }
+    const subjectsPerGroup = rows.length;
+    if(observations.some(group => group.length !== subjectsPerGroup)){
+      return { ok: false, message: 'The nested repeated-measures ANOVA requires equal subject counts across groups.' };
+    }
+    const observationCount = groupsCount * subjectsPerGroup * conditionsCount;
+    const grandMean = observations.flat(2).reduce((sum, value) => sum + value, 0) / observationCount;
+    const centered = observations.map(group => group.map(pair => pair.map(value => value - grandMean)));
+    const subjectMeansByGroup = centered.map(group => group.map(pair => (pair[0] + pair[1]) / 2));
+    const groupMeans = subjectMeansByGroup.map(values => values.reduce((sum, value) => sum + value, 0) / subjectsPerGroup);
+    const groupMeanGrand = groupMeans.reduce((sum, value) => sum + value, 0) / groupsCount;
+    const ssGroup = conditionsCount * subjectsPerGroup * groupMeans.reduce((sum, value) => sum + ((value - groupMeanGrand) ** 2), 0);
+    let ssSubjectsWithinGroup = 0;
+    for(let groupIndex = 0; groupIndex < groupsCount; groupIndex++){
+      subjectMeansByGroup[groupIndex].forEach(value => {
+        ssSubjectsWithinGroup += conditionsCount * ((value - groupMeans[groupIndex]) ** 2);
+      });
+    }
+    const differencesByGroup = centered.map(group => group.map(pair => pair[1] - pair[0]));
+    const groupDifferences = differencesByGroup.map(values => values.reduce((sum, value) => sum + value, 0) / subjectsPerGroup);
+    const meanDifference = groupDifferences.reduce((sum, value) => sum + value, 0) / groupsCount;
+    const totalSubjects = groupsCount * subjectsPerGroup;
+    const ssCondition = totalSubjects * (meanDifference ** 2) / conditionsCount;
+    const ssInteraction = subjectsPerGroup * groupDifferences.reduce((sum, value) => sum + ((value - meanDifference) ** 2), 0) / conditionsCount;
+    let ssSubjectCondition = 0;
+    differencesByGroup.forEach((values, groupIndex) => {
+      values.forEach(value => {
+        ssSubjectCondition += ((value - groupDifferences[groupIndex]) ** 2) / conditionsCount;
+      });
+    });
+    const centeredTotal = centered.flat(2).reduce((sum, value) => sum + value ** 2, 0);
+    const errorTolerance = Number.EPSILON * Math.max(centeredTotal, Number.MIN_VALUE) * 64;
+    if(!Number.isFinite(ssSubjectsWithinGroup) || !Number.isFinite(ssSubjectCondition)
+      || ssSubjectsWithinGroup <= errorTolerance || ssSubjectCondition <= errorTolerance){
+      return { ok: false, message: 'The nested repeated-measures model is not estimable because a required subject-level error term has zero or numerically negligible variance.' };
+    }
+    const dfGroup = groupsCount - 1;
+    const dfSubject = groupsCount * (subjectsPerGroup - 1);
+    const dfCondition = 1;
+    const dfInteraction = groupsCount - 1;
+    const dfSubjectCondition = groupsCount * (subjectsPerGroup - 1);
+    const msGroup = ssGroup / dfGroup;
+    const msSubject = ssSubjectsWithinGroup / dfSubject;
+    const msCondition = ssCondition / dfCondition;
+    const msInteraction = ssInteraction / dfInteraction;
+    const msSubjectCondition = ssSubjectCondition / dfSubjectCondition;
+    const fGroup = msSubject > 0 ? msGroup / msSubject : NaN;
+    const fCondition = msSubjectCondition > 0 ? msCondition / msSubjectCondition : NaN;
+    const fInteraction = msSubjectCondition > 0 ? msInteraction / msSubjectCondition : NaN;
+    const pGroup = Number.isFinite(fGroup) ? fUpperTailPValue(fGroup, dfGroup, dfSubject) : NaN;
+    const pCondition = Number.isFinite(fCondition) ? fUpperTailPValue(fCondition, dfCondition, dfSubjectCondition) : NaN;
+    const pInteraction = Number.isFinite(fInteraction) ? fUpperTailPValue(fInteraction, dfInteraction, dfSubjectCondition) : NaN;
+    return {
+      ok: true,
+      caption: 'Two-way mixed ANOVA (subjects nested within groups)',
+      section: 'summary',
+      columns: [
+        { key: 'source', label: 'Source', align: 'left' },
+        { key: 'df', label: 'df', align: 'right' },
+        { key: 'ss', label: 'SS', align: 'right' },
+        { key: 'ms', label: 'MS', align: 'right' },
+        { key: 'f', label: 'F', align: 'right' },
+        { key: 'p', label: 'p-value', align: 'right', inferenceRole: 'overall' },
+        { key: 'etaP2', label: 'ηp²', align: 'right' }
+      ],
+      rows: [
+        { source: 'Group', df: String(dfGroup), ss: formatStatNumber(ssGroup), ms: formatStatNumber(msGroup), f: formatStatNumber(fGroup), p: createPValueCell(pGroup), etaP2: formatStatNumber(computePartialEtaSquared(ssGroup, ssSubjectsWithinGroup)) },
+        { source: 'Condition', df: String(dfCondition), ss: formatStatNumber(ssCondition), ms: formatStatNumber(msCondition), f: formatStatNumber(fCondition), p: createPValueCell(pCondition), etaP2: formatStatNumber(computePartialEtaSquared(ssCondition, ssSubjectCondition)) },
+        { source: 'Group × Condition', df: String(dfInteraction), ss: formatStatNumber(ssInteraction), ms: formatStatNumber(msInteraction), f: formatStatNumber(fInteraction), p: createPValueCell(pInteraction), etaP2: formatStatNumber(computePartialEtaSquared(ssInteraction, ssSubjectCondition)) },
+        { source: 'Subjects within Group', df: String(dfSubject), ss: formatStatNumber(ssSubjectsWithinGroup), ms: formatStatNumber(msSubject), f: '—', p: '—', etaP2: '—' },
+        { source: 'Subjects within Group × Condition', df: String(dfSubjectCondition), ss: formatStatNumber(ssSubjectCondition), ms: formatStatNumber(msSubjectCondition), f: '—', p: '—', etaP2: '—' }
+      ],
+      options: { fileName: 'box-nested-repeated-two-way', contextLabel: 'box-grouped-nested-repeated-two-way' },
+      footnotes: [
+        'Subjects are independent between groups and measured in both conditions; rows with the same position in different groups are not paired.',
+        'Group is tested against Subjects within Group. Condition and Group × Condition are tested against Subjects within Group × Condition.',
+        'This complete, balanced two-condition ANOVA assumes independent subjects, approximately normal residuals, and comparable group-level residual variances for subject means and within-subject differences. With two conditions, sphericity is automatic.'
+      ],
+      diagnostics: {
+        groupsCount,
+        conditionsCount,
+        subjectsPerGroup,
+        dfGroup,
+        dfSubject,
+        dfCondition,
+        dfInteraction,
+        dfSubjectCondition,
+        ssGroup,
+        ssSubjectsWithinGroup,
+        ssCondition,
+        ssInteraction,
+        ssSubjectCondition,
+        fGroup,
+        fCondition,
+        fInteraction,
+        pGroup,
+        pCondition,
+        pInteraction
+      }
+    };
+  }
+
   function analyzeThreeWayAnova(data){
     const base = collectGroupedMomentInfo(data);
     if(!base.ok){
@@ -4922,51 +6074,6 @@
       effectiveComparisonMethod: comparisonCorrection.effectiveMethod
     };
   }
-  function createRangeHelpers(indices, groups, annotationMaxByTrace){
-    const maxByIndex = new Map();
-    for(let i = 0; i < indices.length; i++){
-      const idx = indices[i];
-      const values = Array.isArray(groups[i]) ? groups[i] : [];
-      let maxVal = -Infinity;
-      for(let j = 0; j < values.length; j++){
-        const v = values[j];
-        if(Number.isFinite(v) && v > maxVal){
-          maxVal = v;
-        }
-      }
-      maxByIndex.set(idx, maxVal);
-    }
-    const resolveMax = idx => {
-      if(Array.isArray(annotationMaxByTrace) && Number.isFinite(annotationMaxByTrace[idx])){
-        return annotationMaxByTrace[idx];
-      }
-      if(maxByIndex.has(idx)){
-        return maxByIndex.get(idx);
-      }
-      return -Infinity;
-    };
-    const resolveRangeMax = (idxA, idxB) => {
-      const start = Math.min(idxA, idxB);
-      const end = Math.max(idxA, idxB);
-      let maxVal = -Infinity;
-      for(let idx = start; idx <= end; idx++){
-        const candidate = resolveMax(idx);
-        if(Number.isFinite(candidate) && candidate > maxVal){
-          maxVal = candidate;
-        }
-      }
-      return maxVal;
-    };
-    let overall = -Infinity;
-    for(let i = 0; i < indices.length; i++){
-      const candidate = resolveMax(indices[i]);
-      if(Number.isFinite(candidate) && candidate > overall){
-        overall = candidate;
-      }
-    }
-    return { resolveRangeMax, resolveMax, overallRangeMax: Number.isFinite(overall) ? overall : null };
-  }
-
   function prepareLognormalGroups(groups, label){
     const transformed=[];
     for(const group of (Array.isArray(groups)?groups:[])){
@@ -5011,7 +6118,6 @@
     const indices = Array.isArray(context.indices) ? context.indices : [];
     const groups = Array.isArray(context.groups) ? context.groups : [];
     const labels = Array.isArray(context.labels) ? context.labels : [];
-    const rangeHelpers = context.rangeHelpers;
     const paramEffectMeta = context.paramEffectMeta;
     const nonParamEffectMeta = context.nonParamEffectMeta;
     const statKey = context.statKey || 'stat';
@@ -5043,7 +6149,6 @@
         effects: effectMetrics,
         effectParametric: formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value], paramEffectMeta),
         effectNonParametric: formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value], nonParamEffectMeta),
-        rangeMax: rangeHelpers?.resolveRangeMax?.(ai, bi),
         method
       };
     });
@@ -5146,6 +6251,8 @@
     if(normalized==='none') return '';
     if(normalized==='bh') return 'Benjamini-Hochberg';
     if(normalized==='by') return 'Benjamini-Yekutieli';
+    if(normalized==='dunnett-test') return 'Dunnett';
+    if(normalized==='dunnett-t3-test') return 'Dunnett T3';
     const correctionMeta=resolveCorrectionMeta(normalized,2);
     if(correctionMeta?.label && correctionMeta.key===normalized){
       return correctionMeta.label;
@@ -5177,31 +6284,112 @@
   function buildBoxStatsReport(model,payload){
     const analysis=model?.analysis || {};
     const selectedLabels=(Array.isArray(payload.selection)?payload.selection:[]).map(item=>item?.label).filter(Boolean);
+    const selectedGroupCount=selectedLabels.length || Number(model?.groupCount) || 0;
     const inferenceSnapshot=normalizeEffectiveInferenceSnapshot(payload,model);
     const correctionCount=Number(model?.correctionCount)||0;
     const effectiveComparisonMethod=String(model?.effectiveComparisonMethod || inferenceSnapshot?.comparisons?.method || 'none');
-    const correction=FALLBACK_CORRECTION_META[effectiveComparisonMethod]
-      ? resolveCorrectionMeta(effectiveComparisonMethod,correctionCount)
-      : null;
-    const correctionFootnote=correctionCount > 1 && effectiveComparisonMethod !== 'none'
-      ? (correction?.footnote || '')
+    const effectiveSpec=model?.effectiveAnalysisSpec || {};
+    const ciLevel=Number.isFinite(Number(effectiveSpec.ciLevel))
+      ? Number(effectiveSpec.ciLevel)
+      : sanitizeStatsCiLevel(payload.statsCiLevel,0.95);
+    const ciLevelPercent=Math.round(ciLevel*100);
+    const alpha=Number.isFinite(Number(effectiveSpec.alpha))
+      ? Number(effectiveSpec.alpha)
+      : sanitizeStatsAlpha(payload.statsAlpha,0.05);
+    const alphaText=formatStatNumber(alpha,4).replace(/0+$/,'').replace(/\.$/,'');
+    const ciDescription=effectiveSpec.ciType==='sidak-adjusted-marginal'
+      ? `Reported ${ciLevelPercent}% intervals used marginal t quantiles with Sidak-adjusted α across ${correctionCount} control comparisons${effectiveSpec.effectivePostHoc==='dunnettT3'?'; Welch calibration is approximate':''}.`
+      : effectiveSpec.ciType==='simultaneous'
+      ? `Reported ${ciLevelPercent}% confidence intervals were simultaneous for the comparison family.`
+      : effectiveSpec.ciType==='nominal' && effectiveSpec.effectivePostHoc==='anovaPooled'
+        ? `Reported ${ciLevelPercent}% confidence intervals were nominal and were not adjusted for multiplicity.`
+        : (Array.isArray(model?.pairs) && model.pairs.some(pair=>Number.isFinite(pair?.ciLow) || Number.isFinite(pair?.ciHigh))
+          ? `Reported ${ciLevelPercent}% confidence intervals were nominal per-comparison intervals.`
+          : null);
+    const intrinsicMethods={
+      tukey:'Tukey HSD',
+      'games-howell':'Games–Howell',
+      'tamhane-t2':'Tamhane T2',
+      nemenyi:'Nemenyi',
+      'dunnett-test':'Dunnett',
+      'dunnett-t3-test':'Dunnett T3',
+      dunnett:'Pooled t + Sidak versus control',
+      'dunnett-t3':'Welch + Sidak versus control'
+    };
+    let multiplicityDescription=null;
+    if(correctionCount>1){
+      if(intrinsicMethods[effectiveComparisonMethod]){
+        multiplicityDescription=`P-values used intrinsic ${intrinsicMethods[effectiveComparisonMethod]} adjustment across ${correctionCount} comparisons (family-wise α = ${alphaText}).`;
+      }else if(effectiveComparisonMethod!=='none'){
+        const meta=resolveCorrectionMeta(effectiveComparisonMethod,correctionCount);
+        multiplicityDescription=`P-values were adjusted across ${correctionCount} comparisons using ${meta.label}'s procedure (family-wise α = ${alphaText}).`;
+      }else{
+        multiplicityDescription=`No multiplicity adjustment was applied across ${correctionCount} comparisons.`;
+      }
+    }else if(correctionCount===1){
+      const configured=String(payload.statsCorrection || DEFAULT_CORRECTION);
+      multiplicityDescription=configured==='none'
+        ? 'The single comparison was unadjusted.'
+        : `No multiplicity adjustment was needed for the single comparison; the configured ${resolveCorrectionMeta(configured,1).label} correction was not applied.`;
+    }
+    const outlierMode=String(model?.outlierAudit?.mode || sanitizeOutlierMode(payload.statsOutlierMode));
+    const outlierDescription=outlierMode==='none'
+      ? 'No statistical outlier screening was applied.'
+      : outlierMode==='grubbs'
+        ? `Single-outlier Grubbs screening used family α = ${formatStatNumber(resolveStatsOutlierAlpha(payload),3)}; independent samples use Bonferroni screening.`
+        : outlierMode==='routTest'
+          ? `ROUT constant-location screening used Q = ${formatStatNumber(resolveStatsOutlierQ(payload),3)} per sample, with at most 30% residual exclusions.`
+          : `MAD + BH heuristic flags used score cutoff q = ${formatStatNumber(resolveStatsOutlierQ(payload),3)}; all observations were retained.`;
+    const outlierNotes=Array.isArray(model?.outlierAudit?.notes)?model.outlierAudit.notes:[];
+    const alternative=String(effectiveSpec.effectiveAlternative || sanitizeStatsAlternative(payload.statsAlternative));
+    const varianceDescriptions={
+      anovaResidualMSE:'the common residual mean square of the ANOVA',
+      pairSpecificPooledVariance:'a separate pooled variance for each pair',
+      pairSpecificPooledVarianceOnLogScale:'a separate pooled variance for each pair on the log scale',
+      pairSpecificWelchVariance:'Welch standard errors with pair-specific Satterthwaite degrees of freedom',
+      pairSpecificWelchVarianceOnLogScale:'Welch standard errors and pair-specific Satterthwaite degrees of freedom on the log scale',
+      groupSampleVariances:'group-specific sample variances'
+    };
+    const degreesOfFreedomDescription=effectiveSpec.degreesOfFreedom!=null && Number.isFinite(Number(effectiveSpec.degreesOfFreedom))
+      ? ` (df = ${formatStatNumber(Number(effectiveSpec.degreesOfFreedom),2)})`
+      : Array.isArray(effectiveSpec.degreesOfFreedomByComparison)
+        ? ` (pair-specific df: ${effectiveSpec.degreesOfFreedomByComparison.map(item=>`${item.comparison} = ${Number.isFinite(Number(item.df))?formatStatNumber(Number(item.df),2):'unavailable'}`).join('; ')})`
+        : '';
+    const pairwiseDescription=effectiveSpec.effectivePostHoc==='anovaPooled'
+      ? `Pairwise comparisons used two-sided t-tests based on ${varianceDescriptions[effectiveSpec.varianceEstimator] || 'the common ANOVA residual mean square'}${degreesOfFreedomDescription}.`
+      : effectiveSpec.pairwiseTest && correctionCount
+        ? `Pairwise comparisons used ${effectiveSpec.pairwiseTest}${varianceDescriptions[effectiveSpec.varianceEstimator] ? ` with ${varianceDescriptions[effectiveSpec.varianceEstimator]}` : ''}${degreesOfFreedomDescription}.`
+        : null;
+    const resamplingMode=sanitizeResamplingMode(payload.statsResamplingMode);
+    const resamplingDescription=analysis.family!=='nonparametric'
+      ? null
+      : resamplingMode==='exact'
+        ? 'Rank-based p-values requested exact calibration when a tractable exact distribution was available; otherwise the method-specific approximation was used.'
+        : resamplingMode==='monte-carlo'
+          ? `Rank-based tests used Monte Carlo calibration (${sanitizeMonteCarloIterations(payload.statsMonteCarloIterations,10000)} iterations).`
+          : resamplingMode==='asymptotic'
+            ? 'Rank-based tests used asymptotic p-values unless an exact distribution was built into the test.'
+          : 'Rank-based tests used automatic calibration: exact when tractable, otherwise Monte Carlo or asymptotic methods as appropriate.';
+    const configuredCorrection=String(payload.statsCorrection || DEFAULT_CORRECTION);
+    const configuredCorrectionDescription=correctionCount>1 && intrinsicMethods[effectiveComparisonMethod]
+      && String(resolveCorrectionMeta(configuredCorrection,correctionCount).key)!==effectiveComparisonMethod
+      ? ` The configured ${resolveCorrectionMeta(configuredCorrection,correctionCount).label} correction was not applied because ${intrinsicMethods[effectiveComparisonMethod]} supplies intrinsic adjustment.`
       : '';
-    const simultaneousCiMethods=new Set(['tukey','games-howell','tamhane-t2','dunnett','dunnett-t3']);
-    const comparisonMethod=String(inferenceSnapshot?.comparisons?.method || '').toLowerCase();
-    const ciLevelPercent=Math.round(sanitizeStatsCiLevel(payload.statsCiLevel,0.95)*100);
-    const ciDescription=simultaneousCiMethods.has(comparisonMethod) && Number.isFinite(Number(inferenceSnapshot?.comparisons?.level))
-      ? `Simultaneous post-hoc confidence intervals used ${(100*(1-Number(inferenceSnapshot.comparisons.level))).toFixed(2).replace(/\.00$/,'')}%.`
-      : effectiveComparisonMethod === 'none'
-        ? `Confidence intervals used ${ciLevelPercent}%.`
-        : `Confidence intervals not intrinsically tied to the multiplicity procedure used ${ciLevelPercent}%.`;
     const methods=[
-      `${analysis.label || 'Statistical analysis'} was applied to ${selectedLabels.length || model?.groupCount || 0} selected ${selectedLabels.length===1?'group':'groups'}.`,
-      ...(Array.isArray(model?.outlierAudit?.notes)?model.outlierAudit.notes:[]),
-      `The analysis used a ${analysis.paired?'paired':'independent'} design.`,
-      ...describeInferenceSnapshot(inferenceSnapshot),
+      `${analysis.label || 'Statistical analysis'} was performed on ${selectedGroupCount} selected ${selectedGroupCount === 1 ? 'group' : 'groups'}.`,
+      `The analysis used ${analysis.paired ? 'a paired' : 'an independent'} design.`,
+      model?.overall ? `The omnibus ${model.overall.F!=null?'F-test':'test'} was nondirectional.` : null,
+      Number.isFinite(Number(inferenceSnapshot?.overall?.level))
+        ? `Omnibus-test decisions used α = ${alphaText}.`
+        : null,
+      pairwiseDescription,
+      correctionCount ? `Pairwise alternatives were ${alternative}.` : null,
+      multiplicityDescription ? `${multiplicityDescription}${configuredCorrectionDescription}` : null,
       ciDescription,
-      `The alternative hypothesis was ${sanitizeStatsAlternative(payload.statsAlternative)}.`,
-      correctionFootnote
+      resamplingDescription,
+      model?.overall?.method==='friedman' ? model.overall.footnote : null,
+      outlierDescription,
+      ...outlierNotes
     ].filter(Boolean);
     const results=[];
     if(model?.overall){
@@ -5217,7 +6405,7 @@
       methodsParts:methods.slice(),
       resultsParts:results.slice(),
       analysisSpec:{
-        schemaVersion:'box-stats-spec-v7',
+        schemaVersion:'box-stats-spec-v8',
         analysisId:analysis.id || null,
         analysisLabel:analysis.label || null,
         family:analysis.family || null,
@@ -5225,16 +6413,31 @@
         paired:!!analysis.paired,
         mode:payload.statsMode || 'all',
         inference: inferenceSnapshot,
-        alpha:sanitizeStatsAlpha(payload.statsAlpha,0.05),
+        alpha,
         targetFdr:sanitizeStatsAlpha(payload.statsTargetFdr,0.05),
-        ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95),
-        alternative:sanitizeStatsAlternative(payload.statsAlternative),
+        ciLevel,
+        ciType:effectiveSpec.ciType || null,
+        alternative,
+        requestedAlternative:sanitizeStatsAlternative(payload.statsAlternative),
         correction:effectiveComparisonMethod,
-        configuredCorrection:payload.statsCorrection || DEFAULT_CORRECTION,
-        postHoc:model?.postHoc || payload.statsPostHoc || null,
+        configuredCorrection,
+        requestedPostHoc:model?.requestedPostHoc || payload.statsPostHoc || 'standard',
+        effectivePostHoc:model?.effectivePostHoc || model?.postHoc || null,
+        postHocAutomatic:model?.postHocResolution?.automatic === true || model?.requestedPostHoc === 'auto',
+        varianceEstimator:effectiveSpec.varianceEstimator || null,
+        degreesOfFreedom:effectiveSpec.degreesOfFreedom ?? null,
+        degreesOfFreedomByComparison:effectiveSpec.degreesOfFreedomByComparison || null,
+        correctionFamilySize:effectiveSpec.correctionFamilySize ?? correctionCount,
+        comparisonScope:effectiveSpec.comparisonScope || payload.statsMode || 'all',
+        analysisScale:effectiveSpec.analysisScale || (analysis.variant?.startsWith('lognormal') ? 'log' : 'original'),
+        reportingScale:effectiveSpec.reportingScale || (analysis.variant?.startsWith('lognormal') ? 'geometric-mean-ratio' : 'mean-difference'),
+        outlierMode,
+        outlierAlpha:outlierMode==='grubbs' ? resolveStatsOutlierAlpha(payload) : null,
+        outlierQ:['rout','routTest'].includes(outlierMode) ? resolveStatsOutlierQ(payload) : null,
         selectedGroups:selectedLabels,
         seed:sanitizeStatsSeed(payload.statsSeed,1337),
         resamplingMode:sanitizeResamplingMode(payload.statsResamplingMode),
+        overallCalibrationMethod:model?.overall?.calibrationMethod || null,
         monteCarloIterations:sanitizeMonteCarloIterations(payload.statsMonteCarloIterations,10000)
       }
     };
@@ -5255,7 +6458,7 @@
       indices.push(index);
       labels.push(label);
       groups.push(values);
-      groupByIndex.set(index, { values, label, position: idx });
+      groupByIndex.set(index, { label, position: idx });
     });
 
     const model = {
@@ -5271,7 +6474,6 @@
       postHoc: payload.statsPostHoc,
       correctionCount: 0,
       overall: null,
-      overallRangeMax: null
     };
 
     const minSelectionRequired = oneSampleMode ? 1 : 2;
@@ -5283,9 +6485,11 @@
       return model;
     }
 
-    const preprocessing=preprocessStatsGroups(groups,labels,payload);
+    const preprocessing=preprocessStatsGroups(groups,labels,{
+      ...payload,rowIndicesByGroup:selection.map(item=>item?.rowIndices)
+    });
     groups=preprocessing.groups;
-    model.outlierAudit={mode:sanitizeOutlierMode(payload.statsOutlierMode),notes:preprocessing.auditNotes,exclusions:preprocessing.exclusions};
+    model.outlierAudit={mode:sanitizeOutlierMode(payload.statsOutlierMode),notes:preprocessing.auditNotes,exclusions:preprocessing.exclusions,flags:preprocessing.flags};
     if(groups.some(group=>group.length===0)){
       model.ok=false;
       model.message='Outlier preprocessing left at least one selected group without usable values.';
@@ -5303,6 +6507,10 @@
       normalityMethod:payload.statsNormalityMethod,
       varianceMethod:payload.statsVarianceMethod,
       distributionDiagnostic:payload.statsDistributionDiagnostic,
+      paired:payload.statsPaired && !oneSampleMode,
+      ratio:payload.statsParametricVariant==='ratioT',
+      lognormal:['lognormalClassic','lognormalWelch'].includes(payload.statsParametricVariant),
+      family:payload.statsTest,
       trendTest:payload.statsTrendTest===true,
       alternative:payload.statsAlternative
     });
@@ -5341,14 +6549,6 @@
     const nonParamEffectMeta = resolveEffectOptionMeta('nonparametric', payload.statsEffectNonParametric);
     const effectFootnotes = buildEffectFootnotes(paramEffectMeta, nonParamEffectMeta);
 
-    if(statsPaired && groups.some(g => g.length !== groups[0].length)){
-      model.ok = false;
-      model.message = 'Paired tests require equal group sizes.';
-      return model;
-    }
-
-    const rangeHelpers = createRangeHelpers(indices, groups, payload.annotationMaxByTrace);
-    model.overallRangeMax = rangeHelpers.overallRangeMax;
     const lognormalPreparation=analysisPlan.lognormal
       ? prepareLognormalGroups(groups,analysisPlan.label)
       : { ok:true,groups };
@@ -5360,6 +6560,9 @@
     const postHocGroups=lognormalPreparation.groups;
 
     if(oneSampleMode){
+      model.requestedPostHoc=String(payload.statsPostHoc || 'standard');
+      model.postHoc=null;
+      model.effectivePostHoc=null;
       const nullValue = sanitizeOneSampleNullValue(payload.statsOneSampleNull ?? payload.statsOneSampleValue);
       const tests = indices.map((traceIndex, groupIdx) => {
         const values = groups[groupIdx];
@@ -5481,12 +6684,14 @@
         });
       }
       model.correctionCount = validTests.length;
-      model.postHoc = 'standard';
       if(model.ok && !model.message){ model.report=buildBoxStatsReport(model,payload); }
       return model;
     }
 
     if(statsMode === 'custom'){
+      model.requestedPostHoc=String(payload.statsPostHoc || 'standard');
+      model.postHoc=null;
+      model.effectivePostHoc=null;
       const customPairs = Array.isArray(payload.statsCustomPairs) ? payload.statsCustomPairs : [];
       if(!customPairs.length){
         model.ok = false;
@@ -5505,18 +6710,14 @@
         if(!groupA || !groupB){
           return;
         }
-        const aData = groupA.values;
-        const bData = groupB.values;
-        if(statsPaired && aData.length !== bData.length){
-          return;
-        }
+        const aData = groups[groupA.position];
+        const bData = groups[groupB.position];
         const r = pairTest(aData, bData);
         const statName = r.t !== undefined ? 't' : (r.U !== undefined ? 'U' : (r.W !== undefined ? 'W' : 'stat'));
         const statVal = r[statName];
         const effectMetrics = computeEffectSizeMetrics(aData, bData, { paired: statsPaired });
         const formattedParamEffect = formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value], paramEffectMeta);
         const formattedNonParamEffect = formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value], nonParamEffectMeta);
-        const rangeMax = rangeHelpers.resolveRangeMax(ai, bi);
         pairs.push({
           ai,
           bi,
@@ -5525,7 +6726,6 @@
           ciLow: r.ciLow,
           ciHigh: r.ciHigh,
           differenceScale: r.scale === 'ratio' ? 'ratio' : 'difference',
-          rangeMax,
           labelA: groupA.label,
           labelB: groupB.label,
           stat: statVal,
@@ -5577,6 +6777,24 @@
     }
 
     if(indices.length === 2){
+      const requestedPostHoc=String(payload.statsPostHoc || 'standard');
+      const directPostHocResolution=resolvePostHocProcedure({
+        requestedProcedure:'standard',
+        analysisId:analysisPlan.id,
+        scope:statsMode,
+        design:statsPaired?'paired':'independent',
+        groupCount:indices.length
+      });
+      model.requestedPostHoc=requestedPostHoc;
+      model.postHocResolution=resolvePostHocProcedure({
+        requestedProcedure:requestedPostHoc,
+        analysisId:analysisPlan.id,
+        scope:statsMode,
+        design:statsPaired?'paired':'independent',
+        groupCount:indices.length
+      });
+      model.postHoc='standard';
+      model.effectivePostHoc='standard';
       const res = pairTest(groups[0], groups[1]);
       const statName = res.t !== undefined ? 't' : (res.U !== undefined ? 'U' : (res.W !== undefined ? 'W' : (res.D !== undefined ? 'D' : 'stat')));
       const effectMetrics = computeEffectSizeMetrics(groups[0], groups[1], { paired: statsPaired });
@@ -5622,27 +6840,53 @@
         ai,
         bi,
         p: res.p,
+        rawP:res.p,
         adjP: adjValue,
         diff: diffValue,
         ciLow: res.ciLow,
         ciHigh: res.ciHigh,
-        rangeMax: rangeHelpers.resolveRangeMax(ai, bi),
         labelA: labels[0],
         labelB: labels[1],
         stat: res[statName],
         statName,
         df: res.df,
+        ciType:'nominal',
+        ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95),
         effectParametric: formattedParamEffect,
         effectNonParametric: formattedNonParamEffect,
         differenceScale: res.scale === 'ratio' ? 'ratio' : 'difference'
       }];
       model.correctionCount = 1;
+      model.effectiveAnalysisSpec={
+        schemaVersion:'box-effective-analysis-v1',
+        primaryAnalysisId:analysisPlan.id,
+        requestedPostHoc,
+        effectivePostHoc:'standard',
+        postHocAutomatic:model.postHocResolution.automatic,
+        comparisonScope:statsMode==='all'?'all-pairwise':statsMode,
+        design:statsPaired?'paired':'independent',
+        groupCount:indices.length,
+        pairwiseTest:directPostHocResolution.pairwiseTest,
+        varianceEstimator:directPostHocResolution.varianceEstimator,
+        degreesOfFreedom:Number.isFinite(res.df)?res.df:null,
+        degreesOfFreedomByComparison:null,
+        correctionMethod:'none',
+        configuredCorrection:payload.statsCorrection || DEFAULT_CORRECTION,
+        correctionFamilySize:1,
+        alpha:sanitizeStatsAlpha(payload.statsAlpha,0.05),
+        effectiveAlternative:sanitizeStatsAlternative(payload.statsAlternative),
+        ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95),
+        ciType:'nominal',
+        analysisScale:analysisPlan.lognormal?'log':'original',
+        reportingScale:res.scale==='ratio'?'geometric-mean-ratio':'mean-difference'
+      };
       if(model.ok && !model.message){ model.report=buildBoxStatsReport(model,payload); }
       return model;
     }
 
     const computeOmnibusOverall = statsMode === 'all';
     let overall = null;
+    let omnibusAnovaComponents = null;
     const overallFootnotes = [];
     if(computeOmnibusOverall && !statsPaired){
       if(param){
@@ -5658,6 +6902,7 @@
         }else{
           const classic = anova(omnibusGroups);
           if(classic){
+            omnibusAnovaComponents = classic;
             overall = { method: paramVariant==='lognormalClassic'?'lognormalAnova':'anova', F: classic.F, p: classic.p, df1: classic.dfBetween, df2: classic.dfWithin };
           }
         }
@@ -5691,7 +6936,7 @@
         seed: payload.statsSeed
       });
       if(friedman.ok){
-        overall = { method: 'friedman', Q: friedman.Q, p: friedman.p, df: friedman.df, footnote: friedman.footnote };
+        overall = { method: 'friedman', Q: friedman.Q, p: friedman.p, df: friedman.df, calibrationMethod: friedman.calibrationMethod, footnote: friedman.footnote };
         if(friedman.footnote){
           overallFootnotes.push(friedman.footnote);
         }
@@ -5713,20 +6958,79 @@
       paired:statsPaired,
       groupCount:indices.length,
       variant:paramVariant,
-      varianceConcern:assumptionDiagnostics?.varianceConcern === true
+      varianceConcern:assumptionDiagnostics?.varianceConcern === true,
+      analysisId:analysisPlan.id
     };
     const requestedPostHoc=String(payload.statsPostHoc || 'standard');
-    const postHocMode=ensureValidPostHoc(requestedPostHoc,postHocContext);
-    if(postHocMode!==requestedPostHoc && requestedPostHoc!=='standard'){
+    const postHocResolution=resolvePostHocProcedure({
+      requestedProcedure:requestedPostHoc,
+      analysisId:analysisPlan.id,
+      scope:statsMode,
+      design:statsPaired?'paired':'independent',
+      groupCount:indices.length,
+      varianceConcern:postHocContext.varianceConcern
+    });
+    model.requestedPostHoc=postHocResolution.requestedProcedure;
+    model.postHocResolution=postHocResolution;
+    const effectivePostHocResolution=postHocResolution.supported
+      ? postHocResolution
+      : (indices.length<=2 ? resolvePostHocProcedure({
+        ...postHocContext,
+        requestedProcedure:'standard'
+      }) : postHocResolution);
+    if(!effectivePostHocResolution.supported){
       model.ok=false;
-      model.message=`${getPostHocSummary(requestedPostHoc,postHocContext) || requestedPostHoc} is not valid for ${analysisPlan.label}. Choose an available pairwise procedure.`;
+      model.message=postHocResolution.reason || `${requestedPostHoc} is not valid for ${analysisPlan.label}. Choose an available pairwise procedure.`;
       return model;
     }
+    const postHocMode=effectivePostHocResolution.effectiveProcedure;
     model.postHoc=postHocMode;
+    model.effectivePostHoc=postHocMode;
 
     if(statsMode === 'all'){
-      if(postHocMode === 'tukey'){
-        const tukey = normalizePostHocResultScale(computeTukeyComparisons(postHocGroups, labels, { alpha:payload.statsAlpha }),analysisPlan.lognormal);
+      if(postHocMode==='dunnettT3Test'){
+        const result=normalizePostHocResultScale(computeDunnettT3Comparisons(postHocGroups,labels,{ciLevel:payload.statsCiLevel}),analysisPlan.lognormal);
+        if(!result.ok){model.ok=false;model.message=result.message;return model;}
+        methodFootnotes.push(result.footnote);
+        pairs=mapBoxPostHocPairs(result.pairs,{indices,groups,labels,paramEffectMeta,nonParamEffectMeta,statKey:'t',pKey:'p',adjPKey:'pAdj',method:postHocMode});
+      }else if(postHocMode === 'anovaPooled'){
+        const pooled=normalizePostHocResultScale(computeAnovaPooledComparisons(postHocGroups,labels,{
+          ciLevel:payload.statsCiLevel,
+          anovaComponents:omnibusAnovaComponents
+        }),analysisPlan.lognormal);
+        if(!pooled.ok){
+          model.ok=false;
+          model.message=pooled.message || 'Unable to compute ANOVA-pooled comparisons.';
+          return model;
+        }
+        pairs=mapBoxPostHocPairs(pooled.pairs,{
+          indices,
+          groups,
+          labels,
+          paramEffectMeta,
+          nonParamEffectMeta,
+          statKey:'t',
+          statName:'t',
+          pKey:'p',
+          adjPKey:'p',
+          method:'anovaPooled'
+        }).map((pair,index)=>({
+          ...pair,
+          rawP:pooled.pairs[index].p,
+          ciType:'nominal',
+          ciLevel:pooled.ciLevel
+        }));
+        const comparisonCorrection=resolveEffectiveComparisonCorrection(pairs.map(pair=>pair.rawP),payload.statsCorrection);
+        comparisonCorrection.adjustedValues.forEach((adjusted,index)=>{
+          if(pairs[index]){
+            pairs[index].adjP=Number.isFinite(adjusted)?adjusted:pairs[index].rawP;
+          }
+        });
+      }else if(postHocMode === 'tukey'){
+        const tukey = normalizePostHocResultScale(computeTukeyComparisons(postHocGroups, labels, {
+          ciLevel:payload.statsCiLevel,
+          anovaComponents:omnibusAnovaComponents
+        }),analysisPlan.lognormal);
         if(!tukey.ok){
           model.ok = false;
           model.message = tukey.message || 'Unable to compute Tukey HSD.';
@@ -5747,6 +7051,7 @@
             ai,
             bi,
             p: pr.pAdj,
+            rawP: null,
             adjP: pr.pAdj,
             stat: pr.q,
             statName: 'q',
@@ -5760,12 +7065,15 @@
             effects: effectMetrics,
             effectParametric: formattedParamEffect,
             effectNonParametric: formattedNonParamEffect,
-            rangeMax: rangeHelpers.resolveRangeMax(ai, bi),
             method: 'tukey'
+            ,ciType:'simultaneous',
+            ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95)
           };
         });
       }else if(postHocMode === 'gamesHowell'){
-        const gh = normalizePostHocResultScale(computeGamesHowellComparisons(postHocGroups, labels, { alpha:payload.statsAlpha }),analysisPlan.lognormal);
+        const gh = normalizePostHocResultScale(computeGamesHowellComparisons(postHocGroups, labels, {
+          ciLevel:payload.statsCiLevel
+        }),analysisPlan.lognormal);
         if(!gh.ok){
           model.ok = false;
           model.message = gh.message || 'Unable to compute Games-Howell comparisons.';
@@ -5786,6 +7094,7 @@
             ai,
             bi,
             p: pr.p,
+            rawP: null,
             adjP: pr.pAdj,
             stat: pr.q,
             statName: 'q',
@@ -5799,8 +7108,9 @@
             effects: effectMetrics,
             effectParametric: formattedParamEffect,
             effectNonParametric: formattedNonParamEffect,
-            rangeMax: rangeHelpers.resolveRangeMax(ai, bi),
-            method: 'gamesHowell'
+            method: 'gamesHowell',
+            ciType:'simultaneous',
+            ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95)
           };
         });
       }else if(postHocMode === 'tamhaneT2'){
@@ -5817,7 +7127,6 @@
           indices,
           groups,
           labels,
-          rangeHelpers,
           paramEffectMeta,
           nonParamEffectMeta,
           statKey: 't',
@@ -5857,7 +7166,6 @@
             effects: effectMetrics,
             effectParametric: formattedParamEffect,
             effectNonParametric: formattedNonParamEffect,
-            rangeMax: rangeHelpers.resolveRangeMax(ai, bi),
             method: 'dunn'
           };
         });
@@ -5883,7 +7191,6 @@
           indices,
           groups,
           labels,
-          rangeHelpers,
           paramEffectMeta,
           nonParamEffectMeta,
           paired: true,
@@ -5916,7 +7223,6 @@
               ciLow: r.ciLow,
               ciHigh: r.ciHigh,
               differenceScale: r.scale === 'ratio' ? 'ratio' : 'difference',
-              rangeMax: rangeHelpers.resolveRangeMax(aIdx, bIdx),
               stat: r[statName],
               statName,
               df: r.df,
@@ -5945,7 +7251,10 @@
       const refData = groups[refIdx];
       referenceLabel = labels[refIdx];
       if(postHocMode === 'tukey'){
-        const tukey = normalizePostHocResultScale(computeTukeyComparisons(postHocGroups, labels, { alpha:payload.statsAlpha }),analysisPlan.lognormal);
+        const tukey = normalizePostHocResultScale(computeTukeyComparisons(postHocGroups, labels, {
+          ciLevel:payload.statsCiLevel,
+          referenceIndex:refIdx
+        }),analysisPlan.lognormal);
         if(!tukey.ok){
           model.ok = false;
           model.message = tukey.message || 'Unable to compute Tukey HSD.';
@@ -5954,8 +7263,7 @@
         if(tukey.footnote){
           methodFootnotes.push(tukey.footnote);
         }
-        const filtered = tukey.pairs.filter(pr => pr.i === refIdx || pr.j === refIdx);
-        pairs = filtered.map(pr => {
+        pairs = tukey.pairs.map(pr => {
           const ai = indices[pr.i];
           const bi = indices[pr.j];
           const effectMetrics = computeEffectSizeMetrics(groups[pr.i], groups[pr.j], { paired: false });
@@ -5967,6 +7275,7 @@
             ai,
             bi,
             p: pr.pAdj,
+            rawP: null,
             adjP: pr.pAdj,
             stat: pr.q,
             statName: 'q',
@@ -5980,12 +7289,16 @@
             effects: effectMetrics,
             effectParametric: formattedParamEffect,
             effectNonParametric: formattedNonParamEffect,
-            rangeMax: rangeHelpers.resolveRangeMax(ai, bi),
-            method: 'tukey'
+            method: 'tukey',
+            ciType:'simultaneous',
+            ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95)
           };
         });
       }else if(postHocMode === 'gamesHowell'){
-        const gh = normalizePostHocResultScale(computeGamesHowellComparisons(postHocGroups, labels, { alpha:payload.statsAlpha }),analysisPlan.lognormal);
+        const gh = normalizePostHocResultScale(computeGamesHowellComparisons(postHocGroups, labels, {
+          ciLevel:payload.statsCiLevel,
+          referenceIndex:refIdx
+        }),analysisPlan.lognormal);
         if(!gh.ok){
           model.ok = false;
           model.message = gh.message || 'Unable to compute Games-Howell comparisons.';
@@ -5994,8 +7307,7 @@
         if(gh.footnote){
           methodFootnotes.push(gh.footnote);
         }
-        const filtered = gh.pairs.filter(pr => pr.i === refIdx || pr.j === refIdx);
-        pairs = filtered.map(pr => {
+        pairs = gh.pairs.map(pr => {
           const ai = indices[pr.i];
           const bi = indices[pr.j];
           const effectMetrics = computeEffectSizeMetrics(groups[pr.i], groups[pr.j], { paired: false });
@@ -6007,6 +7319,7 @@
             ai,
             bi,
             p: pr.p,
+            rawP: null,
             adjP: pr.pAdj,
             stat: pr.q,
             statName: 'q',
@@ -6020,8 +7333,9 @@
             effects: effectMetrics,
             effectParametric: formattedParamEffect,
             effectNonParametric: formattedNonParamEffect,
-            rangeMax: rangeHelpers.resolveRangeMax(ai, bi),
-            method: 'gamesHowell'
+            method: 'gamesHowell',
+            ciType:'simultaneous',
+            ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95)
           };
         });
       }else if(postHocMode === 'tamhaneT2'){
@@ -6039,7 +7353,6 @@
           indices,
           groups,
           labels,
-          rangeHelpers,
           paramEffectMeta,
           nonParamEffectMeta,
           statKey: 't',
@@ -6080,7 +7393,6 @@
             effects: effectMetrics,
             effectParametric: formattedParamEffect,
             effectNonParametric: formattedNonParamEffect,
-            rangeMax: rangeHelpers.resolveRangeMax(ai, bi),
             method: 'dunn'
           };
         });
@@ -6107,7 +7419,6 @@
           indices,
           groups,
           labels,
-          rangeHelpers,
           paramEffectMeta,
           nonParamEffectMeta,
           paired: true,
@@ -6117,14 +7428,15 @@
           adjPKey: 'p',
           method: 'nemenyi'
         });
-      }else if(postHocMode === 'dunnett' || postHocMode === 'dunnettT3'){
-        const dunnett = normalizePostHocResultScale(computeDunnettComparisons(postHocGroups, labels, refIdx, {
+      }else if(postHocMode === 'dunnett' || postHocMode === 'dunnettT3' || postHocMode==='dunnettTest'){
+        const dunnett = normalizePostHocResultScale((postHocMode==='dunnettTest'?computeDunnettComparisons:computeControlSidakComparisons)(postHocGroups, labels, refIdx, {
           unequalVariances: postHocMode === 'dunnettT3',
-          alpha: payload.statsAlpha
+          alpha: payload.statsAlpha,
+          ciLevel: payload.statsCiLevel
         }),analysisPlan.lognormal);
         if(!dunnett.ok){
           model.ok = false;
-          model.message = dunnett.message || 'Unable to compute Dunnett comparisons.';
+          model.message = dunnett.message || 'Unable to compute Pooled t + Sidak versus control comparisons.';
           return model;
         }
         if(dunnett.footnote){
@@ -6155,7 +7467,6 @@
             effects: effectMetrics,
             effectParametric: formattedParamEffect,
             effectNonParametric: formattedNonParamEffect,
-            rangeMax: rangeHelpers.resolveRangeMax(ai, bi),
             method: postHocMode
           };
         });
@@ -6179,7 +7490,6 @@
             ciLow: r.ciLow,
             ciHigh: r.ciHigh,
             differenceScale: r.scale === 'ratio' ? 'ratio' : 'difference',
-            rangeMax: rangeHelpers.resolveRangeMax(refIndexValue, idx),
             labelA: labels[refIdx],
             labelB: labels[i],
             stat: r[statName],
@@ -6198,9 +7508,59 @@
       }
     }
 
-    model.pairs = pairs;
     model.correctionCount = pairs.length;
     model.effectiveComparisonMethod = resolvePostHocInferenceMethod(postHocMode, payload.statsCorrection, pairs.length);
+    const noRawPProcedures=new Set(['tukey','gamesHowell','nemenyi']);
+    pairs.forEach(pair=>{
+      if(!Object.prototype.hasOwnProperty.call(pair,'rawP')){
+        pair.rawP=noRawPProcedures.has(postHocMode) ? null : (Number.isFinite(pair.p) ? pair.p : null);
+      }
+      if(!Number.isFinite(pair.adjP)){
+        pair.adjP=Number.isFinite(pair.p) ? pair.p : null;
+      }
+    });
+    const pairDfs=Array.from(new Set(pairs.map(pair=>Number(pair.df)).filter(Number.isFinite)));
+    const simultaneousCiMethods=new Set(['tukey','gamesHowell','tamhaneT2','dunnett','dunnettT3','dunnettTest','dunnettT3Test']);
+    const ciType=postHocMode==='dunnett' || postHocMode==='dunnettT3'
+      ? 'sidak-adjusted-marginal'
+      : simultaneousCiMethods.has(postHocMode)
+      ? 'simultaneous'
+      : (postHocMode==='nemenyi' ? 'none' : 'nominal');
+    const ciLevel=sanitizeStatsCiLevel(payload.statsCiLevel,0.95);
+    pairs.forEach(pair=>{
+      if(!pair.ciType){
+        pair.ciType=ciType;
+      }
+      if(!Number.isFinite(pair.ciLevel) && ciType!=='none'){
+        pair.ciLevel=ciLevel;
+      }
+    });
+    model.effectiveAnalysisSpec={
+      schemaVersion:'box-effective-analysis-v1',
+      primaryAnalysisId:analysisPlan.id,
+      requestedPostHoc:postHocResolution.requestedProcedure,
+      effectivePostHoc:postHocMode,
+      postHocAutomatic:postHocResolution.automatic,
+      comparisonScope:statsMode==='all'?'all-pairwise':statsMode,
+      design:statsPaired?'paired':'independent',
+      groupCount:indices.length,
+      pairwiseTest:effectivePostHocResolution.pairwiseTest,
+      varianceEstimator:effectivePostHocResolution.varianceEstimator,
+      degreesOfFreedom:pairDfs.length===1?pairDfs[0]:null,
+      degreesOfFreedomByComparison:pairDfs.length>1
+        ? pairs.map(pair=>({ comparison:`${pair.labelA || labels[pair.a]} vs ${pair.labelB || labels[pair.b]}`, df:Number.isFinite(pair.df)?pair.df:null }))
+        : null,
+      correctionMethod:model.effectiveComparisonMethod,
+      configuredCorrection:payload.statsCorrection || DEFAULT_CORRECTION,
+      correctionFamilySize:pairs.length,
+      alpha:sanitizeStatsAlpha(payload.statsAlpha,0.05),
+      effectiveAlternative:effectivePostHocResolution.effectiveAlternative || sanitizeStatsAlternative(payload.statsAlternative),
+      ciLevel,
+      ciType,
+      analysisScale:analysisPlan.lognormal?'log':'original',
+      reportingScale:analysisPlan.lognormal?'geometric-mean-ratio':'mean-difference'
+    };
+    model.pairs = pairs;
 
     if(pairs.length){
       let correctionMeta;
@@ -6212,10 +7572,12 @@
         correctionMeta = { key: 'tamhaneT2', label: 'Tamhane T2', shortLabel: 'Tamhane T2', footnote: null };
       }else if(postHocMode === 'nemenyi'){
         correctionMeta = { key: 'nemenyi', label: 'Nemenyi', shortLabel: 'Friedman max-T', footnote: null };
+      }else if(postHocMode==='dunnettTest' || postHocMode==='dunnettT3Test'){
+        correctionMeta={key:postHocMode,label:POST_HOC_META[postHocMode].label,shortLabel:POST_HOC_META[postHocMode].shortLabel,footnote:null};
       }else if(postHocMode === 'dunnett'){
-        correctionMeta = { key: 'dunnett', label: 'Dunnett', shortLabel: 'Control + Sidak', footnote: null };
+        correctionMeta = { key: 'dunnett', label: 'Pooled t + Sidak versus control', shortLabel: 'Control + Sidak', footnote: null };
       }else if(postHocMode === 'dunnettT3'){
-        correctionMeta = { key: 'dunnettT3', label: 'Dunnett T3', shortLabel: 'Control Welch + Sidak', footnote: null };
+        correctionMeta = { key: 'dunnettT3', label: 'Welch + Sidak versus control', shortLabel: 'Control Welch + Sidak', footnote: null };
       }else{
         correctionMeta = resolveCorrectionMeta(model.effectiveComparisonMethod, pairs.length);
       }
@@ -6297,11 +7659,7 @@
       }
 
       const ratioScale=analysisPlan.lognormal || analysisPlan.id==='ratioT' || pairs.some(pair=>pair.differenceScale==='ratio');
-      const simultaneousCiMethods=new Set(['tukey','gamesHowell','tamhaneT2','dunnett','dunnettT3']);
-      const pairCiLevel=simultaneousCiMethods.has(postHocMode)
-        ? (1-sanitizeStatsAlpha(payload.statsAlpha,0.05))
-        : sanitizeStatsCiLevel(payload.statsCiLevel,0.95);
-      const ciLabel=`${formatPercentLabel(pairCiLevel)}${simultaneousCiMethods.has(postHocMode)?' simultaneous':''} CI`;
+      const ciLabel=`${formatPercentLabel(ciLevel)}${ciType==='sidak-adjusted-marginal'?' Sidak-adjusted':ciType==='simultaneous'?' simultaneous':(ciType==='nominal' && postHocMode==='anovaPooled'?' nominal':'')} CI`;
       const pairRows = pairs.map(pr => ({
         comparison: `${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
         statistic: `${pr.statName} = ${Number.isFinite(pr.stat) ? pr.stat.toFixed(4) : '-'}`,
@@ -6321,8 +7679,10 @@
         gamesHowell: 'p (Games-Howell)',
         tamhaneT2: 'p (Tamhane T2)',
         nemenyi: 'p (Nemenyi)',
-        dunnett: 'p (Dunnett)',
-        dunnettT3: 'p (Dunnett T3)'
+        dunnettTest:'p (Dunnett)',
+        dunnettT3Test:'p (Dunnett T3)',
+        dunnett: 'p (Pooled t + Sidak versus control)',
+        dunnettT3: 'p (Welch + Sidak versus control)'
       };
       const pLabel = postHocPLabels[postHocMode]
         || formatAdjustedPLabel(model.effectiveComparisonMethod, correctionMeta);
@@ -6394,8 +7754,8 @@
             const sampleA=[];
             const sampleB=[];
             (Array.isArray(data.allRows)?data.allRows:[]).forEach(row=>{
-              const valueA=Number(row?.[group]?.[a]);
-              const valueB=Number(row?.[group]?.[b]);
+              const valueA=toFiniteObservation(row?.[group]?.[a]);
+              const valueB=toFiniteObservation(row?.[group]?.[b]);
               if(Number.isFinite(valueA)&&Number.isFinite(valueB)){
                 sampleA.push(valueA);sampleB.push(valueB);
               }
@@ -6408,7 +7768,7 @@
       const samples=Array.from({length:groupsCount},()=>[]);
       (Array.isArray(data.allRows)?data.allRows:[]).forEach(row=>{
         for(let group=0;group<groupsCount;group+=1){
-          const values=(Array.isArray(row?.[group])?row[group]:[]).map(Number).filter(Number.isFinite);
+          const values=normalizeFiniteSample(row?.[group]);
           if(values.length) samples[group].push(mean(values));
         }
       });
@@ -6418,8 +7778,8 @@
       (Array.isArray(data.allRows)?data.allRows:[]).forEach(row=>{
         for(let condition=0;condition<conditionsCount;condition+=1){
           const values=[];
-          for(let group=0;group<groupsCount;group+=1){const value=Number(row?.[group]?.[condition]);if(Number.isFinite(value)) values.push(value);}
-          if(values.length) samples[condition].push(mean(values));
+          for(let group=0;group<groupsCount;group+=1){const value=toFiniteObservation(row?.[group]?.[condition]);if(Number.isFinite(value)) values.push(value);}
+          samples[condition].push(values.length ? mean(values) : NaN);
         }
       });
       for(let a=0;a<conditionsCount;a+=1){for(let b=a+1;b<conditionsCount;b+=1){addComparison(conditionLabels[a]||`Condition ${a+1}`,conditionLabels[b]||`Condition ${b+1}`,samples[a],samples[b],true,'condition-marginals');}}
@@ -6489,6 +7849,7 @@
     const labels={
       twoWayAnova:'Two-way ANOVA',
       rowRandomMixed:'Rows-random repeated-measures model',
+      nestedRepeatedTwoWay:'Two-way mixed ANOVA with subjects nested within groups',
       threeWayAnova:'Unreplicated three-factor ANOVA (ABC as error)',
       rowTTests:'Row-wise t-tests',
       multipleComparisons:'Grouped multiple comparisons'
@@ -6497,15 +7858,22 @@
     const inferenceSnapshot=normalizeEffectiveInferenceSnapshot(payload,resultModel);
     const effectiveComparisonMethod=String(resultModel?.effectiveComparisonMethod || inferenceSnapshot?.comparisons?.method || 'none');
     const inferenceParts=describeInferenceSnapshot(inferenceSnapshot);
+    const groupCountText=`${summary.groupsCount} ${Number(summary.groupsCount) === 1 ? 'group' : 'groups'}`;
+    const conditionCountText=`${summary.conditionsCount} ${Number(summary.conditionsCount) === 1 ? 'condition' : 'conditions'}`;
+    const completeRowCountText=`${summary.rowsWithData} complete ${Number(summary.rowsWithData) === 1 ? 'row' : 'rows'}`;
+    const designMethod = analysis === 'nestedRepeatedTwoWay'
+      ? 'Each group contains independent subjects measured under both conditions. Group is tested against subject-within-group error; condition and interaction use subject-within-group-by-condition error. The model requires complete, balanced data and exactly two conditions.'
+      : null;
     const methodsText=[
-      `${label} was applied to ${summary.groupsCount} groups, ${summary.conditionsCount} conditions, and ${summary.rowsWithData} complete rows. The selected grouped analysis was executed without substitution.`,
+      `${label} was applied to ${groupCountText}, ${conditionCountText}, and ${completeRowCountText}. The selected grouped analysis was used as configured.`,
+      designMethod,
       ...inferenceParts
-    ].join(' ');
+    ].filter(Boolean).join(' ');
     return {
       methodsText,
-      resultsText:`The ${label} results are reported in the accompanying table${summary.partialRowsSkipped?`; ${summary.partialRowsSkipped} incomplete row(s) were excluded from complete-case factorial calculations`:''}.`,
+      resultsText:`The ${label} results are reported in the accompanying table${summary.partialRowsSkipped ? `; ${summary.partialRowsSkipped} incomplete row${summary.partialRowsSkipped === 1 ? '' : 's'} were excluded from complete-case factorial calculations` : ''}.`,
       methodsParts:[`${label} was applied to the grouped dataset.`, ...inferenceParts],
-      resultsParts:[`The selected grouped analysis (${label}) completed.`],
+      resultsParts:[`The ${label} results are reported in the accompanying table${summary.partialRowsSkipped ? `; ${summary.partialRowsSkipped} incomplete row${summary.partialRowsSkipped === 1 ? '' : 's'} were excluded from complete-case factorial calculations` : ''}.`],
       analysisSpec:{
         schemaVersion:'box-stats-spec-v7',
         inference:inferenceSnapshot,
@@ -6516,6 +7884,22 @@
         conditionsCount:summary.conditionsCount,
         rowsWithData:summary.rowsWithData,
         partialRowsSkipped:summary.partialRowsSkipped,
+        ...(analysis === 'nestedRepeatedTwoWay' ? {
+          experimentalUnit:'subject-within-independent-group',
+          repeatedFactor:'condition',
+          errorTerms:{
+            group:'subjects-within-group',
+            condition:'subjects-within-group-by-condition',
+            interaction:'subjects-within-group-by-condition'
+          },
+          assumptions:[
+            'complete-balanced-data',
+            'two-conditions',
+            'independent-subjects',
+            'normal-errors',
+            'homogeneous-group-error-variances'
+          ]
+        } : {}),
         comparisonScope:grouped.comparisonScope || null,
         multiplicityFamily:grouped.multiplicityFamily || null,
         correction:effectiveComparisonMethod,
@@ -6541,6 +7925,7 @@
     let resultModel=null;
     if(analysis==='twoWayAnova') resultModel=analyzeTwoWayAnova(data);
     else if(analysis==='rowRandomMixed') resultModel=analyzeTwoWayMixed(data);
+    else if(analysis==='nestedRepeatedTwoWay') resultModel=analyzeNestedRepeatedTwoWay(data);
     else if(analysis==='threeWayAnova') resultModel=analyzeThreeWayAnova(data);
     else if(analysis==='rowTTests') resultModel=analyzeRowWiseTTests(data,payload.statsCorrection);
     else if(analysis==='multipleComparisons') resultModel=analyzeGroupedMultipleComparisons(data,{
@@ -6665,6 +8050,7 @@
 
   const api = {
     computeBoxStatsModel,
+    alignCompleteRows,
     computeGroupedStatsModel,
     computeSingleStatsModel,
     computeSwarmOffsets,
@@ -6678,6 +8064,10 @@
     computeDistributionComparison,
     computeLinearTrendTest,
     preprocessStatsGroups,
+    subtractRankObservation,
+    sanitizeOutlierMode,
+    sanitizeOutlierAlpha,
+    sanitizeOutlierQ,
     tTest: (...args) => finalizePValueResult(tTest(...args), 'Welch t-test'),
     tTestEqualVariance: (...args) => finalizePValueResult(tTestEqualVariance(...args), 'Student t-test'),
     tTestPaired: (...args) => finalizePValueResult(tTestPaired(...args), 'Paired t-test'),
@@ -6695,21 +8085,29 @@
     computeRepeatedMeasuresAnova: (...args) => finalizePValueResult(computeRepeatedMeasuresAnova(...args), 'Repeated-measures ANOVA'),
     computeFriedmanTest: (...args) => finalizePValueResult(computeFriedmanTest(...args), 'Friedman test'),
     computeWelchAnova: (...args) => finalizePValueResult(computeWelchAnova(...args), 'Welch ANOVA'),
+    studentizedRangeCDF,
+    studentizedMaximumSF,
+    computeDunnettComparisons,
+    computeDunnettT3Comparisons,
+    detectRoutOutliers,
+    studentizedRangeSF,
+    resolveStudentizedRangeCritical,
+    resolveStudentizedRangeCriticalValues,
     computeTukeyComparisons,
     computeGamesHowellComparisons,
     computeTamhaneT2Comparisons,
     computeNemenyiComparisons,
-    computeDunnettComparisons,
+    computeControlSidakComparisons,
     computeDunnComparisons,
     analyzeTwoWayAnova,
     analyzeTwoWayMixed,
+    analyzeNestedRepeatedTwoWay,
     analyzeThreeWayAnova,
     analyzeRowWiseTTests,
     analyzeGroupedMultipleComparisons,
     listEffectOptions,
     resolveEffectOptionMeta,
-    ensureValidPostHoc,
-    isPostHocSupported,
+    resolvePostHocProcedure,
     listPostHocOptions,
     getPostHocSummary,
     applyPValueCorrection,

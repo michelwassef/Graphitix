@@ -100,11 +100,14 @@
     recentColors: [],
     activeColor: '#000000',
     anchor: null,
+    ownerTabId: null,
+    generation: 0,
+    operationToken: 0,
+    fallbackColorInput: null,
     recentSection: null,
     recentRow: null,
     customInput: null,
     hexInput: null,
-    lastSelectedSwatch: null,
     moreToggle: null,
     moreMatrix: null,
     shapeSection: null,
@@ -115,6 +118,32 @@
     shapeAllowed: null,
     closeOnSelect: false
   };
+
+  function normalizePickerOwnerTabId(value){
+    const normalized = String(value || '').trim();
+    return normalized || null;
+  }
+
+  function resolvePickerOwnerTabId(options = {}){
+    const explicit = normalizePickerOwnerTabId(options.ownerTabId || options.tabId || options.workspaceTabId);
+    if(explicit){
+      return explicit;
+    }
+    let cursor = options.anchor || options.element || options.target || null;
+    while(cursor && cursor !== documentRef){
+      const candidate = normalizePickerOwnerTabId(
+        cursor.dataset?.workspaceTabId
+        || cursor.dataset?.tabId
+        || cursor.getAttribute?.('data-workspace-tab-id')
+        || cursor.getAttribute?.('data-tab-id')
+      );
+      if(candidate){
+        return candidate;
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return normalizePickerOwnerTabId(global.Main?.session?.getActiveTab?.()?.id);
+  }
 
   function isDebugEnabled(){
     return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -147,10 +176,37 @@
     }
   }
 
-  function ensureFallbackColorInput(){
-    if(overlayState.__fallbackColorInput && overlayState.__fallbackColorInput.isConnected){
-      return overlayState.__fallbackColorInput;
+  function createPickerOperation(){
+    return {
+      generation: overlayState.generation,
+      token: ++overlayState.operationToken,
+      ownerTabId: overlayState.ownerTabId,
+      anchor: overlayState.anchor,
+      target: overlay?.targetEl || null
+    };
+  }
+
+  function isPickerOperationCurrent(operation){
+    return !!operation
+      && operation.generation === overlayState.generation
+      && operation.token === overlayState.operationToken
+      && operation.ownerTabId === overlayState.ownerTabId
+      && operation.anchor === overlayState.anchor
+      && operation.target === overlay?.targetEl
+      && overlay?.style.display !== 'none';
+  }
+
+  function removeFallbackColorInput(input = overlayState.fallbackColorInput){
+    if(!input){
+      return;
     }
+    if(overlayState.fallbackColorInput === input){
+      overlayState.fallbackColorInput = null;
+    }
+    input.remove();
+  }
+
+  function createFallbackColorInput(operation){
     const input = documentRef.createElement('input');
     input.type = 'color';
     input.className = 'shared-color-picker__hidden-fallback-input';
@@ -160,14 +216,22 @@
     input.style.opacity = '0';
     input.style.pointerEvents = 'none';
     input.addEventListener('input', (evt)=>{
+      if(!isPickerOperationCurrent(operation)){
+        logDebug('eyedropper-fallback-result-discarded', { ownerTabId: operation.ownerTabId });
+        removeFallbackColorInput(input);
+        return;
+      }
       const value = normalizeHex(evt.target.value);
       if(value){
         logDebug('eyedropper-fallback-input', { color: value });
         applyColor(value, { source: 'eyedropper' });
       }
     });
+    input.addEventListener('change', ()=>removeFallbackColorInput(input), { once: true });
+    input.addEventListener('cancel', ()=>removeFallbackColorInput(input), { once: true });
+    removeFallbackColorInput();
     documentRef.body.appendChild(input);
-    overlayState.__fallbackColorInput = input;
+    overlayState.fallbackColorInput = input;
     return input;
   }
 
@@ -209,6 +273,9 @@
       swatchRegistry.set(key, bucket);
     }
     bucket.add(element);
+    const selected = key === colorKey(overlayState.activeColor);
+    element.classList.toggle('shared-color-picker__swatch--selected', selected);
+    element.setAttribute('aria-pressed', String(selected));
     if(isDynamic){
       dynamicRecentSwatches.push({ key, element });
     }
@@ -231,32 +298,16 @@
     dynamicRecentSwatches.length = 0;
   }
 
-  function findSwatch(color){
-    const key = colorKey(color);
-    if(!key){
-      return null;
-    }
-    const bucket = swatchRegistry.get(key);
-    if(!bucket || bucket.size === 0){
-      return null;
-    }
-    const iterator = bucket.values();
-    const first = iterator.next();
-    return first && !first.done ? first.value : null;
-  }
-
   function setActiveColor(value, { skipCustomUpdate = false } = {}){
     const normalized = normalizeHex(value) || '#000000';
     overlayState.activeColor = normalized;
-    if(overlayState.lastSelectedSwatch && overlayState.lastSelectedSwatch.isConnected){
-      overlayState.lastSelectedSwatch.classList.remove('shared-color-picker__swatch--selected');
-    }
-    const swatch = findSwatch(normalized);
-    if(swatch){
-      swatch.classList.add('shared-color-picker__swatch--selected');
-      overlayState.lastSelectedSwatch = swatch;
-    }else{
-      overlayState.lastSelectedSwatch = null;
+    const key = colorKey(normalized);
+    for(const [swatchKey, bucket] of swatchRegistry){
+      const selected = swatchKey === key;
+      for(const swatch of bucket){
+        swatch.classList.toggle('shared-color-picker__swatch--selected', selected);
+        swatch.setAttribute('aria-pressed', String(selected));
+      }
     }
     if(!skipCustomUpdate){
       updateCustomInputs(normalized);
@@ -930,6 +981,7 @@
     toggle.classList.toggle('shared-color-picker__more-toggle--expanded', nextExpanded);
     toggle.textContent = nextExpanded ? MORE_TOGGLE_LABELS.hide : MORE_TOGGLE_LABELS.show;
     matrix.hidden = !nextExpanded;
+    repositionOverlay();
     if(overlay && Number.isFinite(previousScrollTop)){
       overlay.scrollTop = previousScrollTop;
     }
@@ -1026,8 +1078,8 @@
     let top = rect.bottom + scrollY;
 
     if(viewportWidth){
-      const minLeft = scrollX;
-      const maxLeft = scrollX + viewportWidth - overlay.offsetWidth;
+      const minLeft = scrollX + 8;
+      const maxLeft = scrollX + viewportWidth - overlay.offsetWidth - 8;
       if(maxLeft < minLeft){
         left = minLeft;
       }else{
@@ -1035,8 +1087,8 @@
       }
     }
     if(viewportHeight){
-      const minTop = scrollY;
-      const maxTop = scrollY + viewportHeight - overlay.offsetHeight;
+      const minTop = scrollY + 8;
+      const maxTop = scrollY + viewportHeight - overlay.offsetHeight - 8;
       if(maxTop < minTop){
         top = minTop;
       }else{
@@ -1099,6 +1151,7 @@
   function handleOverlayKeydown(evt){
     if(evt.key === 'Escape'){
       evt.preventDefault();
+      evt.stopPropagation();
       closeOverlay('escape');
     }
   }
@@ -1165,42 +1218,40 @@
     }
   }
 
-  function openSystemColorPickerFallback(){
-    if(!overlayState.customInput){
-      return;
-    }
-    try{
-      overlayState.customInput.focus({ preventScroll: true });
-    }catch(err){
-      overlayState.customInput.focus();
-    }
-    overlayState.customInput.click();
-  }
-
   async function handleEyeDropperClick(evt){
     evt.preventDefault();
     const mode = evt && evt.currentTarget && evt.currentTarget.dataset ? evt.currentTarget.dataset.mode : null;
     if(mode === 'fallback' || typeof global.EyeDropper !== 'function'){
       const fallbackReason = mode === 'fallback' ? 'native-unavailable' : 'missing-interface';
       logDebug('eyedropper-fallback', { reason: fallbackReason });
-      const fallbackInput = ensureFallbackColorInput();
-      if(fallbackInput){
-        fallbackInput.value = overlayState.activeColor || '#000000';
+      const operation = createPickerOperation();
+      const fallbackInput = createFallbackColorInput(operation);
+      fallbackInput.value = overlayState.activeColor || '#000000';
+      if(typeof fallbackInput.showPicker === 'function'){
         try{
-          fallbackInput.showPicker?.();
+          fallbackInput.showPicker();
+          return;
         }catch(err){
-          // Firefox exposes showPicker behind flags; fallback to click()
-          fallbackInput.click();
+          logDebug('eyedropper-fallback-show-picker-unavailable', { message: err?.message || String(err) });
         }
-      }else{
-        openSystemColorPickerFallback();
+      }
+      try{
+        fallbackInput.click();
+      }catch(err){
+        logDebug('eyedropper-fallback-open-failed', { message: err?.message || String(err) });
+        removeFallbackColorInput(fallbackInput);
       }
       return;
     }
     try{
+      const operation = createPickerOperation();
       const eyeDropper = new global.EyeDropper();
       logDebug('eyedropper-open', {});
       const result = await eyeDropper.open();
+      if(!isPickerOperationCurrent(operation)){
+        logDebug('eyedropper-result-discarded', { ownerTabId: operation.ownerTabId });
+        return;
+      }
       const value = normalizeHex(result?.sRGBHex);
       if(value){
         logDebug('eyedropper-result', { color: value });
@@ -1227,6 +1278,12 @@
     if(!overlay || overlay.style.display === 'none'){
       return;
     }
+    const anchor = overlayState.anchor;
+    overlayState.generation += 1;
+    overlayState.operationToken += 1;
+    overlayState.ownerTabId = null;
+    removeFallbackColorInput();
+    const restoreFocus = reason === 'escape' || (reason === 'selection' && overlay.contains(documentRef.activeElement));
     overlay.style.display = 'none';
     overlay.style.pointerEvents = 'none';
     overlay.dataset.visible = '0';
@@ -1250,6 +1307,9 @@
       overlayState.shapeSection.hidden = true;
       overlayState.shapeSection.setAttribute('aria-hidden', 'true');
     }
+    if(restoreFocus && anchor?.isConnected){
+      anchor.focus({ preventScroll: true });
+    }
   }
 
   Shared.getColorPickerAnchor = function getColorPickerAnchor(){
@@ -1257,6 +1317,15 @@
       return null;
     }
     return overlayState.anchor || null;
+  };
+
+  Shared.closeColorPickerForTab = function closeColorPickerForTab(tabLike, reason = 'owner-changed'){
+    const tabId = normalizePickerOwnerTabId(tabLike?.id || tabLike?.tabId || tabLike);
+    if(!tabId || overlayState.ownerTabId !== tabId || !overlay || overlay.style.display === 'none'){
+      return false;
+    }
+    closeOverlay(reason);
+    return true;
   };
 
   Shared.isColorPickerOpenFor = function isColorPickerOpenFor(container){
@@ -1281,6 +1350,10 @@
       return null;
     }
     const initialColor = normalizeHex(opts.color) || overlayState.activeColor || '#000000';
+    overlayState.generation += 1;
+    overlayState.operationToken += 1;
+    removeFallbackColorInput();
+    overlayState.ownerTabId = resolvePickerOwnerTabId(opts);
     overlayState.anchor = opts.anchor || opts.element || null;
 
     renderShapePicker(opts.shapePicker);

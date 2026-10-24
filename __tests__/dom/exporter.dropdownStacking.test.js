@@ -25,6 +25,8 @@ describe('exporter graph dropdown stacking', () => {
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 700 });
     document.getElementById('workspaceTabsDock').getBoundingClientRect = () => rect({ top: 680, bottom: 700, height: 20 });
 
+    require('../../js/shared/menuKeyboard.js');
+    require('../../js/shared/menuPosition.js');
     require('../../js/shared/exporter.js');
     window.Shared.exporter.mountSvgControls({
       container: '#testExportControls',
@@ -33,7 +35,7 @@ describe('exporter graph dropdown stacking', () => {
     });
 
     const wrapper = document.querySelector('.export-select-wrapper[data-action-key="download"]');
-    const select = wrapper?.querySelector('select.export-select');
+    const select = wrapper?.querySelector('button.export-select');
     if(select){
       select.getBoundingClientRect = () => rect({ top: 400, bottom: 432, height: 32 });
     }
@@ -45,7 +47,7 @@ describe('exporter graph dropdown stacking', () => {
     };
   }
 
-  test('mounts graph export selects without changing graph panel scrolling', () => {
+  test('mounts graph export menus without changing graph panel scrolling', () => {
     const { wrapper, select, graphPanel } = mountGraphExportControls();
 
     expect(wrapper).toBeTruthy();

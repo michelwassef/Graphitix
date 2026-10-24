@@ -29,7 +29,12 @@
 
     function hideDuplicatePrompt() {
       if (!dom.duplicatePrompt) return;
-      dom.duplicatePrompt.setAttribute('hidden', 'hidden');
+      const modal = window.Shared?.modalLifecycle;
+      if (modal?.isOpen?.(dom.duplicatePrompt)) {
+        modal.close(dom.duplicatePrompt);
+      } else {
+        dom.duplicatePrompt.setAttribute('hidden', 'hidden');
+      }
       if (dom.duplicateReuse) dom.duplicateReuse.onclick = null;
       if (dom.duplicateEmpty) dom.duplicateEmpty.onclick = null;
       if (dom.duplicateCancel) dom.duplicateCancel.onclick = null;
@@ -162,7 +167,6 @@
         return;
       }
       dom.duplicatePrompt.dataset.tabId = tab.id;
-      dom.duplicatePrompt.removeAttribute('hidden');
       dom.duplicateReuse.textContent = `Reuse ${sourceTab?.title || 'source'} data`;
       dom.duplicateReuse.onclick = () => {
         hideDuplicatePrompt();
@@ -181,7 +185,16 @@
           showGraphSelection({ reason: 'duplicate-cancelled' });
         }
       };
-      dom.duplicatePrompt.removeAttribute('hidden');
+      const modal = window.Shared?.modalLifecycle;
+      if (modal?.open) {
+        modal.open(dom.duplicatePrompt, {
+          initialFocus: () => dom.duplicateReuse,
+          returnFocus: document.activeElement,
+          onEscape: () => dom.duplicateCancel?.click()
+        });
+      } else {
+        dom.duplicatePrompt.removeAttribute('hidden');
+      }
     }
 
     return {

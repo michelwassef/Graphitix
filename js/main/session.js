@@ -50,6 +50,8 @@
    * @property {FileSystemFileHandle|Object|null} sessionFileHandle Handle returned by the File System Access API.
    * @property {string} sessionFileName Friendly name of the current session file.
    * @property {'tab'|'workspace'|null} sessionFileScope Scope of the last saved/opened `.graph` archive.
+   * @property {string|null} sessionFileTabId Owner tab for a tab-scoped `.graph` file target.
+   * @property {'new'|'existing'} sessionFileTargetKind Whether Save may create the initial file or must update an existing one.
    * @property {boolean} sessionDirty True when the in-memory session differs from disk.
    * @property {number} sessionRevision Monotonic counter incremented on dirty-state changes.
    * @property {Object|null} documentOperation Active document-level transaction, if any.
@@ -73,6 +75,8 @@
     sessionFileName: '',
     sessionFilePath: '',
     sessionFileScope: null,
+    sessionFileTabId: null,
+    sessionFileTargetKind: 'new',
     sessionDirty: false,
     sessionUserDirty: false,
     sessionRevision: 0,
@@ -91,6 +95,9 @@
   }
   const MAX_WARM_RENDER_CACHES_TOTAL = 64;
   const MAX_WARM_RENDER_CACHES_PER_TYPE = 2;
+  const INPUT_TYPES_WITH_CHANGE = new Set([
+    'checkbox', 'radio', 'range', 'color', 'date', 'datetime-local', 'file', 'month', 'time', 'week'
+  ]);
   let renderCacheCaptureSequence = 0;
   let renderCachePruneSuspendDepth = 0;
   let canonicalUserMutationCaptureTail = Promise.resolve();
@@ -305,6 +312,7 @@
     }
     const reason = meta.reason || 'dispose-tab';
     const type = String(meta.type || tab.type || '').trim();
+    window.Main?.workspacePreparation?.disposeTab(tab);
     let disposed = false;
     try {
       if (window.Shared?.workspaceTabs?.disposeTab) {
@@ -386,9 +394,10 @@
         affectsPayload
       });
     }
-    // Payload-affecting mutations need a canonical capture after the complete
-    // control gesture. Layout-only mutations already persist through the layout
-    // path and must never reconstruct payload from the visible projection.
+    // Payload-affecting mutations need a canonical capture after their handlers
+    // finish. Tracked controls checkpoint at window bubble; the queued capture
+    // is the fallback when propagation prevents that checkpoint. Layout-only
+    // mutations already persist through the layout path.
     const shouldCaptureCanonical = meta.captureCanonical === true
       || (meta.captureCanonical !== false && affectsPayload);
     if (shouldCaptureCanonical && meta.origin !== 'lifecycle') {
@@ -478,7 +487,17 @@
     });
   }
 
-  function clearSessionDirty(reason) {
+  function clearSessionDirty(reason, expectedRevision) {
+    const currentRevision = Number(workspaceState.sessionRevision) || 0;
+    const hasExpectedRevision = expectedRevision !== undefined && expectedRevision !== null;
+    if (hasExpectedRevision && currentRevision !== Number(expectedRevision)) {
+      console.debug('Debug: session dirty clear skipped for stale save', {
+        reason: reason || 'session-clean',
+        expectedRevision: Number(expectedRevision),
+        currentRevision
+      });
+      return false;
+    }
     const wasDirty = workspaceState.sessionDirty;
     workspaceState.sessionDirty = false;
     workspaceState.sessionUserDirty = false;
@@ -494,6 +513,7 @@
       reason: reason || 'unspecified',
       wasDirty
     });
+    return true;
   }
 
   function notifySessionDocumentState(type, detail = {}) {
@@ -863,6 +883,61 @@
       console.error('serializePayloadSignature error', err);
       return `error:${Date.now()}`;
     }
+  }
+
+  function capturePayloadMatrixSignatures(value){
+    const signatures = [];
+    const seen = new WeakSet();
+    const visit = (node, path) => {
+      if(!node || typeof node !== 'object'){
+        return;
+      }
+      if(Array.isArray(node)){
+        const signature = String(node.__graphitixMatrixSignature || '').trim();
+        if(signature){
+          signatures.push({ path: path.slice(), signature });
+          return;
+        }
+        if(seen.has(node)){ return; }
+        seen.add(node);
+        node.forEach((child, index) => visit(child, path.concat(index)));
+        return;
+      }
+      if(seen.has(node)){ return; }
+      seen.add(node);
+      Object.keys(node).forEach(key => visit(node[key], path.concat(key)));
+    };
+    visit(value, []);
+    return signatures;
+  }
+
+  function restorePayloadMatrixSignatures(value, signatures){
+    if(!value || typeof value !== 'object' || !Array.isArray(signatures)){
+      return value;
+    }
+    signatures.forEach(entry => {
+      if(!Array.isArray(entry?.path) || !entry.path.length){
+        return;
+      }
+      let matrix = value;
+      for(const part of entry.path){
+        matrix = matrix?.[part];
+        if(matrix == null){ return; }
+      }
+      const signature = String(entry.signature || '').trim();
+      if(!Array.isArray(matrix) || !signature){
+        return;
+      }
+      try{
+        Object.defineProperty(matrix, '__graphitixMatrixSignature', {
+          value: signature,
+          configurable: true,
+          enumerable: false,
+          writable: true
+        });
+      }catch(_err){}
+    });
+    return value;
   }
 
   function notifyPreviewIndicator(tab) {
@@ -1520,7 +1595,7 @@
       const existingMatchesCurrent = !!tab.archiveRenderCache
         && tab.archiveRenderCacheSignature === payloadSignature
         && tab.archiveRenderCacheLayoutSignature === layoutSignature
-        && renderCacheProvenanceMatchesTab(tab.archiveRenderCache, tab);
+        && renderCacheProvenanceMatchesTab(tab.archiveRenderCache, tab, { requireVersion: true });
       if (!existingMatchesCurrent) {
         clearTabArchiveRenderCache(tab, { reason: `${meta.reason || 'render-cache-capture'}:archive-checkpoint-invalid` });
       }
@@ -1817,14 +1892,19 @@
     const deserializedCache = deserializeRenderCacheValue(tab.archiveRenderCache);
     const embeddedOwnerTabId = getRenderCacheOwnerTabId(deserializedCache);
     const embeddedComponentType = getRenderCacheComponentType(deserializedCache);
-    if (!renderCacheProvenanceMatchesTab(deserializedCache, tab)) {
+    if (!renderCacheProvenanceMatchesTab(deserializedCache, tab, { requireVersion: true })) {
       const expectedOwnerTabId = String(tab.id || '');
       const expectedComponentType = String(tab.type || '');
-      console.debug('Debug: archive render cache rejected by owner/component provenance', {
+      const cacheVersion = Number(deserializedCache?.__graphitixRenderCache?.version);
+      const currentCacheVersion = Number(Shared.renderCacheSchema?.SCHEMA_VERSION);
+      const versionMismatch = !Number.isFinite(cacheVersion) || cacheVersion !== currentCacheVersion;
+      console.debug('Debug: archive render cache rejected by owner/component/schema provenance', {
         tabId: tab.id || null,
         type: tab.type || null,
         embeddedOwnerTabId,
         embeddedComponentType,
+        cacheVersion: Number.isFinite(cacheVersion) ? cacheVersion : null,
+        currentCacheVersion: Number.isFinite(currentCacheVersion) ? currentCacheVersion : null,
         reason: meta.reason || 'archive-render-cache-peeked'
       });
       emitRenderCacheEvent({
@@ -1832,14 +1912,16 @@
         component: tab.type,
         phase: 'owner-check',
         outcome: 'rejected',
-        reason: embeddedOwnerTabId !== expectedOwnerTabId
-          ? (embeddedOwnerTabId ? 'owner-mismatch' : 'owner-missing')
-          : (embeddedComponentType ? 'component-mismatch' : 'component-missing'),
+        reason: versionMismatch
+          ? 'schema-version-mismatch'
+          : (embeddedOwnerTabId !== expectedOwnerTabId
+            ? (embeddedOwnerTabId ? 'owner-mismatch' : 'owner-missing')
+            : (embeddedComponentType ? 'component-mismatch' : 'component-missing')),
         source: 'archive',
         cacheOwnerTabId: embeddedOwnerTabId,
         payloadSignature,
         layoutSignature,
-        details: { embeddedComponentType, expectedComponentType }
+        details: { embeddedComponentType, expectedComponentType, cacheVersion, currentCacheVersion }
       });
       return null;
     }
@@ -2414,11 +2496,54 @@
     return payloadChanged || layoutChanged;
   }
 
+  function checkpointCanonicalUserMutation(tabLike, reason) {
+    const owner = resolveTab(tabLike);
+    if (!owner || owner.isWelcome || !owner.type || workspaceState.activeTabId !== owner.id) {
+      return false;
+    }
+
+    const normalizedReason = normalizeReason(reason) || 'canonical-user-mutation';
+    captureCanonicalUserMutationState(owner, { reason: normalizedReason });
+    const documentState = window.Main?.documentState;
+    documentState?.persistCanonicalJournalNow?.({
+      tabId: owner.id,
+      reason: normalizedReason
+    });
+    documentState?.scheduleCanonicalJournal?.({
+      tabId: owner.id,
+      reason: normalizedReason
+    }, { skipSessionFlush: true });
+    return true;
+  }
+
+  function captureCompletedWorkspaceMutation(target, reason) {
+    const ownerTabId = resolveWorkspaceOwnerTabIdFromTarget(target);
+    const owner = ownerTabId ? resolveTab(ownerTabId) : null;
+    const componentKey = resolveWorkspaceComponentKeyFromTarget(target);
+    if (!owner || owner.isWelcome || !componentKey || owner.type !== componentKey
+      || workspaceState.activeTabId !== owner.id) {
+      return false;
+    }
+
+    pendingCanonicalUserMutationTabs.delete(String(owner.id));
+    return checkpointCanonicalUserMutation(owner, reason);
+  }
+
+  function inputWaitsForChange(target) {
+    const tagName = String(target?.tagName || '').toUpperCase();
+    if (tagName === 'SELECT') {
+      return true;
+    }
+    if (tagName !== 'INPUT') {
+      return false;
+    }
+    return INPUT_TYPES_WITH_CHANGE.has(String(target.type || 'text').toLowerCase());
+  }
+
   // The document-level dirty listener runs in capture phase so it cannot miss
-  // delegated controls. Component handlers therefore run after the dirty mark.
-  // Queue one owner-scoped capture after the browser's complete control gesture.
-  // A native select emits input before change; a microtask here would capture the
-  // old value and project it back before the change handler receives it.
+  // delegated controls. Its timer is only a fallback: the window-bubble listener
+  // captures synchronously after ordinary target/document handlers. A native
+  // select emits input before change, so its final value is captured on change.
   function queueCanonicalUserMutationCapture(tabLike, reason) {
     const tab = resolveTab(tabLike);
     const tabId = String(tab?.id || '').trim();
@@ -2447,20 +2572,7 @@
           if (!owner || owner.isWelcome || workspaceState.activeTabId !== entry.tabId) {
             return;
           }
-          captureCanonicalUserMutationState(owner, { reason: entry.reason });
-          // This runs in the next macrotask, after input/change handlers and any
-          // component projection they perform. The owner payload is now current,
-          // so the recovery mirror cannot capture the prior control value.
-          window.Main?.documentState?.persistCanonicalJournalNow?.({
-            tabId: owner.id,
-            reason: entry.reason
-          });
-          // The local mirror is synchronous; also advance the durable journal
-          // from this settled owner state without waiting on this capture chain.
-          window.Main?.documentState?.scheduleCanonicalJournal?.({
-            tabId: owner.id,
-            reason: entry.reason
-          }, { skipSessionFlush: true });
+          checkpointCanonicalUserMutation(owner, entry.reason);
         });
       });
     return canonicalUserMutationCaptureTail;
@@ -3152,13 +3264,13 @@
       && String(runtime.tabId || '') === String(tab.id)
       && runtime.payloadSignature === tab.payloadSignature
       && runtime.layoutSignature === tab.layoutSignature
-      && renderCacheProvenanceMatchesTab(runtime.cache, tab)) {
+      && renderCacheProvenanceMatchesTab(runtime.cache, tab, { requireVersion: true })) {
       return true;
     }
     return !!tab.archiveRenderCache
       && tab.archiveRenderCacheSignature === tab.payloadSignature
       && tab.archiveRenderCacheLayoutSignature === tab.layoutSignature
-      && renderCacheProvenanceMatchesTab(tab.archiveRenderCache, tab);
+      && renderCacheProvenanceMatchesTab(tab.archiveRenderCache, tab, { requireVersion: true });
   }
 
   function persistActiveTabState(tab = getActiveTab(), options = {}) {
@@ -3584,13 +3696,26 @@
   // toolbar's active sub-page (DOM dataset) with per-component UI state (table scroll,
   // selection) into a single uiState blob suitable for round-tripping through the
   // archive. Inactive tabs are not visited — they keep whatever uiState they had.
+  function setExportOptions(tabLike, options = {}) {
+    const tab = resolveTab(tabLike);
+    if (!tab || tab.isWelcome) return false;
+    const transparentBackground = options.transparentBackground === true;
+    if ((tab.uiState?.export?.transparentBackground === true) === transparentBackground) return false;
+    tab.uiState = {
+      ...tab.uiState,
+      export: { ...tab.uiState?.export, transparentBackground }
+    };
+    markTabUserModified(tab, 'export-background', { affectsPayload: false, captureCanonical: false });
+    return true;
+  }
+
   function captureWorkspaceUiState(tab) {
     if (!tab || tab.isWelcome || !tab.type) {
       return null;
     }
     const toolbar = captureWorkspaceToolbarUiState(tab);
     const componentUi = captureWorkspaceComponentUiState(tab);
-    if (!toolbar && !componentUi) {
+    if (!toolbar && !componentUi && !tab.uiState) {
       return null;
     }
     const merged = Object.assign({}, tab.uiState || {});
@@ -3832,6 +3957,10 @@
     const componentProvenanceValid = !!expectedComponentType
       && !!embeddedComponentType
       && embeddedComponentType === expectedComponentType;
+    const schemaProvenanceValid = renderCacheProvenanceMatchesTab(archiveCache, {
+      id: sourceRuntimeTabId,
+      type: expectedComponentType
+    }, { requireVersion: true });
     const payloadProvenanceValid = !!storedPayloadSignature && storedPayloadSignature === sourcePayloadSignature;
     const layoutProvenanceValid = !!storedLayoutSignature && storedLayoutSignature === sourceLayoutSignature;
     const cartesianProvenance = archiveCache?.__graphitixRenderCache?.cartesianLayout || null;
@@ -3843,7 +3972,9 @@
       && cartesianProvenance.payloadSignature === storedPayloadSignature
       && cartesianProvenance.layoutSignature === storedLayoutSignature
     );
-    if (!ownerProvenanceValid || !componentProvenanceValid || !payloadProvenanceValid || !layoutProvenanceValid || !cartesianProvenanceValid) {
+    if (!ownerProvenanceValid || !componentProvenanceValid || !schemaProvenanceValid || !payloadProvenanceValid || !layoutProvenanceValid || !cartesianProvenanceValid) {
+      const cacheVersion = Number(archiveCache?.__graphitixRenderCache?.version);
+      const currentCacheVersion = Number(Shared.renderCacheSchema?.SCHEMA_VERSION);
       console.debug('Debug: session rejected archive render cache provenance', {
         targetTabId,
         type: tabData?.type || null,
@@ -3853,6 +3984,7 @@
         expectedComponentType,
         ownerProvenanceValid,
         componentProvenanceValid,
+        schemaProvenanceValid,
         payloadProvenanceValid,
         layoutProvenanceValid,
         cartesianProvenanceValid
@@ -3866,9 +3998,13 @@
           ? (embeddedOwnerTabId ? 'owner-mismatch' : 'owner-missing')
           : (!componentProvenanceValid
             ? (embeddedComponentType ? 'component-mismatch' : 'component-missing')
-            : (!payloadProvenanceValid
-              ? 'payload-signature-mismatch'
-              : (!layoutProvenanceValid ? 'layout-signature-mismatch' : 'cartesian-publication-provenance-mismatch'))),
+            : (!schemaProvenanceValid
+              ? (Number.isFinite(cacheVersion) && cacheVersion === currentCacheVersion
+                ? 'render-cache-schema-invalid'
+                : 'schema-version-mismatch')
+              : (!payloadProvenanceValid
+                ? 'payload-signature-mismatch'
+                : (!layoutProvenanceValid ? 'layout-signature-mismatch' : 'cartesian-publication-provenance-mismatch')))),
         source: 'archive',
         cacheOwnerTabId: embeddedOwnerTabId,
         runtimeOwnerTabId: targetTabId,
@@ -3880,6 +4016,7 @@
           expectedComponentType,
           ownerProvenanceValid,
           componentProvenanceValid,
+          schemaProvenanceValid,
           payloadProvenanceValid,
           layoutProvenanceValid,
           cartesianProvenanceValid
@@ -3923,6 +4060,8 @@
     'sessionFileName',
     'sessionFilePath',
     'sessionFileScope',
+    'sessionFileTabId',
+    'sessionFileTargetKind',
     'sessionDirty',
     'sessionUserDirty',
     'sessionRevision',
@@ -3964,6 +4103,8 @@
         }
         const predictedRuntimeTabId = `workspace-${workspaceState.nextId}`;
         const clonedPayload = clonePayload(tabData.payload) || null;
+        const clonedMatrixSignatures = rehomeTabScopedState(tabData.matrixSignatures || [], predictedRuntimeTabId);
+        restorePayloadMatrixSignatures(clonedPayload, clonedMatrixSignatures);
         const clonedLayout = rehomeTabScopedState(tabData.layout || null, predictedRuntimeTabId);
         const clonedPreviewMeta = tabData.previewMeta && typeof tabData.previewMeta === 'object'
           ? rehomeTabScopedState(tabData.previewMeta, predictedRuntimeTabId)
@@ -4095,6 +4236,10 @@
     workspaceState.sessionFileScope = Object.prototype.hasOwnProperty.call(options, 'fileScope')
       ? (options.fileScope || null)
       : (tabs.length > 1 ? 'workspace' : (tabs.length === 1 ? 'tab' : null));
+    workspaceState.sessionFileTabId = workspaceState.sessionFileScope === 'tab'
+      ? (targetTab?.id || null)
+      : null;
+    workspaceState.sessionFileTargetKind = options.fileTargetKind === 'new' ? 'new' : 'existing';
     options.renderTabs?.();
 
     try {
@@ -4161,6 +4306,8 @@
   namespace.fastClonePayload = fastClonePayload;
   namespace.clonePayload = clonePayload;
   namespace.serializePayloadSignature = serializePayloadSignature;
+  namespace.capturePayloadMatrixSignatures = capturePayloadMatrixSignatures;
+  namespace.restorePayloadMatrixSignatures = restorePayloadMatrixSignatures;
   namespace.markTabUserModified = markTabUserModified;
   namespace.markActiveTabUserModified = markActiveTabUserModified;
   namespace.isLayoutOnlyTabDirty = isLayoutOnlyTabDirty;
@@ -4186,6 +4333,7 @@
   namespace.setRenderCachePruneSuspended = setRenderCachePruneSuspended;
   namespace.isRenderCachePruneSuspended = isRenderCachePruneSuspended;
   namespace.getActiveTab = getActiveTab;
+  namespace.setExportOptions = setExportOptions;
   namespace.generateUniqueTabTitle = generateUniqueTabTitle;
   namespace.createTab = createTab;
   namespace.hasMeaningfulCellValue = hasMeaningfulCellValue;
@@ -4418,6 +4566,23 @@
     };
     document.addEventListener('change', handler('control-change'), true);
     document.addEventListener('input', handler('control-input'), true);
+    const checkpointAfterControlHandler = reason => event => {
+      if (!isTrustedUserEvent(event)) return;
+      const target = event.target;
+      if (!canTrackTarget(target)) return;
+      if (reason === 'control-input' && inputWaitsForChange(target)) return;
+      captureCompletedWorkspaceMutation(target, reason);
+    };
+    window.addEventListener('change', checkpointAfterControlHandler('control-change'));
+    window.addEventListener('input', checkpointAfterControlHandler('control-input'));
+    window.addEventListener('click', event => {
+      if (!isTrustedUserEvent(event)) return;
+      const target = event.target;
+      if (!canTrackTarget(target)) return;
+      const interactive = target.closest && target.closest('button, [role="button"], [data-action]');
+      if (!interactive || (target.closest && target.closest('.workspace-tab, [data-workspace-tablist]'))) return;
+      captureCompletedWorkspaceMutation(target, 'control-click');
+    });
     // Click handler is gated to interactive controls (button-like). Plain reads of
     // text/cells must not trigger dirty.
     document.addEventListener('click', event => {
@@ -4461,6 +4626,23 @@
     installGlobalUserInputListener();
   }
   namespace.installGlobalUserInputListener = installGlobalUserInputListener;
+
+  if (typeof Shared.componentLifecycle?.onLifecycleEvent === 'function'
+    && !namespace.__cancelledDrawInvalidationUnsubscribe) {
+    namespace.__cancelledDrawInvalidationUnsubscribe = Shared.componentLifecycle.onLifecycleEvent(event => {
+      if (event?.action !== 'draw-settled' || event?.phase !== 'cancelled') {
+        return;
+      }
+      const tabId = String(event.tabId || '').trim();
+      const tab = tabId ? resolveTab(tabId) : null;
+      if (!tab || !tab.type || tab.type !== event.componentKey) {
+        return;
+      }
+      if (workspaceState.loadedWorkspaces?.[tabId]) {
+        delete workspaceState.loadedWorkspaces[tabId];
+      }
+    });
+  }
 
   console.debug('Debug: Main session module initialized', { exportedHelpers: Object.keys(namespace) });
 })();

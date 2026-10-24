@@ -17,6 +17,7 @@ async function readLegend(page) {
       transform: legend?.getAttribute('transform') || null,
       mode: legend?.dataset?.surfaceLegendHeightMode || null,
       bar: barRect ? { width: barRect.width, height: barRect.height } : null,
+      zoom: Number(svg?.closest('.svgbox')?.dataset.resizerZoomLevel || 1),
       border: bar ? {
         stroke: bar.getAttribute('stroke'),
         width: bar.getAttribute('stroke-width'),
@@ -48,8 +49,8 @@ test('Surface uses a draggable Heatmap-style fixed-height color legend', async (
 
   const before = await readLegend(page);
   expect(before.mode).toBe('fixed');
-  expect(before.bar.width).toBeCloseTo(15, 0);
-  expect(before.bar.height).toBeCloseTo(80, 0);
+  expect(before.bar.width / before.zoom).toBeCloseTo(15, 0);
+  expect(before.bar.height / before.zoom).toBeCloseTo(80, 0);
   expect(before.border).toEqual({
     stroke: '#333',
     width: '1',
@@ -78,8 +79,8 @@ test('Surface uses a draggable Heatmap-style fixed-height color legend', async (
   });
   await expect.poll(async () => (await readLegend(page)).transform).toBe(dragged.transform);
   const redrawn = await readLegend(page);
-  expect(redrawn.bar.width).toBeCloseTo(15, 0);
-  expect(redrawn.bar.height).toBeCloseTo(80, 0);
+  expect(redrawn.bar.width / redrawn.zoom).toBeCloseTo(15, 0);
+  expect(redrawn.bar.height / redrawn.zoom).toBeCloseTo(80, 0);
   expect(redrawn.tickCount).toBe(5);
   const limitBox = await bar.boundingBox();
   await page.mouse.move(limitBox.x + limitBox.width / 2, limitBox.y + limitBox.height / 2);

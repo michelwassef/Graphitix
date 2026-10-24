@@ -178,6 +178,63 @@ describe('tableImport owner projection transaction', () => {
     }));
   });
 
+  test('a delayed file read applies rows to its original tab after switching to a sibling', async () => {
+    const session = window.Main.session;
+    const ownerTab = createPcaTab('Import owner', [['owner-old']]);
+    const siblingTab = createPcaTab('Active sibling', [['sibling-stays']]);
+    session.workspaceState.activeTabId = ownerTab.id;
+    window.requestAnimationFrame = callback => window.setTimeout(callback, 0);
+
+    const createOwnedTable = (tab, data) => {
+      const container = document.createElement('div');
+      container.dataset.workspaceTabId = tab.id;
+      container.dataset.componentType = 'pca';
+      document.body.appendChild(container);
+      return window.Shared.hot.createStandardTable(container, { rows: 2, cols: 2 }, () => {}, {
+        debugLabel: 'pca',
+        data
+      });
+    };
+    const ownerHot = createOwnedTable(ownerTab, [['owner-old']]);
+    const siblingHot = createOwnedTable(siblingTab, [['sibling-stays']]);
+    await new Promise(resolve => window.setTimeout(resolve, 0));
+    const siblingTableBefore = siblingHot.getData().map(row => row.slice());
+
+    let finishRead = null;
+    const readAsText = window.FileReader.prototype.readAsText;
+    const readAsTextSpy = jest.spyOn(window.FileReader.prototype, 'readAsText').mockImplementation(function delayedRead(file, encoding) {
+      finishRead = () => readAsText.call(this, file, encoding);
+    });
+    const scheduleDraw = jest.fn();
+    const onCompleted = jest.fn();
+    const onOwnerInactive = jest.fn();
+    const importPromise = window.Shared.tableImport.openFile(createCsvInput('Gene,S1\nA,7'), {
+      hot: ownerHot,
+      minRows: 1,
+      minCols: 1,
+      importOptionsConfirmed: true,
+      scheduleDraw,
+      onCompleted,
+      onOwnerInactive
+    });
+
+    expect(finishRead).toEqual(expect.any(Function));
+    session.workspaceState.activeTabId = siblingTab.id;
+    finishRead();
+    const result = await importPromise;
+    readAsTextSpy.mockRestore();
+
+    expect(result.rows).toBe(2);
+    expect(ownerTab.payload.data).toEqual([['Gene', 'S1'], ['A', '7']]);
+    expect(siblingTab.payload.data).toEqual([['sibling-stays']]);
+    expect(siblingHot.getData()).toEqual(siblingTableBefore);
+    expect(scheduleDraw).not.toHaveBeenCalled();
+    expect(onCompleted).not.toHaveBeenCalled();
+    expect(onOwnerInactive).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      tabId: ownerTab.id
+    }));
+  });
+
   test('first user paste supersedes the pending import transaction and remains canonical', async () => {
     const session = window.Main.session;
     const tab = createPcaTab('Heatmap-like owner', [['old']]);

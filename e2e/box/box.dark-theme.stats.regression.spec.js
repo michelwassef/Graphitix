@@ -172,7 +172,19 @@ test('box dark theme keeps significance and points visible and stats recalculabl
   }
   const hasSignificance = await waitForSignificanceAnnotations(page, 20_000);
 
-  await page.locator('#boxColorSchemeSelect').selectOption('dark');
+  // Color appearance is independent of the palette. Selecting the legacy
+  // palette id "dark" can open a custom-color confirmation dialog without
+  // changing the graph appearance, giving this test a false failure.
+  await page.locator('#boxColorAppearanceSelect').selectOption('dark');
+  await page.waitForFunction(() => {
+    const tab = window.Main?.session?.getActiveTab?.();
+    const schemeId = tab?.payload?.config?.colorScheme;
+    const root = document.querySelector('#boxPage:not([hidden])');
+    const box = root?.querySelector('.svgbox');
+    return tab?.type === 'box'
+      && window.Shared?.colorSchemes?.isDarkScheme?.(schemeId) === true
+      && box?.getAttribute('data-color-scheme') === schemeId;
+  }, null, { timeout: 30_000 });
   await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   const hasSvg = await ensureBoxSvgReady(page, 20_000);
   if (!hasSvg) {

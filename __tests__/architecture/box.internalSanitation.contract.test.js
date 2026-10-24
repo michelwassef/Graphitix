@@ -83,11 +83,12 @@ describe('Box internal sanitation contract', () => {
       'listEffectOptions',
     'resolveEffectOptionMeta',
     'computeEffectSizeMetrics', 'applyPValueCorrection', 'resolveCorrectionMeta',
-      'listPostHocOptions', 'isPostHocSupported', 'ensureValidPostHoc', 'getPostHocSummary',
+      'sanitizeOutlierMode', 'sanitizeOutlierAlpha', 'sanitizeOutlierQ',
+      'listPostHocOptions', 'getPostHocSummary',
       'anova', 'kruskalWallis', 'computeRepeatedMeasuresAnova', 'computeFriedmanTest',
       'computeWelchAnova', 'computeTukeyComparisons', 'computeGamesHowellComparisons',
       'computeTamhaneT2Comparisons', 'computeNemenyiComparisons',
-      'computeDunnettComparisons', 'computeDunnComparisons'
+      'computeControlSidakComparisons', 'computeDunnComparisons'
     ];
     delegates.forEach(name => {
       const source = functionSource(box, name);
@@ -95,6 +96,11 @@ describe('Box internal sanitation contract', () => {
       expect(source).toContain("callBoxStatsModel('");
       expect(source.split('\n').length).toBeLessThanOrEqual(6);
     });
+    const resolver=functionSource(box,'resolveBoxPostHocProcedure');
+    expect(resolver).toContain("callBoxStatsModel('resolvePostHocProcedure'");
+    expect(resolver).toContain('analysisId:analysis?.id');
+    expect(box).not.toContain('isPostHocSupported');
+    expect(box).not.toContain('ensureValidPostHoc');
     expect(box).not.toContain('const POST_HOC_META=');
     expect(box).not.toContain('const POST_HOC_ORDER=');
   });

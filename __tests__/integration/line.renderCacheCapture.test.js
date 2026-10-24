@@ -1,6 +1,9 @@
 const { loadProductionBootstrap } = require('../../test-support/productionLoader');
+const { installSvgTextGeometry } = require('../setup/svgTextGeometry');
 
 jest.setTimeout(120_000);
+
+let restoreSvgTextGeometry;
 
 async function flushAsyncWork(iterations = 16){
   for(let i = 0; i < iterations; i += 1){
@@ -67,6 +70,7 @@ function captureWithoutMutation(line, tabId, mode){
 
 describe('Line render-cache capture contract', () => {
   beforeEach(async () => {
+    restoreSvgTextGeometry = installSvgTextGeometry();
     const previousLine = window.Components?.line || null;
     const previousTabs = window.Main?.session?.workspaceState?.tabs || [];
     if(previousLine?.disposeTab){
@@ -86,6 +90,11 @@ describe('Line render-cache capture contract', () => {
       preloadComponents: ['line']
     });
     await activateLine();
+  });
+
+  afterEach(() => {
+    restoreSvgTextGeometry?.();
+    restoreSvgTextGeometry = null;
   });
 
   test('captures settled 2D and 3D SVG graphs without moving mounted children', async () => {

@@ -4,6 +4,7 @@ describe('Scatter point Fill/Shape overrides', () => {
     global.Main = {};
     global.Components = {};
     global.Shared = {};
+    require('../../js/shared/componentLifecycle.js');
     require('../../js/components/scatter.js');
   });
 

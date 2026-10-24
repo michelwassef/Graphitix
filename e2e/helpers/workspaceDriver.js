@@ -96,10 +96,20 @@ async function openComponentFromWelcome(page, component, options = {}) {
       : card.getByRole('button', { name: /^New\b/i }).first();
     // Welcome graph cards launch an in-page workspace action (`type=button` +
     // `launchWelcomeGraph`); owner readiness is the completion condition.
-    await target.click({ timeout: 5000, noWaitAfter: true });
+    try {
+      await target.click({ timeout: 5000, noWaitAfter: true });
+    } catch (err) {
+      lastError = err;
+      if (page.isClosed()) {
+        throw err;
+      }
+    }
+    // The launch handler can replace the Welcome card before Playwright's
+    // click action settles. Owner readiness is authoritative, so still check
+    // it after a click timeout before treating the launch as failed.
     launched = await waitForActiveComponentLaunch(page, component, 20_000, expectedTabId);
   } catch (err) {
-    lastError = err;
+    lastError = lastError || err;
     if (page.isClosed()) {
       throw err;
     }

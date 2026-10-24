@@ -1,4 +1,5 @@
 "Prism feature","Target component","Missing UI","Missing engine","Priority"
+"ROUT for arbitrary nonlinear curves (Box constant-location ROUT is implemented; universal FDR guarantee is not claimed)","box.js","Yes","Yes","High"
 "Ratio t test","box.js","No","No","Done"
 "Lognormal t test","box.js","No","No","Done"
 "Lognormal Welch's t test","box.js","No","No","Done"

@@ -18,6 +18,27 @@ describe('componentLifecycle cache snapshot', () => {
     expect(Array.from(host.childNodes)).toEqual([settled, staged]);
   });
 
+  test('closes transient graph-options disclosures in cache clones only', () => {
+    const host = document.createElement('div');
+    const options = document.createElement('details');
+    options.className = 'resizer-options-control';
+    options.open = true;
+    const axes = document.createElement('details');
+    axes.className = 'resizer-axeslength-control';
+    axes.open = true;
+    options.appendChild(axes);
+    host.appendChild(options);
+
+    const snapshot = lifecycle.snapshotCacheableChildren(host);
+    const cachedOptions = snapshot?.fragment?.querySelector('.resizer-options-control');
+    const cachedAxes = snapshot?.fragment?.querySelector('.resizer-axeslength-control');
+
+    expect(cachedOptions?.hasAttribute('open')).toBe(false);
+    expect(cachedAxes?.hasAttribute('open')).toBe(false);
+    expect(options.hasAttribute('open')).toBe(true);
+    expect(axes.hasAttribute('open')).toBe(true);
+  });
+
   test('snapshots canvas pixels into a cache-only bitmap without mutating the live host', () => {
     const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');

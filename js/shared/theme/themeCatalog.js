@@ -4,9 +4,14 @@
   const Shared = global.Shared = global.Shared || {};
   const namespace = Shared.themeCatalog = Shared.themeCatalog || {};
 
+  const DEFAULT_SCHEME_ID = 'normal';
+  const DEFAULT_TYPE_SCHEME_IDS = Object.freeze({
+    box: 'grayscale',
+    surface: 'surface-viridis'
+  });
   const state = {
     schemes: {},
-    typeDefaults: {},
+    typeDefaults: { ...DEFAULT_TYPE_SCHEME_IDS },
     typeOptions: {},
     initialized: false
   };
@@ -57,7 +62,7 @@
 
   function getTypeDefault(type, fallback){
     const t = normalizeId(type);
-    return state.typeDefaults[t] || normalizeId(fallback || 'scientific');
+    return state.typeDefaults[t] || normalizeId(fallback || DEFAULT_SCHEME_ID);
   }
 
   function setTypeOptions(type, optionIds){

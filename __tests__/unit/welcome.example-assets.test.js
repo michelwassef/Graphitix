@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const {
@@ -19,6 +20,7 @@ const {
   hashCanonicalText,
   normalizeTextForHash,
   parseRequestedTypes,
+  publishStagedFiles,
   resolveCanonicalSvgDimensions,
   stripXmlDeclaration,
   validateStandaloneSvg,
@@ -197,6 +199,119 @@ describe('welcome example SVG assets', () => {
       type: 'box',
       sourceFingerprint: 'current-fingerprint'
     }, 'box', 'current-fingerprint')).toBe(true);
+  });
+
+  test('publishes into an open asset directory without swapping its directory entry', () => {
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'welcome-assets-publish-'));
+    const outputDir = path.join(temporaryRoot, 'welcome-examples');
+    const stagingDir = path.join(temporaryRoot, 'staged');
+    fs.mkdirSync(outputDir);
+    fs.mkdirSync(stagingDir);
+    fs.writeFileSync(path.join(outputDir, 'scatter.svg'), 'old scatter', 'utf8');
+    fs.writeFileSync(path.join(outputDir, 'obsolete.svg'), 'old asset', 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'scatter.svg'), 'new scatter', 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'thumbnails.js'), 'new registry', 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'manifest.json'), 'new manifest', 'utf8');
+
+    const openDirectory = fs.opendirSync(outputDir);
+    const originalRename = fs.renameSync;
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
+      if (path.resolve(source) === outputDir) {
+        const error = new Error('The output directory is in use.');
+        error.code = 'EPERM';
+        throw error;
+      }
+      return originalRename(source, destination);
+    });
+
+    try {
+      expect(() => publishStagedFiles(stagingDir, outputDir)).not.toThrow();
+      expect(fs.readFileSync(path.join(outputDir, 'scatter.svg'), 'utf8')).toBe('new scatter');
+      expect(fs.readFileSync(path.join(outputDir, 'thumbnails.js'), 'utf8')).toBe('new registry');
+      expect(fs.readFileSync(path.join(outputDir, 'manifest.json'), 'utf8')).toBe('new manifest');
+      expect(fs.existsSync(path.join(outputDir, 'obsolete.svg'))).toBe(false);
+      expect(renameSpy.mock.calls
+        .filter(([source]) => path.resolve(source).startsWith(`${stagingDir}${path.sep}`))
+        .map(([source]) => path.basename(source)))
+        .toEqual(['scatter.svg', 'thumbnails.js', 'manifest.json']);
+    } finally {
+      renameSpy.mockRestore();
+      openDirectory.closeSync();
+      fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('replaces a served asset when Windows denies renaming its open file', () => {
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'welcome-assets-open-file-'));
+    const outputDir = path.join(temporaryRoot, 'welcome-examples');
+    const stagingDir = path.join(temporaryRoot, 'staged');
+    fs.mkdirSync(outputDir);
+    fs.mkdirSync(stagingDir);
+    fs.writeFileSync(path.join(outputDir, 'scatter.svg'), 'old scatter', 'utf8');
+    fs.writeFileSync(path.join(outputDir, 'manifest.json'), 'old manifest', 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'scatter.svg'), 'new scatter', 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'manifest.json'), 'new manifest', 'utf8');
+
+    const originalRename = fs.renameSync;
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
+      if (path.resolve(destination) === path.join(outputDir, 'scatter.svg')) {
+        const error = new Error('The served thumbnail is in use.');
+        error.code = 'EPERM';
+        throw error;
+      }
+      return originalRename(source, destination);
+    });
+
+    try {
+      expect(() => publishStagedFiles(stagingDir, outputDir)).not.toThrow();
+      expect(fs.readFileSync(path.join(outputDir, 'scatter.svg'), 'utf8')).toBe('new scatter');
+      expect(fs.readFileSync(path.join(outputDir, 'manifest.json'), 'utf8')).toBe('new manifest');
+    } finally {
+      renameSpy.mockRestore();
+      fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('restores the previous asset set if a staged file cannot be promoted', () => {
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'welcome-assets-rollback-'));
+    const outputDir = path.join(temporaryRoot, 'welcome-examples');
+    const stagingDir = path.join(temporaryRoot, 'staged');
+    fs.mkdirSync(outputDir);
+    fs.mkdirSync(stagingDir);
+    fs.writeFileSync(path.join(outputDir, 'scatter.svg'), 'old scatter', 'utf8');
+    fs.writeFileSync(path.join(outputDir, 'manifest.json'), 'old manifest', 'utf8');
+    fs.writeFileSync(path.join(outputDir, 'obsolete.svg'), 'old asset', 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'scatter.svg'), 'new scatter', 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'manifest.json'), 'new manifest', 'utf8');
+
+    const originalRename = fs.renameSync;
+    const originalCopy = fs.copyFileSync;
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
+      if (path.resolve(source) === path.join(stagingDir, 'manifest.json')) {
+        const error = new Error('The staged manifest cannot be promoted.');
+        error.code = 'EPERM';
+        throw error;
+      }
+      return originalRename(source, destination);
+    });
+    const copySpy = jest.spyOn(fs, 'copyFileSync').mockImplementation((source, destination, ...args) => {
+      if (path.resolve(source) === path.join(stagingDir, 'manifest.json')) {
+        throw new Error('The staged manifest cannot be copied.');
+      }
+      return originalCopy(source, destination, ...args);
+    });
+
+    try {
+      expect(() => publishStagedFiles(stagingDir, outputDir)).toThrow('The staged manifest cannot be copied.');
+      expect(fs.readFileSync(path.join(outputDir, 'scatter.svg'), 'utf8')).toBe('old scatter');
+      expect(fs.readFileSync(path.join(outputDir, 'manifest.json'), 'utf8')).toBe('old manifest');
+      expect(fs.readFileSync(path.join(outputDir, 'obsolete.svg'), 'utf8')).toBe('old asset');
+      expect(fs.readdirSync(outputDir)).toEqual(['manifest.json', 'obsolete.svg', 'scatter.svg']);
+    } finally {
+      renameSpy.mockRestore();
+      copySpy.mockRestore();
+      fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   });
 
   test('legacy raster thumbnails are not retained', () => {

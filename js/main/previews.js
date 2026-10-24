@@ -6,6 +6,7 @@
   const TAB_PREVIEW_TARGET_WIDTH = 220;
   const TAB_PREVIEW_MIN_HEIGHT = 120;
   const TAB_PREVIEW_MAX_HEIGHT = 220;
+  const TAB_PREVIEW_SIZING_VERSION = 2;
   const TAB_PREVIEW_MAX_CHARS = 120000;
   const TAB_PREVIEW_MIN_RASTER_SCALE = 2;
   const TAB_PREVIEW_MAX_RASTER_SCALE = 3;
@@ -74,6 +75,18 @@
     return null;
   }
 
+  // Resolve appearance from the preview owner's saved payload, never from the
+  // currently active component's toolbar or the source SVG's stale attributes.
+  function resolvePreviewAppearance(tab) {
+    const theme = window.Shared?.colorSchemes?.resolveThemeState?.(tab?.type, tab?.payload);
+    return {
+      schemeId: theme?.schemeId || 'normal',
+      background: theme?.isDark ? (theme.background || '#000000') : '#ffffff',
+      foreground: theme?.isDark ? (theme.textColor || '#f2f2f2') : '#555555',
+      isDark: theme?.isDark === true
+    };
+  }
+
   function buildPreviewPlaceholder(width, height, meta = {}) {
     if (!document) {
       return null;
@@ -91,7 +104,7 @@
     bg.setAttribute('y', '0');
     bg.setAttribute('width', String(safeWidth));
     bg.setAttribute('height', String(safeHeight));
-    bg.setAttribute('fill', '#ffffff');
+    bg.setAttribute('fill', meta.background || '#ffffff');
     bg.setAttribute('stroke', 'rgba(0, 0, 0, 0.08)');
     bg.setAttribute('stroke-width', '1');
     svg.appendChild(bg);
@@ -100,7 +113,7 @@
     label.setAttribute('y', String(Math.round(safeHeight / 2) - 6));
     label.setAttribute('text-anchor', 'middle');
     label.setAttribute('font-size', '12');
-    label.setAttribute('fill', '#555555');
+    label.setAttribute('fill', meta.foreground || '#555555');
     label.textContent = meta.message || 'Preview simplified';
     svg.appendChild(label);
     const sublabel = document.createElementNS(TAB_PREVIEW_NS, 'text');
@@ -108,7 +121,7 @@
     sublabel.setAttribute('y', String(Math.round(safeHeight / 2) + 10));
     sublabel.setAttribute('text-anchor', 'middle');
     sublabel.setAttribute('font-size', '10');
-    sublabel.setAttribute('fill', '#777777');
+    sublabel.setAttribute('fill', meta.foreground || '#777777');
     sublabel.textContent = meta.detail || 'Large dataset';
     svg.appendChild(sublabel);
     return new XMLSerializer().serializeToString(svg);
@@ -209,11 +222,18 @@
       boxH = Math.max(1, Math.max(baseMaxY, bboxMaxY) - minY);
     }
 
-    const ratio = boxW > 0 ? Math.max(0.25, Math.min(boxH / boxW, 3)) : 0.68;
-    const targetWidth = TAB_PREVIEW_TARGET_WIDTH;
-    const targetHeight = Math.round(
-      Math.max(TAB_PREVIEW_MIN_HEIGHT, Math.min(targetWidth * ratio, TAB_PREVIEW_MAX_HEIGHT))
+    // The preview bitmap must describe the plot's proportions, not the tooltip's
+    // minimum height. Clamping height independently to [120, 220] distorted
+    // portrait plots (including Data-values heatmaps) into square thumbnails.
+    // Fit the viewBox into the available rectangle using ONE common scale.
+    // The tooltip itself may provide padding; do not encode that padding as
+    // extra image pixels or the saved PNG aspect ratio will be incorrect.
+    const previewScale = Math.min(
+      TAB_PREVIEW_TARGET_WIDTH / boxW,
+      TAB_PREVIEW_MAX_HEIGHT / boxH
     );
+    const targetWidth = Math.max(1, Math.round(boxW * previewScale));
+    const targetHeight = Math.max(1, Math.round(boxH * previewScale));
     return {
       minX,
       minY,
@@ -252,21 +272,18 @@
     }
   }
 
-  function ensurePreviewBackground(svg, sizing) {
-    if (!svg || svg.querySelector('[data-preview-bg="true"]')) {
-      return;
-    }
-    const schemeId = String(svg.getAttribute?.('data-color-scheme') || '').trim().toLowerCase();
-    const explicitBg = String(svg.getAttribute?.('data-color-scheme-bg-color') || '').trim();
-    const isDark = schemeId === 'dark';
-    const previewBg = isDark ? (explicitBg || '#000000') : '#ffffff';
-    const rect = document.createElementNS(TAB_PREVIEW_NS, 'rect');
+  function ensurePreviewBackground(svg, sizing, appearance) {
+    if (!svg) return;
+    const previewBg = appearance?.background || '#ffffff';
+    const existing = svg.querySelector('[data-preview-bg="true"]');
+    const rect = existing || document.createElementNS(TAB_PREVIEW_NS, 'rect');
     rect.setAttribute('x', String(Number.isFinite(sizing.minX) ? sizing.minX : 0));
     rect.setAttribute('y', String(Number.isFinite(sizing.minY) ? sizing.minY : 0));
     rect.setAttribute('width', Number.isFinite(sizing.boxW) ? String(sizing.boxW) : '100%');
     rect.setAttribute('height', Number.isFinite(sizing.boxH) ? String(sizing.boxH) : '100%');
     rect.setAttribute('fill', previewBg);
     rect.setAttribute('data-preview-bg', 'true');
+    if (existing) return;
     let insertTarget = svg.firstChild;
     while (insertTarget && insertTarget.nodeType === 1 && insertTarget.nodeName.toLowerCase() === 'defs') {
       insertTarget = insertTarget.nextSibling;
@@ -349,6 +366,7 @@
       && (currentTab.layoutSignature || null) === request.layoutSignature
       && Number(currentTab.payloadVersion || 0) === request.payloadVersion
       && Number(currentTab.layoutVersion || 0) === request.layoutVersion
+      && resolvePreviewAppearance(currentTab).background === request.background
       && tabPreviewPngRequests.get(tab.id)?.id === request.id
     );
   }
@@ -390,7 +408,8 @@
       renderCacheSequence: Number(meta.renderCacheSequence ?? getRenderCacheSequence(tab)),
       rasterScale,
       sizing,
-      reason: meta.reason || 'png'
+      reason: meta.reason || 'png',
+      background: resolvePreviewAppearance(tab).background
     };
     const existing = tabPreviewPngRequests.get(tab.id);
     if (existing
@@ -399,7 +418,8 @@
       && existing.payloadVersion === request.payloadVersion
       && existing.layoutVersion === request.layoutVersion
       && existing.renderCacheSequence === request.renderCacheSequence
-      && existing.rasterScale === request.rasterScale) {
+      && existing.rasterScale === request.rasterScale
+      && existing.background === request.background) {
       return true;
     }
     request.promise = new Promise(resolve => { setTimeout(resolve, 0); })
@@ -418,7 +438,7 @@
           width: sizing.targetWidth,
           height: sizing.targetHeight,
           pngScale: request.rasterScale,
-          backgroundColor: '#ffffff',
+          backgroundColor: request.background,
           contextLabel: `tab-preview-${tab.type || 'unknown'}`
         });
       })
@@ -446,6 +466,7 @@
           layoutSignature: request.layoutSignature,
           payloadVersion: request.payloadVersion,
           layoutVersion: request.layoutVersion,
+          sizingVersion: TAB_PREVIEW_SIZING_VERSION,
           updatedAt: Date.now(),
           reason: request.reason
         };
@@ -646,8 +667,12 @@
     }
     const sizing = resolvePreviewSizing(svg);
     const clone = svg.cloneNode(true);
+    const appearance = resolvePreviewAppearance(tab);
+    // Archived caches can contain pre-theme markup. Reapply the owner's exact
+    // appearance only to the detached clone, never to another tab's live SVG.
+    window.Shared?.colorSchemes?.applyToSvg?.(tab.type, clone, { schemeId: appearance.schemeId });
     applyPreviewSizing(clone, sizing);
-    ensurePreviewBackground(clone, sizing);
+    ensurePreviewBackground(clone, sizing, appearance);
     ensurePreviewImageLinks(clone);
     const serializer = new XMLSerializer();
     const markup = serializer.serializeToString(clone);
@@ -671,7 +696,9 @@
       });
       const placeholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
         message: scheduled ? 'Preparing preview' : 'Preview too large',
-        detail: scheduled ? 'Rendering image' : 'Large dataset'
+        detail: scheduled ? 'Rendering image' : 'Large dataset',
+        background: appearance.background,
+        foreground: appearance.foreground
       });
       if (placeholder) {
         console.debug('Debug: PNG preview scheduled', {
@@ -1040,6 +1067,10 @@
       && tab.previewMeta?.layoutSignature !== layoutSignature;
     const needsPayloadVersionRefresh = Number(tab.previewMeta?.payloadVersion || 0) !== payloadVersion;
     const needsLayoutVersionRefresh = Number(tab.previewMeta?.layoutVersion || 0) !== layoutVersion;
+    // Previously persisted preview dimensions may have been independently
+    // clamped, losing the source aspect ratio. Upgrade only when the owning
+    // tab has a live source; inactive tabs keep their own saved preview.
+    const needsSizingVersionRefresh = Number(tab.previewMeta?.sizingVersion || 0) !== TAB_PREVIEW_SIZING_VERSION;
     const expectedRasterScale = resolvePngPreviewRasterScale();
     const needsRasterScaleRefresh = tab.previewMeta?.format === 'png'
       && Number(tab.previewMeta?.rasterScale || 0) !== expectedRasterScale;
@@ -1063,6 +1094,7 @@
       || needsLayoutRefresh
       || needsPayloadVersionRefresh
       || needsLayoutVersionRefresh
+      || needsSizingVersionRefresh
       || needsRasterScaleRefresh
       || needsPlaceholderRefresh
       || needsLegacyMixedPreviewRefresh;
@@ -1097,6 +1129,7 @@
         layoutSignature,
         payloadVersion,
         layoutVersion,
+        sizingVersion: TAB_PREVIEW_SIZING_VERSION,
         updatedAt: Date.now(),
         reason: meta.reason || 'capture'
       };
@@ -1324,6 +1357,9 @@
     if (!tooltip || !tab || !anchorEl) {
       return;
     }
+    const appearance = resolvePreviewAppearance(tab);
+    tooltip.style.background = appearance.background;
+    tooltip.style.borderColor = appearance.isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.15)';
     renderTabPreviewTooltipContent(tooltip, tab.previewMarkup);
     tooltip.dataset.tabId = tab.id;
     tooltip.style.display = 'block';

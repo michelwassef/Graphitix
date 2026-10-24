@@ -48,7 +48,7 @@ describe('PCA view controls — statistics and reporting', () => {
 
     const payload = window.Components.pca.getPayload();
     expect(payload.stats).toBeTruthy();
-    expect(JSON.stringify(payload.config?.stats?.summaryModel || {})).toContain('Samples analysed');
+    expect(JSON.stringify(payload.config?.stats?.summaryModel || {})).toContain('Samples analyzed');
     expect(payload.config?.stats?.reportModel).toEqual(expect.objectContaining({
       kind: 'stats-report',
       title: 'Reporting and reproducibility'
@@ -118,7 +118,7 @@ describe('PCA view controls — statistics and reporting', () => {
     await flushAll(20);
 
     const payload = window.Components.pca.getPayload();
-    expect(JSON.stringify(payload.config?.stats?.summaryModel || {})).toContain('Samples analysed');
+    expect(JSON.stringify(payload.config?.stats?.summaryModel || {})).toContain('Samples analyzed');
     expect(payload.config?.stats?.reportModel).toEqual(expect.objectContaining({
       kind: 'stats-report',
       title: 'Reporting and reproducibility'
@@ -147,7 +147,7 @@ describe('PCA view controls — statistics and reporting', () => {
 
     const payload = window.Components.pca.getPayload();
     const summaryModel = payload.config?.stats?.summaryModel;
-    expect(JSON.stringify(summaryModel || {})).toContain('Samples analysed');
+    expect(JSON.stringify(summaryModel || {})).toContain('Samples analyzed');
 
     payload.config.stats = {
       summaryModel,
@@ -163,7 +163,7 @@ describe('PCA view controls — statistics and reporting', () => {
     window.Components.pca.loadFromPayload(payload, { source: 'test-model-summary-restore', skipDraw: true });
     await flushAll(10);
 
-    expect(document.getElementById('pcaStatsSummary')?.textContent || '').toContain('Samples analysed');
+    expect(document.getElementById('pcaStatsSummary')?.textContent || '').toContain('Samples analyzed');
     expect(document.querySelector('#pcaStatsReportHost > .stats-report-panel')).toBeTruthy();
     expect(document.getElementById('pcaStatsResults')?.textContent || '').toContain('Reporting and reproducibility');
   }, 180000);

@@ -115,6 +115,7 @@ function disposeIntegrationTabs(target = globalThis, reason = 'jest-integration-
 }
 
 function inspectIntegrationTeardown(target = globalThis, eventTracker = null) {
+  target?.Main?.workspacePreparation?.cancel();
   // Keep the pre-disposal owner set so cleanup is checked even after disposal
   // removes those tabs from the workspace registry.
   const tabs = workspaceTabs(target);

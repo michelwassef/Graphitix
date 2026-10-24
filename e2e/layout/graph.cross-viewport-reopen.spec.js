@@ -31,6 +31,8 @@ async function captureGeometry(page, component) {
       graphWidth: graphRect?.width || 0,
       graphFrameWidth: svgRect?.width || 0,
       graphFrameHeight: svgRect?.height || 0,
+      graphBaseWidth: Number(svgBox?.dataset?.graphWidthPx || svgBox?.dataset?.resizerBaseWidth),
+      graphBaseHeight: Number(svgBox?.dataset?.graphHeightPx || svgBox?.dataset?.resizerBaseHeight),
       tableStyle: table?.getAttribute('style') || '',
       graphStyle: graph?.getAttribute('style') || '',
       layout: tab?.layoutState || null
@@ -130,8 +132,9 @@ for (const component of COMPONENT_CATALOG) {
     expect(small.tableWidth, `${component.type} table panel should remain visible`).toBeGreaterThan(0);
     expect(small.graphWidth, `${component.type} graph panel should remain visible`).toBeGreaterThan(0);
     expect(small.tableWidth, `${component.type} table width should adapt`).toBeLessThan(large.tableWidth - 40);
-    expect(small.graphFrameWidth, `${component.type} graph width must remain absolute`).toBeCloseTo(large.graphFrameWidth, 0);
-    expect(small.graphFrameHeight, `${component.type} graph height must remain absolute`).toBeCloseTo(large.graphFrameHeight, 0);
+    expect(small.graphBaseWidth, `${component.type} figure width must remain absolute`).toBe(large.graphBaseWidth);
+    expect(small.graphBaseHeight, `${component.type} figure height must remain absolute`).toBe(large.graphBaseHeight);
+    expect(small.layout?.graphView).toEqual(savedLayout.graphView);
     expect(small.tableStyle).not.toMatch(/(?:^|;)\s*(?:width|max-width):\s*\d+(?:\.\d+)?px/);
     expect(small.tableStyle).not.toMatch(/flex:\s*0\s+0\s+\d+(?:\.\d+)?px/);
     expect(small.graphStyle).not.toMatch(/(?:^|;)\s*(?:width|max-width):\s*\d+(?:\.\d+)?px/);

@@ -106,14 +106,18 @@ describe('ROC stats panel owner contract', () => {
 
   test('advisor context, DOM, and persistence stay bound to the owning ROC session', () => {
     const source = rocSource();
-    const advisor = functionBlock(source, 'renderRocStatsAdvisor(rawContext, options = {})', 'renderStatsControls(options = {})');
+    const advisor = functionBlock(source, 'renderRocStatsAdvisor(options = {})', 'renderStatsControls(options = {})');
     expect(advisor).toContain('const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState())');
     expect(advisor).toContain('const rocRefs = resolveRocStatsRefsForSession(session, options)');
     expect(advisor).toContain('const container = rocRefs.statsAdvisor || null');
-    expect(advisor).toContain("persistRocTabState('roc-stats-advisor-toggle', session)");
-    expect(advisor).toContain("persistRocTabState('roc-stats-advisor-answer', session)");
+    expect(advisor).toContain('Shared.statsAdvisor.begin({ host: container, component: \'roc\', tabId: session.tabId');
+    expect(advisor).toContain('if(ownerSession !== session || !isAdvisorOwnerCurrent()){ return; }');
+    expect(advisor).toContain('const readCurrentContext = () => readRocAdvisorContext(session)');
+    expect(advisor).toContain('view.apply({');
+    expect(advisor).toContain("persistRocTabState('roc-stats-advisor-toggle', ownerSession || session)");
+    expect(advisor).toContain("persistRocTabState('roc-stats-advisor-answer', ownerSession || session)");
     expect(advisor).toContain("persistRocTabState('roc-stats-advisor-apply', session)");
-    expect(advisor).toContain("persistRocTabState('roc-stats-advisor-reset', session)");
+    expect(advisor).toContain("persistRocTabState('roc-stats-advisor-reset', ownerSession || session)");
     expect(source).not.toContain('state.advisorContext');
 
     const payloadApply = sourceBlock(

@@ -3,13 +3,20 @@ const {
   loadProductionBootstrap,
   resetProductionNamespaces
 } = require('../../test-support/productionLoader');
+const { waitForIntegrationOwnerReady } = require('../../test-support/readiness');
 
-async function flushAsyncWork(iterations = 10){
-  for(let i = 0; i < iterations; i += 1){
-    await Promise.resolve();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await Promise.resolve();
-  }
+async function settleBoxOwner(){
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const tab=window.Main?.session?.getActiveTab?.();
+  const prompt=document.getElementById('duplicatePrompt');
+  if(tab?.type!=='box' || (prompt && !prompt.hidden)) return;
+  await waitForIntegrationOwnerReady({
+    type:'box',expectedTabId:tab.id,requireMountedRoot:true,
+    condition:()=>{
+      const state=window.Components.box.__getState();
+      return !state.drawScheduled && !state.drawInProgress && !state.statsComputationPending;
+    }
+  });
 }
 
 async function waitForBoxSvg(iterations = 80){
@@ -26,7 +33,7 @@ async function waitForBoxSvg(iterations = 80){
     if(svg){
       return svg;
     }
-    await flushAsyncWork(1);
+    await settleBoxOwner();
   }
   return null;
 }
@@ -37,7 +44,7 @@ async function waitForStatsButtonText(text, iterations = 120){
     if(button?.textContent === text){
       return button;
     }
-    await flushAsyncWork(1);
+    await settleBoxOwner();
   }
   return getBoxStatsButton();
 }
@@ -45,7 +52,7 @@ async function waitForStatsButtonText(text, iterations = 120){
 async function advanceAsyncTime(ms){
   const duration = Math.max(0, Number(ms) || 0);
   await new Promise(resolve => setTimeout(resolve, duration));
-  await flushAsyncWork(2);
+  await settleBoxOwner();
 }
 
 async function activateWorkspace(type){
@@ -53,7 +60,7 @@ async function activateWorkspace(type){
   if(result && typeof result.then === 'function'){
     await result;
   }
-  await flushAsyncWork(10);
+  await settleBoxOwner();
 }
 
 async function activateTabById(tabId, reason){
@@ -61,7 +68,7 @@ async function activateTabById(tabId, reason){
   if(result && typeof result.then === 'function'){
     await result;
   }
-  await flushAsyncWork(15);
+  await settleBoxOwner();
 }
 
 function findStatsTestSelect(){
@@ -88,7 +95,7 @@ function setStatsScopeValue(value){
 
 function getCustomPairsInput(){
   const rows = Array.from(getBoxNodeInActiveTab('#statsControls')?.querySelectorAll?.('.box-stats-options__row') || []);
-  const row = rows.find(node => /^Pairs:\s*/.test(node.textContent || '')) || null;
+  const row = rows.find(node => node.querySelector(':scope > label')?.textContent?.trim() === 'Pairs') || null;
   return row?.querySelector?.('input[type="text"]') || null;
 }
 
@@ -121,6 +128,19 @@ async function loadSeedPayloadForActiveTab(boxComponent, source){
   });
 }
 
+async function selectBoxStatColumns(count=3){
+  expect(await waitForBoxSvg()).toBeTruthy();
+  for(let index=0;index<count;index+=1){
+    const checkbox=getBoxNodeInActiveTab(`#statCol${index}`);
+    expect(checkbox).toBeTruthy();
+    if(!checkbox.checked){
+      checkbox.checked=true;
+      checkbox.dispatchEvent(new window.Event('change',{ bubbles:true }));
+      await settleBoxOwner();
+    }
+  }
+}
+
 async function computeBoxStatsForActiveTab(boxComponent){
   expect(window.Main?.session?.getActiveTab?.()?.type).toBe('box');
   expect(await waitForBoxSvg()).toBeTruthy();
@@ -128,8 +148,8 @@ async function computeBoxStatsForActiveTab(boxComponent){
   expect(statsButton).toBeTruthy();
   expect(statsButton.disabled).toBe(false);
   statsButton.click();
-  await flushAsyncWork(80);
-  expect((await waitForStatsButtonText('Recalculate statistics'))?.textContent).toBe('Recalculate statistics');
+  await settleBoxOwner();
+  expect((await waitForStatsButtonText('Calculate statistics'))?.textContent).toBe('Calculate statistics');
 }
 
 function getBoxStatsButton(){
@@ -216,6 +236,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     }
 
     loadProductionBootstrap({
+      fixtureLifetime:true,
       vendorMode: 'fake',
       preloadComponents: ['box']
     });
@@ -241,20 +262,20 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(main?.tabs).toBeTruthy();
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-seed-a');
-    await flushAsyncWork(20);
+    await settleBoxOwner();
 
     const tabA = main.session.getActiveTab();
     expect(tabA?.type).toBe('box');
 
     expect(findStatsTestSelect()?.value).toBe('parametric');
     setStatsTestValue('nonparametric');
-    await flushAsyncWork(20);
+    await settleBoxOwner();
 
     expect(boxComponent.__getState().statsTest).toBe('nonparametric');
     expect(findStatsTestSelect()?.value).toBe('nonparametric');
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     await activateWorkspace('box');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -262,7 +283,7 @@ describe('Box stats controls tab isolation with render cache', () => {
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(20);
+      await settleBoxOwner();
     }
 
     const tabB = main.session.getActiveTab();
@@ -270,7 +291,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(tabB?.id).not.toBe(tabA?.id);
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-seed-b');
-    await flushAsyncWork(20);
+    await settleBoxOwner();
 
     expect(boxComponent.__getState().statsTest).toBe('parametric');
     expect(findStatsTestSelect()?.value).toBe('parametric');
@@ -284,6 +305,191 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(findStatsTestSelect()?.value).toBe('parametric');
   });
 
+  test('post-hoc requests and explicit corrections remain isolated between box tabs', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent=window.Components?.box;
+    const main=window.Main;
+    await loadSeedPayloadForActiveTab(boxComponent,'test-posthoc-isolation-a');
+    await selectBoxStatColumns();
+    const tabA=main.session.getActiveTab();
+    const postHocA=getBoxNodeInActiveTab('#boxStatsPostHoc');
+    expect(postHocA?.value).toBe('auto');
+    postHocA.value='anovaPooled';
+    postHocA.dispatchEvent(new window.Event('change',{ bubbles:true }));
+    await settleBoxOwner();
+
+    const correctionA=getBoxNodeInActiveTab('#boxStatsCorrection');
+    expect(correctionA?.disabled).toBe(false);
+    correctionA.value='bonferroni';
+    correctionA.dispatchEvent(new window.Event('change',{ bubbles:true }));
+    await settleBoxOwner();
+    expect(boxComponent.__getState().statsCorrectionExplicit).toBe(true);
+    await computeBoxStatsForActiveTab(boxComponent);
+    const signatureA = boxComponent.__testHooks.getSession(tabA.id)?.state?.results?.signature;
+    expect(signatureA).toBeTruthy();
+    expect(signatureA).not.toContain('studentized-range-direct-sf-v2');
+
+    main.tabs.handleAddTabClick();
+    await settleBoxOwner();
+    await activateWorkspace('box');
+    const duplicatePrompt=document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      document.getElementById('duplicateEmpty')?.click();
+      await settleBoxOwner();
+    }
+    await loadSeedPayloadForActiveTab(boxComponent,'test-posthoc-isolation-b');
+    await selectBoxStatColumns();
+    const tabB=main.session.getActiveTab();
+    expect(tabB?.id).not.toBe(tabA?.id);
+    expect(getBoxNodeInActiveTab('#boxStatsPostHoc')?.value).toBe('auto');
+    expect(boxComponent.__getState().statsCorrectionExplicit).toBe(false);
+    await computeBoxStatsForActiveTab(boxComponent);
+    const signatureB = boxComponent.__testHooks.getSession(tabB.id)?.state?.results?.signature;
+    expect(signatureB).toContain('studentized-range-direct-sf-v2');
+    expect(signatureB).not.toBe(signatureA);
+
+    await activateTabById(tabA.id,'test-posthoc-isolation-return-a');
+    expect(getBoxNodeInActiveTab('#boxStatsPostHoc')?.value).toBe('anovaPooled');
+    expect(getBoxNodeInActiveTab('#boxStatsCorrection')?.value).toBe('bonferroni');
+    expect(boxComponent.__getState().statsCorrectionExplicit).toBe(true);
+    const payloadA=boxComponent.getPayload();
+    expect(payloadA.config.stats).toEqual(expect.objectContaining({
+      postHoc:'anovaPooled',
+      correction:'bonferroni',
+      correctionExplicit:true
+    }));
+
+    await activateTabById(tabB.id,'test-posthoc-isolation-return-b');
+    expect(getBoxNodeInActiveTab('#boxStatsPostHoc')?.value).toBe('auto');
+    expect(boxComponent.__getState().statsCorrectionExplicit).toBe(false);
+    expect(boxComponent.getPayload().config.stats.postHoc).toBe('auto');
+    expect(boxComponent.__testHooks.getSession(tabB.id)?.state?.results?.signature).toBe(signatureB);
+  }, 60000);
+
+  test('a failed worker for an inactive Box tab cannot replace the active tab statistics panel', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent = window.Components?.box;
+    const main = window.Main;
+    const tabA = main.session.getActiveTab();
+    const payloadA = boxComponent.createEmptyPayload();
+    payloadA.data = [
+      ['A', 'B', 'C', 'D', 'E'],
+      [10, 11, 12, 13, 14],
+      [9, 12, 11, 15, 13],
+      [11, 13, 14, 12, 16]
+    ];
+    window.Shared.workspaceTabs.activateSession(tabA, 'box', { reason: 'test-worker-failure-owner-a' });
+    await boxComponent.activateTab(tabA, { reason: 'test-worker-failure-owner-a' });
+    await boxComponent.loadFromPayload(payloadA, { source: 'test-worker-failure-owner-a', tabId: tabA.id, tab: tabA });
+    await boxComponent.draw({ tabId: tabA.id, tab: tabA, reason: 'test-worker-failure-owner-a-draw', force: true });
+    await selectBoxStatColumns(5);
+
+    const postHoc = getBoxNodeInActiveTab('#boxStatsPostHoc');
+    expect(postHoc).toBeTruthy();
+    postHoc.value = 'tukey';
+    postHoc.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await settleBoxOwner();
+
+    const workers = window.Shared.Workers;
+    let rejectWorker;
+    const workerTask = new Promise((_resolve, reject) => { rejectWorker = reject; });
+    const supportedSpy = jest.spyOn(workers, 'isSupported').mockReturnValue(true);
+    const runTaskSpy = jest.spyOn(workers, 'runTask').mockReturnValue(workerTask);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      getBoxStatsButton().click();
+      await Promise.resolve();
+      expect(runTaskSpy).toHaveBeenCalledTimes(1);
+      expect(boxComponent.__getState().statsComputationPending).toBe(true);
+
+      main.tabs.handleAddTabClick();
+      await settleBoxOwner();
+      await activateWorkspace('box');
+      const duplicatePrompt = document.getElementById('duplicatePrompt');
+      if(duplicatePrompt && !duplicatePrompt.hidden){
+        document.getElementById('duplicateEmpty')?.click();
+        await settleBoxOwner();
+      }
+      const tabB = main.session.getActiveTab();
+      expect(tabB?.id).not.toBe(tabA.id);
+      await loadSeedPayloadForActiveTab(boxComponent, 'test-worker-failure-owner-b');
+
+      const statsPanelB = getBoxNodeInActiveTab('#statsResults');
+      expect(statsPanelB).toBeTruthy();
+      statsPanelB.textContent = 'tab-b-stats-owner-sentinel';
+      rejectWorker(new Error('simulated Box worker failure'));
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(main.session.getActiveTab()?.id).toBe(tabB.id);
+      expect(statsPanelB.textContent).toBe('tab-b-stats-owner-sentinel');
+
+      await activateTabById(tabA.id, 'test-worker-failure-return-a');
+      expect(getBoxStatsButton()?.disabled).toBe(false);
+      expect(getBoxNodeInActiveTab('#boxStatsStatus')?.textContent).not.toMatch(/calculating statistics/i);
+    }finally{
+      supportedSpy.mockRestore();
+      runTaskSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  }, 60000);
+
+  test('large Box statistics do not fall back to the main thread when workers fail or are unavailable', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent = window.Components?.box;
+    const tab = window.Main.session.getActiveTab();
+    const payload = boxComponent.createEmptyPayload();
+    payload.data = [
+      ['A', 'B', 'C', 'D', 'E'],
+      [10, 11, 12, 13, 14],
+      [9, 12, 11, 15, 13],
+      [11, 13, 14, 12, 16]
+    ];
+    window.Shared.workspaceTabs.activateSession(tab, 'box', { reason: 'test-worker-failure-active-owner' });
+    await boxComponent.activateTab(tab, { reason: 'test-worker-failure-active-owner' });
+    await boxComponent.loadFromPayload(payload, { source: 'test-worker-failure-active-owner', tabId: tab.id, tab });
+    await boxComponent.draw({ tabId: tab.id, tab, reason: 'test-worker-failure-active-owner-draw', force: true });
+    await selectBoxStatColumns(5);
+
+    const postHoc = getBoxNodeInActiveTab('#boxStatsPostHoc');
+    postHoc.value = 'tukey';
+    postHoc.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await settleBoxOwner();
+
+    const workers = window.Shared.Workers;
+    let rejectWorker;
+    const workerTask = new Promise((_resolve, reject) => { rejectWorker = reject; });
+    const supportedSpy = jest.spyOn(workers, 'isSupported').mockReturnValue(true);
+    const runTaskSpy = jest.spyOn(workers, 'runTask').mockReturnValue(workerTask);
+    const modelSpy = jest.spyOn(window.Shared.boxStatsModel, 'computeBoxStatsModel');
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      getBoxStatsButton().click();
+      await Promise.resolve();
+      expect(runTaskSpy).toHaveBeenCalledTimes(1);
+      rejectWorker(new Error('simulated active Box worker failure'));
+      await settleBoxOwner();
+
+      expect(modelSpy).not.toHaveBeenCalled();
+      expect(getBoxNodeInActiveTab('#boxStatsStatus')?.textContent).toMatch(/failed|retry/i);
+      expect(getBoxStatsButton()?.disabled).toBe(false);
+
+      supportedSpy.mockReturnValue(false);
+      getBoxStatsButton().click();
+      await settleBoxOwner();
+      expect(runTaskSpy).toHaveBeenCalledTimes(1);
+      expect(modelSpy).not.toHaveBeenCalled();
+      expect(getBoxNodeInActiveTab('#boxStatsStatus')?.textContent).toMatch(/worker.*unavailable/i);
+    }finally{
+      supportedSpy.mockRestore();
+      runTaskSpy.mockRestore();
+      modelSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  }, 60000);
+
   test('flip axes remains owner-scoped across repeated same-component tab reuse', async () => {
     await activateWorkspace('box');
 
@@ -293,29 +499,29 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(main?.tabs).toBeTruthy();
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-flip-isolation-a');
-    await flushAsyncWork(20);
+    await settleBoxOwner();
     const tabA = main.session.getActiveTab();
     expect(tabA?.type).toBe('box');
     expectBoxFlipSnapshot(readActiveBoxFlipSnapshot(boxComponent, 'test-flip-a-initial'), tabA.id, false);
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     await activateWorkspace('box');
     const duplicatePrompt = document.getElementById('duplicatePrompt');
     if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(20);
+      await settleBoxOwner();
     }
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-flip-isolation-b');
-    await flushAsyncWork(20);
+    await settleBoxOwner();
     const tabB = main.session.getActiveTab();
     expect(tabB?.id).not.toBe(tabA.id);
 
     setBoxFlipAxesValue(true);
-    await flushAsyncWork(30);
+    await settleBoxOwner();
     expectBoxFlipSnapshot(readActiveBoxFlipSnapshot(boxComponent, 'test-flip-b-after-enable'), tabB.id, true);
 
     const sequence = [
@@ -345,7 +551,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     await computeBoxStatsForActiveTab(boxComponent);
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     await activateWorkspace('box');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -353,11 +559,11 @@ describe('Box stats controls tab isolation with render cache', () => {
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(25);
+      await settleBoxOwner();
     }
 
     expect(getBoxStatsButton()?.textContent).toBe('Calculate statistics');
-  });
+  }, 120000);
 
   test('custom pair edits write through before blur and calculate on the first click', async () => {
     await activateWorkspace('box');
@@ -365,14 +571,14 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-custom-pairs-first-click');
-    await flushAsyncWork(20);
+    await settleBoxOwner();
 
     setStatsScopeValue('custom');
 
     let pairInput = getCustomPairsInput();
     expect(pairInput).toBeTruthy();
     pairInput.focus();
-    await flushAsyncWork(20);
+    await settleBoxOwner();
     expect(getCustomPairsInput()).toBe(pairInput);
     expect(document.activeElement).toBe(pairInput);
 
@@ -400,7 +606,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(document.activeElement).toBe(pairInput);
 
     pairInput.dispatchEvent(new window.Event('change', { bubbles: true }));
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     expect(boxComponent.__getState().statsPairsText).toBe('1-2');
     expect(boxComponent.__getState().statsCustomPairs).toHaveLength(1);
     const pairwiseProcedure = getBoxNodeInActiveTab('#boxStatsPostHoc');
@@ -437,8 +643,8 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(getBoxStatsButton()).toBe(calculateButton);
     calculateButton.click();
 
-    await flushAsyncWork(80);
-    expect((await waitForStatsButtonText('Recalculate statistics'))?.textContent).toBe('Recalculate statistics');
+    await settleBoxOwner();
+    expect((await waitForStatsButtonText('Calculate statistics'))?.textContent).toBe('Calculate statistics');
     expect(boxComponent.__getState().statsLastRunVersion).toBeGreaterThan(0);
     expect(boxComponent.__getState().statsLastRunVersion).toBe(boxComponent.__getState().statsContextVersion);
   });
@@ -449,7 +655,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-stats-family-immediate-compute');
-    await flushAsyncWork(20);
+    await settleBoxOwner();
     expect(await waitForBoxSvg()).toBeTruthy();
 
     setStatsTestValue('parametric');
@@ -458,9 +664,9 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(calculateButton.disabled).toBe(false);
     calculateButton.click();
 
-    await flushAsyncWork(80);
+    await settleBoxOwner();
     expect(getBoxStatsButton()).toBe(calculateButton);
-    expect((await waitForStatsButtonText('Recalculate statistics'))?.textContent).toBe('Recalculate statistics');
+    expect((await waitForStatsButtonText('Calculate statistics'))?.textContent).toBe('Calculate statistics');
     expect(boxComponent.__getState().statsLastRunVersion).toBeGreaterThan(0);
     expect(boxComponent.__getState().statsLastRunVersion).toBe(boxComponent.__getState().statsContextVersion);
   });
@@ -474,11 +680,11 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(main?.tabs).toBeTruthy();
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-stats-click-a');
-    await flushAsyncWork(25);
+    await settleBoxOwner();
     const tabA = main.session.getActiveTab();
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     await activateWorkspace('box');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -486,11 +692,11 @@ describe('Box stats controls tab isolation with render cache', () => {
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(25);
+      await settleBoxOwner();
     }
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-stats-click-b');
-    await flushAsyncWork(25);
+    await settleBoxOwner();
     const tabB = main.session.getActiveTab();
     expect(tabB?.id).not.toBe(tabA?.id);
 
@@ -505,8 +711,8 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(statsButtonA).toBeTruthy();
     expect(statsButtonA.disabled).toBe(false);
     statsButtonA.click();
-    await flushAsyncWork(50);
-    expect(statsButtonA.textContent).toBe('Recalculate statistics');
+    await settleBoxOwner();
+    expect(statsButtonA.textContent).toBe('Calculate statistics');
     expect(boxComponent.__getState().statsComputationPending).toBe(false);
 
     await activateTabById(tabB.id, 'test-switch-to-b-after-a-compute');
@@ -514,8 +720,8 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(statsButtonB).toBeTruthy();
     expect(statsButtonB.disabled).toBe(false);
     statsButtonB.click();
-    await flushAsyncWork(50);
-    expect(['Calculate statistics', 'Recalculate statistics']).toContain(statsButtonB.textContent);
+    await settleBoxOwner();
+    expect(statsButtonB.textContent).toBe('Calculate statistics');
     expect(boxComponent.__getState().statsComputationPending).toBe(false);
   });
 
@@ -536,7 +742,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     await computeBoxStatsForActiveTab(boxComponent);
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     await activateWorkspace('box');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -544,7 +750,7 @@ describe('Box stats controls tab isolation with render cache', () => {
       const reuseButton = document.getElementById('duplicateReuse');
       expect(reuseButton).toBeTruthy();
       reuseButton.click();
-      await flushAsyncWork(35);
+      await settleBoxOwner();
     }
 
     const tabB = main.session.getActiveTab();
@@ -554,7 +760,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     const renderSpy = jest.spyOn(window.Shared.statsTable, 'render');
     try{
       await activateTabById(tabA.id, 'test-stats-surface-fast-switch-a');
-      await flushAsyncWork(60);
+      await settleBoxOwner();
     }finally{
       renderSpy.mockRestore();
     }
@@ -562,7 +768,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(main.session.getActiveTab()?.id).toBe(tabA.id);
     expect(renderSpy.mock.calls.length).toBeLessThanOrEqual(1);
     expect(document.querySelector('#statsResults .stats-table-card, #statsTable .stats-table-card')).toBeTruthy();
-    expect(getBoxStatsButton()?.textContent).toBe('Recalculate statistics');
+    expect(getBoxStatsButton()?.textContent).toBe('Calculate statistics');
   });
 
   test('delayed dark theme repaint cannot cross-contaminate another box tab cache', async () => {
@@ -579,7 +785,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     payloadA.config = payloadA.config || {};
     payloadA.config.colorScheme = 'scientific';
     boxComponent.loadFromPayload(payloadA, { source: 'test-theme-a' });
-    await flushAsyncWork(25);
+    await settleBoxOwner();
     const tabA = main.session.getActiveTab();
     main.session.persistActiveTabState(tabA, {
       workspaces: main.components.registry,
@@ -591,7 +797,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(tabAScheme).not.toBe('dark');
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     await activateWorkspace('box');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -599,24 +805,24 @@ describe('Box stats controls tab isolation with render cache', () => {
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(25);
+      await settleBoxOwner();
     }
 
     const payloadB = createSeedPayload(boxComponent);
     payloadB.config = payloadB.config || {};
     payloadB.config.colorScheme = 'scientific';
     boxComponent.loadFromPayload(payloadB, { source: 'test-theme-b' });
-    await flushAsyncWork(25);
+    await settleBoxOwner();
     const tabB = main.session.getActiveTab();
     expect(tabB?.id).not.toBe(tabA.id);
 
     expect(schemes.applyToActiveTab('box', 'dark')).toBe(true);
-    await flushAsyncWork(5);
+    await settleBoxOwner();
     expect(tabB.payload?.config?.colorScheme).toBe('dark');
 
     await activateTabById(tabA.id, 'test-theme-switch-back-before-delayed-dark');
     await advanceAsyncTime(230);
-    await flushAsyncWork(20);
+    await settleBoxOwner();
 
     const active = main.session.getActiveTab();
     expect(active?.id).toBe(tabA.id);
@@ -640,13 +846,13 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(main?.tabs).toBeTruthy();
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-cache-owner-a');
-    await flushAsyncWork(30);
+    await settleBoxOwner();
     expect(await waitForBoxSvg()).toBeTruthy();
     const tabA = main.session.getActiveTab();
     expect(tabA?.type).toBe('box');
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     await activateWorkspace('box');
 
     const duplicatePrompt = document.getElementById('duplicatePrompt');
@@ -654,11 +860,11 @@ describe('Box stats controls tab isolation with render cache', () => {
       const emptyButton = document.getElementById('duplicateEmpty');
       expect(emptyButton).toBeTruthy();
       emptyButton.click();
-      await flushAsyncWork(25);
+      await settleBoxOwner();
     }
 
     await loadSeedPayloadForActiveTab(boxComponent, 'test-cache-owner-b');
-    await flushAsyncWork(30);
+    await settleBoxOwner();
     const tabB = main.session.getActiveTab();
     expect(tabB?.type).toBe('box');
     expect(tabB?.id).not.toBe(tabA.id);
@@ -666,7 +872,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     await activateTabById(tabA.id, 'test-cache-owner-prime-a');
     expect(await waitForBoxSvg()).toBeTruthy();
     await activateTabById(tabB.id, 'test-cache-owner-capture-a');
-    await flushAsyncWork(20);
+    await settleBoxOwner();
 
     const tabAWithCache = main.session.workspaceState.tabs.find(tab => tab.id === tabA.id);
     const cacheMeta = tabAWithCache?.renderCache?.cache?.__graphitixRenderCache || null;
@@ -700,7 +906,7 @@ describe('Box stats controls tab isolation with render cache', () => {
 
     try{
       await activateTabById(tabA.id, 'test-cache-owner-switch-a');
-      await flushAsyncWork(40);
+      await settleBoxOwner();
     }finally{
       boxComponent.draw = originalDraw;
       if(resizeSpy){
@@ -747,19 +953,19 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(extentControlA.style.display).toBe('');
     extentA.value = 'trimmed';
     extentA.dispatchEvent(new window.Event('change', { bubbles: true }));
-    await flushAsyncWork(25);
+    await settleBoxOwner();
     expect(boxComponent.__getState().violin.extentMode).toBe('trimmed');
 
     const payloadA = boxComponent.getPayload();
     expect(payloadA.config.violin.extentMode).toBe('trimmed');
 
     main.tabs.handleAddTabClick();
-    await flushAsyncWork(10);
+    await settleBoxOwner();
     await activateWorkspace('box');
     const duplicatePrompt = document.getElementById('duplicatePrompt');
     if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
       document.getElementById('duplicateEmpty')?.click();
-      await flushAsyncWork(25);
+      await settleBoxOwner();
     }
     await loadSeedPayloadForActiveTab(boxComponent, 'test-violin-extent-b');
     const tabB = main.session.getActiveTab();

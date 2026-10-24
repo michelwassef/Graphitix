@@ -99,6 +99,7 @@ describe('statsReporting figure-summary tab state', () => {
   });
 
   test('all figure-summary publisher targets clear stale queued reports before replacement', () => {
+    const restoreSvgTextGeometry = require('../setup/svgTextGeometry').installSvgTextGeometry();
     const cases = [
       { type:'box', panelId:'statsResults', plot:'boxPlot', svgSelector:'#boxPlot svg' },
       { type:'scatter', panelId:'scatterStatsResults', plot:'scatterPlot', svgSelector:'#scatterPlot svg' },
@@ -120,9 +121,11 @@ describe('statsReporting figure-summary tab state', () => {
     }));
     document.body.innerHTML = cases.map((entry, index) => {
       const tabId = tabs[index].id;
-      const plotMarkup = entry.type === 'heatmap' || entry.type === 'surface'
+      const plotMarkup = entry.type === 'venn'
+        ? `<div id="${entry.plot}"><svg id="stage" width="400" height="300" viewBox="0 0 400 300"></svg></div>`
+        : (entry.type === 'heatmap' || entry.type === 'surface'
         ? `<svg id="${entry.plot}" width="400" height="300" viewBox="0 0 400 300"></svg>`
-        : `<div id="${entry.plot}"><svg width="400" height="300" viewBox="0 0 400 300"></svg></div>`;
+        : `<div id="${entry.plot}"><svg width="400" height="300" viewBox="0 0 400 300"></svg></div>`);
       return `<section data-workspace-tab-id="${tabId}" data-workspace-component="${entry.type}">
         <div id="${entry.panelId}"></div>
         ${plotMarkup}
@@ -149,6 +152,7 @@ describe('statsReporting figure-summary tab state', () => {
         return sharedByTab.get(mapKey);
       }
     };
+    delete window.Shared.statsFigureSummary;
     require('../../js/shared/statsFigureSummary.js');
     const summary = window.Shared.statsFigureSummary;
     const reporting = window.Shared.statsReporting;
@@ -203,6 +207,7 @@ describe('statsReporting figure-summary tab state', () => {
     }finally{
       window.requestAnimationFrame = previousRaf;
       global.requestAnimationFrame = previousGlobalRaf;
+      restoreSvgTextGeometry();
     }
   });
 });
