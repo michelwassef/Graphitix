@@ -57,7 +57,15 @@ test('welcome page follows the new theme across desktop and mobile', async ({ pa
     '#graphSelectionGrid .graph-card__action--new'
   ].map(selector => page.locator(selector).first().evaluate(node => Math.round(node.getBoundingClientRect().height))));
   await expect(graphActions.first()).toHaveCSS('min-height', '36px');
-  await expect(graphActions.first()).toHaveCSS('background-color', 'rgb(233, 236, 239)');
+  const newActionBackground = await graphActions.first().evaluate(node => {
+    const probe = node.ownerDocument.createElement('span');
+    probe.style.backgroundColor = getComputedStyle(node).getPropertyValue('--gt-surface-muted').trim();
+    node.ownerDocument.body.appendChild(probe);
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  });
+  await expect(graphActions.first()).toHaveCSS('background-color', newActionBackground);
   const newActionColors = await page.locator('#graphSelectionGrid .graph-card').first().evaluate(card => {
     const newAction = card.querySelector('.graph-card__action--new');
     const exampleAction = card.querySelector('.graph-card__action--example');
@@ -70,9 +78,23 @@ test('welcome page follows the new theme across desktop and mobile', async ({ pa
       iconBoxes: Array.from(icon.querySelectorAll('.welcome-icon__box'), box => getComputedStyle(box).fill)
     };
   });
+  const expectedIconColors = await page.locator('#graphSelectionGrid .graph-card__icon').first().evaluate(icon => {
+    const resolve = (property, token) => {
+      const probe = document.createElement('span');
+      probe.style.setProperty(property, getComputedStyle(icon).getPropertyValue(token).trim());
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).getPropertyValue(property);
+      probe.remove();
+      return color;
+    };
+    return {
+      tile: resolve('background-color', '--ui-surface-subtle'),
+      axis: resolve('color', '--welcome-icon-axis')
+    };
+  });
   expect(newActionColors.newText).toBe(newActionColors.exampleText);
-  expect(newActionColors.iconTile).toBe('rgb(247, 248, 249)');
-  expect(newActionColors.iconAxis).toBe('rgb(102, 112, 133)');
+  expect(newActionColors.iconTile).toBe(expectedIconColors.tile);
+  expect(newActionColors.iconAxis).toBe(expectedIconColors.axis);
   expect(new Set(newActionColors.iconBoxes).size).toBe(3);
   expect(await matchedActionHeights()).toEqual([36, 36, 36]);
   await expect(page.locator('#graphSelectionGrid .welcome-graph-category__title')).toHaveText([
@@ -742,6 +764,22 @@ test('Surface legend visibility is canonical and does not alter plot geometry', 
       && !!root.querySelector('#surfaceSvg g.surface-legend');
   }, null, { timeout: 30_000 });
 
+  const waitForSurfaceReady = async reason => {
+    const readiness = await page.evaluate(async currentReason => {
+      const component = window.Components?.surface;
+      const tab = window.Main?.session?.getActiveTab?.();
+      if (!component?.awaitReadyForSnapshot || !tab) return { ok: false, reason: 'missing-owner-readiness' };
+      return component.awaitReadyForSnapshot({
+        tab,
+        tabId: tab.id,
+        reason: currentReason,
+        settleFrames: 2
+      });
+    }, reason);
+    expect(readiness).toMatchObject({ ok: true });
+  };
+  await waitForSurfaceReady('smoke-surface-legend-before-capture');
+
   const capturePlotGeometry = () => page.evaluate(() => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
@@ -766,17 +804,34 @@ test('Surface legend visibility is canonical and does not alter plot geometry', 
       if (!layer) return null;
       const clone = layer.cloneNode(true);
       clone.querySelectorAll('.surface-legend, [data-legend-key]').forEach(node => node.remove());
-      return Array.from(clone.querySelectorAll('g,path,polygon,polyline,line,rect,circle,ellipse,text')).map(node => ({
+      return Array.from(clone.querySelectorAll('g,path,polygon,polyline,line,rect,circle,ellipse'))
+        .map(node => ({
         tag: node.tagName.toLowerCase(),
         className: node.getAttribute('class') || '',
-        text: node.tagName.toLowerCase() === 'text' ? node.textContent : '',
         attrs: Object.fromEntries(attributeNames
           .filter(name => node.hasAttribute(name))
           .map(name => [name, node.getAttribute(name)]))
-      }));
+        }));
     });
     return {
       layers,
+      axisText: Array.from(svg.querySelectorAll('.surface-layer-axes text')).map(label => {
+        const style = getComputedStyle(label);
+        const rect = label.getBoundingClientRect();
+        const transformAngle = String(label.getAttribute('transform') || '').match(/^rotate\(([-+\d.eE]+)/);
+        return {
+          text: label.textContent,
+          axis: label.dataset.axisKey,
+          isTick: label.hasAttribute('data-axis-tick-label'),
+          hidden: label.getAttribute('display') === 'none' || style.display === 'none',
+          fontSize: style.fontSize,
+          fill: label.getAttribute('fill'),
+          anchor: label.getAttribute('text-anchor'),
+          baseline: label.getAttribute('dominant-baseline'),
+          angle: transformAngle ? Number(transformAngle[1]) : 0,
+          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        };
+      }),
       showLegend: window.Components?.surface?.getPayload?.()?.config?.settings?.showLegend
     };
   });
@@ -798,8 +853,20 @@ test('Surface legend visibility is canonical and does not alter plot geometry', 
       && !root?.querySelector('#surfaceSvg g.surface-legend')
       && window.Components?.surface?.getPayload?.()?.config?.settings?.showLegend === false;
   }, null, { timeout: 30_000 });
+  await waitForSurfaceReady('smoke-surface-legend-after-toggle');
 
   const after = await capturePlotGeometry();
   expect(after.showLegend).toBe(false);
   expect(after.layers).toEqual(before.layers);
+  expect(after.axisText.map(({ rect, ...semantics }) => semantics)).toEqual(
+    before.axisText.map(({ rect, ...semantics }) => semantics)
+  );
+  after.axisText.forEach((label, index) => {
+    if (label.hidden) return;
+    const previous = before.axisText[index].rect;
+    expect(Math.abs(label.rect.x - previous.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(label.rect.y - previous.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(label.rect.width - previous.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(label.rect.height - previous.height)).toBeLessThanOrEqual(1);
+  });
 });

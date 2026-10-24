@@ -2303,8 +2303,9 @@ html[data-ui-input-modality="pointer"] .ag-hot-menu :focus {
 }
 
 .welcome-action-grid .welcome-panel {
+    --welcome-action-panel-padding-block: 12px;
     gap: var(--ui-gap-tight);
-    padding: 12px 20px;
+    padding: var(--welcome-action-panel-padding-block) 20px;
 }
 
 .welcome-action-grid .welcome-drop-zone {
@@ -2313,6 +2314,7 @@ html[data-ui-input-modality="pointer"] .ag-hot-menu :focus {
     --welcome-drop-zone-dash-gap: 4px;
     position: relative;
     border: 0;
+    padding-bottom: calc(var(--welcome-action-panel-padding-block) + var(--ui-panel-border-width));
 }
 
 .welcome-drop-zone__outline {
