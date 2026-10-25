@@ -171,17 +171,15 @@ async function applyControls(page, component, controls) {
     const selector = `#${component.pageId}:not([hidden]) #${id}`;
     const control = page.locator(selector).first();
     await expect(control, `${component.type}: missing graph mode control #${id}`).toBeVisible({ timeout: 20_000 });
-    const optionIndex = await control.locator('option').evaluateAll((options, expected) => (
-      options.findIndex(option => String(option.value) === String(expected))
+    const hasOption = await control.locator('option').evaluateAll((options, expected) => (
+      options.some(option => String(option.value) === String(expected))
     ), value);
-    expect(optionIndex, `${component.type}: #${id} has no option ${value}`).toBeGreaterThanOrEqual(0);
-    // Use the same trusted keyboard path as a user. Programmatic selectOption()
-    // can hide an input-before-change race by dispatching both events together.
+    expect(hasOption, `${component.type}: #${id} has no option ${value}`).toBe(true);
+    // This is a native select. Playwright's select action fires the browser's
+    // input/change events; arrow presses open a platform popup that headless
+    // Chromium cannot reliably drive as an in-page keyboard interaction.
     await control.focus();
-    await control.press('Home');
-    for (let index = 0; index < optionIndex; index += 1) {
-      await control.press('ArrowDown');
-    }
+    await control.selectOption(value);
     await expect(control, `${component.type}: #${id} did not retain ${value}`).toHaveValue(value, { timeout: 20_000 });
   }
 }
