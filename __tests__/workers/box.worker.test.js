@@ -1,3 +1,5 @@
+const crossedSphericityFixture=require('../../test-support/fixtures/box-row-random-sphericity-v1.json');
+
 function loadWorker() {
   const ctx = { onmessage: null, postMessage: jest.fn(), importScripts: jest.fn() };
   ctx.Shared = {};
@@ -286,6 +288,32 @@ describe('box.worker — box-stats action', () => {
     ]);
     expect(JSON.parse(JSON.stringify(worker.result)).report.analysisSpec.experimentalUnit)
       .toBe('subject-within-independent-group');
+  });
+
+  test('crossed row-random effects retain the correction contract in worker results', async () => {
+    const rows=crossedSphericityFixture.rows;
+    const groupsCount=rows[0].length;
+    const conditionsCount=rows[0][0].length;
+    const cellData=Array.from({length:groupsCount},(_,group)=>
+      Array.from({length:conditionsCount},(_,condition)=>rows.map(subject=>subject[group][condition])));
+    const payload={
+      mode:'grouped',
+      grouped:{
+        analysis:'rowRandomMixed',
+        data:{ok:true,groupsCount,conditionsCount,rowsWithData:rows.length,partialRowsSkipped:0,rows,cellData}
+      }
+    };
+    const worker=await send(ctx,'b-crossed-sphericity','box-stats',payload);
+    const direct=ctx.Shared.boxStatsModel.computeBoxStatsModel(payload);
+    expect(worker.ok).toBe(true);
+    expect(worker.result).toEqual(direct);
+    expect(worker.result.repeatedMeasures).toMatchObject({
+      schemaVersion:'box-row-random-sphericity-v1',
+      methodVersion:'row-random-sphericity-v1',
+      design:'fully-crossed-within-subjects',
+      primaryCorrection:'greenhouse-geisser'
+    });
+    expect(JSON.parse(JSON.stringify(worker.result)).tables).toHaveLength(2);
   });
 
   test.each([

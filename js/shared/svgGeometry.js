@@ -3,6 +3,69 @@
 
   const Shared = global.Shared = global.Shared || {};
   const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
+  // IDs belong to rendered fragments, never to persisted component state.
+  const strokeIdPrefix = `gt-inner-${Math.random().toString(36).slice(2)}`;
+  let strokeId = 0;
+
+  function getStrokeWidth(node){
+    return Math.max(0, Number(node.getAttribute('data-inner-stroke-width') ?? node.getAttribute('stroke-width')) || 0);
+  }
+
+  function setStrokeWidth(node, width){
+    const value = Math.max(0, Number(width) || 0);
+    const inner = node.hasAttribute('data-inner-stroke-width');
+    if(inner){
+      node.setAttribute('data-inner-stroke-width', String(value));
+      // An unbordered fill needs no second antialiased silhouette mask.
+      node.setAttribute('clip-path', value > 0 ? `url(#${node.getAttribute('data-inner-stroke-clip')})` : 'none');
+    }
+    node.setAttribute('stroke-width', String(inner ? value * 2 : value));
+  }
+
+  // SVG centers strokes. Clipping a double-width stroke to the original fill
+  // gives an inward border without moving any point on the symbol outline.
+  function applyInnerStroke(node){
+    const tag = node.tagName.toLowerCase();
+    const attributes = tag === 'path' ? ['d', 'fill-rule']
+      : tag === 'rect' ? ['x', 'y', 'width', 'height', 'rx', 'ry'] : null;
+    if(!attributes) return;
+    const svg = node.ownerSVGElement;
+    const doc = node.ownerDocument;
+    const width = getStrokeWidth(node);
+    let id = node.getAttribute('data-inner-stroke-clip');
+    let clip = id ? Array.from(svg.querySelectorAll('clipPath')).find(clip => clip.id === id) : null;
+    if(!clip){
+      let defs = svg.querySelector('defs[data-inner-strokes]');
+      if(!defs){
+        defs = doc.createElementNS(svg.namespaceURI, 'defs');
+        defs.setAttribute('data-inner-strokes', '1');
+        svg.insertBefore(defs, svg.firstChild);
+      }
+      id = `${strokeIdPrefix}-${++strokeId}`;
+      clip = doc.createElementNS(svg.namespaceURI, 'clipPath');
+      clip.setAttribute('id', id);
+      clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+      clip.appendChild(doc.createElementNS(svg.namespaceURI, tag));
+      defs.appendChild(clip);
+    }else if(doc.getElementById(id) && doc.getElementById(id) !== clip){
+      // Duplicated/restored fragments must not resolve another tab's clip.
+      id = `${strokeIdPrefix}-${++strokeId}`;
+      clip.setAttribute('id', id);
+    }
+    const geometry = clip.firstElementChild;
+    for(const attr of attributes){
+      if(node.hasAttribute(attr)) geometry.setAttribute(attr, node.getAttribute(attr));
+      else geometry.removeAttribute(attr);
+    }
+    geometry.setAttribute('clip-rule', node.getAttribute('fill-rule') || 'nonzero');
+    node.setAttribute('data-inner-stroke-clip', id);
+    node.setAttribute('data-inner-stroke-width', String(width));
+    setStrokeWidth(node, width);
+  }
+
+  svgGeometry.getStrokeWidth = getStrokeWidth;
+  svgGeometry.setStrokeWidth = setStrokeWidth;
+  svgGeometry.applyInnerStroke = applyInnerStroke;
 
   function finiteCoordinate(value){
     const numeric = Number(value);

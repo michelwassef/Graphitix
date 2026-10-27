@@ -35,6 +35,21 @@ describe('Box plot statistics advisor', () => {
     ], [0, 1], { distribution: 'lognormal', paired: 'unpaired' })).toBeNull();
   });
 
+  test('paired lognormal advisor validates only complete aligned subjects', () => {
+    const box=ensureBoxModule();
+    const included=box.__testHooks.computeAdvisorDiagnostics([
+      {name:'A',rawY:[0,1,2,3],rowIndices:[0,1,2,3]},
+      {name:'B',rawY:[4,5,6],rowIndices:[1,2,3]}
+    ],[0,1],{distribution:'lognormal',paired:'paired'});
+    expect(included.groups).toHaveLength(1);
+    expect(included.groups[0].size).toBe(3);
+    const invalidIncluded=box.__testHooks.computeAdvisorDiagnostics([
+      {name:'A',rawY:[0,1,2],rowIndices:[1,2,3]},
+      {name:'B',rawY:[4,5,6],rowIndices:[1,2,3]}
+    ],[0,1],{distribution:'lognormal',paired:'paired'});
+    expect(invalidIncluded).toBeNull();
+  });
+
   test('advisor diagnostic signatures include values, row identity and the proposed analysis', () => {
     const box = ensureBoxModule();
     const signature = box.__testHooks.buildAdvisorDiagnosticSignature;
@@ -58,6 +73,7 @@ describe('Box plot statistics advisor', () => {
     [2, 'paired', 'nonnormal', 'all', 'wilcoxonSignedRank'],
     [3, 'unpaired', 'nonnormal', 'all', 'kruskalWallis'],
     [3, 'paired', 'nonnormal', 'all', 'friedman'],
+    [3, 'paired', 'lognormal', 'all', 'lognormalRepeatedMeasuresAnova'],
     [3, 'unpaired', 'nonnormal', 'custom', 'mannWhitney'],
     [3, 'paired', 'lognormal', 'custom', 'ratioT']
   ])('the recommendation selects the promised engine test (%s %s %s %s)', (groupCount, paired, distribution, mode, id) => {
@@ -180,6 +196,28 @@ describe('Box plot statistics advisor', () => {
     expect(recommendation.summary).toMatch(/Ratio t test/i);
   });
 
+  test('applies the dedicated lognormal repeated-measures workflow with explicit estimand and covariance assumptions', () => {
+    const box = ensureBoxModule();
+    const recommendation = box.getAdvisorRecommendation({
+      groups: 'threePlus', paired: 'paired', distribution: 'lognormal'
+    }, {
+      groupCount: 3, currentMode: 'all', sampleSizes: [6, 6, 6], minimumValues: [1, 1, 1], pairedRowCount: 6
+    });
+    expect(recommendation).toMatchObject({
+      ready: true, canApply: true, statsTest: 'parametric', paired: true,
+      parametricVariant: 'lognormalClassic', detail: { primaryLabel: 'Lognormal repeated-measures ANOVA' },
+      recommendedCorrection: 'holm'
+    });
+    expect(recommendation.warnings.join(' ')).toMatch(/geometric means and ratios, not arithmetic mean differences/i);
+    expect(recommendation.warnings.join(' ')).toMatch(/sphericity.*Greenhouse.Geisser.*Huynh.Feldt/i);
+    expect(recommendation.warnings.join(' ')).toMatch(/does not fit a general covariance structure/i);
+    const plan = window.Shared.boxStatsModel.resolveSingleAnalysisPlan({
+      statsMode: 'all', statsTest: recommendation.statsTest, statsPaired: true,
+      statsParametricVariant: recommendation.parametricVariant
+    }, 3);
+    expect(plan).toMatchObject({ ok: true, id: 'lognormalRepeatedMeasuresAnova', lognormal: true });
+  });
+
   test('requires geometric SD guidance before recommending unpaired lognormal tests', () => {
     const box = ensureBoxModule();
     const recommendation = box.getAdvisorRecommendation({
@@ -252,7 +290,7 @@ describe('Box plot statistics advisor', () => {
     });
     expect(recommendation.ready).toBe(true);
     expect(recommendation.analysis).toBe('rowRandomMixed');
-    expect(recommendation.summary).toMatch(/rows as a random/i);
+    expect(recommendation.summary).toMatch(/fully crossed repeated-measures/i);
     expect(Array.isArray(recommendation.rationale)).toBe(true);
   });
 
@@ -279,10 +317,19 @@ describe('Box plot statistics advisor', () => {
         [[13, 14, 15, 16], [15, 16, 17, 18]]
       ]
     };
-    const result = hooks.analyzeRowRandomMixedModel(groupedData);
+    const statsModel=window.Shared.boxStatsModel;
+    const compute=analysis=>statsModel.computeGroupedStatsModel({
+      grouped:{analysis,data:groupedData}
+    });
+    const result=compute('rowRandomMixed');
     expect(result.ok).toBe(true);
-    expect(result.caption).toBe('Mixed Model (Rows Random)');
-    expect(result.rows.map(row => row.source)).toEqual([
+    expect(result.repeatedMeasures).toMatchObject({
+      design:'fully-crossed-within-subjects',
+      subjectCount:4,
+      primaryCorrection:'greenhouse-geisser'
+    });
+    expect(result.tables[0].caption).toBe('Two-way repeated-measures ANOVA (rows random)');
+    expect(result.tables[0].rows.map(row => row.source)).toEqual([
       'Group',
       'Condition',
       'Group × Condition',
@@ -291,5 +338,7 @@ describe('Box plot statistics advisor', () => {
       'Condition × Row',
       'Group × Condition × Row'
     ]);
+    expect(compute('twoWayMixed').repeatedMeasures).toEqual(result.repeatedMeasures);
+    expect(compute('threeWayMixed').repeatedMeasures).toEqual(result.repeatedMeasures);
   });
 });

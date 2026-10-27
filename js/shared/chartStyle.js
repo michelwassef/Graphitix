@@ -2171,10 +2171,14 @@
     const {
       dataMin,
       dataMax,
+      autoRangeDataMin,
+      autoRangeDataMax,
       manualMin,
       manualMax,
       targetTickCount,
-      fixedStep
+      fixedStep,
+      tickStart,
+      autoRangeHint
     } = options || {};
     const manualMinFinite = Number.isFinite(manualMin);
     const manualMaxFinite = Number.isFinite(manualMax);
@@ -2193,6 +2197,60 @@
       const swap = normalizedDataMin;
       normalizedDataMin = normalizedDataMax;
       normalizedDataMax = swap;
+    }
+    const normalizedAutoRangeHint = normalizeAxisAutoRangeHint(autoRangeHint);
+    const extentMinValue = Number.isFinite(autoRangeDataMin) ? autoRangeDataMin : normalizedDataMin;
+    const extentMaxValue = Number.isFinite(autoRangeDataMax) ? autoRangeDataMax : normalizedDataMax;
+    const extentMin = Number.isFinite(extentMinValue) && Number.isFinite(extentMaxValue)
+      ? Math.min(extentMinValue, extentMaxValue)
+      : NaN;
+    const extentMax = Number.isFinite(extentMinValue) && Number.isFinite(extentMaxValue)
+      ? Math.max(extentMinValue, extentMaxValue)
+      : NaN;
+    if(!manualMinFinite && !manualMaxFinite && normalizedAutoRangeHint
+      && Number.isFinite(extentMin) && Number.isFinite(extentMax)){
+      const preferredMin = normalizedAutoRangeHint.min;
+      const preferredMax = normalizedAutoRangeHint.max;
+      const rangeSpan = preferredMax - preferredMin;
+      const rangeTolerance = Math.max(Math.abs(rangeSpan) * 1e-10, 1e-10);
+      const coversData = preferredMin <= extentMin + rangeTolerance
+        && preferredMax >= extentMax - rangeTolerance;
+      if(coversData){
+        const preferredStep = Number.isFinite(fixedStep) && fixedStep > 0
+          ? fixedStep
+          : (Number.isFinite(normalizedAutoRangeHint.tickInterval) && normalizedAutoRangeHint.tickInterval > 0
+            ? normalizedAutoRangeHint.tickInterval
+            : selectTickStep(rangeSpan, clampTickTarget(targetTickCount), NaN));
+        const preferredTickStart = Number.isFinite(tickStart)
+          ? tickStart
+          : (Number.isFinite(normalizedAutoRangeHint.tickStart) ? normalizedAutoRangeHint.tickStart : preferredMin);
+        const preferredTolerance = Math.max(Math.abs(preferredStep) * 1e-9, 1e-9);
+        const preferredTicks = [];
+        const firstTick = preferredTickStart
+          + Math.ceil((preferredMin - preferredTickStart - preferredTolerance) / preferredStep) * preferredStep;
+        for(let current = firstTick, guard = 0;
+          current <= preferredMax + preferredTolerance && guard < 8192;
+          current += preferredStep, guard += 1){
+          preferredTicks.push(normalizePrecision(current));
+        }
+        if(preferredTicks.length < 8192){
+          if(!preferredTicks.length){
+            preferredTicks.push(normalizePrecision(preferredMin));
+          }
+          axisTicksDebug('Debug: chartStyle.axisTicks imported automatic range applied', {
+            min: preferredMin,
+            max: preferredMax,
+            step: preferredStep,
+            tickCount: preferredTicks.length
+          });
+          return {
+            min: preferredMin,
+            max: preferredMax,
+            ticks: preferredTicks,
+            step: preferredStep
+          };
+        }
+      }
     }
     const baseLowerCandidates = [];
     const baseUpperCandidates = [];
@@ -2234,6 +2292,18 @@
     const tolerance = Math.max(Math.abs(step) * 1e-9, 1e-9);
     const ticks = [];
     const maxGuard = 8192;
+    if(Number.isFinite(tickStart) && (manualMinFinite || manualMaxFinite)){
+      const first = tickStart + Math.ceil((requiredLower - tickStart - tolerance) / step) * step;
+      for(let current = first, guard = 0; current <= requiredUpper + tolerance && guard < maxGuard; current += step, guard += 1){
+        ticks.push(normalizePrecision(current));
+      }
+      return {
+        min: manualMinFinite ? normalizedManualMin : requiredLower,
+        max: manualMaxFinite ? normalizedManualMax : requiredUpper,
+        ticks,
+        step
+      };
+    }
     if(manualMinFinite){
       let current = normalizedManualMin;
       let guard = 0;
@@ -2342,6 +2412,27 @@
     };
   }
 
+  function normalizeAxisAutoRangeHint(value){
+    if(!value || typeof value !== 'object'){
+      return null;
+    }
+    const min = Number(value.min);
+    const max = Number(value.max);
+    if(!Number.isFinite(min) || !Number.isFinite(max) || min >= max){
+      return null;
+    }
+    const tickInterval = value.tickInterval == null || value.tickInterval === ''
+      ? NaN : Number(value.tickInterval);
+    const tickStart = value.tickStart == null || value.tickStart === ''
+      ? NaN : Number(value.tickStart);
+    return {
+      min,
+      max,
+      tickInterval: Number.isFinite(tickInterval) && tickInterval > 0 ? tickInterval : null,
+      tickStart: Number.isFinite(tickStart) ? tickStart : null
+    };
+  }
+
   function applyLogTicks(scale, options){
     if(!scale || typeof scale !== 'object'){
       return false;
@@ -2437,6 +2528,7 @@
   chartStyle.axisTicks = Object.freeze({
     clampTickTarget,
     selectStep: selectTickStep,
+    normalizeAutoRangeHint: normalizeAxisAutoRangeHint,
     buildScale: buildAxisScale,
     applyLogTicks
   });

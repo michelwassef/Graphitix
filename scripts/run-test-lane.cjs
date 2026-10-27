@@ -16,6 +16,14 @@ const JEST_SHARD_RUNNER = path.join(ROOT_DIR, 'scripts', 'run-jest-shards.cjs');
 const FULL_JEST_RUNNER = path.join(ROOT_DIR, 'scripts', 'run-full-jest.cjs');
 const PLAYWRIGHT_CLI = path.join(ROOT_DIR, 'node_modules', '@playwright', 'test', 'cli.js');
 const ARTIFACT_RETENTION_DAYS = 14;
+const SHARED_STATISTICS_UNIT_TESTS = Object.freeze([
+  'stats.adjust.test.js',
+  'stats.goodnessOfFit.test.js',
+  'stats.pvalue.corrections.test.js',
+  'stats.twoSampleKolmogorovSmirnov.test.js',
+  'stats.audit.remediation.core.test.js',
+  'stats.audit.remediation.components.test.js'
+].map(file => path.join(ROOT_DIR, '__tests__', 'unit', file)));
 const GENERATED_ARTIFACT_DIRECTORIES = Object.freeze([
   'artifacts/test-reports',
   'artifacts/perf-summaries',
@@ -148,9 +156,14 @@ const LANE_SPECS = Object.freeze({
   dom: Object.freeze([nodeCommand([JEST_CLI, '--selectProjects', 'dom-unit'], 'jest-dom')]),
   architecture: Object.freeze([nodeCommand([JEST_CLI, '--selectProjects', 'architecture'], 'jest-architecture')]),
   integration: Object.freeze([nodeCommand([JEST_SHARD_RUNNER, '--project', 'integration', '--files-per-process', '1'], 'jest-integration-sharded')]),
-  stats: Object.freeze([nodeCommand([
-    JEST_CLI, '--selectProjects', 'statistical-oracle', '--runInBand', '--runTestsByPath', ...STATISTICAL_ORACLE_TESTS
-  ], 'jest-statistical-smoke')]),
+  stats: Object.freeze([
+    nodeCommand([
+      JEST_CLI, '--selectProjects', 'statistical-oracle', '--runInBand', '--runTestsByPath', ...STATISTICAL_ORACLE_TESTS
+    ], 'jest-statistical-oracle'),
+    nodeCommand([
+      JEST_CLI, '--selectProjects', 'unit-node', '--runInBand', '--runTestsByPath', ...SHARED_STATISTICS_UNIT_TESTS
+    ], 'jest-shared-statistics-unit')
+  ]),
   workers: Object.freeze([nodeCommand([JEST_CLI, '--selectProjects', 'workers'], 'jest-workers')]),
   vendor: Object.freeze([nodeCommand([
     JEST_CLI, '--selectProjects', 'unit-node', '--runTestsByPath',

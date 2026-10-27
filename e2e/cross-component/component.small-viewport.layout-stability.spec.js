@@ -126,15 +126,14 @@ test.describe('small viewport layout stability', () => {
           }
           const wrap = activePage?.querySelector('.wrap');
           const diagramArea = activePage?.querySelector('.diagram-area');
-          const plotStack = diagramArea?.querySelector(':scope > .graph-plot-stack');
+          const plotRegion = diagramArea?.querySelector(':scope > .workspace-plot-region');
+          const plotStack = plotRegion?.querySelector(':scope > .graph-plot-stack');
           const configPanel = diagramArea?.querySelector(':scope > .config-panel');
           const notes = plotStack?.querySelector('.shared-notes');
-          const plotBounds = plotStack?.getBoundingClientRect();
-          const notesBounds = notes?.getBoundingClientRect();
+          const plotBounds = plotRegion?.getBoundingClientRect();
           const configBounds = configPanel?.getBoundingClientRect();
           const pageStyle = activePage ? getComputedStyle(activePage) : null;
           const plotStackStyle = plotStack ? getComputedStyle(plotStack) : null;
-          const graphAndNotesRight = Math.max(plotBounds?.right || 0, notesBounds?.right || 0);
           return {
             viewport: document.documentElement.clientWidth,
             document: document.documentElement.scrollWidth,
@@ -148,9 +147,6 @@ test.describe('small viewport layout stability', () => {
             plotStackStyle: plotStackStyle ? {
               display: plotStackStyle.display,
               flexDirection: plotStackStyle.flexDirection,
-              flexGrow: plotStackStyle.flexGrow,
-              flexShrink: plotStackStyle.flexShrink,
-              flexBasis: plotStackStyle.flexBasis,
               minWidth: plotStackStyle.minWidth
             } : null,
             panelWidth: Math.round(panel?.getBoundingClientRect().width || 0),
@@ -161,8 +157,11 @@ test.describe('small viewport layout stability', () => {
             wrapDisplay: getComputedStyle(wrap).display,
             wrapDirection: getComputedStyle(wrap).flexDirection,
             hasNotes: Boolean(notes),
+            graphControlsColumns: getComputedStyle(diagramArea).gridTemplateColumns.split(' ').length,
+            graphControlsBelow: Boolean(plotRegion && configBounds
+              && configBounds.top >= plotRegion.getBoundingClientRect().bottom - 1),
             graphControlsSideBySide: Boolean(plotBounds && configBounds
-              && configBounds.left >= graphAndNotesRight - 1)
+              && configBounds.left >= plotBounds.right - 1)
           };
         }, component.type);
         expect(layout.activePage).toBe(component.pageId);
@@ -180,9 +179,6 @@ test.describe('small viewport layout stability', () => {
           .toEqual({
             display: 'flex',
             flexDirection: 'column',
-            flexGrow: '0',
-            flexShrink: '0',
-            flexBasis: 'auto',
             minWidth: '0px'
           });
         if(component.type === 'scatter'){
@@ -199,9 +195,15 @@ test.describe('small viewport layout stability', () => {
         expect(layout.wrapDisplay,
           `${component.type} workspace wrapper must remain flex at ${width}px: ${JSON.stringify(layout)}`)
           .toBe('flex');
-        expect(layout.graphControlsSideBySide,
-          `${component.type} controls must remain right of the graph at ${width}px: ${JSON.stringify(layout)}`)
-          .toBe(true);
+        if (layout.graphControlsColumns === 2) {
+          expect(layout.graphControlsSideBySide,
+            `${component.type} controls must sit beside the graph in a two-column pane at ${width}px: ${JSON.stringify(layout)}`)
+            .toBe(true);
+        } else {
+          expect(layout.graphControlsBelow,
+            `${component.type} controls must sit below the graph in a narrow pane at ${width}px: ${JSON.stringify(layout)}`)
+            .toBe(true);
+        }
         expect(layout.document, `${component.type} document overflow at ${width}px: ${JSON.stringify(layout)}`).toBeLessThanOrEqual(layout.viewport);
         expect(layout.body, `${component.type} body overflow at ${width}px: ${JSON.stringify(layout)}`).toBeLessThanOrEqual(layout.viewport);
       }

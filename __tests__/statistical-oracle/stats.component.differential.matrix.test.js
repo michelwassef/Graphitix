@@ -33,6 +33,13 @@ describe('Component statistical engines vs Python oracle', () => {
     expect(scatterHooks).toBeTruthy();
     expect(survivalHooks).toBeTruthy();
 
+    const rocSinglePositive = [
+      { label: 1, score: 0.7 },
+      { label: 0, score: 0.9 },
+      { label: 0, score: 0.4 },
+      { label: 0, score: 0.2 },
+      { label: 0, score: 0.1 }
+    ];
     const cases = [
       { id: 'box-welch-2s', operation: 'box_ttest_welch', payload: { a: boxA, b: boxB, alternative: 'two-sided' } },
       { id: 'box-welch-greater', operation: 'box_ttest_welch', payload: { a: boxB, b: boxA, alternative: 'greater' } },
@@ -75,6 +82,7 @@ describe('Component statistical engines vs Python oracle', () => {
       },
       { id: 'roc-auc', operation: 'roc_curve_metric', payload: { pairs: rocPairs1, graphType: 'roc' } },
       { id: 'roc-auc-uncertainty', operation: 'roc_auc_uncertainty', payload: { pairs: rocPairs1, alpha: 0.05 } },
+      { id: 'roc-auc-uncertainty-single-positive', operation: 'roc_auc_uncertainty', payload: { pairs: rocSinglePositive, alpha: 0.05 } },
       { id: 'roc-thresholds', operation: 'roc_threshold_table', payload: { pairs: rocPairs1, alpha: 0.05 } },
       { id: 'pr-ap', operation: 'roc_curve_metric', payload: { pairs: rocPairs1, graphType: 'pr' } },
       { id: 'roc-delong', operation: 'roc_delong_diff', payload: { pairs1: rocPairs1, pairs2: rocPairs2 } },
@@ -117,6 +125,7 @@ describe('Component statistical engines vs Python oracle', () => {
     js['pie-cont-yates'] = pieHooks.computeContingencyTest(pieContingency2x2, { method: 'chi-square', sparseThreshold: 5, yatesCorrection: true });
     js['roc-auc'] = { metric: rocHooks.computeCurveMetric(rocPairs1, 'roc') };
     js['roc-auc-uncertainty'] = rocHooks.computeSingleAucInference(rocPairs1, 0.05, 'auto');
+    js['roc-auc-uncertainty-single-positive'] = rocHooks.computeSingleAucInference(rocSinglePositive, 0.05, 'auto');
     js['roc-thresholds'] = { rows: rocHooks.buildThresholdMetricsTable(rocPairs1, 0.05) };
     js['pr-ap'] = { metric: rocHooks.computeCurveMetric(rocPairs1, 'pr') };
     js['roc-delong'] = rocHooks.delongCurveDiff(rocPairs1, rocPairs2);
@@ -336,6 +345,13 @@ describe('Component statistical engines vs Python oracle', () => {
       expectClose(js['roc-auc-uncertainty'].se, ref.se, 'roc-auc-uncertainty.se', { abs: 1e-9, rel: 1e-7 });
       expectClose(js['roc-auc-uncertainty'].ciLow, ref.ciLow, 'roc-auc-uncertainty.ciLow', { abs: 1e-9, rel: 1e-7 });
       expectClose(js['roc-auc-uncertainty'].ciHigh, ref.ciHigh, 'roc-auc-uncertainty.ciHigh', { abs: 1e-9, rel: 1e-7 });
+    }
+    {
+      const ref = get('roc-auc-uncertainty-single-positive');
+      expect(ref.ciLow).toBeNull();
+      expect(ref.ciHigh).toBeNull();
+      expect(js['roc-auc-uncertainty-single-positive'].ciLow).toBeNull();
+      expect(js['roc-auc-uncertainty-single-positive'].ciHigh).toBeNull();
     }
     {
       const ref = get('roc-thresholds');

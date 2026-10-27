@@ -473,6 +473,7 @@
       : `Suggested: fitted-${a.model === 'normal' ? 'normal' : 'log-normal'} KS and Anderson–Darling model diagnostics.`;
     // Fitted-parameter calibration: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.goodness_of_fit.html
     result.warnings.push('Model-check p-values are diagnostics, not an automatic selector for later parametric or rank-based tests. A non-significant result does not prove the model is correct.');
+    result.warnings.push('Bootstrap goodness-of-fit p-values use 5,000 simulations by default (minimum p ≈ 0.0002); the report shows their estimated Monte Carlo standard error.');
     if(a.design === 'paired'){ result.warnings.push('These are separate model checks for each series. A paired analysis may require checking within-pair differences instead.'); }
     if(a.model === 'compare'){ result.warnings.push('Lower AICc expresses relative support among these candidates; it does not establish that either model is adequate.'); }
     if(series.some(entry => entry.hasTies)){ result.warnings.push('Ties or measurement rounding can affect continuous-model diagnostic calibration. Interpret these p-values cautiously.'); }
@@ -2581,7 +2582,7 @@
   }
 
   function createHistStatsAnalysisSignature(entries, settings = {}){
-    return createHistStatsSignature(entries, settings, null).replace(/^hist-stats-v1-/, 'hist-stats-v2-');
+    return createHistStatsSignature(entries, settings, null).replace(/^hist-stats-v1-/, 'hist-stats-v3-');
   }
 
   function createLegacyHistStatsAnalysisSignature(entries, settings = {}, alpha = 0.05){
@@ -6685,12 +6686,12 @@
     const parametersEstimated = options.parametersEstimated !== false;
     const requestedIterations = Number(options.iterations);
     const iterations = parametersEstimated
-      ? Math.max(200, Math.min(5000, Math.round(Number.isFinite(requestedIterations) && requestedIterations > 0 ? requestedIterations : 500)))
+      ? Math.max(200, Math.min(5000, Math.round(Number.isFinite(requestedIterations) && requestedIterations > 0 ? requestedIterations : 5000)))
       : 0;
     const seed = (Number(options.seed) || 1337) >>> 0;
     try{
       return JSON.stringify({
-        version: 2,
+        version: 3,
         distribution,
         parametersEstimated,
         iterations,
@@ -7264,7 +7265,7 @@
               histComparisonPValueToken(gof.ks?.pValue),
               `; AD A² = ${formatNumber(gof.ad?.statistic, 4)}, p = `,
               histComparisonPValueToken(gof.ad?.pValue),
-              ` (${calibration}${Number.isFinite(Number(gof.iterations)) && gof.iterations > 0 ? `; ${gof.iterations} successful simulations` : ''})`
+              ` (${calibration}${Number.isFinite(Number(gof.iterations)) && gof.iterations > 0 ? `; ${gof.iterations} successful simulations` : ''}; estimated Monte Carlo SE: KS ${formatNumber(gof.ks?.monteCarloSe, 4)}, AD ${formatNumber(gof.ad?.monteCarloSe, 4)})`
             ]
           });
         }else if(entry?.diagnostics?.message){
@@ -7579,11 +7580,11 @@
         'Expanded summaries include SEM, variance, CV, IQR, skewness, kurtosis, and positive-only geometric and harmonic means.'
       ];
     if(analysisResults && diagnosticsMode === 'normal-fit'){
-        methods.push('Normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted normal model.');
+        methods.push('Normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted normal model. Parametric-bootstrap p-values use the add-one correction, and their estimated Monte Carlo standard errors are reported.');
     }else if(analysisResults && diagnosticsMode === 'lognormal-fit'){
-        methods.push('Log-normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted log-normal model; non-positive observations are unavailable for this fit.');
+        methods.push('Log-normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted log-normal model; non-positive observations are unavailable for this fit. Parametric-bootstrap p-values use the add-one correction, and their estimated Monte Carlo standard errors are reported.');
     }else if(analysisResults && diagnosticsMode === 'normal-vs-lognormal'){
-        methods.push('Fit diagnostics report normal-model KS and Anderson-Darling results and compare normal versus log-normal fits with AICc.');
+        methods.push('Fit diagnostics report normal-model KS and Anderson-Darling results and compare normal versus log-normal fits with AICc. Parametric-bootstrap p-values use the add-one correction, and their estimated Monte Carlo standard errors are reported.');
       }
       if(analysisResults && comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
         methods.push(`A two-sample Kolmogorov-Smirnov test compared the complete empirical distributions of the two visible series using ${ksResult.method || 'the reported calibration'}${Number.isFinite(ksResult.seed) ? ` with seed ${ksResult.seed}` : ''}; significance was interpreted at α = ${Shared.statsInference?.formatLevel?.(Shared.statsInference?.getAlpha?.({ tabId: getHistStatsInferenceTabId() })) || '0.05'}.`);
@@ -9533,8 +9534,11 @@
     }
     const hasStoredStats = histStatsPanelModelHasContent(existingStatsPanelModel);
     const storedSignatureMatches = existingStatsPanelModel.analysisSignature === analysisSignature
-      || existingStatsPanelModel.analysisSignature === legacyAnalysisSignature;
-    const legacyStatsCanBeBound = !existingStatsPanelModel.analysisSignature && hasStoredStats;
+      || (sanitizeHistDiagnosticsMode(statsSettings.diagnosticsMode) === 'off'
+        && existingStatsPanelModel.analysisSignature === legacyAnalysisSignature);
+    const legacyStatsCanBeBound = !existingStatsPanelModel.analysisSignature
+      && hasStoredStats
+      && sanitizeHistDiagnosticsMode(statsSettings.diagnosticsMode) === 'off';
     if(storedSignatureMatches || legacyStatsCanBeBound){
       if(legacyStatsCanBeBound){
         existingStatsPanelModel.analysisSignature = analysisSignature;

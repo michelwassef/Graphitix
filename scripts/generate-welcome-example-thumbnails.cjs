@@ -10,7 +10,10 @@ const vm = require('node:vm');
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT, 'assets', 'welcome-examples');
 const REGISTRY_FILE = 'thumbnails.js';
-const PORT = Number(process.env.GRAPHITIX_WELCOME_THUMB_PORT || 4174);
+// Bind an OS-assigned port by default so another local E2E server cannot block
+// publication asset generation. Set GRAPHITIX_WELCOME_THUMB_PORT only when a
+// fixed port is required by an external runner.
+const PORT = Number(process.env.GRAPHITIX_WELCOME_THUMB_PORT ?? 0);
 const THUMBNAIL_WIDTH = 320;
 const THUMBNAIL_HEIGHT = 220;
 const THUMBNAIL_PADDING = 10;
@@ -1500,7 +1503,6 @@ async function generateAssets(selectedTypes = TYPES) {
   if (!selected.length) {
     throw new Error('No welcome thumbnail types were selected for generation.');
   }
-  const baseUrl = `http://127.0.0.1:${PORT}`;
   return withTemporaryAssetDirectory(async temporaryDir => {
     const records = copyReusableAssets(temporaryDir, selected, fingerprints);
     let server = null;
@@ -1508,6 +1510,7 @@ async function generateAssets(selectedTypes = TYPES) {
     let page = null;
     try {
       server = await createStaticServer(PORT);
+      const baseUrl = `http://127.0.0.1:${server.address().port}`;
       const executablePath = String(process.env.GRAPHITIX_CHROMIUM_EXECUTABLE || '').trim();
       browser = await chromium.launch({
         headless: true,

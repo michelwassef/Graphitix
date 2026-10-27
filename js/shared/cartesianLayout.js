@@ -449,6 +449,63 @@
     return model.fixed + (model.count * Math.max(model.minimum, axisLength));
   }
 
+  namespace.resolveFrameSizeForAxisLengths = function resolveFrameSizeForAxisLengths(plan, target){
+    const model = plan?.axisFrameModel;
+    const x = Number(target?.x);
+    const y = Number(target?.y);
+    if(!model || !Number.isFinite(x) || x <= 0 || !Number.isFinite(y) || y <= 0){
+      return null;
+    }
+    const resolve = (axis, length) => {
+      const entry = model[axis] || {};
+      const count = Number(entry.count);
+      const fixed = Number(entry.fixed);
+      const minimum = Number(entry.minimum);
+      if(!Number.isFinite(count) || count <= 0 || !Number.isFinite(fixed)
+        || !Number.isFinite(minimum) || length < minimum){
+        return null;
+      }
+      return fixed + count * length;
+    };
+    const width = resolve('x', x);
+    const height = resolve('y', y);
+    return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+      ? { width, height }
+      : null;
+  };
+
+  namespace.resolveFrameChromeForDrawableSize = function resolveFrameChromeForDrawableSize(svgBox, drawableSize){
+    if(!svgBox || !drawableSize){
+      return null;
+    }
+    const dataset = svgBox.dataset || {};
+    const zoomCandidate = Number(dataset.resizerZoomLevel || dataset.resizerZoom);
+    const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+    const resolveBaseDimension = (axis, styleValue) => {
+      const graphValue = Number(dataset[axis === 'x' ? 'graphWidthPx' : 'graphHeightPx']);
+      const resizerValue = Number(dataset[axis === 'x' ? 'resizerBaseWidth' : 'resizerBaseHeight']);
+      const parsedStyle = Number.parseFloat(styleValue || '');
+      const rectValue = Number(svgBox.getBoundingClientRect?.()[axis === 'x' ? 'width' : 'height']);
+      const value = Number.isFinite(graphValue) && graphValue > 0 ? graphValue
+        : (Number.isFinite(resizerValue) && resizerValue > 0 ? resizerValue
+          : (Number.isFinite(parsedStyle) && parsedStyle > 0 ? parsedStyle / zoomScale
+            : rectValue / zoomScale));
+      return Number.isFinite(value) && value > 0 ? value : NaN;
+    };
+    const width = Number(drawableSize.width);
+    const height = Number(drawableSize.height);
+    const baseWidth = resolveBaseDimension('x', svgBox.style?.width);
+    const baseHeight = resolveBaseDimension('y', svgBox.style?.height);
+    if(!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0
+      || !Number.isFinite(baseWidth) || !Number.isFinite(baseHeight)){
+      return null;
+    }
+    return {
+      width: Math.max(0, baseWidth - width),
+      height: Math.max(0, baseHeight - height)
+    };
+  };
+
   function deriveEnvelope(userFrame, basePlotRect, solvedPlotRect, reserves, contentBounds, titleLineExtensions){
     const bounds = contentBounds && typeof contentBounds === 'object' ? contentBounds : {};
     const hasMeasuredBounds = ['minX', 'minY', 'maxX', 'maxY']

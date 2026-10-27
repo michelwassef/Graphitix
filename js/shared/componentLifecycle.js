@@ -612,6 +612,52 @@
 
     const activeTabId = normalizeLifecycleTabId(workspace.activeTabId || '');
     if(!activeTabId || activeTabId !== ownerTabId){
+      const payloadPatch = source.payloadPatch;
+      if(payloadPatch && typeof payloadPatch === 'object' && !Array.isArray(payloadPatch)
+        && typeof sessionApi.updateTabPayload === 'function'){
+        let safePatch = null;
+        try{
+          safePatch = JSON.parse(JSON.stringify(payloadPatch));
+        }catch(_err){
+          safePatch = null;
+        }
+        if(safePatch && typeof safePatch === 'object' && !Array.isArray(safePatch)){
+          const reason = String(source.reason || `${key}-user-state-change`).trim() || `${key}-user-state-change`;
+          const changed = sessionApi.updateTabPayload(ownerTab, payload => {
+            const isRecord = value => value && typeof value === 'object' && !Array.isArray(value);
+            const merge = (target, patch) => {
+              Object.entries(patch).forEach(([field, value]) => {
+                if(isRecord(value)){
+                  target[field] = merge(isRecord(target[field]) ? target[field] : {}, value);
+                }else{
+                  target[field] = value;
+                }
+              });
+              return target;
+            };
+            const next = isRecord(payload) ? payload : { type: key, config: {} };
+            if(!next.type){ next.type = key; }
+            return merge(next, safePatch);
+          }, { reason, origin: source.origin || 'user' });
+          if(changed){
+            const workspaceConfig = global.Main?.components?.registry?.[key] || null;
+            try{
+              global.Shared?.workspaceTabs?.captureRuntimeState?.(ownerTab, key, workspaceConfig, {
+                reason,
+                source: 'owner-session-write-through'
+              });
+            }catch(err){
+              warn('Lifecycle owner runtime snapshot capture failed after payload write-through', {
+                componentKey: key,
+                tabId: ownerTabId,
+                reason,
+                message: err?.message || String(err)
+              });
+            }
+          }
+          return changed !== false;
+        }
+      }
       debug('Debug: lifecycle owner payload persistence skipped for inactive owner', {
         componentKey: key,
         tabId: ownerTabId,

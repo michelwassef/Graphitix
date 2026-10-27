@@ -98,14 +98,45 @@ function runJsCase(testCase, context) {
     const gof = context.stats.goodnessOfFit(payload.values || [], {
       distribution: payload.distribution,
       fit,
-      alpha: payload.alpha
+      alpha: payload.alpha,
+      iterations: payload.iterations,
+      seed: payload.seed
     });
     return {
       valid: gof?.available === true,
       n: gof?.n || 0,
       ksStatistic: gof?.ks?.statistic,
       adStatistic: gof?.ad?.statistic,
-      ksPValue: gof?.ks?.pValue
+      ksPValue: gof?.ks?.pValue,
+      ksMonteCarloSe: gof?.ks?.monteCarloSe,
+      adPValue: gof?.ad?.pValue,
+      adMonteCarloSe: gof?.ad?.monteCarloSe,
+      iterations: gof?.iterations
+    };
+  }
+  if (operation === 'mean_equivalence') {
+    const result = context.stats.testMeanEquivalence(payload.sampleA || [], payload.sampleB || [], {
+      paired: payload.paired === true,
+      lowerBound: payload.lowerBound,
+      upperBound: payload.upperBound,
+      alpha: payload.alpha
+    });
+    return {
+      available: result?.available === true,
+      message: result?.message,
+      method: result?.method,
+      design: result?.design,
+      estimate: result?.estimate,
+      standardError: result?.standardError,
+      df: result?.df,
+      ciLow: result?.ciLow,
+      ciHigh: result?.ciHigh,
+      pLower: result?.pLower,
+      pUpper: result?.pUpper,
+      pValue: result?.pValue,
+      equivalent: result?.equivalent,
+      nA: result?.nA,
+      nB: result?.nB
     };
   }
   if (operation === 'regression_linear') {
@@ -237,6 +268,49 @@ function compareCaseResult(testCase, jsResult, pyResult) {
     expect(jsResult.n).toBe(pyResult.n);
     compareNumber(jsResult.ksStatistic, pyResult.ksStatistic, `${caseLabel}.ksStatistic`, { abs: 2e-7, rel: 1e-6 });
     compareNumber(jsResult.adStatistic, pyResult.adStatistic, `${caseLabel}.adStatistic`, { abs: 2e-7, rel: 1e-6 });
+    const compareMonteCarloPValue = (actual, actualSe, reference, referenceSe, label) => {
+      const standardError = Math.sqrt((actualSe ** 2) + (referenceSe ** 2));
+      const resolutionAllowance = (1 / ((jsResult.iterations || 0) + 1)) + (1 / ((pyResult.iterations || 0) + 1));
+      const limit = (4 * standardError) + resolutionAllowance;
+      const difference = Math.abs(actual - reference);
+      if(difference > limit){
+        throw new Error(`${label} differs by ${difference}; Monte Carlo tolerance is ${limit}.`);
+      }
+    };
+    compareMonteCarloPValue(
+      jsResult.ksPValue,
+      jsResult.ksMonteCarloSe,
+      pyResult.ksPValue,
+      pyResult.ksMonteCarloSe,
+      `${caseLabel}.ksPValue`
+    );
+    compareMonteCarloPValue(
+      jsResult.adPValue,
+      jsResult.adMonteCarloSe,
+      pyResult.adPValue,
+      pyResult.adMonteCarloSe,
+      `${caseLabel}.adPValue`
+    );
+    return;
+  }
+  if (testCase.operation === 'mean_equivalence') {
+    expect(jsResult.available).toBe(pyResult.available);
+    if(!jsResult.available){
+      expect(jsResult.message).toBe(pyResult.message);
+      return;
+    }
+    expect(jsResult.design).toBe(pyResult.design);
+    expect(jsResult.equivalent).toBe(pyResult.equivalent);
+    expect(jsResult.nA).toBe(pyResult.nA);
+    expect(jsResult.nB).toBe(pyResult.nB);
+    compareNumber(jsResult.estimate, pyResult.estimate, `${caseLabel}.estimate`, { abs: 1e-10, rel: 1e-8 });
+    compareNumber(jsResult.standardError, pyResult.standardError, `${caseLabel}.standardError`, { abs: 1e-10, rel: 1e-8 });
+    compareNumber(jsResult.df, pyResult.df, `${caseLabel}.df`, { abs: 1e-10, rel: 1e-8 });
+    compareNumber(jsResult.ciLow, pyResult.ciLow, `${caseLabel}.ciLow`, { abs: 1e-9, rel: 1e-8 });
+    compareNumber(jsResult.ciHigh, pyResult.ciHigh, `${caseLabel}.ciHigh`, { abs: 1e-9, rel: 1e-8 });
+    compareNumber(jsResult.pLower, pyResult.pLower, `${caseLabel}.pLower`, { abs: 1e-10, rel: 1e-8 });
+    compareNumber(jsResult.pUpper, pyResult.pUpper, `${caseLabel}.pUpper`, { abs: 1e-10, rel: 1e-8 });
+    compareNumber(jsResult.pValue, pyResult.pValue, `${caseLabel}.pValue`, { abs: 1e-10, rel: 1e-8 });
     return;
   }
   if (testCase.operation === 'regression_linear') {

@@ -229,19 +229,24 @@
     palette.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
     global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
   }
-  const LINE_GROUP_SHAPE_OPTIONS = Shared.getShapePickerOptions
+  const LINE_GROUP_BASE_SHAPE_OPTIONS = Shared.getShapePickerOptions
     ? Shared.getShapePickerOptions()
-    : Object.freeze([
+    : [
         { value: 'circle', label: 'Circle' },
         { value: 'square', label: 'Square' },
         { value: 'triangle', label: 'Triangle' },
         { value: 'diamond', label: 'Diamond' },
         { value: 'cross', label: 'Cross' }
-      ]);
-  const LINE_GROUP_SHAPE_DEFAULTS = LINE_GROUP_SHAPE_OPTIONS.map(opt => opt.value);
-  const LINE_GROUP_SHAPE_VALUES = Shared.getShapePickerValues
-    ? Shared.getShapePickerValues()
-    : new Set(LINE_GROUP_SHAPE_DEFAULTS);
+      ];
+  const LINE_GROUP_SHAPE_OPTIONS = Object.freeze([
+    ...LINE_GROUP_BASE_SHAPE_OPTIONS,
+    { value: 'triangle-down', label: 'Triangle down' }
+  ]);
+  const LINE_GROUP_SHAPE_DEFAULTS = LINE_GROUP_BASE_SHAPE_OPTIONS.map(opt => opt.value);
+  const LINE_GROUP_SHAPE_VALUES = new Set([
+    ...(Shared.getShapePickerValues ? Shared.getShapePickerValues() : LINE_GROUP_SHAPE_DEFAULTS),
+    'triangle-down'
+  ]);
   const LINE_DISPLAY_MODE_OPTIONS = Object.freeze(['line','area']);
   const LINE_3D_DEFAULTS = Object.freeze({
     rotationX: 0.24,
@@ -2122,8 +2127,9 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
+      prismAxisTargetPx: null,
+      x: { tickInterval: null, tickStart: null, autoRangeHint: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, tickStart: null, autoRangeHint: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -2177,6 +2183,23 @@
       lineAxisSettings = cloneLineRuntimeValue(normalized, createLineAxisSettings());
     }
     return normalized;
+  }
+
+  function clearLineAutoRangeHints(session, axes = ['x', 'y'], reason = 'line-axis-auto-range-invalidated'){
+    if(!session?.state){ return false; }
+    const current = getLineAxisSettingsState(session);
+    const next = cloneLineRuntimeValue(current, createLineAxisSettings()) || createLineAxisSettings();
+    let changed = false;
+    axes.forEach(axis => {
+      if((axis === 'x' || axis === 'y') && next[axis]?.autoRangeHint){
+        next[axis].autoRangeHint = null;
+        changed = true;
+      }
+    });
+    if(changed){
+      setLineAxisSettingsState(session, next, { reason });
+    }
+    return changed;
   }
 
   function getLineGridStyleState(session = null, fallbackThickness){
@@ -2253,11 +2276,14 @@
       ? (target.state.axisSettings && typeof target.state.axisSettings === 'object' ? target.state.axisSettings : createLineAxisSettings())
       : (lineAxisSettings && typeof lineAxisSettings === 'object' ? lineAxisSettings : createLineAxisSettings());
     if(!settings.x || typeof settings.x !== 'object'){
-      settings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      settings.x = { tickInterval: null, tickStart: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(!settings.y || typeof settings.y !== 'object'){
-      settings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      settings.y = { tickInterval: null, tickStart: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
+    ['x', 'y'].forEach(axis => {
+      settings[axis].autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(settings[axis].autoRangeHint) || null;
+    });
     if(typeof settings.x.minorTicks !== 'boolean'){
       settings.x.minorTicks = false;
     }
@@ -2366,6 +2392,14 @@
     }
     const numeric = Number(raw);
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function getLineAxisTickStart(axis, session = null){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const raw = ensureLineAxisSettings(session)[axis]?.tickStart;
+    if(raw === null || raw === undefined || raw === ''){ return null; }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : null;
   }
 
   function updateLineAxisTickInterval(axis, value){
@@ -3964,10 +3998,27 @@
       if(typeof settings.color === 'string' && settings.color.trim()){
         base.color = settings.color;
       }
+      const targetX = Number(settings.prismAxisTargetPx?.x);
+      const targetY = Number(settings.prismAxisTargetPx?.y);
+      if(Number.isFinite(targetX) && targetX > 0 && Number.isFinite(targetY) && targetY > 0){
+        base.prismAxisTargetPx = { x: targetX, y: targetY };
+      }
       const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xTickStart = settings.tickStartX ?? settings?.x?.tickStart;
+      const yTickStart = settings.tickStartY ?? settings?.y?.tickStart;
+      base.x.tickStart = xTickStart == null || xTickStart === '' || !Number.isFinite(Number(xTickStart))
+        ? null : Number(xTickStart);
+      base.y.tickStart = yTickStart == null || yTickStart === '' || !Number.isFinite(Number(yTickStart))
+        ? null : Number(yTickStart);
+      base.x.autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(
+        settings.autoRangeHintX ?? settings.x?.autoRangeHint
+      ) || null;
+      base.y.autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(
+        settings.autoRangeHintY ?? settings.y?.autoRangeHint
+      ) || null;
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
@@ -4034,24 +4085,95 @@
     console.debug('Debug: line axis settings applied',{ settings: applied });
   }
 
-  function buildLineManualTicks(min, max, interval){
+  function consumeLinePrismAxisLengthTarget(plan, session, frame, svgBox){
+    const settings = getLineAxisSettingsState(session);
+    const target = settings?.prismAxisTargetPx;
+    if(!session?.tabId || !isLineSessionActive(session)
+      || !plan?.axisFrameModel || !target || !svgBox
+      || !Number.isFinite(Number(frame?.width)) || !Number.isFinite(Number(frame?.height))){
+      return false;
+    }
+    const targetWidth = Number(target.x);
+    const targetHeight = Number(target.y);
+    const clearTarget = () => setLineAxisSettingsState(session, {
+      ...settings,
+      prismAxisTargetPx: null
+    }, { reason: 'line-prism-axis-length-target-consumed' });
+    if(!Number.isFinite(targetWidth) || targetWidth <= 0 || !Number.isFinite(targetHeight) || targetHeight <= 0){
+      clearTarget();
+      return false;
+    }
+    if(Math.abs(Number(plan.axisLengths?.x) - targetWidth) <= 0.75
+      && Math.abs(Number(plan.axisLengths?.y) - targetHeight) <= 0.75){
+      clearTarget();
+      return false;
+    }
+    const size = Shared.cartesianLayout?.resolveFrameSizeForAxisLengths?.(plan, target);
+    if(!size || typeof Shared.applyResizableBoxSize !== 'function'){
+      return false;
+    }
+    const frameChrome = Shared.cartesianLayout?.resolveFrameChromeForDrawableSize?.(svgBox, frame);
+    if(!frameChrome){
+      return false;
+    }
+    const currentWidth = Number(frame.width) + frameChrome.width;
+    const currentHeight = Number(frame.height) + frameChrome.height;
+    const width = Math.max(50, Math.round(size.width + frameChrome.width));
+    const height = Math.max(40, Math.round(size.height + frameChrome.height));
+    const changed = Math.abs(currentWidth - width) > 0.75 || Math.abs(currentHeight - height) > 0.75;
+    if(!changed){
+      clearTarget();
+      return false;
+    }
+    const applied = Shared.applyResizableBoxSize(svgBox, {
+      axis: 'both',
+      width,
+      height,
+      forceExact: true,
+      preserveAspectLock: false,
+      updateAspectRatio: true,
+      updateDefaults: false,
+      authorityMode: 'transient',
+      suppressOnResize: true,
+      reason: 'line-prism-axis-length-import'
+    });
+    if(!applied){
+      return false;
+    }
+    clearTarget();
+    scheduleActiveLineDraw({
+      tabId: session.tabId,
+      force: true,
+      reason: 'line-prism-axis-length-followup',
+      skipThresholdEvaluation: true,
+      renderImpact: 'layout'
+    });
+    return true;
+  }
+
+  function buildLineManualTicks(min, max, interval, tickStart = null){
     if(!Number.isFinite(interval) || interval <= 0){ return null; }
     if(!Number.isFinite(min) || !Number.isFinite(max)){ return null; }
     if(min === max){
       max = min + interval;
     }
-    const graphMin = Math.floor(min / interval) * interval;
-    const graphMax = Math.ceil(max / interval) * interval;
+    const anchored = Number.isFinite(tickStart);
+    const graphMin = anchored ? min : Math.floor(min / interval) * interval;
+    const graphMax = anchored ? max : Math.ceil(max / interval) * interval;
     const ticks = [];
-    let current = graphMin;
+    let current = anchored
+      ? tickStart + Math.ceil((min - tickStart) / interval) * interval
+      : graphMin;
     let guard = 0;
-    while(current <= graphMax + interval * 0.25 && guard < 1000){
-      ticks.push(Number.parseFloat(current.toPrecision(12)));
+    while(current <= graphMax + interval * 1e-9 && guard < 1000){
+      if(current >= graphMin - interval * 1e-9){
+        ticks.push(Number.parseFloat(current.toPrecision(12)));
+      }
       current += interval;
       guard += 1;
     }
     if(!ticks.length){
-      ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+      if(!anchored){ ticks.push(Number.parseFloat(graphMin.toPrecision(12))); }
     }
     console.debug('Debug: line manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
     return { min: graphMin, max: graphMax, ticks };
@@ -8834,7 +8956,7 @@
           break;
         case 'flexible':
           recommendation.regression='spline';
-          recommendation.rationale.push('A spline regression handles multiple bends without overfitting high-degree polynomials.');
+          recommendation.rationale.push('A spline regression can model multiple bends; inspect for overfitting, especially in short series.');
           break;
         default:
           break;
@@ -8882,6 +9004,8 @@
     }
     if(answers.analysisGoal==='forecast'){
       recommendation.warnings.push('Check residual autocorrelation and validate forecasts on held-out future observations. Ordinary correlation p-values do not account for serial dependence.');
+    }else if(recommendation.statsMethod){
+      recommendation.warnings.push('If rows are ordered in time or observations are serially dependent, ordinary correlation and regression p-values assume independent rows and may be misleading.');
     }
     const methodLabel=recommendation.statsMethod==='pearson'?'Pearson correlation':'Spearman correlation';
     const regressionLabel = getLineRegressionLabel(recommendation.regression).toLowerCase();
@@ -9962,10 +10086,12 @@
         'stroke-opacity': strokeOpacity
       });
     }
-    if(normalized === 'triangle'){
+    if(normalized === 'triangle' || normalized === 'triangle-down'){
       const size = Math.max(radius * 2, 2);
       const half = size / 2;
-      const path = `M ${cx} ${cy - half} L ${cx + half} ${cy + half} L ${cx - half} ${cy + half} Z`;
+      const path = normalized === 'triangle-down'
+        ? `M ${cx} ${cy + half} L ${cx + half} ${cy - half} L ${cx - half} ${cy - half} Z`
+        : `M ${cx} ${cy - half} L ${cx + half} ${cy + half} L ${cx - half} ${cy + half} Z`;
       return create('path', {
         d: path,
         fill,
@@ -13187,8 +13313,13 @@
         axis:{
           strokeWidth: axisSettings.strokeWidth,
           color: axisSettings.color,
+          prismAxisTargetPx: axisSettings.prismAxisTargetPx || null,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          tickStartX: axisSettings.x?.tickStart ?? null,
+          tickStartY: axisSettings.y?.tickStart ?? null,
+          autoRangeHintX: axisSettings.x?.autoRangeHint ?? null,
+          autoRangeHintY: axisSettings.y?.autoRangeHint ?? null,
           majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
           majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
           xLabelAngle: axisSettings.x?.labelAngle ?? null,
@@ -15677,6 +15808,9 @@
       let manualYMaxValue = Number.isFinite(yMaxManual) && (!logY || yMaxManual > 0) ? (logY ? Math.log10(yMaxManual) : yMaxManual) : null;
       const shouldEqualScale = !!getLineViewState().equalScaleAxes;
       const shouldEqualAxes = !!getLineViewState().equalAxes;
+      const lineAxisSettingsForScale = getLineAxisSettingsState(invocation.session);
+      const lineAutoRangeHintX = !logX && !shouldEqualScale ? lineAxisSettingsForScale.x?.autoRangeHint : null;
+      const lineAutoRangeHintY = !logY && !shouldEqualScale ? lineAxisSettingsForScale.y?.autoRangeHint : null;
       if(shouldEqualScale){
         const spanX = Number.isFinite(xMaxT) && Number.isFinite(xMinT) ? (xMaxT - xMinT) : NaN;
         const spanY = Number.isFinite(yMaxT) && Number.isFinite(yMinT) ? (yMaxT - yMinT) : NaN;
@@ -15697,8 +15831,8 @@
           lineDebug('Debug: line equal scale ranges skipped',{ spanX, spanY });
         }
       }
-      let xScale=buildAxisScale({ dataMin: xMinT, dataMax: xMaxT, manualMin: manualXMinValue, manualMax: manualXMaxValue, targetTickCount: xTickTarget });
-      let yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, manualMin: manualYMinValue, manualMax: manualYMaxValue, targetTickCount: yTickTarget });
+      let xScale=buildAxisScale({ dataMin: xMinT, dataMax: xMaxT, autoRangeDataMin: xMinRaw, autoRangeDataMax: xMaxRaw, autoRangeHint: lineAutoRangeHintX, fixedStep: lineAutoRangeHintX ? manualIntervalX : null, tickStart: lineAutoRangeHintX?.tickStart, manualMin: manualXMinValue, manualMax: manualXMaxValue, targetTickCount: xTickTarget });
+      let yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, autoRangeDataMin: yMinRaw, autoRangeDataMax: yMaxRaw, autoRangeHint: lineAutoRangeHintY, fixedStep: lineAutoRangeHintY ? manualIntervalY : null, tickStart: lineAutoRangeHintY?.tickStart, manualMin: manualYMinValue, manualMax: manualYMaxValue, targetTickCount: yTickTarget });
       applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
       applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
       refreshLineAxisTickFormatters();
@@ -15707,8 +15841,8 @@
       let maxYLabelWidth=0;
       let maxXLabelWidth=0;
       for(let pass=0;pass<2;pass++){
-        xScale=buildAxisScale({ dataMin: xMinT, dataMax: xMaxT, manualMin: manualXMinValue, manualMax: manualXMaxValue, targetTickCount: xTickTarget });
-        yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, manualMin: manualYMinValue, manualMax: manualYMaxValue, targetTickCount: yTickTarget });
+        xScale=buildAxisScale({ dataMin: xMinT, dataMax: xMaxT, autoRangeDataMin: xMinRaw, autoRangeDataMax: xMaxRaw, autoRangeHint: lineAutoRangeHintX, fixedStep: lineAutoRangeHintX ? manualIntervalX : null, tickStart: lineAutoRangeHintX?.tickStart, manualMin: manualXMinValue, manualMax: manualXMaxValue, targetTickCount: xTickTarget });
+        yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, autoRangeDataMin: yMinRaw, autoRangeDataMax: yMaxRaw, autoRangeHint: lineAutoRangeHintY, fixedStep: lineAutoRangeHintY ? manualIntervalY : null, tickStart: lineAutoRangeHintY?.tickStart, manualMin: manualYMinValue, manualMax: manualYMaxValue, targetTickCount: yTickTarget });
         if(!shouldEqualScale && isFinite(xMinManual)) xScale.min=xMinT;
         if(!shouldEqualScale && isFinite(xMaxManual)) xScale.max=xMaxT;
         if(!shouldEqualScale && isFinite(yMinManual)) yScale.min=yMinT;
@@ -15724,7 +15858,10 @@
           const manual = buildLineManualTicks(
             Number.isFinite(xScale.min) ? xScale.min : xMinT,
             Number.isFinite(xScale.max) ? xScale.max : xMaxT,
-            manualIntervalX
+            manualIntervalX,
+            Number.isFinite(xMinManual) || Number.isFinite(xMaxManual) || !!lineAutoRangeHintX
+              ? getLineAxisTickStart('x', invocation.session)
+              : null
           );
           if(manual){
             xScale.min = manual.min;
@@ -15745,7 +15882,10 @@
           const manualY = buildLineManualTicks(
             Number.isFinite(yScale.min) ? yScale.min : yMinT,
             Number.isFinite(yScale.max) ? yScale.max : yMaxT,
-            manualIntervalY
+            manualIntervalY,
+            Number.isFinite(yMinManual) || Number.isFinite(yMaxManual) || !!lineAutoRangeHintY
+              ? getLineAxisTickStart('y', invocation.session)
+              : null
           );
           if(manualY){
             yScale.min = manualY.min;
@@ -15862,6 +16002,14 @@
         minimumPlot: { width: 20, height: 20 },
         rounding: { mode: 'none', precision: 6 }
       }) || null;
+      if(lineCartesianPlan && consumeLinePrismAxisLengthTarget(
+        lineCartesianPlan,
+        invocation.session,
+        { width: W, height: H },
+        refs.svgBox || lineSvgBoxRef
+      )){
+        return false;
+      }
       if(lineCartesianPlan){
         margin={
           left: lineCartesianPlan.plotRect.x,
@@ -18224,6 +18372,7 @@
               if(affectsAnalysis){
                 revalidateActiveLineLogAxis('x','data-edit');
                 revalidateActiveLineLogAxis('y','data-edit');
+        clearLineAutoRangeHints(getLineSessionForHot(instance, { reason: 'line-data-edit-range-invalidation' }, { fallbackActive: false }));
               }
             }
             if(changes){
@@ -18564,52 +18713,188 @@
       }
       console.debug('Debug: line import start',{fileName}); // Debug: import start trace
       try{
-        const applyLinePrismStyle = style => {
+        const applyLinePrismStyle = (style, meta = {}) => {
           if(!style || typeof style !== 'object'){
-            return;
+            return false;
           }
+          const tabId = String(meta.tabId || importOwnerTabId || '').trim();
+          const ownerSession = tabId
+            ? getLineSession(tabId, { tabId, reason: 'line-prism-style-owner' }, { create: false })
+            : null;
+          if(!ownerSession?.state){
+            return false;
+          }
+          const ownerActive = isLineSessionActive(ownerSession);
           const title = style.title != null ? String(style.title).trim() : '';
           const xLabel = style.xLabel != null ? String(style.xLabel).trim() : '';
           const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
           const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
           const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
-          const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
-          const fontSizeValue = Number(style.fontSize);
-          if(title){
-            lineTitleText = title;
+          const axisSettings = cloneLineRuntimeValue(getLineAxisSettingsState(ownerSession), createLineAxisSettings())
+            || createLineAxisSettings();
+          const prismAxisStyle = tableImport.resolvePrismAxisStyle(style);
+          ['x', 'y'].forEach(axis => {
+            axisSettings[axis].autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(prismAxisStyle.autoRanges?.[axis]) || null;
+            const savedRange = prismAxisStyle.ranges?.[axis] || prismAxisStyle.autoRanges?.[axis];
+            axisSettings[axis].tickStart = Number.isFinite(Number(savedRange?.tickStart)) ? Number(savedRange.tickStart) : null;
+          });
+          if(prismAxisStyle.color){ axisSettings.color = prismAxisStyle.color; }
+          if(prismAxisStyle.strokeWidth != null){ axisSettings.strokeWidth = prismAxisStyle.strokeWidth; }
+          Object.entries(prismAxisStyle.tickLengths).forEach(([axis, length]) => {
+            axisSettings[axis].majorTickLength = length;
+          });
+          Object.entries(prismAxisStyle.tickIntervals || {}).forEach(([axis, interval]) => {
+            axisSettings[axis].tickInterval = interval;
+          });
+          Object.entries(prismAxisStyle.ranges || {}).forEach(([axis, range]) => {
+            axisSettings[axis].tickStart = range.tickStart;
+          });
+          if(prismAxisStyle.axisTargetPx){
+            axisSettings.prismAxisTargetPx = prismAxisStyle.axisTargetPx;
           }
-          if(xLabel){
-            lineXLabelText = xLabel;
-          }
-          if(yLabel){
-            lineYLabelText = yLabel;
-          }
-          if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && refs.fontSize){
-            refs.fontSize.value = String(fontSizeValue);
-            if(refs.fontSize.dataset){
-              refs.fontSize.dataset.fontBasePt = String(fontSizeValue);
+          applyLineAxisSettings(axisSettings, ownerSession, { reason: 'line-prism-axis-settings' });
+          const controls = getLineRuntimeControlsForSession(ownerSession);
+          Object.entries(prismAxisStyle.ranges || {}).forEach(([axis, range]) => {
+            controls[`${axis}Min`] = String(range.min);
+            controls[`${axis}Max`] = String(range.max);
+          });
+          ['x', 'y'].forEach(axis => {
+            if(!prismAxisStyle.ranges?.[axis]){
+              controls[`${axis}Min`] = '';
+              controls[`${axis}Max`] = '';
             }
-            chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: fontSizeValue, input: refs.fontSize, manual: true });
+          });
+          if(prismAxisStyle.showGrid != null){ controls.showGrid = prismAxisStyle.showGrid; }
+          if(prismAxisStyle.showFrame != null){ controls.showFrame = prismAxisStyle.showFrame; }
+          setLineRuntimeControlsForSession(ownerSession, controls, { reason: 'line-prism-axis-ranges' });
+          if(ownerActive && (Object.keys(prismAxisStyle.ranges || {}).length
+            || Object.keys(prismAxisStyle.autoRanges || {}).length
+            || prismAxisStyle.showGrid != null || prismAxisStyle.showFrame != null)){
+            syncLineRuntimeControlsFromState(controls, ownerSession.tabId);
           }
-          if(axisColor){
-            updateLineAxisColor(axisColor);
+
+          if(title || xLabel || yLabel){
+            setLineLabelsState(ownerSession, {
+              ...getLineLabelsState(ownerSession),
+              ...(title ? { title } : {}),
+              ...(xLabel ? { x: xLabel } : {}),
+              ...(yLabel ? { y: yLabel } : {})
+            }, { reason: 'line-prism-style-labels' });
           }
-          if(fontFamily || fontColor){
-            const graphStyle = {};
-            if(fontFamily){
-              graphStyle.fontFamily = fontFamily;
+          const grouped = getLineGroupedState(ownerSession);
+          const groupLabels = Array.isArray(grouped.labels) ? grouped.labels : [];
+          const nextShapes = Array.isArray(grouped.shapes) ? grouped.shapes.slice() : [];
+          const currentLabels = getLineLabelsState(ownerSession);
+          const nextColors = cloneLineRuntimeValue(currentLabels.colors, {}) || {};
+          const currentStyles = getLineStylesState(ownerSession);
+          const nextSeriesStyles = cloneLineRuntimeValue(currentStyles.series, {}) || {};
+          (Array.isArray(style.seriesStyles) ? style.seriesStyles : []).forEach(series => {
+            const key = String(series?.dataSetTitle || '').trim();
+            if(!key){ return; }
+            const patch = {};
+            const size = Number(series.symbolSize);
+            if(Number.isFinite(size) && size > 0){ patch.dotSize = size; }
+            const lineColor = series.lineColor;
+            if(typeof lineColor?.hex === 'string' && lineColor.hex){
+              patch.lineStroke = lineColor.hex;
+              const opacity = Number(lineColor.opacity);
+              if(Number.isFinite(opacity)){
+                const alpha = Math.max(0, Math.min(100, (1 - opacity) * 100));
+                patch.lineAlpha = alpha;
+              }
             }
-            if(fontColor){
-              graphStyle.fill = fontColor;
+            const symbolColor = series.symbolColor;
+            if(typeof symbolColor?.hex === 'string' && symbolColor.hex){
+              patch.markerFill = symbolColor.hex;
+              patch.markerStroke = symbolColor.hex;
+              const opacity = Number(symbolColor.opacity);
+              if(Number.isFinite(opacity)){
+                const alpha = Math.max(0, Math.min(100, (1 - opacity) * 100));
+                patch.markerAlpha = alpha;
+              }
             }
-            importFontStyles('line', { __graph__: graphStyle }, { tabId: getLineProjectionTabId() || getLineActiveSessionForState()?.tabId || null });
+            const seriesColor = (typeof lineColor?.hex === 'string' && lineColor.hex)
+              || (typeof symbolColor?.hex === 'string' && symbolColor.hex);
+            if(seriesColor){
+              nextColors[key] = seriesColor;
+            }
+            const lineWidth = Number(series.lineThickness?.cssPixels);
+            if(Number.isFinite(lineWidth) && lineWidth > 0){
+              patch.lineStrokeWidth = lineWidth;
+            }
+            const prismShape = String(series.shape || '').toLowerCase();
+            const shape = prismShape === 'triangle-up' ? 'triangle'
+              : (prismShape === 'triangle-down' ? 'triangle-down' : prismShape);
+            const groupIndex = groupLabels.findIndex(label => String(label || '').trim() === key);
+            if(groupIndex >= 0 && LINE_GROUP_SHAPE_VALUES.has(shape)){
+              nextShapes[groupIndex] = shape;
+            }
+            nextSeriesStyles[key] = Object.assign({}, nextSeriesStyles[key] || {}, patch);
+          });
+          setLineLabelsState(ownerSession, { ...getLineLabelsState(ownerSession), colors: nextColors }, {
+            reason: 'line-prism-series-colors'
+          });
+          if(groupLabels.length && nextShapes.length){
+            setLineGroupShapesState(ownerSession, nextShapes, { reason: 'line-prism-series-shapes' });
           }
+          setLineStylesState(ownerSession, { ...getLineStylesState(ownerSession), series: nextSeriesStyles }, {
+            reason: 'line-prism-series-styles'
+          });
+
+          const fontStyles = tableImport.resolvePrismFontStyles(style);
+          if(Object.keys(fontStyles).length){
+            importFontStyles('line', fontStyles, {
+              tabId: ownerSession.tabId,
+              prune: false,
+              broadcast: ownerActive
+            });
+          }
+          Shared.componentLifecycle?.persistOwnedUserState?.('line', ownerSession, {
+            tabId: ownerSession.tabId,
+            reason: 'line-prism-style-import'
+          });
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: line prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
+            console.debug('Debug: line prism style applied', { tabId: ownerSession.tabId, title, xLabel, yLabel, fontFamily, fontColor, axisColor: prismAxisStyle.color });
           }
-          scheduleActiveLineDraw({ force: true, reason: 'import-prism-style', skipThresholdEvaluation: true, renderImpact: 'layout' });
+          if(ownerActive){
+            return true;
+          }
+          const importedLabels = getLineLabelsState(ownerSession);
+          const importedGrouped = getLineGroupedState(ownerSession);
+          const importedControls = getLineRuntimeControlsForSession(ownerSession);
+          const importedAxis = getLineAxisSettingsState(ownerSession);
+          const configPatch = {
+            labelColors: cloneLineRuntimeValue(importedLabels.colors, {}) || {},
+            groupShapes: Array.isArray(importedGrouped.shapes) ? importedGrouped.shapes.slice() : [],
+            seriesStyles: cloneLineRuntimeValue(getLineStylesState(ownerSession).series, {}) || {},
+            xMin: importedControls.xMin,
+            xMax: importedControls.xMax,
+            yMin: importedControls.yMin,
+            yMax: importedControls.yMax,
+            fontStyles: exportFontStyles('line', { tabId: ownerSession.tabId }) || {},
+            axis: {
+              strokeWidth: importedAxis.strokeWidth,
+              color: importedAxis.color,
+              prismAxisTargetPx: importedAxis.prismAxisTargetPx || null,
+              tickIntervalX: importedAxis.x?.tickInterval ?? null,
+              tickIntervalY: importedAxis.y?.tickInterval ?? null,
+              tickStartX: importedAxis.x?.tickStart ?? null,
+              tickStartY: importedAxis.y?.tickStart ?? null,
+              autoRangeHintX: importedAxis.x?.autoRangeHint ?? null,
+              autoRangeHintY: importedAxis.y?.autoRangeHint ?? null,
+              majorTickLengthX: importedAxis.x?.majorTickLength ?? null,
+              majorTickLengthY: importedAxis.y?.majorTickLength ?? null
+            }
+          };
+          if(prismAxisStyle.showGrid != null){ configPatch.showGrid = importedControls.showGrid; }
+          if(prismAxisStyle.showFrame != null){ configPatch.showFrame = importedControls.showFrame; }
+          if(importedLabels.title){ configPatch.title = importedLabels.title; }
+          if(importedLabels.x){ configPatch.xLabel = importedLabels.x; }
+          if(importedLabels.y){ configPatch.yLabel = importedLabels.y; }
+          return { payloadPatch: { config: configPatch } };
         };
         const result = await tableImport.openFile(refs.fileInput,{
+          componentKey: 'line',
           hot: importHot,
           minCols: LINE_DEFAULT_COLS,
           minRows: DEFAULT_ROWS,
@@ -18623,9 +18908,19 @@
           onProcessed: info => {
             console.debug('Debug: line tableImport processed', info || {}); // Debug: processed callback
           },
-          onBeforeCompleted: result => {
+          onBeforeCompleted: (result, importMeta = {}) => {
             const prismMeta = result?.prismMeta;
             if(prismMeta?.kind !== 'line'){
+              return;
+            }
+            const ownerTabId = importMeta.tabId || importOwnerTabId || null;
+            const ownerSession = ownerTabId
+              ? getLineSession(ownerTabId, {
+                tabId: ownerTabId,
+                reason: 'line-prism-import-state'
+              }, { create: false })
+              : null;
+            if(!ownerSession){
               return;
             }
             const replicateCount = clampLineReplicateCount(prismMeta.replicatesCount || LINE_MIN_REPLICATES);
@@ -18633,12 +18928,22 @@
             if(getLineViewState().viewMode === '3d' || refs.replicateMode?.value === '3d'){
               exitLine3dMode({ skipDraw: true });
             }
-            lineReplicates = replicateCount;
-            if(lineReplicates > LINE_MIN_REPLICATES){
-              lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
-            }
+            const currentGrouped = getLineGroupedState(ownerSession);
+            const lastGroupedReplicateCount = replicateCount > LINE_MIN_REPLICATES
+              ? Math.min(LINE_MAX_REPLICATES, Math.max(2, replicateCount))
+              : currentGrouped.lastGroupedReplicateCount;
+            patchLineGroupedState(ownerSession, {
+              replicates: replicateCount,
+              lastGroupedReplicateCount,
+              labels: groupLabels?.length ? groupLabels : currentGrouped.labels
+            }, { reason: 'line-prism-import-grouped-state' });
+            const currentControls = getLineRuntimeControlsForSession(ownerSession, lineFallbackRuntimeControls);
+            setLineRuntimeControlsForSession(ownerSession, {
+              ...currentControls,
+              tableFormat: replicateCount > LINE_MIN_REPLICATES ? 'grouped' : 'single',
+              viewMode: '2d'
+            }, { reason: 'line-prism-import-table-format' });
             if(groupLabels?.length){
-              lineSeriesGroupLabels = groupLabels.slice();
               lineLegendLayoutInfo.entryCount = groupLabels.length;
             }
             if(refs.replicatesInput){
@@ -18655,8 +18960,45 @@
             markLineOverlayPending({ reason: renderReason, tabId });
             forceLineOverlay({ reason: renderReason, tabId }, { message: 'Rendering line graph...' });
           },
-          onOwnerInactive: (_result, meta) => {
+          onOwnerInactive: (inactiveResult, meta) => {
+            let stylePatch = null;
+            if(inactiveResult?.prismStyle){
+              const styleResult = applyLinePrismStyle(inactiveResult.prismStyle, { tabId: meta?.tabId || importOwnerTabId });
+              stylePatch = styleResult?.payloadPatch || null;
+            }
+            const ownerTabId = String(meta?.tabId || importOwnerTabId || '').trim();
+            const ownerSession = ownerTabId
+              ? getLineSession(ownerTabId, { tabId: ownerTabId, reason: 'line-inactive-prism-metadata' }, { create: false })
+              : null;
+            const prismMeta = inactiveResult?.prismMeta;
+            const configPatch = { ...(stylePatch?.config || {}) };
+            if(prismMeta?.kind === 'line' && ownerSession?.state){
+              const replicates = clampLineReplicateCount(prismMeta.replicatesCount || LINE_MIN_REPLICATES);
+              const groupLabels = Array.isArray(prismMeta.groupLabels) ? prismMeta.groupLabels : [];
+              const grouped = getLineGroupedState(ownerSession);
+              patchLineGroupedState(ownerSession, {
+                replicates,
+                lastGroupedReplicateCount: replicates > LINE_MIN_REPLICATES
+                  ? Math.min(LINE_MAX_REPLICATES, Math.max(2, replicates))
+                  : grouped.lastGroupedReplicateCount,
+                labels: groupLabels.length ? groupLabels : grouped.labels
+              }, { reason: 'line-prism-import-grouped-state' });
+              const controls = getLineRuntimeControlsForSession(ownerSession);
+              setLineRuntimeControlsForSession(ownerSession, {
+                ...controls,
+                tableFormat: replicates > LINE_MIN_REPLICATES ? 'grouped' : 'single',
+                viewMode: '2d'
+              }, { reason: 'line-prism-import-table-format' });
+              Object.assign(configPatch, {
+                tableFormat: replicates > LINE_MIN_REPLICATES ? 'grouped' : 'single',
+                replicates,
+                groupLabels: ownerSession.state.grouped.labels.slice(),
+                groupShapes: ownerSession.state.grouped.shapes.slice(),
+                viewMode: '2d'
+              });
+            }
             resolveLineOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || importOwnerTabId || null });
+            return Object.keys(configPatch).length ? { payloadPatch: { config: configPatch } } : null;
           }
         });
         if(!result && forcedOverlay){
@@ -18804,6 +19146,10 @@
       }
       el.addEventListener('input',()=>{
         lineDebug(logLabel, el.value);
+        if(context === 'axis-min-input' || context === 'axis-max-input'){
+          const inputSession = getLineSessionForEvent({ currentTarget: el }, { reason: 'line-axis-limit-edit' }, { create: false });
+          clearLineAutoRangeHints(inputSession, [axis], 'line-axis-limit-edited');
+        }
         const logActive = axis === 'x' ? refs.logX?.checked : refs.logY?.checked;
         if(logActive && isLineLogAxisInputInProgress(el)){
           if(lineDebugEnabled()){

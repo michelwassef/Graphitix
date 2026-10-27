@@ -247,6 +247,38 @@ describe('Component statistical edge cases and randomized checks', () => {
     expectClose(countModel.edges[countModel.edges.length - 1], 100, 'hist-auto-binning.countRange.lastEdge', { abs: 1e-12, rel: 1e-9 });
   });
 
+  testWithOracle('delayed-entry log-rank risk sets match the independent oracle', () => {
+    const series = [
+      {
+        name: 'Control',
+        records: [
+          { entry: 0, time: 2, event: false },
+          { entry: 0, time: 3, event: true },
+          { entry: 0, time: 6, event: true }
+        ]
+      },
+      {
+        name: 'Delayed',
+        records: [
+          { entry: 1, time: 4, event: false },
+          { entry: 2, time: 5, event: true },
+          { entry: 0, time: 7, event: true }
+        ]
+      }
+    ];
+    const reference = indexOracleResults(runPythonOracle([{
+      id: 'survival-delayed-entry-logrank',
+      operation: 'survival_logrank',
+      payload: { series }
+    }])).get('survival-delayed-entry-logrank')?.result;
+    const actual = survivalHooks.computeLogRank(series);
+
+    expect(reference?.available).toBe(true);
+    expect(actual.available).toBe(true);
+    expectClose(actual.chi2, reference.chi2, 'delayed-entry log-rank chi-square', { abs: 1e-10, rel: 1e-9 });
+    expectClose(actual.p, reference.p, 'delayed-entry log-rank p-value', { abs: 1e-10, rel: 1e-9 });
+  });
+
   testWithOracle('randomized component differential checks stay aligned with oracle', () => {
     const rng = createRng(20260310);
     const cases = [];

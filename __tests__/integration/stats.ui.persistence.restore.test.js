@@ -120,9 +120,59 @@ async function prepareBoxStats(){
   state.statsPostHoc = 'tukey';
   await box.draw();
   await flushAsyncWork(20);
-  document.getElementById('boxComputeStats').click();
+  getBoxNode('boxComputeStats')?.click();
   await flushAsyncWork(30);
   return box;
+}
+
+function createCrossedGroupedBoxPayload(box,rows){
+  const groupsCount=rows[0]?.length || 0;
+  const conditionsCount=rows[0]?.[0]?.length || 0;
+  const groupLabels=Array.from({length:groupsCount},(_,index)=>`Group ${index+1}`);
+  const conditionLabels=Array.from({length:conditionsCount},(_,index)=>`Condition ${index+1}`);
+  const groupHeader=groupLabels.flatMap(label=>[label,...Array(conditionsCount-1).fill('')]);
+  const conditionHeader=groupLabels.flatMap(()=>conditionLabels);
+  const payload=box.createEmptyPayload();
+  payload.config.tableFormat='grouped';
+  payload.config.grouped={
+    ...(payload.config.grouped || {}),
+    replicatesPerGroup:conditionsCount,
+    groups:groupLabels,
+    conditions:conditionLabels
+  };
+  payload.config.stats={
+    ...(payload.config.stats || {}),
+    groupedAnalysis:'rowRandomMixed',
+    test:'parametric',
+    mode:'all'
+  };
+  payload.data=[groupHeader,conditionHeader,...rows.map(subject=>subject.flat())];
+  const cellData=Array.from({length:groupsCount},(_,group)=>
+    Array.from({length:conditionsCount},(_,condition)=>rows.map(subject=>subject[group][condition])));
+  const groupedData={
+    ok:true,groupsCount,conditionsCount,rowsWithData:rows.length,partialRowsSkipped:0,
+    groupLabels,conditionLabels,rows,cellData
+  };
+  const model=window.Shared.boxStatsModel.computeBoxStatsModel({
+    mode:'grouped',grouped:{analysis:'rowRandomMixed',data:groupedData}
+  });
+  expect(model.ok).toBe(true);
+  payload.config.stats={
+    ...payload.config.stats,
+    contextSignature:`row-random-sphericity-v1|crossed-fixture-v1|${model.repeatedMeasures.effects.group.f}`,
+    lastRunVersion:1,
+    report:model.report,
+    resultsModel:{
+      kind:'stats-panel',
+      children:model.tables.map(table=>({kind:'stats-table',...table}))
+    },
+    reportModel:{
+      kind:'stats-report',
+      title:'Reporting and reproducibility',
+      ...model.report
+    }
+  };
+  return payload;
 }
 
 async function prepareScatterStats(){
@@ -330,6 +380,106 @@ describe('UI stats persistence and restore', () => {
     await flushAsyncWork(15);
     expect(box.__getState().statsCorrection).toBe('bonferroni');
     expect(box.getPayload()?.config?.stats?.correctionExplicit).toBe(true);
+  },120000);
+
+  test('Box crossed repeated-measures results reopen current and mark legacy inference stale', async () => {
+    const fixture=require('../../test-support/fixtures/box-row-random-sphericity-v1.json');
+    await activateWorkspace('box');
+    await flushAsyncWork(20);
+    const box=window.Components?.box;
+    const currentPayload=createCrossedGroupedBoxPayload(box,fixture.rows);
+    await box.loadFromPayload(currentPayload,{source:'row-random-current-result-setup',skipDraw:true});
+    const savedPayload=JSON.parse(JSON.stringify(box.getPayload()));
+    const activeTab=window.Main?.session?.getActiveTab?.();
+    const session=box.__testHooks.getSession(activeTab?.id,{create:false});
+    const methodToken='row-random-sphericity-v1';
+    expect(session.state.results).toEqual(expect.objectContaining({hasResults:true,analysisId:'rowRandomMixed'}));
+    expect(savedPayload.config.stats.contextSignature).toContain(methodToken);
+    expect(savedPayload.config.stats.reportModel.analysisSpec.repeatedMeasures.design).toBe('fully-crossed-within-subjects');
+    expect(session.state.results.rowRandomMethodStale).toBe(false);
+    expect(session.state.results.lastRunVersion).toBeGreaterThan(0);
+
+    await box.loadFromPayload(savedPayload,{source:'row-random-current-result-reopen',skipDraw:true});
+    await flushAsyncWork(25);
+    expect(session.state.results.rowRandomMethodStale).toBe(false);
+    expect(session.state.results.lastRunVersion).toBeGreaterThan(0);
+    expect(session.state.results.report.analysisSpec.repeatedMeasures).toEqual(
+      savedPayload.config.stats.reportModel.analysisSpec.repeatedMeasures
+    );
+
+    const Main=window.Main;
+    Main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    const duplicatePrompt=document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      document.getElementById('duplicateEmpty')?.click();
+      await flushAsyncWork(10);
+    }
+    await activateWorkspace('box');
+    const secondTab=Main.session.getActiveTab();
+    const secondActivation=Main.tabs.activateTab(secondTab.id,{reason:'crossed-repeated-second-owner'});
+    if(secondActivation?.then) await secondActivation;
+    await waitForIntegrationOwnerReady({
+      type:'box',expectedTabId:secondTab.id,requireMountedRoot:true,
+      condition:()=>String(box.__boundTabId || '')===String(secondTab.id)
+        && box.__testHooks.getSession(secondTab.id,{create:false})?.refs?.root?.isConnected===true
+    });
+    const secondRows=fixture.rows.map((subject,subjectIndex)=>subject.map((group,groupIndex)=>
+      group.map(value=>value+(groupIndex===0?subjectIndex*3:0))));
+    const secondPayload=createCrossedGroupedBoxPayload(box,secondRows);
+    await box.loadFromPayload(secondPayload,{
+      source:'crossed-repeated-second-owner-results',tab:secondTab,tabId:secondTab.id,skipDraw:true
+    });
+    const secondSession=box.__testHooks.getSession(secondTab.id,{create:false});
+    const firstSpec=session.state.results.report?.analysisSpec
+      || session.state.results.panelModel.reportModel?.analysisSpec;
+    const secondSpec=secondSession.state.results.report?.analysisSpec
+      || secondSession.state.results.panelModel.reportModel?.analysisSpec;
+    const firstEffect=firstSpec.repeatedMeasures.effects.group;
+    const secondEffect=secondSpec.repeatedMeasures.effects.group;
+    expect(secondSession.state.results.signature).not.toBe(session.state.results.signature);
+    expect(secondEffect.f).not.toBe(firstEffect.f);
+
+    const firstActivation=Main.tabs.activateTab(activeTab.id,{reason:'crossed-repeated-return-first-owner'});
+    if(firstActivation?.then) await firstActivation;
+    await waitForIntegrationOwnerReady({
+      type:'box',expectedTabId:activeTab.id,requireMountedRoot:true,
+      condition:()=>String(box.__boundTabId || '')===String(activeTab.id)
+        && box.__testHooks.getSession(activeTab.id,{create:false})?.refs?.root?.isConnected===true
+    });
+    expect(box.getPayload().config.stats.reportModel.analysisSpec.repeatedMeasures.effects.group.f)
+      .toBe(firstEffect.f);
+
+    const stripCurrentMethod=value=>{
+      if(Array.isArray(value)) return value.map(stripCurrentMethod);
+      if(!value || typeof value!=='object') return value;
+      const result={};
+      for(const [key,entry] of Object.entries(value)){
+        if(key==='rowRandomSphericityVersion' || key==='repeatedMeasures' || key==='methodVersion') continue;
+        result[key]=stripCurrentMethod(entry);
+      }
+      if(result.schemaVersion==='box-stats-spec-v8') result.schemaVersion='box-stats-spec-v7';
+      return result;
+    };
+    const legacyPayload=stripCurrentMethod(savedPayload);
+    legacyPayload.config.stats.contextSignature=legacyPayload.config.stats.contextSignature
+      .split('|').filter(token=>token!==methodToken).join('|');
+    legacyPayload.config.stats.rowRandomMethodStale=false;
+    if(legacyPayload.config.stats.annotationModel?.signature){
+      legacyPayload.config.stats.annotationModel.signature=legacyPayload.config.stats.annotationModel.signature
+        .split('|').filter(token=>token!==methodToken).join('|');
+    }
+    await box.loadFromPayload(JSON.parse(JSON.stringify(legacyPayload)),{
+      source:'row-random-legacy-result-reopen',skipDraw:true
+    });
+    await flushAsyncWork(25);
+    expect(session.state.results.hasResults).toBe(true);
+    expect(session.state.results.rowRandomMethodStale).toBe(true);
+    expect(session.state.results.lastRunVersion).toBe(0);
+    expect(session.state.results.panelModel.resultsModel).toBeTruthy();
+    expect(box.getPayload().config.stats.rowRandomMethodStale).toBe(true);
+    expect(box.getPayload().config.stats.lastRunVersion).toBe(0);
+    expect(getBoxNode('boxStatsStatus')?.textContent).toMatch(/recalculate|earlier/i);
   },120000);
 
   test.each([
@@ -640,6 +790,49 @@ describe('UI stats persistence and restore', () => {
     await flushAsyncWork(120);
     expect(document.getElementById('heatmapStatsContent')?.textContent || '').toMatch(/Items analysed|Reporting and reproducibility/i);
     expectSingleReportPanel('heatmapStatsContent', 'heatmapStatsReportHost');
+  }, 120000);
+
+  test('Pie restores v2/v3 report models with result tables and figure summaries', async () => {
+    const pie = await preparePieStats();
+    const legacyPayload = JSON.parse(JSON.stringify(pie.getPayload()));
+    const currentStats = legacyPayload.config.stats;
+    const currentReport = currentStats.reportModel;
+    const previousResultsText = document.getElementById('pieStatsResults')?.textContent || '';
+    expect(currentStats.resultsModel?.children?.length).toBeGreaterThan(0);
+    expect(currentReport?.figureSummary?.sections?.length).toBeGreaterThan(0);
+
+    legacyPayload.config.stats = {
+      ...currentStats,
+      resultsModel: {
+        schemaVersion: 2,
+        kind: 'stats-panel',
+        nodes: currentStats.resultsModel.children
+      },
+      reportModel: {
+        schemaVersion: 3,
+        kind: 'stats-report',
+        title: currentReport.title,
+        methodsText: currentReport.methodsText,
+        resultsText: currentReport.resultsText,
+        analysisSpec: currentReport.analysisSpec,
+        figureSummary: currentReport.figureSummary,
+        open: currentReport.open
+      }
+    };
+
+    document.getElementById('pieStatsResults').innerHTML = '';
+    pie.loadFromPayload(legacyPayload, { source: 'test-pie-legacy-v2-v3-stats', skipDraw: true });
+    await flushAsyncWork(40);
+
+    expect(document.getElementById('pieStatsResults')?.textContent || '').toContain(previousResultsText.slice(0, 20));
+    expectSingleReportPanel('pieStatsResults', 'pieStatsReportHost');
+    const restoredStats = pie.getPayload()?.config?.stats || {};
+    const restoredFigureSummary = restoredStats.reportModel?.figureSummary || null;
+    const restoredFigureRowCount = (restoredFigureSummary?.sections || []).reduce(
+      (total, section) => total + (Array.isArray(section?.rows) ? section.rows.length : 0),
+      0
+    );
+    expect(restoredFigureRowCount).toBeGreaterThan(0);
   }, 120000);
 
   test('render cache restore preserves stats panels for hist, roc, survival, pca, and heatmap', async () => {

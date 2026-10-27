@@ -79,9 +79,13 @@
     throw new Error('jStat unavailable for Box statistics');
   }
 
-  const DEFAULT_CORRECTION = 'bonferroni';
+  const DEFAULT_CORRECTION = 'holm';
   const ASSUMPTION_ALPHA = 0.05;
   const ASSUMPTION_QQ_SAMPLE_LIMIT = 4000;
+  const BOX_ROW_RANDOM_SPHERICITY_VERSION = 'row-random-sphericity-v1';
+  // One million Float64 cells is about 8 MB per effect; larger corrections
+  // are returned unavailable while descriptive ANOVA values remain available.
+  const BOX_SPHERICITY_MAX_COVARIANCE_CELLS = 1_000_000;
 
   function sanitizeStatsAlternative(value){
     return value==='greater' || value==='less' ? value : 'two-sided';
@@ -1281,7 +1285,7 @@
             : 'studentT';
     }
     if(paired){
-      return 'repeatedMeasuresAnova';
+      return variant === 'lognormalClassic' ? 'lognormalRepeatedMeasuresAnova' : 'repeatedMeasuresAnova';
     }
     return variant === 'welch' ? 'welchAnova'
       : variant === 'lognormalClassic' ? 'lognormalAnova'
@@ -1373,6 +1377,7 @@
       lognormalAnova: 'independent pair-specific Student t-tests on log-transformed observations',
       lognormalWelchAnova: 'independent pair-specific Welch t-tests on log-transformed observations',
       repeatedMeasuresAnova: 'paired pairwise t-tests',
+      lognormalRepeatedMeasuresAnova: 'paired ratio t-tests on within-subject log ratios',
       kruskalWallis: 'independent pairwise rank tests',
       friedman: 'paired pairwise rank tests'
     };
@@ -1384,7 +1389,8 @@
       oneWayAnova: 'pairSpecificPooledVariance',
       welchAnova: 'pairSpecificWelchVariance',
       lognormalAnova: 'pairSpecificPooledVarianceOnLogScale',
-      lognormalWelchAnova: 'pairSpecificWelchVarianceOnLogScale'
+      lognormalWelchAnova: 'pairSpecificWelchVarianceOnLogScale',
+      lognormalRepeatedMeasuresAnova: 'pairedLogRatioVariance'
     };
     const effectiveLabel = candidate === 'standard'
       ? labels.standard
@@ -2323,19 +2329,20 @@
     const mode=sanitizeOutlierMode(payload.statsOutlierMode);
     const paired=payload.statsPaired && payload.statsMode!=='oneSample';
     const aligned=paired ? alignCompleteRows(groups,payload.rowIndicesByGroup) : null;
+    const excludedIncompleteRows=aligned?.excludedRows || 0;
     const cleaned=paired ? aligned.groups : (groups||[]).map(normalizeFiniteSample);
     const auditNotes=[];const exclusions=[];const flags=[];
     if(aligned?.excludedRows){
       const count=aligned.excludedRows;
       auditNotes.push(`${count} ${count===1?'row':'rows'} with missing or non-numeric values across the selected groups ${count===1?'was':'were'} excluded to preserve paired/repeated-measures alignment.`);
     }
-    if(mode==='none') return {groups:cleaned,auditNotes,exclusions,flags};
+    if(mode==='none') return {groups:cleaned,auditNotes,exclusions,flags,excludedIncompleteRows};
     auditNotes.push(mode==='grubbs'
       ? 'Single-outlier Grubbs exclusion assumes normal data with at most one outlier per screened sample. Exclusion-based inference is exploratory: p-values and confidence intervals do not account for data-dependent selection.'
       : mode==='routTest'
         ? 'ROUT uses adaptive Lorentzian constant-location fitting and residual screening (Q per sample; maximum 30% excluded). Subsequent inference is exploratory and does not account for data-dependent exclusion.'
         : 'MAD + BH scores are heuristic flags, not ROUT or validated FDR control; all observations are retained.');
-    if(paired&&cleaned.length>2){auditNotes.push('Outlier screening was not applied to repeated-measures designs with more than two groups to preserve row alignment.');return {groups:cleaned,auditNotes,exclusions,flags};}
+    if(paired&&cleaned.length>2){auditNotes.push('Outlier screening was not applied to repeated-measures designs with more than two groups to preserve row alignment.');return {groups:cleaned,auditNotes,exclusions,flags,excludedIncompleteRows};}
     if(paired&&cleaned.length===2){
       const pairs=computePairedSamples(cleaned[0],cleaned[1]);const differences=pairs.map(pair=>pair.a-pair.b);
       const result=screenStatsSample(differences,mode,{alpha:payload.statsOutlierAlpha,q:payload.statsOutlierQ});
@@ -2346,7 +2353,7 @@
       auditNotes.push(`Outlier screening on paired differences excluded ${result.removed.length} row${result.removed.length === 1 ? '' : 's'}.`);
       if(flags.length) auditNotes.push(`Flagged paired differences: ${flags.map(item=>formatStatNumber(item.value)).join(', ')}; none excluded.`);
       if(exclusions.length) auditNotes.push(`Excluded paired differences: ${exclusions.map(item=>formatStatNumber(item.value)).join(', ')}.`);
-      return {groups:[kept.map(pair=>pair.a),kept.map(pair=>pair.b)],auditNotes,exclusions,flags};
+      return {groups:[kept.map(pair=>pair.a),kept.map(pair=>pair.b)],auditNotes,exclusions,flags,excludedIncompleteRows};
     }
     const screenAlpha=resolveStatsOutlierAlpha(payload)/Math.max(1,cleaned.length);
     if(mode==='grubbs') auditNotes.push(`Grubbs screening uses Bonferroni α = ${formatStatNumber(screenAlpha)} across ${cleaned.length} selected samples.`);
@@ -2359,7 +2366,7 @@
       if(result.flags?.length) auditNotes.push(`${labels[index]}: flagged ${result.flags.map(item=>formatStatNumber(item.value)).join(', ')}; none excluded.`);
       return result.kept;
     });
-    return {groups:processed,auditNotes,exclusions,flags};
+    return {groups:processed,auditNotes,exclusions,flags,excludedIncompleteRows};
   }
 
   function computeAssumptionDiagnostics(groups,labels,options={}){
@@ -2473,23 +2480,16 @@
   }
 
   function resolveDegenerateTResult(diff,df,options={}){
-    const alternative=sanitizeStatsAlternative(options.alternative);
-    if(diff===0){
-      const interval=createTInterval(0,0,df,options);
-      return { t:0,p:1,...interval };
-    }
-    const t=diff>0 ? Infinity : -Infinity;
-    const p=alternative==='two-sided'
-      ? 0
-      : alternative==='greater'
-        ? (diff>0 ? 0 : 1)
-        : (diff<0 ? 0 : 1);
-    const interval=alternative==='greater'
-      ? { ciLow:diff, ciHigh:Infinity, ciLevel:sanitizeStatsCiLevel(options.ciLevel), alternative }
-      : alternative==='less'
-        ? { ciLow:-Infinity, ciHigh:diff, ciLevel:sanitizeStatsCiLevel(options.ciLevel), alternative }
-        : { ciLow:diff, ciHigh:diff, ciLevel:sanitizeStatsCiLevel(options.ciLevel), alternative };
-    return { t,p,...interval };
+    return createUnavailableStatResult({
+      t:NaN,
+      df,
+      p:NaN,
+      diff,
+      ciLow:NaN,
+      ciHigh:NaN,
+      ciLevel:sanitizeStatsCiLevel(options.ciLevel),
+      alternative:sanitizeStatsAlternative(options.alternative)
+    },'Zero estimated variance does not provide a sampling-based t-test or confidence interval.');
   }
 
   function tTest(a, b, options={}){
@@ -3017,6 +3017,171 @@
     return { ranks, tieTerm };
   }
 
+  function unavailableSphericity(reason){
+    return {
+      ggAvailable:false,
+      hfAvailable:false,
+      ggReason:reason,
+      hfReason:reason,
+      ggEpsilon:NaN,
+      hfEpsilon:NaN
+    };
+  }
+
+  function buildOrthonormalHelmert(levelCount){
+    const dimensions=levelCount-1;
+    const basis=Array.from({ length:levelCount },()=>new Array(dimensions).fill(0));
+    for(let contrast=0;contrast<dimensions;contrast++){
+      const count=contrast+1;
+      const denominator=Math.sqrt(count*(count+1));
+      for(let level=0;level<=contrast;level++) basis[level][contrast]=1/denominator;
+      basis[count][contrast]=-count/denominator;
+    }
+    return basis;
+  }
+
+  function computeContrastSpaceSphericity(contrastRows){
+    const rows=Array.isArray(contrastRows)?contrastRows:[];
+    const subjectCount=rows.length;
+    const dimension=Array.isArray(rows[0])?rows[0].length:0;
+    if(subjectCount<2 || dimension<1 || rows.some(row=>
+      !Array.isArray(row) || row.length!==dimension || row.some(value=>!Number.isFinite(value)))){
+      return unavailableSphericity('invalid-contrast-scores');
+    }
+    const covarianceCells=dimension*dimension;
+    if(!Number.isSafeInteger(covarianceCells) || covarianceCells>BOX_SPHERICITY_MAX_COVARIANCE_CELLS){
+      return unavailableSphericity('sphericity-covariance-resource-limit');
+    }
+
+    const means=new Array(dimension).fill(0);
+    for(let column=0;column<dimension;column++){
+      const mean=stableFiniteMean(rows.map(row=>row[column]));
+      if(mean===null) return unavailableSphericity('non-finite-contrast-mean');
+      means[column]=mean;
+    }
+
+    let deviationScale=0;
+    for(let subject=0;subject<subjectCount;subject++){
+      for(let column=0;column<dimension;column++){
+        const deviation=rows[subject][column]-means[column];
+        if(!Number.isFinite(deviation)) return unavailableSphericity('non-finite-contrast-deviation');
+        deviationScale=Math.max(deviationScale,Math.abs(deviation));
+      }
+    }
+    if(deviationScale===0) return unavailableSphericity('zero-within-subject-contrast-variance');
+
+    const covariance=new Float64Array(covarianceCells);
+    const divisor=subjectCount-1;
+    for(let row=0;row<dimension;row++){
+      for(let column=row;column<dimension;column++){
+        let crossProduct=0;
+        let compensation=0;
+        for(let subject=0;subject<subjectCount;subject++){
+          const left=(rows[subject][row]-means[row])/deviationScale;
+          const right=(rows[subject][column]-means[column])/deviationScale;
+          const adjusted=left*right-compensation;
+          const next=crossProduct+adjusted;
+          compensation=(next-crossProduct)-adjusted;
+          crossProduct=next;
+        }
+        const value=crossProduct/divisor;
+        if(!Number.isFinite(value)) return unavailableSphericity('non-finite-contrast-covariance');
+        covariance[row*dimension+column]=value;
+        covariance[column*dimension+row]=value;
+      }
+    }
+    let trace=0;
+    let traceCompensation=0;
+    let traceSquare=0;
+    let traceSquareCompensation=0;
+    for(let row=0;row<dimension;row++){
+      const traceAdjusted=covariance[row*dimension+row]-traceCompensation;
+      const nextTrace=trace+traceAdjusted;
+      traceCompensation=(nextTrace-trace)-traceAdjusted;
+      trace=nextTrace;
+      for(let column=0;column<dimension;column++){
+        const value=covariance[row*dimension+column];
+        const squareAdjusted=value*value-traceSquareCompensation;
+        const nextTraceSquare=traceSquare+squareAdjusted;
+        traceSquareCompensation=(nextTraceSquare-traceSquare)-squareAdjusted;
+        traceSquare=nextTraceSquare;
+      }
+    }
+    if(!(trace>0) || !(traceSquare>0) || !Number.isFinite(trace) || !Number.isFinite(traceSquare)){
+      return unavailableSphericity('zero-or-non-finite-contrast-covariance');
+    }
+    let ggEpsilon=(trace*trace)/(dimension*traceSquare);
+    const lowerBound=1/dimension;
+    const ggTolerance=64*Number.EPSILON*Math.max(1,Math.abs(ggEpsilon));
+    if(!Number.isFinite(ggEpsilon) || ggEpsilon<lowerBound-ggTolerance || ggEpsilon>1+ggTolerance){
+      return unavailableSphericity('greenhouse-geisser-epsilon-out-of-range');
+    }
+    ggEpsilon=Math.min(1,Math.max(lowerBound,ggEpsilon));
+    if(dimension===1){
+      return { ggAvailable:true,hfAvailable:true,ggReason:null,hfReason:null,ggEpsilon:1,hfEpsilon:1 };
+    }
+
+    const hfNumerator=subjectCount*dimension*ggEpsilon-2;
+    const hfResidualDf=subjectCount-1-dimension*ggEpsilon;
+    const hfDenominator=dimension*hfResidualDf;
+    const hfDenominatorTolerance=64*Number.EPSILON*Math.max(1,subjectCount-1,dimension*ggEpsilon);
+    if(!(hfResidualDf>hfDenominatorTolerance) || !Number.isFinite(hfNumerator) || !Number.isFinite(hfDenominator)){
+      return {
+        ggAvailable:true,hfAvailable:false,ggReason:null,hfReason:'huynh-feldt-denominator-not-positive',
+        ggEpsilon,hfEpsilon:NaN
+      };
+    }
+    const hfRaw=hfNumerator/hfDenominator;
+    const hfTolerance=64*Number.EPSILON*Math.max(1,Math.abs(hfRaw),Math.abs(ggEpsilon));
+    if(!Number.isFinite(hfRaw) || hfRaw<lowerBound-hfTolerance || hfRaw<ggEpsilon-hfTolerance){
+      return {
+        ggAvailable:true,hfAvailable:false,ggReason:null,hfReason:'huynh-feldt-epsilon-out-of-range',
+        ggEpsilon,hfEpsilon:NaN
+      };
+    }
+    const hfEpsilon=Math.min(1,Math.max(ggEpsilon,lowerBound,hfRaw));
+    return { ggAvailable:true,hfAvailable:true,ggReason:null,hfReason:null,ggEpsilon,hfEpsilon };
+  }
+
+  function computeRepeatedMeasuresSphericity(conditionRows){
+    const rows=Array.isArray(conditionRows)?conditionRows:[];
+    const levels=rows.length;
+    const subjectCount=Array.isArray(rows[0])?rows[0].length:0;
+    if(levels<2 || subjectCount<2 || rows.some(row=>
+      !Array.isArray(row) || row.length!==subjectCount || row.some(value=>!Number.isFinite(value)))){
+      return unavailableSphericity('invalid-repeated-measures-data');
+    }
+    const basis=buildOrthonormalHelmert(levels);
+    const scores=Array.from({ length:subjectCount },()=>new Array(levels-1).fill(0));
+    for(let subject=0;subject<subjectCount;subject++){
+      const subjectValues=rows.map(row=>row[subject]);
+      const subjectMean=stableFiniteMean(subjectValues);
+      if(subjectMean===null) return unavailableSphericity('non-finite-repeated-measures-mean');
+      let centeredScale=0;
+      for(let level=0;level<levels;level++){
+        const centered=rows[level][subject]-subjectMean;
+        if(!Number.isFinite(centered)) return unavailableSphericity('non-finite-repeated-measures-contrast');
+        centeredScale=Math.max(centeredScale,Math.abs(centered));
+      }
+      for(let contrast=0;contrast<levels-1;contrast++){
+        let scaledScore=0;
+        let compensation=0;
+        for(let level=0;level<levels;level++){
+          const centered=rows[level][subject]-subjectMean;
+          const normalized=centeredScale>0?centered/centeredScale:0;
+          const term=normalized*basis[level][contrast];
+          const adjusted=term-compensation;
+          const next=scaledScore+adjusted;
+          compensation=(next-scaledScore)-adjusted;
+          scaledScore=next;
+        }
+        scores[subject][contrast]=centeredScale*scaledScore;
+        if(!Number.isFinite(scores[subject][contrast])) return unavailableSphericity('non-finite-repeated-measures-contrast');
+      }
+    }
+    return computeContrastSpaceSphericity(scores);
+  }
+
   function computeRepeatedMeasuresAnova(groups){
     const cleaned=alignCompleteRows(groups).groups;
     const k=cleaned.length;
@@ -3028,111 +3193,108 @@
       return { ok:false, message:'Repeated-measures ANOVA needs at least two paired rows.' };
     }
     const grandN=n*k;
-    let totalSum=0;
-    let ssTotal=0;
-    const conditionSums=new Array(k).fill(0);
-    const subjectSums=new Array(n).fill(0);
+    const origin=cleaned[0][0];
+    let normalizationScale=0;
+    let finiteDifferences=true;
     for(let j=0; j<k; j++){
       for(let i=0; i<n; i++){
-        const value=cleaned[j][i];
-        totalSum+=value;
-        conditionSums[j]+=value;
-        subjectSums[i]+=value;
+        const difference=cleaned[j][i]-origin;
+        if(!Number.isFinite(difference)){
+          finiteDifferences=false;
+          break;
+        }
+        normalizationScale=Math.max(normalizationScale,Math.abs(difference));
+      }
+      if(!finiteDifferences) break;
+    }
+    if(!finiteDifferences){
+      normalizationScale=0;
+      for(let j=0; j<k; j++){
+        for(let i=0; i<n; i++) normalizationScale=Math.max(normalizationScale,Math.abs(cleaned[j][i]));
       }
     }
-    const grandMean=totalSum/grandN;
+    const normalizedGroups=cleaned.map(group=>group.map(value=>{
+      if(normalizationScale===0) return 0;
+      return finiteDifferences
+        ? (value-origin)/normalizationScale
+        : value/normalizationScale-origin/normalizationScale;
+    }));
+    const flatValues=normalizedGroups.flat();
+    const grandMean=stableFiniteMean(flatValues);
+    const conditionMeans=normalizedGroups.map(group=>stableFiniteMean(group));
+    const subjectMeans=Array.from({length:n},(_,subject)=>stableFiniteMean(normalizedGroups.map(group=>group[subject])));
+    if(grandMean===null || conditionMeans.some(mean=>mean===null) || subjectMeans.some(mean=>mean===null)){
+      return {ok:false,message:'Repeated-measures means could not be evaluated safely.'};
+    }
+    let ssConditionScaled=0;
+    let conditionCompensation=0;
+    for(let j=0; j<k; j++){
+      const effect=conditionMeans[j]-grandMean;
+      const term=n*effect*effect;
+      const adjusted=term-conditionCompensation;
+      const next=ssConditionScaled+adjusted;
+      conditionCompensation=(next-ssConditionScaled)-adjusted;
+      ssConditionScaled=next;
+    }
+    let ssErrorScaled=0;
+    let errorCompensation=0;
     for(let j=0; j<k; j++){
       for(let i=0; i<n; i++){
-        ssTotal+=Math.pow(cleaned[j][i]-grandMean,2);
+        const residual=normalizedGroups[j][i]-subjectMeans[i]-conditionMeans[j]+grandMean;
+        const term=residual*residual;
+        const adjusted=term-errorCompensation;
+        const next=ssErrorScaled+adjusted;
+        errorCompensation=(next-ssErrorScaled)-adjusted;
+        ssErrorScaled=next;
       }
     }
-    const ssCondition=conditionSums.reduce((acc,sum)=>acc+n*Math.pow((sum/n)-grandMean,2),0);
-    const ssSubject=subjectSums.reduce((acc,sum)=>acc+k*Math.pow((sum/k)-grandMean,2),0);
-    let ssError=ssTotal-ssCondition-ssSubject;
-    if(Math.abs(ssError)<1e-10){
-      ssError=0;
+    const zeroErrorTolerance=4096*Number.EPSILON*Number.EPSILON*grandN;
+    if(ssErrorScaled<=zeroErrorTolerance){
+      ssErrorScaled=0;
     }
+    const restoreSumOfSquares=scaledValue=>{
+      if(normalizationScale===0 || scaledValue===0) return 0;
+      const restored=(scaledValue*normalizationScale)*normalizationScale;
+      return Number.isFinite(restored) && restored>0?restored:null;
+    };
+    const ssCondition=restoreSumOfSquares(ssConditionScaled);
+    const ssError=restoreSumOfSquares(ssErrorScaled);
     const df1=k-1;
     const df2=(k-1)*(n-1);
     if(df1<=0 || df2<=0){
       return { ok:false, message:'Repeated-measures ANOVA degrees of freedom are invalid.' };
     }
-    const msCondition=ssCondition/df1;
-    const msError=ssError/df2;
-    let F;
-    let p;
-    if(msError===0){
-      F=msCondition>0?Infinity:0;
-      p=msCondition>0?0:1;
-    }else{
-      F=msCondition/msError;
-      p=fUpperTailPValue(F, df1, df2);
+    const msConditionScaled=ssConditionScaled/df1;
+    const msErrorScaled=ssErrorScaled/df2;
+    if(msErrorScaled===0){
+      const message='Repeated-measures inference is unavailable because within-subject error variance is zero.';
+      return {
+        ok:true,
+        available:false,
+        message,
+        F:null,
+        p:null,
+        df1,
+        df2,
+        ggEpsilon:null,
+        hfEpsilon:null,
+        ggP:null,
+        hfP:null,
+        ssCondition,
+        ssError,
+        partialEtaSquared:computePartialEtaSquared(ssConditionScaled,ssErrorScaled),
+        footnote:[message]
+      };
     }
-    let ggEpsilon=NaN;
-    let hfEpsilon=NaN;
-    let ggP=NaN;
-    let hfP=NaN;
-    if(n>1 && k>2){
-      const covariance=Array.from({ length:k }, ()=>new Array(k).fill(0));
-      for(let row=0;row<k;row++){
-        for(let col=0;col<k;col++){
-          let sum=0;
-          for(let subject=0;subject<n;subject++){
-            sum+=(cleaned[row][subject]-conditionSums[row]/n)*(cleaned[col][subject]-conditionSums[col]/n);
-          }
-          covariance[row][col]=sum/Math.max(n-1,1);
-        }
-      }
-      const centering=Array.from({ length:k }, (_,row)=>
-        Array.from({ length:k }, (_,col)=> (row===col?1:0)-(1/k))
-      );
-      const centered=Array.from({ length:k }, ()=>new Array(k).fill(0));
-      for(let row=0;row<k;row++){
-        for(let col=0;col<k;col++){
-          let sum=0;
-          for(let m=0;m<k;m++){
-            sum+=centering[row][m]*covariance[m][col];
-          }
-          centered[row][col]=sum;
-        }
-      }
-      let trace=0;
-      let traceSq=0;
-      for(let row=0;row<k;row++){
-        trace+=centered[row][row];
-      }
-      for(let row=0;row<k;row++){
-        for(let col=0;col<k;col++){
-          traceSq+=centered[row][col]*centered[col][row];
-        }
-      }
-      if(traceSq>0){
-        ggEpsilon=Math.min(1,Math.max(1/(k-1),(trace*trace)/((k-1)*traceSq)));
-      }
-      if(Number.isFinite(ggEpsilon)){
-        const numerator=n*(k-1)*ggEpsilon-2;
-        const denominator=(k-1)*(n-1-(k-1)*ggEpsilon);
-        if(denominator!==0){
-          hfEpsilon=Math.min(1,Math.max(ggEpsilon,numerator/denominator));
-        }else{
-          hfEpsilon=ggEpsilon;
-        }
-      }
-      if(Number.isFinite(ggEpsilon) && ggEpsilon>0){
-        const ggDf1=ggEpsilon*df1;
-        const ggDf2=ggEpsilon*df2;
-        if(ggDf1>0 && ggDf2>0){
-          ggP=fUpperTailPValue(F, ggDf1, ggDf2);
-        }
-      }
-      if(Number.isFinite(hfEpsilon) && hfEpsilon>0){
-        const hfDf1=hfEpsilon*df1;
-        const hfDf2=hfEpsilon*df2;
-        if(hfDf1>0 && hfDf2>0){
-          hfP=fUpperTailPValue(F, hfDf1, hfDf2);
-        }
-      }
-    }
+    const F=msConditionScaled/msErrorScaled;
+    const p=fUpperTailPValue(F, df1, df2);
+    const { ggEpsilon, hfEpsilon } = computeRepeatedMeasuresSphericity(cleaned);
+    const ggP=Number.isFinite(ggEpsilon) && ggEpsilon>0
+      ? fUpperTailPValue(F,ggEpsilon*df1,ggEpsilon*df2)
+      : NaN;
+    const hfP=Number.isFinite(hfEpsilon) && hfEpsilon>0
+      ? fUpperTailPValue(F,hfEpsilon*df1,hfEpsilon*df2)
+      : NaN;
     const correctionFootnoteParts=['Repeated-measures ANOVA assumes sphericity.'];
     if(Number.isFinite(ggEpsilon)){
       correctionFootnoteParts.push(` Greenhouse–Geisser ε = ${ggEpsilon.toFixed(3)}`);
@@ -3160,7 +3322,7 @@
       hfP,
       ssCondition,
       ssError,
-      partialEtaSquared:computePartialEtaSquared(ssCondition,ssError),
+      partialEtaSquared:computePartialEtaSquared(ssConditionScaled,ssErrorScaled),
       footnote:correctionFootnoteParts
     };
   }
@@ -5678,101 +5840,412 @@
     };
   }
 
-  function analyzeTwoWayMixed(data){
-    const base = collectGroupedMomentInfo(data);
-    if(!base.ok){
-      return { ok: false, message: base.message };
+  function stableFiniteMean(values){
+    if(!Array.isArray(values) || !values.length || values.some(value=>!Number.isFinite(value))){
+      return null;
     }
-    const jStatLib = global.jStat;
-    if(!jStatLib){
-      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
-    }
-    const { I, J, K, ssa, ssb, ssab, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
-    if(I < 2 || J < 2 || K < 2){
-      return { ok: false, message: 'Two-way mixed model requires at least two groups, two conditions, and two complete rows.' };
-    }
-    const dfA = I - 1;
-    const dfB = J - 1;
-    const dfS = K - 1;
-    const dfAS = (I - 1) * (K - 1);
-    const dfBS = (J - 1) * (K - 1);
-    const dfAB = (I - 1) * (J - 1);
-    const dfABS = (I - 1) * (J - 1) * (K - 1);
-    if(dfAS <= 0 || dfBS <= 0 || dfABS <= 0){
-      return { ok: false, message: 'Two-way mixed model requires at least two rows to estimate error terms.' };
-    }
-    let sss = 0;
-    for(let k = 0; k < K; k++){
-      sss += Math.pow(subjectMeans[k] - grandMean, 2);
-    }
-    sss *= I * J;
-    let ssas = 0;
-    for(let i = 0; i < I; i++){
-      for(let k = 0; k < K; k++){
-        const value = asMeans[i][k] - meanByGroup[i] - subjectMeans[k] + grandMean;
-        ssas += Math.pow(value, 2);
+    const origin=values[0];
+    let deviationScale=0;
+    const deviations=new Array(values.length);
+    let finiteDifferences=true;
+    for(let index=0;index<values.length;index++){
+      const deviation=values[index]-origin;
+      if(!Number.isFinite(deviation)){
+        finiteDifferences=false;
+        break;
       }
+      deviations[index]=deviation;
+      deviationScale=Math.max(deviationScale,Math.abs(deviation));
     }
-    ssas *= J;
-    let ssbs = 0;
-    for(let j = 0; j < J; j++){
-      for(let k = 0; k < K; k++){
-        const value = bsMeans[j][k] - meanByCondition[j] - subjectMeans[k] + grandMean;
-        ssbs += Math.pow(value, 2);
+    if(finiteDifferences){
+      if(deviationScale===0) return origin;
+      let scaledTotal=0;
+      let compensation=0;
+      for(const deviation of deviations){
+        const adjusted=deviation/deviationScale-compensation;
+        const next=scaledTotal+adjusted;
+        compensation=(next-scaledTotal)-adjusted;
+        scaledTotal=next;
       }
+      const result=origin+deviationScale*(scaledTotal/values.length);
+      if(Number.isFinite(result)) return result;
     }
-    ssbs *= I;
-    let ssabs = 0;
-    for(let k = 0; k < K; k++){
-      for(let i = 0; i < I; i++){
-        for(let j = 0; j < J; j++){
-          const term = data.rows[k][i][j]
-            - base.cellMeans[i][j]
-            - asMeans[i][k]
-            - bsMeans[j][k]
-            + meanByGroup[i]
-            + meanByCondition[j]
-            + subjectMeans[k]
-            - grandMean;
-          ssabs += Math.pow(term, 2);
+
+    let scale=0;
+    values.forEach(value=>{ scale=Math.max(scale,Math.abs(value)); });
+    if(scale===0) return 0;
+    let scaledTotal=0;
+    let compensation=0;
+    values.forEach(value=>{
+      const adjusted=value/scale-compensation;
+      const next=scaledTotal+adjusted;
+      compensation=(next-scaledTotal)-adjusted;
+      scaledTotal=next;
+    });
+    const result=scale*(scaledTotal/values.length);
+    return Number.isFinite(result)?result:null;
+  }
+
+  function validateRowRandomRepeatedMeasuresData(data){
+    const groupsCount=Number(data?.groupsCount);
+    const conditionsCount=Number(data?.conditionsCount);
+    const subjectCount=Number(data?.rowsWithData);
+    const rows=Array.isArray(data?.rows)?data.rows:null;
+    if(!Number.isSafeInteger(groupsCount) || groupsCount<2
+      || !Number.isSafeInteger(conditionsCount) || conditionsCount<2
+      || !Number.isSafeInteger(subjectCount) || subjectCount<2){
+      return { ok:false,message:'The row-random repeated-measures model requires at least two groups, two conditions, and two complete subjects.' };
+    }
+    const cellCount=groupsCount*conditionsCount;
+    if(!Number.isSafeInteger(cellCount) || !Number.isSafeInteger(cellCount*subjectCount)){
+      return { ok:false,message:'The row-random repeated-measures design dimensions exceed the supported numeric range.' };
+    }
+    if(!rows || rows.length!==subjectCount){
+      return { ok:false,message:'The declared complete-subject count does not match the prepared repeated-measures rows.' };
+    }
+    for(let subject=0;subject<subjectCount;subject++){
+      const subjectRow=rows[subject];
+      if(!Array.isArray(subjectRow) || subjectRow.length!==groupsCount){
+        return { ok:false,message:`Complete subject row ${subject+1} has an invalid group dimension.` };
+      }
+      for(let group=0;group<groupsCount;group++){
+        const cell=subjectRow[group];
+        if(!Array.isArray(cell) || cell.length!==conditionsCount
+          || cell.some(value=>typeof value!=='number' || !Number.isFinite(value))){
+          return { ok:false,message:`Complete subject row ${subject+1} contains a missing, non-numeric, or misaligned group/condition value.` };
         }
       }
     }
-    const msa = ssa / dfA;
-    const msas = ssas / dfAS;
-    const msb = ssb / dfB;
-    const msbs = ssbs / dfBS;
-    const msab = ssab / dfAB;
-    const msabs = ssabs / dfABS;
-    const fA = msas > 0 ? msa / msas : NaN;
-    const fB = msbs > 0 ? msb / msbs : NaN;
-    const fAB = msabs > 0 ? msab / msabs : NaN;
-    const pA = Number.isFinite(fA) ? fUpperTailPValue(fA, dfA, dfAS) : NaN;
-    const pB = Number.isFinite(fB) ? fUpperTailPValue(fB, dfB, dfBS) : NaN;
-    const pAB = Number.isFinite(fAB) ? fUpperTailPValue(fAB, dfAB, dfABS) : NaN;
+    const excluded=Number(data?.partialRowsSkipped);
     return {
-      ok: true,
-      caption: 'Two-way Mixed Model',
-      section: 'summary',
-      columns: [
-        { key: 'source', label: 'Source', align: 'left' },
-        { key: 'df', label: 'df', align: 'right' },
-        { key: 'ss', label: 'SS', align: 'right' },
-        { key: 'ms', label: 'MS', align: 'right' },
-        { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'p-value', align: 'right', inferenceRole: 'overall' }
+      ok:true,
+      rows,
+      subjectCount,
+      groupsCount,
+      conditionsCount,
+      excludedIncompleteSubjects:Number.isSafeInteger(excluded) && excluded>0?excluded:0
+    };
+  }
+
+  function projectRowRandomEffect(rows,groupBasis,conditionBasis,effect){
+    const subjectCount=rows.length;
+    const groupsCount=groupBasis.length;
+    const conditionsCount=conditionBasis.length;
+    const groupDimension=groupsCount-1;
+    const conditionDimension=conditionsCount-1;
+    const dimension=effect==='group'?groupDimension:(effect==='condition'?conditionDimension:groupDimension*conditionDimension);
+    const scores=Array.from({ length:subjectCount },()=>new Array(dimension).fill(0));
+    for(let subject=0;subject<subjectCount;subject++){
+      const values=rows[subject].flat();
+      const subjectMean=stableFiniteMean(values);
+      if(subjectMean===null) return { ok:false,message:'A subject mean is outside the finite numeric range.' };
+      const centered=[];
+      let scale=0;
+      for(let group=0;group<groupsCount;group++){
+        for(let condition=0;condition<conditionsCount;condition++){
+          const value=rows[subject][group][condition]-subjectMean;
+          if(!Number.isFinite(value)) return { ok:false,message:'Centering a subject row exceeded the finite numeric range.' };
+          centered.push(value);
+          scale=Math.max(scale,Math.abs(value));
+        }
+      }
+      if(scale===0) continue;
+      let coordinate=0;
+      if(effect==='group'){
+        for(let groupContrast=0;groupContrast<groupDimension;groupContrast++){
+          let sum=0;
+          let compensation=0;
+          for(let group=0;group<groupsCount;group++){
+            for(let condition=0;condition<conditionsCount;condition++){
+              const term=(centered[group*conditionsCount+condition]/scale)
+                *groupBasis[group][groupContrast]/Math.sqrt(conditionsCount);
+              const adjusted=term-compensation;
+              const next=sum+adjusted;
+              compensation=(next-sum)-adjusted;
+              sum=next;
+            }
+          }
+          scores[subject][coordinate]=scale*sum;
+          if(!Number.isFinite(scores[subject][coordinate])) return { ok:false,message:'A group contrast exceeded the finite numeric range.' };
+          coordinate++;
+        }
+      }else if(effect==='condition'){
+        for(let conditionContrast=0;conditionContrast<conditionDimension;conditionContrast++){
+          let sum=0;
+          let compensation=0;
+          for(let group=0;group<groupsCount;group++){
+            for(let condition=0;condition<conditionsCount;condition++){
+              const term=(centered[group*conditionsCount+condition]/scale)
+                *conditionBasis[condition][conditionContrast]/Math.sqrt(groupsCount);
+              const adjusted=term-compensation;
+              const next=sum+adjusted;
+              compensation=(next-sum)-adjusted;
+              sum=next;
+            }
+          }
+          scores[subject][coordinate]=scale*sum;
+          if(!Number.isFinite(scores[subject][coordinate])) return { ok:false,message:'A condition contrast exceeded the finite numeric range.' };
+          coordinate++;
+        }
+      }else{
+        for(let groupContrast=0;groupContrast<groupDimension;groupContrast++){
+          for(let conditionContrast=0;conditionContrast<conditionDimension;conditionContrast++){
+            let sum=0;
+            let compensation=0;
+            for(let group=0;group<groupsCount;group++){
+              for(let condition=0;condition<conditionsCount;condition++){
+                const term=(centered[group*conditionsCount+condition]/scale)
+                  *groupBasis[group][groupContrast]*conditionBasis[condition][conditionContrast];
+                const adjusted=term-compensation;
+                const next=sum+adjusted;
+                compensation=(next-sum)-adjusted;
+                sum=next;
+              }
+            }
+            scores[subject][coordinate]=scale*sum;
+            if(!Number.isFinite(scores[subject][coordinate])) return { ok:false,message:'An interaction contrast exceeded the finite numeric range.' };
+            coordinate++;
+          }
+        }
+      }
+    }
+    return { ok:true,scores,dimension };
+  }
+
+  function computeRepeatedEffectResult(scores,dimension){
+    const subjectCount=scores.length;
+    const df1=dimension;
+    const df2=dimension*(subjectCount-1);
+    const meanScores=new Array(dimension).fill(0);
+    for(let coordinate=0;coordinate<dimension;coordinate++){
+      const values=scores.map(row=>row[coordinate]);
+      const value=stableFiniteMean(values);
+      if(value===null) return null;
+      meanScores[coordinate]=value;
+    }
+    let ssEffect=0;
+    let ssError=0;
+    for(let subject=0;subject<subjectCount;subject++){
+      for(let coordinate=0;coordinate<dimension;coordinate++){
+        const deviation=scores[subject][coordinate]-meanScores[coordinate];
+        const errorTerm=deviation*deviation;
+        if(!Number.isFinite(deviation) || !Number.isFinite(errorTerm)) return null;
+        ssError+=errorTerm;
+        if(!Number.isFinite(ssError)) return null;
+      }
+    }
+    for(const value of meanScores){
+      const effectTerm=subjectCount*value*value;
+      if(!Number.isFinite(effectTerm)) return null;
+      ssEffect+=effectTerm;
+      if(!Number.isFinite(ssEffect)) return null;
+    }
+    const msEffect=ssEffect/df1;
+    const msError=ssError/df2;
+    const partialScale=Math.max(ssEffect,ssError);
+    const partialEtaSquared=partialScale>0
+      ? (ssEffect/partialScale)/((ssEffect/partialScale)+(ssError/partialScale))
+      : null;
+    const f=msError>0?msEffect/msError:null;
+    const validF=Number.isFinite(f)?f:null;
+    const pUncorrected=validF!==null?fUpperTailPValue(validF,df1,df2):null;
+    const sphericity=computeContrastSpaceSphericity(scores);
+    const ggDf1=sphericity.ggAvailable?sphericity.ggEpsilon*df1:null;
+    const ggDf2=sphericity.ggAvailable?sphericity.ggEpsilon*df2:null;
+    const hfDf1=sphericity.hfAvailable?sphericity.hfEpsilon*df1:null;
+    const hfDf2=sphericity.hfAvailable?sphericity.hfEpsilon*df2:null;
+    const ggP=sphericity.ggAvailable && validF!==null?fUpperTailPValue(validF,ggDf1,ggDf2):null;
+    const hfP=sphericity.hfAvailable && validF!==null?fUpperTailPValue(validF,hfDf1,hfDf2):null;
+    const ggAvailable=sphericity.ggAvailable && Number.isFinite(ggP);
+    const hfAvailable=sphericity.hfAvailable && Number.isFinite(hfP);
+    const reason=ssError>0
+      ? (ggAvailable?null:(sphericity.ggReason || 'corrected-inference-unavailable'))
+      : 'zero-within-subject-error-variance';
+    const gg={
+      available:ggAvailable,
+      reason:ggAvailable?null:reason,
+      epsilon:ggAvailable?sphericity.ggEpsilon:null,
+      df1:ggAvailable?ggDf1:null,
+      df2:ggAvailable?ggDf2:null,
+      p:ggAvailable?ggP:null
+    };
+    const hf={
+      available:hfAvailable,
+      reason:hfAvailable?null:(ssError>0?(sphericity.hfReason || 'corrected-inference-unavailable'):reason),
+      epsilon:hfAvailable?sphericity.hfEpsilon:null,
+      df1:hfAvailable?hfDf1:null,
+      df2:hfAvailable?hfDf2:null,
+      p:hfAvailable?hfP:null
+    };
+    const primaryMethod=ggAvailable
+      ? (dimension===1?'uncorrected-equivalent-df1':'greenhouse-geisser')
+      : 'unavailable';
+    return {
+      available:ggAvailable,
+      reason,
+      contrastDimension:dimension,
+      ssEffect,
+      ssError,
+      df1,
+      df2,
+      msEffect:Number.isFinite(msEffect)?msEffect:null,
+      msError:Number.isFinite(msError)?msError:null,
+      f:validF,
+      pUncorrected:Number.isFinite(pUncorrected)?pUncorrected:null,
+      partialEtaSquared:Number.isFinite(partialEtaSquared)?partialEtaSquared:null,
+      primaryP:ggAvailable?ggP:null,
+      primaryMethod,
+      gg,
+      hf
+    };
+  }
+
+  function buildRowRandomCorrectionTable(repeatedMeasures){
+    const effects=repeatedMeasures.effects;
+    const labels={group:'Group',condition:'Condition',interaction:'Group × Condition'};
+    const rows=Object.keys(labels).map(key=>{
+      const effect=effects[key];
+      return {
+        effect:labels[key],
+        df1:formatStatNumber(effect.df1,0),
+        df2:formatStatNumber(effect.df2,0),
+        epsilonGG:formatStatNumber(effect.gg.epsilon),
+        df1GG:formatStatNumber(effect.gg.df1),
+        df2GG:formatStatNumber(effect.gg.df2),
+        pGG:createPValueCell(effect.gg.p),
+        epsilonHF:formatStatNumber(effect.hf.epsilon),
+        df1HF:formatStatNumber(effect.hf.df1),
+        df2HF:formatStatNumber(effect.hf.df2),
+        pHF:createPValueCell(effect.hf.p),
+        pUncorrected:createPValueCell(effect.pUncorrected),
+        ggAvailable:effect.gg.available,
+        hfAvailable:effect.hf.available,
+        reason:effect.reason
+      };
+    });
+    return {
+      ok:true,
+      caption:'Effect-specific sphericity corrections',
+      section:'summary',
+      columns:[
+        {key:'effect',label:'Effect',align:'left'},
+        {key:'df1',label:'Uncorrected df1',align:'right'},
+        {key:'df2',label:'Uncorrected df2',align:'right'},
+        {key:'epsilonGG',label:'εGG',align:'right'},
+        {key:'df1GG',label:'GG df1',align:'right'},
+        {key:'df2GG',label:'GG df2',align:'right'},
+        {key:'pGG',label:'p (GG primary)',align:'right'},
+        {key:'epsilonHF',label:'εHF',align:'right'},
+        {key:'df1HF',label:'HF df1',align:'right'},
+        {key:'df2HF',label:'HF df2',align:'right'},
+        {key:'pHF',label:'p (HF supplementary)',align:'right'},
+        {key:'pUncorrected',label:'p (uncorrected reference)',align:'right'}
       ],
-      rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: createPValueCell(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: createPValueCell(pB) },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: createPValueCell(pAB) },
-        { source: 'Row (random)', df: String(dfS), ss: formatStatNumber(sss), ms: formatStatNumber(dfS ? sss / dfS : NaN), f: '-', p: '-' },
-        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '-', p: '-' },
-        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '-', p: '-' },
-        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '-', p: '-' }
+      rows,
+      options:{fileName:'box-row-random-sphericity',contextLabel:'box-row-random-sphericity-corrections'},
+      footnotes:[
+        'Greenhouse–Geisser corrected degrees of freedom and p-values are the primary within-subject inference; Huynh–Feldt values are supplementary.',
+        'Uncorrected p-values are shown only as a labelled reference. The three effect corrections are not a multiple-comparison adjustment.'
       ],
-      options: { fileName: 'box-two-way-mixed', contextLabel: 'box-grouped-mixed2' },
-      footnotes: ['Mixed model treats rows as a random effect; F-tests for fixed effects use row interactions as denominators.']
+      methodVersion:repeatedMeasures.schemaVersion
+    };
+  }
+
+  function analyzeTwoWayMixed(data){
+    const prepared=validateRowRandomRepeatedMeasuresData(data);
+    if(!prepared.ok) return prepared;
+    if(!global.jStat) return {ok:false,message:'Statistics unavailable (jStat missing).'};
+    const {rows,subjectCount,groupsCount,conditionsCount,excludedIncompleteSubjects}=prepared;
+    const groupBasis=buildOrthonormalHelmert(groupsCount);
+    const conditionBasis=buildOrthonormalHelmert(conditionsCount);
+    const groupProjection=projectRowRandomEffect(rows,groupBasis,conditionBasis,'group');
+    const conditionProjection=projectRowRandomEffect(rows,groupBasis,conditionBasis,'condition');
+    const interactionProjection=projectRowRandomEffect(rows,groupBasis,conditionBasis,'interaction');
+    for(const projection of [groupProjection,conditionProjection,interactionProjection]){
+      if(!projection.ok) return {ok:false,message:projection.message};
+    }
+    const group=computeRepeatedEffectResult(groupProjection.scores,groupProjection.dimension);
+    const condition=computeRepeatedEffectResult(conditionProjection.scores,conditionProjection.dimension);
+    const interaction=computeRepeatedEffectResult(interactionProjection.scores,interactionProjection.dimension);
+    if(!group || !condition || !interaction){
+      return {ok:false,message:'The row-random repeated-measures sums of squares exceeded the finite numeric range.'};
+    }
+    const subjectMeans=rows.map(subject=>stableFiniteMean(subject.flat()));
+    if(subjectMeans.some(value=>value===null)) return {ok:false,message:'A subject mean is outside the finite numeric range.'};
+    const grandMean=stableFiniteMean(subjectMeans);
+    if(grandMean===null) return {ok:false,message:'The grand mean is outside the finite numeric range.'};
+    const subjectResiduals=subjectMeans.map(value=>value-grandMean);
+    let ssSubject=0;
+    for(const residual of subjectResiduals){
+      const term=groupsCount*conditionsCount*residual*residual;
+      if(!Number.isFinite(term) || !Number.isFinite(ssSubject+term)){
+        return {ok:false,message:'The row effect sum of squares exceeded the finite numeric range.'};
+      }
+      ssSubject+=term;
+    }
+    const dfSubject=subjectCount-1;
+    const dfGroupRow=group.df2;
+    const dfConditionRow=condition.df2;
+    const dfInteractionRow=interaction.df2;
+    const repeatedMeasures={
+      schemaVersion:'box-row-random-sphericity-v1',
+      methodVersion:BOX_ROW_RANDOM_SPHERICITY_VERSION,
+      design:'fully-crossed-within-subjects',
+      subjectCount,
+      groupsCount,
+      conditionsCount,
+      excludedIncompleteSubjects,
+      primaryCorrection:'greenhouse-geisser',
+      effects:{group,condition,interaction}
+    };
+    const mainRows=[
+      {source:'Group',effect:group,df:group.df1},
+      {source:'Condition',effect:condition,df:condition.df1},
+      {source:'Group × Condition',effect:interaction,df:interaction.df1}
+    ].map(({source,effect,df})=>({
+      source,
+      df:String(df),
+      ss:formatStatNumber(effect.ssEffect),
+      ms:formatStatNumber(effect.msEffect),
+      f:formatStatNumber(effect.f),
+      p:createPValueCell(effect.primaryP),
+      etaP2:formatStatNumber(effect.partialEtaSquared)
+    }));
+    const mainTable={
+      ok:true,
+      caption:'Two-way repeated-measures ANOVA (rows random)',
+      section:'summary',
+      columns:[
+        {key:'source',label:'Source',align:'left'},
+        {key:'df',label:'df (uncorrected)',align:'right'},
+        {key:'ss',label:'SS',align:'right'},
+        {key:'ms',label:'MS (uncorrected)',align:'right'},
+        {key:'f',label:'F',align:'right'},
+        {key:'p',label:'p-value (GG primary)',align:'right',inferenceRole:'overall'},
+        {key:'etaP2',label:'ηp²',align:'right'}
+      ],
+      rows:[
+        ...mainRows,
+        {source:'Row (random)',df:String(dfSubject),ss:formatStatNumber(ssSubject),ms:formatStatNumber(ssSubject/dfSubject),f:'-',p:'-',etaP2:'-'},
+        {source:'Group × Row',df:String(dfGroupRow),ss:formatStatNumber(group.ssError),ms:formatStatNumber(group.msError),f:'-',p:'-',etaP2:'-'},
+        {source:'Condition × Row',df:String(dfConditionRow),ss:formatStatNumber(condition.ssError),ms:formatStatNumber(condition.msError),f:'-',p:'-',etaP2:'-'},
+        {source:'Group × Condition × Row',df:String(dfInteractionRow),ss:formatStatNumber(interaction.ssError),ms:formatStatNumber(interaction.msError),f:'-',p:'-',etaP2:'-'}
+      ],
+      options:{fileName:'box-row-random-repeated-measures',contextLabel:'box-grouped-row-random-repeated-measures'},
+      footnotes:[
+        `Each complete subject row contributes all ${groupsCount*conditionsCount} Group × Condition measurements; N = ${subjectCount} independent subjects.`,
+        'The subject-by-effect interactions are the corresponding within-subject error terms. Raw sums of squares, mean squares, and displayed degrees of freedom are uncorrected.',
+        'Greenhouse–Geisser corrected p-values are primary; Huynh–Feldt results are supplementary. No formal sphericity test is performed.'
+      ],
+      diagnostics:{subjectCount,dfSubject,dfGroup:group.df1,dfGroupRow,dfCondition:condition.df1,dfConditionRow,dfInteraction:interaction.df1,dfInteractionRow}
+    };
+    return {
+      ok:true,
+      caption:mainTable.caption,
+      section:'summary',
+      table:mainTable,
+      correctionTable:buildRowRandomCorrectionTable(repeatedMeasures),
+      repeatedMeasures
     };
   }
 
@@ -6086,6 +6559,50 @@
     return { ok:true,message:null,groups:transformed };
   }
 
+  function computeLognormalRepeatedMeasuresAnova(groups, options = {}) {
+    const aligned = alignCompleteRows(groups, options.rowIndicesByGroup);
+    const prepared = prepareLognormalGroups(aligned.groups, 'Lognormal repeated-measures ANOVA');
+    if (!prepared.ok) {
+      return {
+        ok: false,
+        available: false,
+        message: prepared.message,
+        subjectCount: aligned.rows.length,
+        excludedRows: aligned.excludedRows
+      };
+    }
+    const result = computeRepeatedMeasuresAnova(prepared.groups);
+    if (!result.ok) {
+      return {
+        ...result,
+        method: 'lognormalRepeatedMeasuresAnova',
+        analysisScale: 'log',
+        subjectCount: aligned.rows.length,
+        excludedRows: aligned.excludedRows
+      };
+    }
+    if (result.available !== false && !Number.isFinite(result.ggP)) {
+      return {
+        ok: false,
+        available: false,
+        message: 'Greenhouse–Geisser corrected inference could not be estimated for this lognormal repeated-measures design.',
+        method: 'lognormalRepeatedMeasuresAnova',
+        analysisScale: 'log',
+        subjectCount: aligned.rows.length,
+        excludedRows: aligned.excludedRows
+      };
+    }
+    return {
+      ...result,
+      method: 'lognormalRepeatedMeasuresAnova',
+      analysisScale: 'log',
+      reportingScale: 'geometric-mean-ratio',
+      subjectCount: aligned.rows.length,
+      excludedRows: aligned.excludedRows,
+      geometricMeans: prepared.groups.map(group => Math.exp(mean(group)))
+    };
+  }
+
   function backTransformLogPair(pair){
     if(!pair || typeof pair!=='object'){
       return pair;
@@ -6171,6 +6688,7 @@
     lognormalAnova:{ label:'Lognormal one-way ANOVA', family:'parametric', variant:'lognormalClassic' },
     lognormalWelchAnova:{ label:'Lognormal Welch ANOVA', family:'parametric', variant:'lognormalWelch' },
     repeatedMeasuresAnova:{ label:'Repeated-measures ANOVA', family:'parametric', variant:'classic' },
+    lognormalRepeatedMeasuresAnova:{ label:'Lognormal repeated-measures ANOVA', family:'parametric', variant:'lognormalClassic' },
     kruskalWallis:{ label:'Kruskal-Wallis test', family:'nonparametric', variant:'kruskalWallis' },
     friedman:{ label:'Friedman test', family:'nonparametric', variant:'friedman' }
   });
@@ -6203,7 +6721,9 @@
           : null;
       }
     }else if(family==='parametric' && paired){
-      id=requested==='classic' ? 'repeatedMeasuresAnova' : null;
+      id=requested==='classic' ? 'repeatedMeasuresAnova'
+        : requested==='lognormalClassic' ? 'lognormalRepeatedMeasuresAnova'
+          : null;
     }else if(family==='parametric'){
       id=requested==='classic' ? 'oneWayAnova'
         : requested==='welch' ? 'welchAnova'
@@ -6241,9 +6761,12 @@
     else if(id==='lognormalAnova') pairTest=(a,b)=>lognormalTTestEqualVariance(a,b,options);
     else if(id==='lognormalWelchAnova') pairTest=(a,b)=>lognormalWelchTTest(a,b,options);
     else if(id==='repeatedMeasuresAnova') pairTest=(a,b)=>tTestPaired(a,b,options);
+    else if(id==='lognormalRepeatedMeasuresAnova') pairTest=(a,b)=>ratioTTest(a,b,options);
     else if(id==='kruskalWallis') pairTest=(a,b)=>mannWhitney(a,b,options);
     else if(id==='friedman') pairTest=(a,b)=>wilcoxonSignedRank(a,b,options);
-    return { ok:true,id,label:meta.label,family,variant:meta.variant,paired,pairwise,options,pairTest,lognormal:id==='lognormalT'||id==='lognormalWelchT'||id==='lognormalAnova'||id==='lognormalWelchAnova' };
+    const lognormal=id==='ratioT'||id==='lognormalT'||id==='lognormalWelchT'
+      || id==='lognormalAnova'||id==='lognormalWelchAnova'||id==='lognormalRepeatedMeasuresAnova';
+    return { ok:true,id,label:meta.label,family,variant:meta.variant,paired,pairwise,options,pairTest,lognormal };
   }
 
   function formatInferenceMethodLabel(method){
@@ -6283,6 +6806,7 @@
 
   function buildBoxStatsReport(model,payload){
     const analysis=model?.analysis || {};
+    const isLognormalRepeatedMeasures=analysis.id==='lognormalRepeatedMeasuresAnova';
     const selectedLabels=(Array.isArray(payload.selection)?payload.selection:[]).map(item=>item?.label).filter(Boolean);
     const selectedGroupCount=selectedLabels.length || Number(model?.groupCount) || 0;
     const inferenceSnapshot=normalizeEffectiveInferenceSnapshot(payload,model);
@@ -6348,6 +6872,7 @@
       pairSpecificPooledVarianceOnLogScale:'a separate pooled variance for each pair on the log scale',
       pairSpecificWelchVariance:'Welch standard errors with pair-specific Satterthwaite degrees of freedom',
       pairSpecificWelchVarianceOnLogScale:'Welch standard errors and pair-specific Satterthwaite degrees of freedom on the log scale',
+      pairedLogRatioVariance:'the sample variance of paired within-subject log ratios',
       groupSampleVariances:'group-specific sample variances'
     };
     const degreesOfFreedomDescription=effectiveSpec.degreesOfFreedom!=null && Number.isFinite(Number(effectiveSpec.degreesOfFreedom))
@@ -6360,6 +6885,9 @@
       : effectiveSpec.pairwiseTest && correctionCount
         ? `Pairwise comparisons used ${effectiveSpec.pairwiseTest}${varianceDescriptions[effectiveSpec.varianceEstimator] ? ` with ${varianceDescriptions[effectiveSpec.varianceEstimator]}` : ''}${degreesOfFreedomDescription}.`
         : null;
+    const lognormalRepeatedMeasuresDescription=isLognormalRepeatedMeasures
+      ? 'Strictly positive observations were natural-log transformed internally. The omnibus test compares mean log outcomes, which is equivalent to testing equality of geometric means; paired contrasts are reported as geometric-mean ratios with nominal, unadjusted per-comparison confidence intervals. Pairwise p-values use the reported multiplicity correction. The univariate repeated-measures model uses complete aligned subjects and assumes approximately normal errors on the log scale; its uncorrected inference assumes sphericity of within-subject contrasts. Greenhouse–Geisser corrected degrees of freedom and p-values are primary for potential nonsphericity; Huynh–Feldt results are supplementary. This workflow does not fit a general covariance structure or perform a formal sphericity test.'
+      : null;
     const resamplingMode=sanitizeResamplingMode(payload.statsResamplingMode);
     const resamplingDescription=analysis.family!=='nonparametric'
       ? null
@@ -6378,12 +6906,14 @@
     const methods=[
       `${analysis.label || 'Statistical analysis'} was performed on ${selectedGroupCount} selected ${selectedGroupCount === 1 ? 'group' : 'groups'}.`,
       `The analysis used ${analysis.paired ? 'a paired' : 'an independent'} design.`,
+      lognormalRepeatedMeasuresDescription,
       model?.overall ? `The omnibus ${model.overall.F!=null?'F-test':'test'} was nondirectional.` : null,
       Number.isFinite(Number(inferenceSnapshot?.overall?.level))
         ? `Omnibus-test decisions used α = ${alphaText}.`
         : null,
       pairwiseDescription,
       correctionCount ? `Pairwise alternatives were ${alternative}.` : null,
+      'No equivalence or non-inferiority test is performed; failure to reject a difference does not establish equivalence.',
       multiplicityDescription ? `${multiplicityDescription}${configuredCorrectionDescription}` : null,
       ciDescription,
       resamplingDescription,
@@ -6396,6 +6926,9 @@
       const overall=model.overall;
       const stat=Number.isFinite(overall.F)?`F = ${formatStatNumber(overall.F)}`:Number.isFinite(overall.H)?`H = ${formatStatNumber(overall.H)}`:Number.isFinite(overall.Q)?`Q = ${formatStatNumber(overall.Q)}`:'';
       results.push(`${analysis.label || 'The omnibus test'}${stat?` yielded ${stat}`:''}${Number.isFinite(overall.p)?`, p ${formatP(overall.p)}`:''}.`);
+      if(isLognormalRepeatedMeasures){
+        results.push('The omnibus null is equality of condition geometric means. A pairwise geometric-mean ratio above 1 means the first condition has the larger geometric mean; a ratio of 1 means equality.');
+      }
     }else if(Array.isArray(model?.pairs) && model.pairs.length){
       results.push(`${model.pairs.length} comparison${model.pairs.length===1?' was':'s were'} evaluated using ${analysis.label || 'the selected test'}.`);
     }
@@ -6438,7 +6971,21 @@
         seed:sanitizeStatsSeed(payload.statsSeed,1337),
         resamplingMode:sanitizeResamplingMode(payload.statsResamplingMode),
         overallCalibrationMethod:model?.overall?.calibrationMethod || null,
-        monteCarloIterations:sanitizeMonteCarloIterations(payload.statsMonteCarloIterations,10000)
+        monteCarloIterations:sanitizeMonteCarloIterations(payload.statsMonteCarloIterations,10000),
+        ...(isLognormalRepeatedMeasures ? {
+          modelVersion:'box-lognormal-one-way-repeated-v1',
+          responseTransformation:'natural-log',
+          estimand:'equality-of-geometric-means',
+          effectInterpretation:'geometric-mean-ratio',
+          covarianceModel:'univariate-repeated-measures-sphericity',
+          primaryWithinSubjectCorrection:'greenhouse-geisser',
+          supplementaryWithinSubjectCorrection:'huynh-feldt',
+          completeCaseSubjects:true,
+          positivityRequired:true,
+          subjectCount:model?.overall?.subjectCount ?? null,
+          incompleteSubjectsExcluded:model?.overall?.excludedRows ?? 0,
+          pairwiseConfidenceIntervals:'nominal-unadjusted'
+        } : {})
       }
     };
   }
@@ -6489,7 +7036,7 @@
       ...payload,rowIndicesByGroup:selection.map(item=>item?.rowIndices)
     });
     groups=preprocessing.groups;
-    model.outlierAudit={mode:sanitizeOutlierMode(payload.statsOutlierMode),notes:preprocessing.auditNotes,exclusions:preprocessing.exclusions,flags:preprocessing.flags};
+    model.outlierAudit={mode:sanitizeOutlierMode(payload.statsOutlierMode),notes:preprocessing.auditNotes,exclusions:preprocessing.exclusions,flags:preprocessing.flags,excludedIncompleteRows:preprocessing.excludedIncompleteRows || 0};
     if(groups.some(group=>group.length===0)){
       model.ok=false;
       model.message='Outlier preprocessing left at least one selected group without usable values.';
@@ -6508,7 +7055,8 @@
       varianceMethod:payload.statsVarianceMethod,
       distributionDiagnostic:payload.statsDistributionDiagnostic,
       paired:payload.statsPaired && !oneSampleMode,
-      ratio:payload.statsParametricVariant==='ratioT',
+      ratio:payload.statsParametricVariant==='ratioT'
+        || (payload.statsPaired===true && payload.statsParametricVariant==='lognormalClassic'),
       lognormal:['lognormalClassic','lognormalWelch'].includes(payload.statsParametricVariant),
       family:payload.statsTest,
       trendTest:payload.statsTrendTest===true,
@@ -6528,7 +7076,8 @@
       family:analysisPlan.family,
       variant:analysisPlan.variant,
       paired:analysisPlan.paired,
-      pairwise:analysisPlan.pairwise
+      pairwise:analysisPlan.pairwise,
+      lognormal:analysisPlan.lognormal
     };
     const statsTest=analysisPlan.family;
     const statsPaired=analysisPlan.paired;
@@ -6549,7 +7098,8 @@
     const nonParamEffectMeta = resolveEffectOptionMeta('nonparametric', payload.statsEffectNonParametric);
     const effectFootnotes = buildEffectFootnotes(paramEffectMeta, nonParamEffectMeta);
 
-    const lognormalPreparation=analysisPlan.lognormal
+    const lognormalRepeatedMeasures=analysisPlan.id==='lognormalRepeatedMeasuresAnova';
+    const lognormalPreparation=analysisPlan.lognormal && !lognormalRepeatedMeasures
       ? prepareLognormalGroups(groups,analysisPlan.label)
       : { ok:true,groups };
     if(!lognormalPreparation.ok){
@@ -6911,12 +7461,30 @@
         overall = { method: 'kruskalWallis', H: kw.H, p: kw.p, df: groups.length - 1 };
       }
     }else if(computeOmnibusOverall && param){
-      const rm = computeRepeatedMeasuresAnova(groups);
+      const rm = lognormalRepeatedMeasures
+        ? computeLognormalRepeatedMeasuresAnova(groups)
+        : computeRepeatedMeasuresAnova(groups);
+      if(!rm.ok){
+        model.ok=false;
+        model.message=rm.message || `Unable to compute ${analysisPlan.label}. Check sample sizes and numeric values.`;
+        return model;
+      }
       if(rm.ok){
+        const primaryP=lognormalRepeatedMeasures
+          ? (Number.isFinite(rm.ggP)?rm.ggP:null)
+          : rm.p;
         overall = {
-          method: 'rmAnova',
+          method: lognormalRepeatedMeasures ? 'lognormalRmAnova' : 'rmAnova',
+          available: rm.available !== false,
           F: rm.F,
-          p: rm.p,
+          p: primaryP,
+          ...(lognormalRepeatedMeasures ? {
+            pUncorrected:rm.p,
+            primaryCorrection:Number.isFinite(rm.ggP)?'greenhouse-geisser':null,
+            subjectCount:rm.subjectCount,
+            excludedRows:(Number(model.outlierAudit?.excludedIncompleteRows)||0)+(Number(rm.excludedRows)||0),
+            geometricMeans:rm.geometricMeans
+          } : {}),
           df1: rm.df1,
           df2: rm.df2,
           ggEpsilon: rm.ggEpsilon,
@@ -7209,9 +7777,11 @@
             const bValues = groups[j];
             const r = pairTest(aValues, bValues);
             const statName = r.t !== undefined ? 't' : (r.U !== undefined ? 'U' : (r.W !== undefined ? 'W' : 'stat'));
-            const effectMetrics = computeEffectSizeMetrics(aValues, bValues, { paired: statsPaired });
-            const formattedParamEffect = formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value], paramEffectMeta);
-            const formattedNonParamEffect = formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value], nonParamEffectMeta);
+            const effectMetrics = lognormalRepeatedMeasures
+              ? null
+              : computeEffectSizeMetrics(aValues, bValues, { paired: statsPaired });
+            const formattedParamEffect = formatEffectValue(effectMetrics?.parametric?.[paramEffectMeta?.value], paramEffectMeta);
+            const formattedNonParamEffect = formatEffectValue(effectMetrics?.nonParametric?.[nonParamEffectMeta?.value], nonParamEffectMeta);
             const diffValue = Number.isFinite(r.diff) ? r.diff : (mean(aValues) - mean(bValues));
             pairs.push({
               a: i,
@@ -7617,6 +8187,7 @@
           lognormalAnova:{ label:'Lognormal one-way ANOVA',statName:'F',statKey:'F',dfKind:'f' },
           lognormalWelchAnova:{ label:'Lognormal Welch ANOVA',statName:'F',statKey:'F',dfKind:'f' },
           rmAnova:{ label:'Repeated-measures ANOVA',statName:'F',statKey:'F',dfKind:'f' },
+          lognormalRmAnova:{ label:'Lognormal repeated-measures ANOVA',statName:'F',statKey:'F',dfKind:'f' },
           kruskalWallis:{ label:'Kruskal-Wallis test',statName:'H',statKey:'H',dfKind:'single' },
           friedman:{ label:'Friedman test',statName:'Q',statKey:'Q',dfKind:'single' }
         }[overall.method] || { label:analysisPlan.label,statName:'Statistic',statKey:'stat',dfKind:'single' };
@@ -7630,19 +8201,38 @@
         }else if(overall?.df != null){
           overallRows.push({ metric: 'df', value: String(overall.df) });
         }
-        overallRows.push({ metric: 'p-value', value: createPValueCell(overall.p), pValueRaw: overall.p, inferenceRole: 'overall' });
-        if(overall.method === 'rmAnova'){
+        const isLognormalRm=overall.method==='lognormalRmAnova';
+        overallRows.push({
+          metric:isLognormalRm?'p-value (GG, primary)':'p-value',
+          value:createPValueCell(overall.p),
+          pValueRaw:overall.p,
+          inferenceRole:'overall'
+        });
+        if(isLognormalRm){
+          overallRows.push({metric:'Complete subjects',value:String(overall.subjectCount)});
+          overallRows.push({metric:'Incomplete subjects excluded',value:String(overall.excludedRows || 0)});
+          overallRows.push({metric:'p-value (uncorrected)',value:createPValueCell(overall.pUncorrected),pValueRaw:overall.pUncorrected});
+          overall.geometricMeans.forEach((value,index)=>{
+            overallRows.push({metric:`Geometric mean (${labels[index] || `Group ${index+1}`})`,value:formatStatNumber(value)});
+          });
+        }
+        if(overall.method === 'rmAnova' || isLognormalRm){
           if(Number.isFinite(overall.ggEpsilon)){
             overallRows.push({ metric: 'GG ε', value: overall.ggEpsilon.toFixed(4) });
           }
-          if(Number.isFinite(overall.ggP)){
+          if(!isLognormalRm && Number.isFinite(overall.ggP)){
             overallRows.push({ metric: 'p-value (GG)', value: createPValueCell(overall.ggP), pValueRaw: overall.ggP, inferenceRole: 'overall' });
           }
           if(Number.isFinite(overall.hfEpsilon)){
             overallRows.push({ metric: 'HF ε', value: overall.hfEpsilon.toFixed(4) });
           }
           if(Number.isFinite(overall.hfP)){
-            overallRows.push({ metric: 'p-value (HF)', value: createPValueCell(overall.hfP), pValueRaw: overall.hfP, inferenceRole: 'overall' });
+            overallRows.push({
+              metric:isLognormalRm?'p-value (HF, supplementary)':'p-value (HF)',
+              value:createPValueCell(overall.hfP),
+              pValueRaw:overall.hfP,
+              inferenceRole:'overall'
+            });
           }
         }
         model.tables.push({
@@ -7659,7 +8249,7 @@
       }
 
       const ratioScale=analysisPlan.lognormal || analysisPlan.id==='ratioT' || pairs.some(pair=>pair.differenceScale==='ratio');
-      const ciLabel=`${formatPercentLabel(ciLevel)}${ciType==='sidak-adjusted-marginal'?' Sidak-adjusted':ciType==='simultaneous'?' simultaneous':(ciType==='nominal' && postHocMode==='anovaPooled'?' nominal':'')} CI`;
+      const ciLabel=`${formatPercentLabel(ciLevel)}${lognormalRepeatedMeasures?' nominal':ciType==='sidak-adjusted-marginal'?' Sidak-adjusted':ciType==='simultaneous'?' simultaneous':(ciType==='nominal' && postHocMode==='anovaPooled'?' nominal':'')} CI`;
       const pairRows = pairs.map(pr => ({
         comparison: `${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
         statistic: `${pr.statName} = ${Number.isFinite(pr.stat) ? pr.stat.toFixed(4) : '-'}`,
@@ -7667,13 +8257,20 @@
         difference: Number.isFinite(pr.diff) ? formatStatNumber(pr.diff) : '-',
         ci: formatConfidenceInterval(pr.ciLow,pr.ciHigh),
         padj: createPValueCell(pr.adjP),
-        effectParametric: pr.effectParametric,
-        effectNonParametric: pr.effectNonParametric
+        ...(lognormalRepeatedMeasures ? {} : {
+          effectParametric:pr.effectParametric,
+          effectNonParametric:pr.effectNonParametric
+        })
       }));
       if(referenceLabel){
         footnotes.push(`Reference group: ${referenceLabel}`);
       }
-      effectFootnotes.forEach(note => footnotes.push(note));
+      if(lognormalRepeatedMeasures){
+        footnotes.push('Confidence intervals are nominal per-comparison intervals; p-values use the stated multiplicity correction.');
+      }
+      if(!lognormalRepeatedMeasures){
+        effectFootnotes.forEach(note => footnotes.push(note));
+      }
       const postHocPLabels = {
         tukey: 'p (Tukey HSD)',
         gamesHowell: 'p (Games-Howell)',
@@ -7699,8 +8296,10 @@
           { key: 'difference', label: ratioScale ? 'Geometric mean ratio (A/B)' : 'Difference', align: 'right', index: 3 },
           { key: 'ci', label: ciLabel, align: 'right', index: 4 },
           { key: 'padj', label: pLabel, align: 'right', index: 5, inferenceRole: 'comparison' },
-          { key: 'effectParametric', label: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, align: 'right', index: 6, tooltip: paramEffectMeta.tooltip },
-          { key: 'effectNonParametric', label: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, align: 'right', index: 7, tooltip: nonParamEffectMeta.tooltip }
+          ...(lognormalRepeatedMeasures ? [] : [
+            { key: 'effectParametric', label: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, align: 'right', index: 6, tooltip: paramEffectMeta.tooltip },
+            { key: 'effectNonParametric', label: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, align: 'right', index: 7, tooltip: nonParamEffectMeta.tooltip }
+          ])
         ],
         rows: pairRows,
         footnotes,
@@ -7861,21 +8460,77 @@
     const groupCountText=`${summary.groupsCount} ${Number(summary.groupsCount) === 1 ? 'group' : 'groups'}`;
     const conditionCountText=`${summary.conditionsCount} ${Number(summary.conditionsCount) === 1 ? 'condition' : 'conditions'}`;
     const completeRowCountText=`${summary.rowsWithData} complete ${Number(summary.rowsWithData) === 1 ? 'row' : 'rows'}`;
-    const designMethod = analysis === 'nestedRepeatedTwoWay'
-      ? 'Each group contains independent subjects measured under both conditions. Group is tested against subject-within-group error; condition and interaction use subject-within-group-by-condition error. The model requires complete, balanced data and exactly two conditions.'
+    const repeatedMeasures=resultModel?.repeatedMeasures || null;
+    const isRowRandomRepeated=analysis==='rowRandomMixed' && repeatedMeasures?.schemaVersion==='box-row-random-sphericity-v1';
+    const groupedComparisonMethod = analysis === 'multipleComparisons'
+      ? (() => {
+        const scopeLabels={
+          groupsWithinCondition:'groups within each condition',
+          conditionsWithinGroup:'conditions within each group',
+          groupMarginals:'group marginal means',
+          conditionMarginals:'condition marginal means',
+          cellMeans:'all cell means'
+        };
+        const scope=String(grouped.comparisonScope || 'groupsWithinCondition');
+        const scopeLabel=scopeLabels[scope] || 'the selected comparison scope';
+        const comparisonRows=Array.isArray(resultModel?.rows) ? resultModel.rows : [];
+        const tests=[...new Set(comparisonRows.map(row=>String(row?.method || '').trim()).filter(Boolean))];
+        const testText=tests.length
+          ? tests.map(test=>comparisonRows.length === 1 || !/t-test$/.test(test) ? test : `${test}s`).join(' and ')
+          : 'the selected pairwise tests';
+        const familyText=grouped.multiplicityFamily === 'global'
+          ? `${comparisonRows.length} comparisons formed one global multiplicity family.`
+          : 'Comparisons were grouped into separate families within the selected scope.';
+        const configuredCorrection=String(payload.statsCorrection || DEFAULT_CORRECTION).toLowerCase();
+        let correctionText;
+        if(configuredCorrection === 'none'){
+          correctionText='No multiplicity adjustment was selected.';
+        }else if(resultModel?.effectiveComparisonMethod && resultModel.effectiveComparisonMethod !== 'none'){
+          const correctionLabel=resolveCorrectionMeta(resultModel.effectiveComparisonMethod,comparisonRows.length)?.label || resultModel.effectiveComparisonMethod;
+          correctionText=`${correctionLabel} adjustment was applied to families containing more than one comparison.`;
+        }else{
+          correctionText='No adjustment was needed because each family contained at most one comparison.';
+        }
+        return `Grouped multiple comparisons were computed for ${scopeLabel} using ${testText}. ${familyText} ${correctionText}`;
+      })()
       : null;
-    const methodsText=[
-      `${label} was applied to ${groupCountText}, ${conditionCountText}, and ${completeRowCountText}. The selected grouped analysis was used as configured.`,
+    const designMethod = analysis === 'nestedRepeatedTwoWay'
+      ? 'Independent subjects are nested within groups and measured under exactly two conditions. Data must be complete and balanced, with approximately normal residuals and homogeneous group-level error variances. Group is tested against subject-within-group error; condition and interaction use subject-within-group-by-condition error.'
+      : (isRowRandomRepeated
+        ? `Each complete subject is measured at every Group × Condition cell (${repeatedMeasures.subjectCount} independent complete subjects); incomplete subject rows are excluded. The model assumes approximately normal contrast errors. Effect-specific Greenhouse–Geisser corrected degrees of freedom and p-values are the primary inference; Huynh–Feldt results are supplementary. No formal sphericity test is performed.`
+        : groupedComparisonMethod);
+    const repeatedEffectResults=isRowRandomRepeated
+      ? Object.entries({group:'Group',condition:'Condition',interaction:'Group × Condition'}).map(([key,label])=>{
+        const effect=repeatedMeasures.effects[key];
+        const gg=effect?.gg;
+        const hf=effect?.hf;
+        const ggText=gg?.available
+          ? `GG df = (${formatStatNumber(gg.df1,3)}, ${formatStatNumber(gg.df2,3)}), p(GG) = ${formatP(gg.p)}`
+          : `GG inference unavailable (${gg?.reason || effect?.reason || 'not estimable'})`;
+        const hfText=hf?.available
+          ? `HF ε = ${formatStatNumber(hf.epsilon,3)}, p(HF) = ${formatP(hf.p)}`
+          : `HF supplementary inference unavailable (${hf?.reason || 'not estimable'})`;
+        return `${label}: ${ggText}; ${hfText}.`;
+      })
+      : [];
+    const methodsParts=[
+      `For ${label.toLowerCase()}, the analysis covered ${groupCountText}, ${conditionCountText}, and ${completeRowCountText}.`,
       designMethod,
       ...inferenceParts
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean);
     return {
-      methodsText,
-      resultsText:`The ${label} results are reported in the accompanying table${summary.partialRowsSkipped ? `; ${summary.partialRowsSkipped} incomplete row${summary.partialRowsSkipped === 1 ? '' : 's'} were excluded from complete-case factorial calculations` : ''}.`,
-      methodsParts:[`${label} was applied to the grouped dataset.`, ...inferenceParts],
-      resultsParts:[`The ${label} results are reported in the accompanying table${summary.partialRowsSkipped ? `; ${summary.partialRowsSkipped} incomplete row${summary.partialRowsSkipped === 1 ? '' : 's'} were excluded from complete-case factorial calculations` : ''}.`],
+      methodsText:methodsParts.join(' '),
+      resultsText:[
+        `The ${label} results are reported in the accompanying table${summary.partialRowsSkipped ? `; ${summary.partialRowsSkipped} incomplete row${summary.partialRowsSkipped === 1 ? '' : 's'} were excluded from complete-case factorial calculations` : ''}.`,
+        ...repeatedEffectResults
+      ].join(' '),
+      methodsParts,
+      resultsParts:[
+        `The ${label} results are reported in the accompanying table${summary.partialRowsSkipped ? `; ${summary.partialRowsSkipped} incomplete row${summary.partialRowsSkipped === 1 ? '' : 's'} were excluded from complete-case factorial calculations` : ''}.`,
+        ...repeatedEffectResults
+      ],
       analysisSpec:{
-        schemaVersion:'box-stats-spec-v7',
+        schemaVersion:isRowRandomRepeated?'box-stats-spec-v8':'box-stats-spec-v7',
         inference:inferenceSnapshot,
         analysisId:analysis,
         analysisLabel:label,
@@ -7884,6 +8539,19 @@
         conditionsCount:summary.conditionsCount,
         rowsWithData:summary.rowsWithData,
         partialRowsSkipped:summary.partialRowsSkipped,
+        ...(isRowRandomRepeated ? {
+          experimentalUnit:'subject-repeated-across-every-group-condition-cell',
+          rowRandomSphericityVersion:BOX_ROW_RANDOM_SPHERICITY_VERSION,
+          repeatedMeasures,
+          primaryWithinSubjectCorrection:'greenhouse-geisser',
+          supplementaryWithinSubjectCorrection:'huynh-feldt',
+          errorTerms:{
+            group:'group-by-subject',
+            condition:'condition-by-subject',
+            interaction:'group-by-condition-by-subject'
+          },
+          assumptions:['complete-case-subject-alignment','normal-contrast-errors']
+        } : {}),
         ...(analysis === 'nestedRepeatedTwoWay' ? {
           experimentalUnit:'subject-within-independent-group',
           repeatedFactor:'condition',
@@ -7938,10 +8606,15 @@
     if(!resultModel || !resultModel.ok){
       return {mode:'grouped',ok:false,message:resultModel?.message || 'Unable to compute grouped statistics for the selected analysis.',groupedSummary:summary,tables:[],correctionCount:0,analysisId:analysis};
     }
+    const rowRandomResult=analysis==='rowRandomMixed' ? resultModel : null;
+    const tables=rowRandomResult
+      ? [rowRandomResult.table,rowRandomResult.correctionTable].filter(Boolean)
+      : [resultModel];
     const model={
       mode:'grouped',ok:true,message:null,analysisId:analysis,
-      groupedSummary:summary,tables:[resultModel],correctionCount:resultModel.correctionCount || 0,
-      effectiveComparisonMethod:resultModel.effectiveComparisonMethod || null
+      groupedSummary:summary,tables,correctionCount:resultModel.correctionCount || 0,
+      effectiveComparisonMethod:resultModel.effectiveComparisonMethod || null,
+      ...(rowRandomResult ? {repeatedMeasures:rowRandomResult.repeatedMeasures} : {})
     };
     model.report=buildGroupedStatsReport(analysis,resultModel,summary,grouped,payload);
     return model;
@@ -8083,6 +8756,7 @@
     anova: (...args) => finalizePValueResult(anova(...args), 'ANOVA'),
     kruskalWallis: (...args) => finalizePValueResult(kruskalWallis(...args), 'Kruskal-Wallis test'),
     computeRepeatedMeasuresAnova: (...args) => finalizePValueResult(computeRepeatedMeasuresAnova(...args), 'Repeated-measures ANOVA'),
+    computeLognormalRepeatedMeasuresAnova: (...args) => finalizePValueResult(computeLognormalRepeatedMeasuresAnova(...args), 'Lognormal repeated-measures ANOVA'),
     computeFriedmanTest: (...args) => finalizePValueResult(computeFriedmanTest(...args), 'Friedman test'),
     computeWelchAnova: (...args) => finalizePValueResult(computeWelchAnova(...args), 'Welch ANOVA'),
     studentizedRangeCDF,

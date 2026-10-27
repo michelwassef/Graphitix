@@ -9168,6 +9168,23 @@
     });
   }
 
+  function normalizePcaAxisTick(value, step, min, max) {
+    if (!Number.isFinite(value)) return value;
+    const normalized = Number.parseFloat(value.toPrecision(12));
+    const scale = Math.max(Math.abs(step), Math.abs(min), Math.abs(max), Number.MIN_VALUE);
+    const floatingPointNoise = Number.EPSILON * scale * 16;
+    return Math.abs(normalized) <= floatingPointNoise ? 0 : normalized;
+  }
+
+  function buildPcaAxisTicks(min, max, step, limit = 1000) {
+    if (![min, max, step].every(Number.isFinite) || !(step > 0) || max < min) return [];
+    const intervalCount = Math.max(0, Math.round((max - min) / step));
+    const lastIndex = Math.min(intervalCount, Math.max(0, Math.floor(limit) - 1));
+    return Array.from({ length: lastIndex + 1 }, (_, index) => (
+      normalizePcaAxisTick(min + (index * step), step, min, max)
+    ));
+  }
+
   function buildManualTicks(min, max, interval) {
     if (!Number.isFinite(interval) || interval <= 0) {
       return null;
@@ -9180,16 +9197,14 @@
     }
     const graphMin = Math.floor(min / interval) * interval;
     const graphMax = Math.ceil(max / interval) * interval;
-    const ticks = [];
-    let current = graphMin;
-    let guard = 0;
-    while (current <= graphMax + interval * 0.25 && guard < 1000) {
-      ticks.push(Number.parseFloat(current.toPrecision(12)));
-      current += interval;
-      guard += 1;
-    }
+    const ticks = buildPcaAxisTicks(
+      graphMin,
+      graphMax,
+      interval,
+      1000
+    );
     if (!ticks.length) {
-      ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+      ticks.push(normalizePcaAxisTick(graphMin, interval, graphMin, graphMax));
     }
     debugLog('Debug: pca manual ticks computed', {
       interval,
@@ -9198,8 +9213,8 @@
       max: graphMax
     });
     return {
-      min: graphMin,
-      max: graphMax,
+      min: normalizePcaAxisTick(graphMin, interval, graphMin, graphMax),
+      max: normalizePcaAxisTick(graphMax, interval, graphMin, graphMax),
       ticks
     };
   }
@@ -15704,13 +15719,10 @@
         const step = niceNum(range / (Math.max(maxTicks - 1, 1)), true);
         const graphMin = Math.floor(min / step) * step;
         const graphMax = Math.ceil(max / step) * step;
-        const ticks = [];
-        for (let v = graphMin; v <= graphMax + 1e-9; v += step) {
-          ticks.push(v);
-        }
+        const ticks = buildPcaAxisTicks(graphMin, graphMax, step);
         return {
-          min: graphMin,
-          max: graphMax,
+          min: normalizePcaAxisTick(graphMin, step, graphMin, graphMax),
+          max: normalizePcaAxisTick(graphMax, step, graphMin, graphMax),
           ticks,
           step
         };

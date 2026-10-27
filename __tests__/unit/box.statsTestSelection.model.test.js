@@ -1,5 +1,6 @@
 describe('Box explicit statistical test selection', () => {
   let model;
+  const crossedSphericityFixture=require('../../test-support/fixtures/box-row-random-sphericity-v1.json');
 
   const baseSelection = [
     { index: 0, label: 'Control', values: [10, 12, 11, 13, 12, 14, 15, 13] },
@@ -33,6 +34,22 @@ describe('Box explicit statistical test selection', () => {
       statsEffectNonParametric: 'rankBiserial',
       selection: baseSelection,
       ...overrides
+    });
+  }
+
+  function computeCrossedRepeatedMeasures(rows){
+    const groupsCount=rows[0]?.length || 0;
+    const conditionsCount=rows[0]?.[0]?.length || 0;
+    const cellData=Array.from({length:groupsCount},(_,group)=>
+      Array.from({length:conditionsCount},(_,condition)=>rows.map(subject=>subject[group][condition])));
+    return model.computeBoxStatsModel({
+      mode:'grouped',
+      grouped:{
+        analysis:'rowRandomMixed',
+        data:{
+          ok:true,groupsCount,conditionsCount,rowsWithData:rows.length,partialRowsSkipped:0,rows,cellData
+        }
+      }
     });
   }
 
@@ -576,6 +593,169 @@ describe('Box explicit statistical test selection', () => {
     expect(friedman.analysis.id).toBe('friedman');
   });
 
+  test('lognormal repeated-measures ANOVA reports log-scale omnibus inference and geometric-mean ratio contrasts', () => {
+    const result = compute({ statsPaired: true, statsParametricVariant: 'lognormalClassic' });
+    expect(result.ok).toBe(true);
+    expect(result.analysis).toMatchObject({
+      id: 'lognormalRepeatedMeasuresAnova',
+      label: 'Lognormal repeated-measures ANOVA',
+      paired: true,
+      lognormal: true
+    });
+    expect(result.overall).toMatchObject({
+      method: 'lognormalRmAnova',
+      primaryCorrection: 'greenhouse-geisser',
+      p: result.overall.ggP,
+      subjectCount: 8
+    });
+    expect(Number.isFinite(result.overall.pUncorrected)).toBe(true);
+    expect(result.pairs).toHaveLength(3);
+    expect(result.pairs.every(pair => pair.differenceScale === 'ratio'
+      && pair.diff > 0 && pair.ciLow > 0 && pair.ciHigh > 0)).toBe(true);
+    expect(result.effectiveComparisonMethod).toBe('holm');
+    expect(result.report.methodsText).toMatch(/natural-log transformed internally/i);
+    expect(result.report.methodsText).toMatch(/geometric-mean ratios/i);
+    expect(result.report.methodsText).toMatch(/sphericity.*Greenhouse.Geisser.*Huynh.Feldt/i);
+    expect(result.report.methodsText).toMatch(/does not fit a general covariance structure/i);
+    expect(result.report.methodsText).toMatch(/nominal, unadjusted per-comparison confidence intervals/i);
+    expect(result.report.resultsText).toMatch(/null is equality of condition geometric means/i);
+    expect(result.report.analysisSpec).toEqual(expect.objectContaining({
+      modelVersion: 'box-lognormal-one-way-repeated-v1',
+      responseTransformation: 'natural-log',
+      estimand: 'equality-of-geometric-means',
+      effectInterpretation: 'geometric-mean-ratio',
+      covarianceModel: 'univariate-repeated-measures-sphericity',
+      primaryWithinSubjectCorrection: 'greenhouse-geisser',
+      completeCaseSubjects: true,
+      subjectCount: 8
+    }));
+    expect(result.report.analysisSpec).toMatchObject({
+      incompleteSubjectsExcluded: 0,
+      pairwiseConfidenceIntervals: 'nominal-unadjusted'
+    });
+    const overallTable = result.tables.find(table => table.caption === 'Overall test summary');
+    expect(overallTable.rows.find(row => row.metric === 'p-value (GG, primary)')?.value.value).toBe(result.overall.p);
+    expect(overallTable.rows.some(row => row.metric === 'Geometric mean (Control)')).toBe(true);
+    expect(overallTable.rows.find(row => row.metric === 'Incomplete subjects excluded')?.value).toBe('0');
+    const comparisons = result.tables.find(table => table.caption === 'Pairwise comparisons');
+    expect(comparisons.columns.find(column => column.key === 'difference')?.label).toBe('Geometric mean ratio (A/B)');
+    expect(comparisons.columns.find(column => column.key === 'ci')?.label).toMatch(/nominal CI/i);
+    expect(comparisons.footnotes.join(' ')).toMatch(/nominal per-comparison intervals/i);
+    expect(comparisons.columns.some(column=>column.key==='effectParametric')).toBe(false);
+    expect(JSON.parse(JSON.stringify(result.report.analysisSpec))).toEqual(result.report.analysisSpec);
+  });
+
+  test('lognormal repeated-measures analysis excludes incomplete subjects before enforcing positive support', () => {
+    const selection = [
+      { index: 0, label: 'A', values: [0, 1, 2, 3], rowIndices: [0, 1, 2, 3] },
+      { index: 1, label: 'B', values: [4, 7, 5], rowIndices: [1, 2, 3] },
+      { index: 2, label: 'C', values: [8, 6, 10], rowIndices: [1, 2, 3] }
+    ];
+    const result = compute({ statsPaired: true, statsParametricVariant: 'lognormalClassic', selection });
+    expect(result.ok).toBe(true);
+    expect(result.overall.subjectCount).toBe(3);
+    expect(result.overall.excludedRows).toBe(1);
+    expect(result.report.analysisSpec.incompleteSubjectsExcluded).toBe(1);
+    const overallTable = result.tables.find(table => table.caption === 'Overall test summary');
+    expect(overallTable.rows.find(row => row.metric === 'Incomplete subjects excluded')?.value).toBe('1');
+    expect(result.report.methodsText).toMatch(/1 row with missing or non-numeric values.*excluded/i);
+  });
+
+  test('lognormal repeated-measures analysis rejects nonpositive included observations', () => {
+    const selection = positiveSelection.map(group => ({ ...group, values: group.values.slice() }));
+    selection[1].values[2] = 0;
+    const result = compute({ statsPaired: true, statsParametricVariant: 'lognormalClassic', selection });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/strictly positive/i);
+  });
+
+  test('one-way repeated measures does not report a p-value when within-subject error is zero', () => {
+    const groups = [
+      [10, 11, 12, 13, 14, 15],
+      [12, 13, 14, 15, 16, 17],
+      [15, 16, 17, 18, 19, 20]
+    ];
+    const direct = model.computeRepeatedMeasuresAnova(groups);
+    expect(direct.ok).toBe(true);
+    expect(direct.available).toBe(false);
+    expect(direct.F).toBeNull();
+    expect(direct.p).toBeNull();
+    expect(direct.ggP).toBeNull();
+    expect(direct.hfP).toBeNull();
+    expect(direct.message).toMatch(/within-subject error variance is zero/i);
+
+    const report = compute({
+      statsPaired: true,
+      selection: groups.map((values, index) => ({ index, label: `Condition ${index + 1}`, values }))
+    });
+    expect(report.ok).toBe(true);
+    expect(report.overall).toEqual(expect.objectContaining({ method: 'rmAnova', available: false, p: null }));
+  });
+
+  test('one-way repeated-measures SS and corrections are scale and baseline invariant', () => {
+    const groups = [
+      [10, 12, 9, 15, 14, 11, 13, 8],
+      [13, 13, 10, 17, 15, 14, 14, 10],
+      [12, 16, 13, 16, 20, 12, 18, 11]
+    ];
+    const reference=model.computeRepeatedMeasuresAnova(groups);
+    const small=model.computeRepeatedMeasuresAnova(groups.map(group=>group.map(value=>value*1e-6)));
+    const tiny=model.computeRepeatedMeasuresAnova(groups.map(group=>group.map(value=>value*1e-100)));
+    const shifted=model.computeRepeatedMeasuresAnova(groups.map(group=>group.map(value=>value+1e9)));
+    for(const result of [small,tiny,shifted]){
+      expect(result.available).not.toBe(false);
+      expect(result.F).toBeCloseTo(reference.F,8);
+      expect(result.ggEpsilon).toBeCloseTo(reference.ggEpsilon,8);
+      expect(result.hfEpsilon).toBeCloseTo(reference.hfEpsilon,8);
+      expect(result.ggP).toBeCloseTo(reference.ggP,8);
+      expect(result.hfP).toBeCloseTo(reference.hfP,8);
+    }
+    expect(small.ssError/1e-12).toBeCloseTo(reference.ssError,8);
+    expect(tiny.ssError/1e-200).toBeCloseTo(reference.ssError,8);
+    expect(shifted.ssError).toBeCloseTo(reference.ssError,5);
+  });
+
+  test('crossed repeated-measures corrections are invariant to scale and a common subject baseline', () => {
+    const rows=crossedSphericityFixture.rows;
+    const baseline=computeCrossedRepeatedMeasures(rows);
+    const scaled=computeCrossedRepeatedMeasures(rows.map(subject=>subject.map(group=>group.map(value=>value*1e100))));
+    const small=computeCrossedRepeatedMeasures(rows.map(subject=>subject.map(group=>group.map(value=>value*1e-100))));
+    const shifted=computeCrossedRepeatedMeasures(rows.map(subject=>subject.map(group=>group.map(value=>value+1e9))));
+    expect([baseline,scaled,small,shifted].every(result=>result.ok)).toBe(true);
+    for(const effect of ['group','condition','interaction']){
+      const reference=baseline.repeatedMeasures.effects[effect];
+      for(const transformed of [scaled,small]){
+        const result=transformed.repeatedMeasures.effects[effect];
+        expect(result.gg.epsilon).toBeCloseTo(reference.gg.epsilon,9);
+        expect(result.hf.epsilon).toBeCloseTo(reference.hf.epsilon,9);
+        expect(result.f).toBeCloseTo(reference.f,8);
+        expect(result.gg.p).toBeCloseTo(reference.gg.p,8);
+      }
+      const shiftedEffect=shifted.repeatedMeasures.effects[effect];
+      expect(shiftedEffect.gg.epsilon).toBeCloseTo(reference.gg.epsilon,7);
+      expect(shiftedEffect.hf.epsilon).toBeCloseTo(reference.hf.epsilon,7);
+      expect(shiftedEffect.f).toBeCloseTo(reference.f,6);
+      expect(shiftedEffect.gg.p).toBeCloseTo(reference.gg.p,6);
+      expect(scaled.repeatedMeasures.effects[effect].ssEffect/1e200)
+        .toBeCloseTo(reference.ssEffect,8);
+      expect(small.repeatedMeasures.effects[effect].ssEffect/1e-200)
+        .toBeCloseTo(reference.ssEffect,8);
+    }
+  });
+
+  test('rank-deficient effect covariance keeps GG and marks an undefined HF denominator unavailable', () => {
+    const twoSubjects=computeCrossedRepeatedMeasures(crossedSphericityFixture.rows.slice(0,2));
+    expect(twoSubjects.ok).toBe(true);
+    const repeated=twoSubjects.repeatedMeasures;
+    expect(repeated.effects.interaction.contrastDimension).toBe(4);
+    expect(repeated.effects.interaction.gg.available).toBe(true);
+    expect(repeated.effects.interaction.gg.epsilon).toBeCloseTo(0.25,12);
+    expect(repeated.effects.interaction.hf.available).toBe(false);
+    expect(repeated.effects.interaction.hf.reason).toBe('huynh-feldt-denominator-not-positive');
+    const threeSubjects=computeCrossedRepeatedMeasures(crossedSphericityFixture.rows.slice(0,3));
+    expect(threeSubjects.repeatedMeasures.effects.interaction.gg.available).toBe(true);
+  });
+
   test('independent multi-group rank choice executes Kruskal-Wallis', () => {
     const result = compute({
       statsTest: 'nonparametric',
@@ -697,9 +877,10 @@ describe('Box explicit statistical test selection', () => {
 
 
   test('every grouped analysis choice executes its exact branch and reports it explicitly', () => {
-    const rows = Array.from({ length: 6 }, (_, row) => [
-      [10 + row, 13 + row],
-      [16 + row, 22 + row]
+    const subjectOffsets = [0, 1, -2, 3, -1, 2];
+    const rows = subjectOffsets.map((offset, row) => [
+      [10 + offset, 13 + offset + (row % 2)],
+      [16 + offset + (row % 3), 22 + offset + ((row + 1) % 3)]
     ]);
     const groupedData = {
       ok: true,
@@ -716,13 +897,13 @@ describe('Box explicit statistical test selection', () => {
         [rows.map(row => row[1][0]), rows.map(row => row[1][1])]
       ]
     };
-    for (const analysis of ['twoWayAnova', 'rowRandomMixed', 'threeWayAnova', 'rowTTests', 'multipleComparisons']) {
+    for (const analysis of ['twoWayAnova', 'rowRandomMixed', 'nestedRepeatedTwoWay', 'threeWayAnova', 'rowTTests', 'multipleComparisons']) {
       const result = model.computeBoxStatsModel({
         mode: 'grouped',
         grouped: {
           analysis,
           comparisonScope: 'groupsWithinCondition',
-          multiplicityFamily: 'within-scope',
+          multiplicityFamily: analysis === 'multipleComparisons' ? 'global' : 'within-scope',
           data: groupedData
         },
         statsCorrection: 'holm',
@@ -732,7 +913,20 @@ describe('Box explicit statistical test selection', () => {
       expect(result.ok).toBe(true);
       expect(result.analysisId).toBe(analysis);
       expect(result.report.analysisSpec.analysisId).toBe(analysis);
-      expect(result.report.methodsText).toContain(result.report.analysisSpec.analysisLabel);
+      expect(result.report.methodsText.toLowerCase()).toContain(result.report.analysisSpec.analysisLabel.toLowerCase());
+      if(analysis === 'rowRandomMixed'){
+        expect(result.report.methodsText).toMatch(/complete subjects.*incomplete subject rows are excluded/i);
+        expect(result.report.methodsText).toMatch(/normal contrast errors/i);
+        expect(result.report.methodsText).toContain('No formal sphericity test is performed.');
+      }else if(analysis === 'nestedRepeatedTwoWay'){
+        expect(result.report.methodsText).toContain('exactly two conditions');
+        expect(result.report.methodsText).toContain('complete and balanced');
+        expect(result.report.methodsText).toMatch(/Independent subjects.*approximately normal residuals.*homogeneous group-level error variances/i);
+      }else if(analysis === 'multipleComparisons'){
+        expect(result.report.methodsText).toMatch(/groups within each condition using Welch t-tests/i);
+        expect(result.report.methodsText).toMatch(/2 comparisons formed one global multiplicity family/i);
+        expect(result.report.methodsText).toMatch(/Holm adjustment/i);
+      }
     }
   });
 

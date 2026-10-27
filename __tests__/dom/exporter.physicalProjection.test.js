@@ -60,6 +60,67 @@ describe('exporter physical projection across formats', () => {
     window.Shared = {};
     require('../../js/shared/exportProjection.js');
     require('../../js/shared/exporter.js');
+    require('../../js/shared/svgGeometry.js');
+  });
+
+  test('inward borders keep canonical geometry, semantic thickness and independent clip definitions after cloning', () => {
+    document.body.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M10 10H60V60H10Z" stroke-width="3"/></svg>';
+    const svg = document.querySelector('svg');
+    const path = svg.querySelector('path');
+    const geometry = window.Shared.svgGeometry;
+    geometry.applyInnerStroke(path);
+    expect(path.getAttribute('d')).toBe('M10 10H60V60H10Z');
+    expect(path.getAttribute('stroke-width')).toBe('6');
+    expect(geometry.getStrokeWidth(path)).toBe(3);
+    geometry.setStrokeWidth(path, 12);
+    geometry.applyInnerStroke(path);
+    expect(path.getAttribute('stroke-width')).toBe('24');
+    expect(svg.querySelectorAll('clipPath')).toHaveLength(1);
+    geometry.setStrokeWidth(path, 0);
+    expect(path.getAttribute('clip-path')).toBe('none');
+    geometry.setStrokeWidth(path, 12);
+    expect(path.getAttribute('clip-path')).toBe(`url(#${svg.querySelector('clipPath').id})`);
+    const clone = svg.cloneNode(true);
+    document.body.appendChild(clone);
+    geometry.applyInnerStroke(clone.querySelector('path:not(clipPath path)'));
+    expect(clone.querySelector('clipPath').id).not.toBe(svg.querySelector('clipPath').id);
+  });
+
+  test('nested transformed curved clips remain native PDF and EMF paths and restore clipping before siblings', async () => {
+    const xml = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+      <defs>
+        <clipPath id="outer"><rect x="0" y="0" width="80" height="80"/></clipPath>
+        <clipPath id="curve"><path d="M10 10Q50 0 70 40L40 70Z" clip-rule="evenodd" transform="translate(2 3)"/></clipPath>
+      </defs>
+      <g clip-path="url(#outer)" transform="translate(5 7)">
+        <path clip-path="url(#curve)" d="M10 10Q50 0 70 40L40 70Z" fill="#888888" stroke="#000000" stroke-width="20"/>
+        <text x="10" y="20">Clipped text</text>
+      </g>
+      <path d="M85 85H95V95H85Z" fill="#ff0000"/>
+    </svg>`;
+    const pdf = await readBlobText(await window.Shared.exporter.svgStringToPdfBlob(xml));
+    expect(pdf).not.toContain('/Subtype /Image');
+    expect(pdf).toContain('W*\nn');
+    expect(pdf).toContain('W\nn');
+    expect(pdf).toContain('12.75 60 m'); // Parent, clip-child and physical-frame transforms compose once.
+    const emf = new DataView(await readBlobBuffer(await window.Shared.exporter.svgStringToEmfBlob(xml)));
+    const records = [];
+    const stockObjects = [];
+    for(let offset = 0; offset + 8 <= emf.byteLength;){
+      const type = emf.getUint32(offset, true);
+      const size = emf.getUint32(offset + 4, true);
+      records.push(type);
+      if(type === 37) stockObjects.push(emf.getUint32(offset + 8, true));
+      expect(size).toBeGreaterThanOrEqual(8);
+      offset += size;
+    }
+    expect(records).not.toContain(81); // EMR_STRETCHDIBITS would be a raster fallback.
+    expect(stockObjects).toContain(0x80000008); // MS-EMF NULL_PEN; no accidental background/fill outline.
+    expect(stockObjects).not.toContain(0x80000009);
+    expect(records.filter(type => type === 67)).toHaveLength(3); // Two path clips, one inherited text clip.
+    expect(records.filter(type => type === 33)).toHaveLength(2);
+    expect(records.filter(type => type === 34)).toHaveLength(2);
+    expect(records.lastIndexOf(34)).toBeLessThan(records.lastIndexOf(8)); // The unclipped sibling is drawn afterwards.
   });
 
   test('SVG serialization materializes the logical viewBox into the owner-frame coordinate system', () => {

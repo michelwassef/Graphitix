@@ -8,16 +8,25 @@ describe('componentLifecycle owner payload persistence', () => {
         workspaceState: {
           activeTabId: 'pca-a',
           tabs: [
-            { id: 'pca-a', type: 'pca' },
-            { id: 'pca-b', type: 'pca' },
+            { id: 'pca-a', type: 'pca', payload: { type: 'pca', config: {} } },
+            { id: 'pca-b', type: 'pca', payload: { type: 'pca', config: {} } },
             { id: 'line-a', type: 'line' }
           ]
         },
         persistUserModifiedTabState: jest.fn(() => true),
         persistActiveTabState: jest.fn(() => true),
-        markTabUserModified: jest.fn(() => true)
-      }
+        markTabUserModified: jest.fn(() => true),
+        updateTabPayload: jest.fn((tab, updater) => {
+          const target = typeof tab === 'string'
+            ? window.Main.session.workspaceState.tabs.find(item => item.id === tab)
+            : tab;
+          target.payload = updater(target.payload, target);
+          return true;
+        })
+      },
+      components: { registry: { pca: {} } }
     };
+    window.Shared.workspaceTabs = { captureRuntimeState: jest.fn(() => ({})) };
     require('../../js/shared/componentLifecycle.js');
   });
 
@@ -47,6 +56,31 @@ describe('componentLifecycle owner payload persistence', () => {
     const session = window.Main.session;
 
     expect(lifecycle.persistOwnedUserState('pca', { tabId: 'pca-b' }, { reason: 'pca-legend-toggle' })).toBe(false);
+    expect(session.persistUserModifiedTabState).not.toHaveBeenCalled();
+    expect(session.persistActiveTabState).not.toHaveBeenCalled();
+  });
+
+  test('writes an explicit inactive-owner payload patch without reading active controls', () => {
+    const lifecycle = window.Shared.componentLifecycle;
+    const session = window.Main.session;
+    const owner = session.workspaceState.tabs[1];
+
+    expect(lifecycle.persistOwnedUserState('pca', { tabId: owner.id }, {
+      reason: 'pca-import-style',
+      origin: 'import',
+      payloadPatch: { config: { labelStyles: { Treated: { shape: 'square' } } } }
+    })).toBe(true);
+    expect(owner.payload.config.labelStyles).toEqual({ Treated: { shape: 'square' } });
+    expect(session.updateTabPayload).toHaveBeenCalledWith(owner, expect.any(Function), {
+      reason: 'pca-import-style',
+      origin: 'import'
+    });
+    expect(window.Shared.workspaceTabs.captureRuntimeState).toHaveBeenCalledWith(
+      owner,
+      'pca',
+      window.Main.components.registry.pca,
+      { reason: 'pca-import-style', source: 'owner-session-write-through' }
+    );
     expect(session.persistUserModifiedTabState).not.toHaveBeenCalled();
     expect(session.persistActiveTabState).not.toHaveBeenCalled();
   });

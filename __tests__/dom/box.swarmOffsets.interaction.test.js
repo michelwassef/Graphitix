@@ -11,7 +11,7 @@ describe('Box swarm offsets — interaction proxies', () => {
       component: 'box',
       tabId: id,
       complete: true,
-      extra: { symbolGeometryVersion: window.Shared.symbolGeometry.RENDER_GEOMETRY_VERSION }
+      extra: { symbolGeometryVersion: window.Shared.symbolGeometry.RENDER_GEOMETRY_VERSION, renderGeometryVersion: 2 }
     });
     return {
       id,

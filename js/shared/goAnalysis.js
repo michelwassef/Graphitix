@@ -13,7 +13,8 @@
   function buildPayload(options) {
     const payload = {
       organism: options.organism,
-      query: options.genes
+      query: options.genes,
+      correction_method: options.correctionMethod || 'g_SCS'
     };
     if (Array.isArray(options.sources) && options.sources.length) {
       payload.sources = options.sources;
@@ -44,7 +45,8 @@
       genes,
       sources: options.sources,
       background: options.background,
-      domainScope: options.domainScope
+      domainScope: options.domainScope,
+      correctionMethod: options.correctionMethod || 'g_SCS'
     });
     try {
       debug('profile request', {

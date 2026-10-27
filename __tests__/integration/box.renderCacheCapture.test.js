@@ -98,6 +98,7 @@ describe('Box render-cache capture contract', () => {
     expect(cache).toEqual(expect.objectContaining({
       __graphitixRenderCache: expect.objectContaining({
         component: 'box',
+        renderGeometryVersion: 2,
         type: 'box',
         tabId,
         complete: true
@@ -112,6 +113,11 @@ describe('Box render-cache capture contract', () => {
     expect(Array.from(svg.childNodes)).toEqual(svgChildrenBefore);
     expect(plot.querySelector('#boxSvg')).toBe(svg);
     expect(mutations).toHaveLength(0);
+
+    cache.__graphitixRenderCache.renderGeometryVersion = 1;
+    expect(box.restoreRenderCache(cache, { tabId, skipStateMutation: true })).toBe(false);
+    expect(plot.querySelector('#boxSvg')).toBe(svg);
+    cache.__graphitixRenderCache.renderGeometryVersion = 2;
 
     expect(box.restoreRenderCache(cache, {
       tabId,

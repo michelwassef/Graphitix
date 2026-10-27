@@ -1233,6 +1233,64 @@
     return ensureZipLibrary().then(() => true).catch(() => false);
   };
 
+  graphArchive.readZipEntryLimitedBytes = function readZipEntryLimitedBytes(entry, maximumBytes) {
+    const limit = Number(maximumBytes);
+    if(!entry || typeof entry.internalStream !== 'function'){
+      return Promise.reject(new TypeError('ZIP entry does not support streaming reads.'));
+    }
+    if(!Number.isSafeInteger(limit) || limit < 0){
+      return Promise.reject(new RangeError('ZIP entry byte limit must be a non-negative safe integer.'));
+    }
+    let stream;
+    try{
+      stream = entry.internalStream('uint8array');
+    }catch(err){
+      return Promise.reject(err);
+    }
+    if(!stream || typeof stream.on !== 'function' || typeof stream.resume !== 'function'
+      || typeof stream.pause !== 'function'){
+      return Promise.reject(new TypeError('ZIP entry returned an unsupported stream.'));
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let size = 0;
+      const chunks = [];
+      stream
+        .on('data', function onData(chunk){
+          const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+          if(bytes.byteLength > limit - size){
+            settled = true;
+            chunks.length = 0;
+            this.pause();
+            reject(new RangeError(`ZIP entry exceeds the ${limit}-byte extraction limit.`));
+            return;
+          }
+          chunks.push(bytes);
+          size += bytes.byteLength;
+        })
+        .on('error', err => {
+          if(!settled){
+            settled = true;
+            reject(err);
+          }
+        })
+        .on('end', () => {
+          if(settled){
+            return;
+          }
+          settled = true;
+          const result = new Uint8Array(size);
+          let offset = 0;
+          chunks.forEach(chunk => {
+            result.set(chunk, offset);
+            offset += chunk.byteLength;
+          });
+          resolve(result);
+        })
+        .resume();
+    });
+  };
+
   graphArchive.constants = Object.freeze({
     format: ARCHIVE_FORMAT,
     version: ARCHIVE_VERSION,

@@ -573,6 +573,153 @@
     return t > 0 ? twoSided / 2 : 1 - (twoSided / 2);
   }
 
+  function studentTQuantile(probability, df){
+    const target = Number(probability);
+    const degrees = Number(df);
+    if(!Number.isFinite(target) || target <= 0 || target >= 1 || !Number.isFinite(degrees) || degrees <= 0){
+      return NaN;
+    }
+    if(target === 0.5){
+      return 0;
+    }
+    if(target < 0.5){
+      return -studentTQuantile(1 - target, degrees);
+    }
+    const upperTailTarget = 1 - target;
+    let lower = 0;
+    let upper = 1;
+    while(studentTUpperTail(upper, degrees) > upperTailTarget && upper < 1e12){
+      upper *= 2;
+    }
+    if(upper >= 1e12 && studentTUpperTail(upper, degrees) > upperTailTarget){
+      return Infinity;
+    }
+    for(let iteration = 0; iteration < 100; iteration += 1){
+      const midpoint = lower + ((upper - lower) / 2);
+      if(studentTUpperTail(midpoint, degrees) > upperTailTarget){
+        lower = midpoint;
+      }else{
+        upper = midpoint;
+      }
+    }
+    return lower + ((upper - lower) / 2);
+  }
+
+  function summarizeEquivalenceSample(values){
+    const sample = Array.isArray(values) ? values.map(Number).filter(Number.isFinite) : [];
+    if(sample.length < 2){
+      return null;
+    }
+    const origin = sample[0];
+    const centeredMean = sample.reduce((sum, value) => sum + (value - origin), 0) / sample.length;
+    const mean = origin + centeredMean;
+    const sumSquares = sample.reduce((sum, value) => sum + Math.pow((value - origin) - centeredMean, 2), 0);
+    return {
+      sample,
+      n: sample.length,
+      mean,
+      variance: sumSquares / (sample.length - 1)
+    };
+  }
+
+  function testMeanEquivalence(sampleAInput, sampleBInput, options = {}){
+    const lowerBound = Number(options.lowerBound);
+    const upperBound = Number(options.upperBound);
+    const alpha = Number(options.alpha);
+    const paired = options.paired === true;
+    if(!Number.isFinite(lowerBound) || !Number.isFinite(upperBound) || lowerBound >= 0 || upperBound <= 0 || lowerBound >= upperBound){
+      return { available: false, message: 'Equivalence bounds must be finite, ordered, and straddle zero.' };
+    }
+    if(!Number.isFinite(alpha) || alpha <= 0 || alpha >= 0.5){
+      return { available: false, message: 'Equivalence alpha must be greater than zero and less than 0.5.' };
+    }
+
+    let estimate;
+    let standardError;
+    let degreesOfFreedom;
+    let sampleCountA;
+    let sampleCountB;
+    if(paired){
+      const sourceA = Array.isArray(sampleAInput) ? sampleAInput : [];
+      const sourceB = Array.isArray(sampleBInput) ? sampleBInput : [];
+      if(sourceA.length !== sourceB.length){
+        return { available: false, message: 'Paired samples must be aligned and have equal lengths.' };
+      }
+      const differences = [];
+      for(let index = 0; index < sourceA.length; index += 1){
+        const valueA = Number(sourceA[index]);
+        const valueB = Number(sourceB[index]);
+        if(Number.isFinite(valueA) && Number.isFinite(valueB)){
+          differences.push(valueA - valueB);
+        }
+      }
+      const summary = summarizeEquivalenceSample(differences);
+      if(!summary){
+        return { available: false, message: 'Paired equivalence testing needs at least two complete pairs.' };
+      }
+      estimate = summary.mean;
+      standardError = Math.sqrt(summary.variance / summary.n);
+      degreesOfFreedom = summary.n - 1;
+      sampleCountA = summary.n;
+      sampleCountB = summary.n;
+    }else{
+      const summaryA = summarizeEquivalenceSample(sampleAInput);
+      const summaryB = summarizeEquivalenceSample(sampleBInput);
+      if(!summaryA || !summaryB){
+        return { available: false, message: 'Independent equivalence testing needs at least two observations per group.' };
+      }
+      const varianceA = summaryA.variance / summaryA.n;
+      const varianceB = summaryB.variance / summaryB.n;
+      const varianceSum = varianceA + varianceB;
+      const dfDenominator = (varianceA * varianceA / (summaryA.n - 1))
+        + (varianceB * varianceB / (summaryB.n - 1));
+      estimate = summaryA.mean - summaryB.mean;
+      standardError = Math.sqrt(Math.max(varianceSum, 0));
+      degreesOfFreedom = dfDenominator > 0
+        ? (varianceSum * varianceSum) / dfDenominator
+        : NaN;
+      sampleCountA = summaryA.n;
+      sampleCountB = summaryB.n;
+    }
+    if(!(standardError > 0) || !Number.isFinite(standardError) || !(degreesOfFreedom > 0) || !Number.isFinite(degreesOfFreedom)){
+      return { available: false, message: 'A positive, estimable standard error and degrees of freedom are required for equivalence inference.' };
+    }
+
+    const lowerStatistic = (estimate - lowerBound) / standardError;
+    const upperStatistic = (estimate - upperBound) / standardError;
+    const lowerPValue = studentTUpperTail(lowerStatistic, degreesOfFreedom);
+    const upperPValue = studentTUpperTail(-upperStatistic, degreesOfFreedom);
+    const pValue = Math.max(lowerPValue, upperPValue);
+    const confidenceLevel = 1 - (2 * alpha);
+    const criticalValue = studentTQuantile(1 - alpha, degreesOfFreedom);
+    const ciLow = estimate - (criticalValue * standardError);
+    const ciHigh = estimate + (criticalValue * standardError);
+    if(!Number.isFinite(pValue) || pValue < 0 || pValue > 1 || !Number.isFinite(ciLow) || !Number.isFinite(ciHigh)){
+      return { available: false, message: 'Equivalence test results could not be evaluated.' };
+    }
+    return {
+      available: true,
+      method: paired ? 'paired t-test two one-sided tests' : 'Welch two-sample t-test two one-sided tests',
+      design: paired ? 'paired' : 'independent',
+      scale: 'raw difference (A - B)',
+      estimate,
+      standardError,
+      df: degreesOfFreedom,
+      lowerBound,
+      upperBound,
+      alpha,
+      confidenceLevel,
+      ciLow,
+      ciHigh,
+      pLower: lowerPValue,
+      pUpper: upperPValue,
+      pValue,
+      equivalent: lowerPValue < alpha && upperPValue < alpha,
+      nA: sampleCountA,
+      nB: sampleCountB
+    };
+  }
+
   function normalTwoSidedPValue(z){
     const value = z === Number.POSITIVE_INFINITY || z === Number.NEGATIVE_INFINITY
       ? z
@@ -1350,14 +1497,13 @@
     const correlation = Number(r);
     const n = Number(sampleSize);
     const levelAlpha = Number(alpha);
-    if(!Number.isFinite(correlation) || !Number.isFinite(n) || n <= 3){
+    if(!Number.isFinite(correlation) || Math.abs(correlation) >= 1 || !Number.isFinite(n) || n <= 3){
       return null;
     }
     const safeAlpha = Number.isFinite(levelAlpha) && levelAlpha > 0 && levelAlpha < 1
       ? levelAlpha
       : 0.05;
-    const clamped = Math.max(-0.999999999999, Math.min(0.999999999999, correlation));
-    const fisherZ = 0.5 * Math.log((1 + clamped) / (1 - clamped));
+    const fisherZ = 0.5 * Math.log((1 + correlation) / (1 - correlation));
     const standardError = 1 / Math.sqrt(n - 3);
     const critical = normalQuantile(1 - (safeAlpha / 2));
     if(!Number.isFinite(standardError) || standardError <= 0 || !Number.isFinite(critical)){
@@ -1400,28 +1546,6 @@
     return 1 - Math.exp(-lambda * x);
   }
 
-  function kolmogorovPValue(d, n){
-    if(!Number.isFinite(d) || d < 0 || !Number.isFinite(n) || n <= 0){
-      return NaN;
-    }
-    if(d === 0){
-      return 1;
-    }
-    const sqrtN = Math.sqrt(n);
-    const lambda = (sqrtN + 0.12 + 0.11 / sqrtN) * d;
-    let sum = 0;
-    for(let k = 1; k <= 100; k++){
-      const term = Math.exp(-2 * k * k * lambda * lambda);
-      const contribution = (k % 2 ? 1 : -1) * term;
-      sum += contribution;
-      if(term < 1e-10){
-        break;
-      }
-    }
-    const p = Math.max(0, Math.min(1, 2 * sum));
-    return p;
-  }
-
   function andersonDarlingStatistic(sortedValues, cdf){
     const n = Array.isArray(sortedValues) ? sortedValues.length : 0;
     if(!n || typeof cdf !== 'function'){
@@ -1445,89 +1569,6 @@
       sum += (2 * (i + 1) - 1) * (Math.log(FiClamped) + Math.log(Fj));
     }
     return -n - (sum / n);
-  }
-
-  const AD_CRITICALS = {
-    normal: {
-      values: [0.576, 0.656, 0.787, 0.918, 1.092],
-      sigLevels: [0.15, 0.1, 0.05, 0.025, 0.01]
-    },
-    exponential: {
-      values: [0.922, 1.078, 1.341, 1.606, 1.957],
-      sigLevels: [0.15, 0.1, 0.05, 0.025, 0.01]
-    }
-  };
-
-  function adPValueNormal(adjusted){
-    const a = Math.max(0, adjusted);
-    if(a < 0.2){
-      return 1 - Math.exp(-13.436 + 101.14 * a - 223.73 * a * a);
-    }
-    if(a < 0.34){
-      return 1 - Math.exp(-8.318 + 42.796 * a - 59.938 * a * a);
-    }
-    if(a < 0.6){
-      return Math.exp(0.9177 - 4.279 * a - 1.38 * a * a);
-    }
-    const expo = 1.2937 - 5.709 * a + 0.0186 * a * a;
-    return Math.exp(Math.min(expo, 0));
-  }
-
-  function adPValueExponential(adjusted){
-    const a = Math.max(0, adjusted);
-    if(a < 0.3){
-      return 1 - Math.exp(-1.2937 + 5.709 * a - 0.0186 * a * a);
-    }
-    if(a < 0.6){
-      return Math.exp(0.9177 - 4.279 * a - 1.38 * a * a);
-    }
-    const expo = 1.2937 - 5.709 * a + 0.0186 * a * a;
-    return Math.exp(Math.min(expo, 0));
-  }
-
-  function interpolateAdPValue(value, config){
-    const thresholds = config.values;
-    const sig = config.sigLevels;
-    if(!thresholds.length){ return 1; }
-    if(value <= thresholds[0]){
-      const ratio = thresholds[0] ? value / thresholds[0] : 0;
-      const upper = 0.25;
-      const p = sig[0] + (upper - sig[0]) * (1 - ratio);
-      return clampUnit(p);
-    }
-    for(let i = 0; i < thresholds.length - 1; i++){
-      const start = thresholds[i];
-      const end = thresholds[i + 1];
-      if(value <= end){
-        const span = end - start || 1;
-        const t = (value - start) / span;
-        const p0 = sig[i];
-        const p1 = sig[i + 1];
-        return clampUnit(p0 + (p1 - p0) * t);
-      }
-    }
-    const lastThreshold = thresholds[thresholds.length - 1];
-    const lastSig = sig[sig.length - 1];
-    const tail = lastSig * Math.exp(-(value - lastThreshold));
-    return clampUnit(tail);
-  }
-
-  function andersonDarlingPValue(statistic, key, n){
-    if(!Number.isFinite(statistic) || statistic < 0 || !Number.isFinite(n) || n <= 0){
-      return NaN;
-    }
-    const id = typeof key === 'string' ? key.toLowerCase() : '';
-    let adjusted = statistic;
-    if(id === 'exponential'){
-      adjusted = statistic * (1 + 0.6 / n);
-      const approx = adPValueExponential(adjusted);
-      const fallback = interpolateAdPValue(adjusted, AD_CRITICALS.exponential);
-      return clampUnit(Number.isFinite(approx) ? approx : fallback);
-    }
-    adjusted = statistic * (1 + 4 / n - 25 / (n * n));
-    const approx = adPValueNormal(adjusted);
-    const fallback = interpolateAdPValue(adjusted, AD_CRITICALS.normal);
-    return clampUnit(Number.isFinite(approx) ? approx : fallback);
   }
 
   const CONTINUOUS_DISTRIBUTIONS = {
@@ -1940,44 +1981,44 @@
     }
     const sorted=raw.slice().sort((a,b)=>a-b);
     const alpha=Number.isFinite(options?.alpha)&&options.alpha>0&&options.alpha<1?options.alpha:0.05;
-    const fit=options?.fit?.valid===false?null:(options?.fit || def.fit(sorted));
+    const parametersEstimated=options?.parametersEstimated!==false;
+    const providedFit=options?.fit && typeof options.fit.cdf==='function' ? options.fit : null;
+    if(!parametersEstimated && !providedFit){
+      return {available:false,n:sorted.length,message:'Fixed-parameter goodness-of-fit requires an explicit fitted distribution.'};
+    }
+    const fit=options?.fit?.valid===false?null:(providedFit || def.fit(sorted));
     if(!fit || fit.valid===false || typeof fit.cdf!=='function') return {available:false,n:sorted.length,message:fit?.message || 'Distribution fit unavailable.'};
     const ksStat=computeOneSampleKsStatistic(sorted,fit.cdf);
     const adStat=andersonDarlingStatistic(sorted,fit.cdf);
-    const parametersEstimated=options?.parametersEstimated!==false;
-    let ksP=kolmogorovPValue(ksStat,sorted.length);
-    let adP=andersonDarlingPValue(adStat,key,sorted.length);
-    let calibration='fully-specified asymptotic';
-    let iterations=0;
-    let seed=null;
-    if(parametersEstimated){
-      iterations=Math.max(200,Math.min(5000,Math.round(Number(options?.iterations)||500)));
-      seed=(Number(options?.seed)||1337)>>>0;
-      const random=createStatsSeededRandom(seed);
-      let ksExtreme=0;
-      let adExtreme=0;
-      let validIterations=0;
-      for(let iteration=0;iteration<iterations;iteration++){
-        const simulated=sampleFittedDistribution(key,fit,sorted.length,random).sort((a,b)=>a-b);
-        const refit=def.fit(simulated);
-        if(!refit?.valid || typeof refit.cdf!=='function') continue;
-        const simulatedKs=computeOneSampleKsStatistic(simulated,refit.cdf);
-        const simulatedAd=andersonDarlingStatistic(simulated,refit.cdf);
-        if(Number.isFinite(simulatedKs) && Number.isFinite(simulatedAd)){
-          validIterations+=1;
-          if(simulatedKs>=ksStat-1e-15) ksExtreme+=1;
-          if(simulatedAd>=adStat-1e-15) adExtreme+=1;
-        }
-      }
-      if(validIterations){
-        ksP=(ksExtreme+1)/(validIterations+1);
-        adP=(adExtreme+1)/(validIterations+1);
-        iterations=validIterations;
-        calibration='parametric bootstrap with parameter refitting';
-      }else{
-        return {available:false,n:sorted.length,message:'Parametric-bootstrap goodness-of-fit calibration failed.'};
+    if(!Number.isFinite(ksStat) || !Number.isFinite(adStat)){
+      return {available:false,n:sorted.length,message:'Goodness-of-fit p-values could not be evaluated.'};
+    }
+    let ksExtreme=0;
+    let adExtreme=0;
+    let validIterations=0;
+    const iterations=Math.max(200,Math.min(20000,Math.round(Number(options?.iterations)||5000)));
+    const seed=(Number(options?.seed)||1337)>>>0;
+    const random=createStatsSeededRandom(seed);
+    for(let iteration=0;iteration<iterations;iteration++){
+      const simulated=sampleFittedDistribution(key,fit,sorted.length,random).sort((a,b)=>a-b);
+      const calibrationFit=parametersEstimated ? def.fit(simulated) : fit;
+      if(!calibrationFit?.valid || typeof calibrationFit.cdf!=='function') continue;
+      const simulatedKs=computeOneSampleKsStatistic(simulated,calibrationFit.cdf);
+      const simulatedAd=andersonDarlingStatistic(simulated,calibrationFit.cdf);
+      if(Number.isFinite(simulatedKs) && Number.isFinite(simulatedAd)){
+        validIterations+=1;
+        if(simulatedKs>=ksStat-1e-15) ksExtreme+=1;
+        if(simulatedAd>=adStat-1e-15) adExtreme+=1;
       }
     }
+    if(!validIterations){
+      return {available:false,n:sorted.length,message:'Parametric-bootstrap goodness-of-fit calibration failed.'};
+    }
+    const ksP=(ksExtreme+1)/(validIterations+1);
+    const adP=(adExtreme+1)/(validIterations+1);
+    const calibration=parametersEstimated
+      ? 'parametric bootstrap with parameter refitting'
+      : 'parametric bootstrap with fixed parameters';
     if(!Number.isFinite(ksStat) || !Number.isFinite(adStat) || !Number.isFinite(ksP) || !Number.isFinite(adP)
       || ksP < 0 || ksP > 1 || adP < 0 || adP > 1){
       return {
@@ -1988,9 +2029,9 @@
     }
     return {
       available:true,alpha,n:sorted.length,pdf:fit.pdf || null,cdf:fit.cdf,fit,
-      calibration,parametersEstimated,iterations,seed,
-      ks:{statistic:ksStat,pValue:ksP,reject:ksP<alpha,decision:ksP<alpha?'Reject H₀':'Fail to reject H₀'},
-      ad:{statistic:adStat,pValue:adP,reject:adP<alpha,decision:adP<alpha?'Reject H₀':'Fail to reject H₀'}
+      calibration,parametersEstimated,iterations:validIterations,seed,
+      ks:{statistic:ksStat,pValue:ksP,monteCarloSe:Math.sqrt(ksP*(1-ksP)/(validIterations+1)),reject:ksP<alpha,decision:ksP<alpha?'Reject H₀':'Fail to reject H₀'},
+      ad:{statistic:adStat,pValue:adP,monteCarloSe:Math.sqrt(adP*(1-adP)/(validIterations+1)),reject:adP<alpha,decision:adP<alpha?'Reject H₀':'Fail to reject H₀'}
     };
   };
 
@@ -2173,6 +2214,8 @@
   stats.fUpperTail = fUpperTail;
   stats.studentTUpperTail = studentTUpperTail;
   stats.studentTTwoSidedPValue = studentTTwoSidedPValue;
+  stats.studentTQuantile = studentTQuantile;
+  stats.testMeanEquivalence = testMeanEquivalence;
   stats.spearmanPermutationTest = spearmanPermutationTest;
   stats.normalUpperTail = normalUpperTail;
   stats.normalTwoSidedPValue = normalTwoSidedPValue;

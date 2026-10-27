@@ -678,9 +678,16 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
-      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
+      prismAxisTargetPx: null,
+      x: { tickInterval: null, tickStart: null, min: null, max: null, autoRangeHint: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
+      y: { tickInterval: null, tickStart: null, min: null, max: null, autoRangeHint: null, tickLabelMultiplier: 1, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
     };
+  }
+
+  function normalizeOptionalAxisNumber(value){
+    if(value === null || value === undefined || value === ''){ return null; }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
   }
 
   const state = {
@@ -1559,11 +1566,22 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
+      state.axisSettings.x = { tickInterval: null, tickStart: null, min: null, max: null, autoRangeHint: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
+      state.axisSettings.y = { tickInterval: null, tickStart: null, min: null, max: null, autoRangeHint: null, tickLabelMultiplier: 1, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
+    ['x', 'y'].forEach(axis => {
+      const settings = state.axisSettings[axis];
+      settings.tickStart = normalizeOptionalAxisNumber(settings.tickStart);
+      settings.min = normalizeOptionalAxisNumber(settings.min);
+      settings.max = normalizeOptionalAxisNumber(settings.max);
+      settings.autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(settings.autoRangeHint) || null;
+    });
+    const tickLabelMultiplier = Number(state.axisSettings.y.tickLabelMultiplier);
+    state.axisSettings.y.tickLabelMultiplier = Number.isFinite(tickLabelMultiplier) && tickLabelMultiplier > 0
+      ? tickLabelMultiplier
+      : 1;
     if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
       state.axisSettings.x.minorTicks = false;
     }
@@ -1823,15 +1841,32 @@
       if(typeof settings.color === 'string' && settings.color.trim()){
         base.color = settings.color;
       }
+      const targetX = Number(settings.prismAxisTargetPx?.x);
+      const targetY = Number(settings.prismAxisTargetPx?.y);
+      if(Number.isFinite(targetX) && targetX > 0 && Number.isFinite(targetY) && targetY > 0){
+        base.prismAxisTargetPx = { x: targetX, y: targetY };
+      }
       const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      ['x', 'y'].forEach(axis => {
+        const source = settings[axis] || {};
+        base[axis].tickStart = normalizeOptionalAxisNumber(settings[`tickStart${axis.toUpperCase()}`] ?? source.tickStart);
+        base[axis].min = normalizeOptionalAxisNumber(settings[`${axis}Min`] ?? source.min);
+        base[axis].max = normalizeOptionalAxisNumber(settings[`${axis}Max`] ?? source.max);
+        const autoRangeHint = settings[`autoRangeHint${axis.toUpperCase()}`] ?? settings.autoRangeHint?.[axis] ?? source.autoRangeHint;
+        base[axis].autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(autoRangeHint) || null;
+      });
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
       base.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.xLabelAngle ?? settings.labelAngleX ?? settings?.x?.labelAngle);
       base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
+      const tickLabelMultiplier = Number(settings.tickLabelMultiplierY ?? settings.y?.tickLabelMultiplier);
+      base.y.tickLabelMultiplier = Number.isFinite(tickLabelMultiplier) && tickLabelMultiplier > 0
+        ? tickLabelMultiplier
+        : 1;
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
       const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
@@ -1845,9 +1880,111 @@
     syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: state.axisSettings });
   }
 
-  function buildManualTicks(min, max, interval){
+  function clearSurvivalAutoRangeHints(session, axes = ['x', 'y'], reason = 'survival-axis-auto-range-invalidated'){
+    if(!session?.state || !Array.isArray(axes)){ return false; }
+    const next = cloneSimple(session.state.axisSettings) || createDefaultAxisSettings();
+    let changed = false;
+    axes.forEach(axis => {
+      if((axis === 'x' || axis === 'y') && next[axis]?.autoRangeHint){
+        next[axis].autoRangeHint = null;
+        changed = true;
+      }
+    });
+    if(!changed){ return false; }
+    syncSurvivalStateToSession(session, { axisSettings: next });
+    if(isSurvivalSessionActive(session)){
+      state.axisSettings = cloneSimple(session.state.axisSettings) || next;
+    }
+    Shared.componentLifecycle?.persistOwnedUserState?.('survival', session, {
+      tabId: session.tabId,
+      reason
+    });
+    return true;
+  }
+
+  function consumeSurvivalPrismAxisLengthTarget(plan, session, frame, svgBox){
+    const settings = session?.state?.axisSettings || state.axisSettings;
+    const target = settings?.prismAxisTargetPx;
+    if(!session?.tabId || !isSurvivalSessionActive(session)
+      || !plan?.axisFrameModel || !target || !svgBox
+      || !Number.isFinite(Number(frame?.width)) || !Number.isFinite(Number(frame?.height))){
+      return false;
+    }
+    const targetWidth = Number(target.x);
+    const targetHeight = Number(target.y);
+    const clearTarget = () => {
+      const next = { ...(session.state?.axisSettings || state.axisSettings), prismAxisTargetPx: null };
+      if(isSurvivalSessionActive(session)){
+        state.axisSettings = next;
+      }
+      if(session.state){
+        session.state.axisSettings = cloneSimple(next) || next;
+      }
+      syncSurvivalStateToSession(session, { axisSettings: next });
+    };
+    if(!Number.isFinite(targetWidth) || targetWidth <= 0
+      || !Number.isFinite(targetHeight) || targetHeight <= 0){
+      clearTarget();
+      return false;
+    }
+    if(Math.abs(Number(plan.axisLengths?.x) - targetWidth) <= 0.75
+      && Math.abs(Number(plan.axisLengths?.y) - targetHeight) <= 0.75){
+      clearTarget();
+      return false;
+    }
+    const size = Shared.cartesianLayout?.resolveFrameSizeForAxisLengths?.(plan, target);
+    if(!size || typeof Shared.applyResizableBoxSize !== 'function'){
+      return false;
+    }
+    const frameChrome = Shared.cartesianLayout?.resolveFrameChromeForDrawableSize?.(svgBox, frame);
+    if(!frameChrome){
+      return false;
+    }
+    const currentWidth = Number(frame.width) + frameChrome.width;
+    const currentHeight = Number(frame.height) + frameChrome.height;
+    const width = Math.max(50, Math.round(size.width + frameChrome.width));
+    const height = Math.max(40, Math.round(size.height + frameChrome.height));
+    if(Math.abs(currentWidth - width) <= 0.75 && Math.abs(currentHeight - height) <= 0.75){
+      clearTarget();
+      return false;
+    }
+    const applied = Shared.applyResizableBoxSize(svgBox, {
+      axis: 'both',
+      width,
+      height,
+      forceExact: true,
+      preserveAspectLock: false,
+      updateAspectRatio: true,
+      updateDefaults: false,
+      authorityMode: 'transient',
+      suppressOnResize: true,
+      reason: 'survival-prism-axis-length-import'
+    });
+    if(!applied){
+      return false;
+    }
+    clearTarget();
+    scheduleSurvivalDrawForSession(session, {
+      force: true,
+      reason: 'survival-prism-axis-length-followup',
+      renderImpact: 'layout',
+      tabId: session.tabId
+    });
+    return true;
+  }
+
+  function buildManualTicks(min, max, interval, tickStart = null){
     if(!Number.isFinite(interval) || interval <= 0){ return null; }
     if(!Number.isFinite(min) || !Number.isFinite(max)){ return null; }
+    if(Number.isFinite(tickStart)){
+      const tolerance = Math.max(Math.abs(interval) * 1e-9, 1e-9);
+      const first = tickStart + Math.ceil((min - tickStart - tolerance) / interval) * interval;
+      const ticks = [];
+      for(let current = first, guard = 0; current <= max + tolerance && guard < 1000; current += interval, guard += 1){
+        ticks.push(Number.parseFloat(current.toPrecision(12)));
+      }
+      return { min, max, ticks };
+    }
     if(min === max){
       max = min + interval;
     }
@@ -2309,6 +2446,13 @@
               logDebug('table afterChange', { count: changes.length, source });
             }
             if(source !== 'loadData'){
+              const ownerTabId = resolveSurvivalHotOwnerTabId(this) || this?.__survivalTabId || null;
+              const ownerSession = ownerTabId
+                ? getSurvivalSession(ownerTabId, { tabId: ownerTabId, reason: 'survival-data-edit-range-invalidation' }, { create: false })
+                : null;
+              if(changes?.length && ownerSession){
+                clearSurvivalAutoRangeHints(ownerSession, ['x', 'y'], 'survival-data-edit-range-invalidation');
+              }
               refreshCovariateControls();
             }
           }
@@ -2481,6 +2625,11 @@
     const enabledCovariates = Object.entries(state.covariateSettings || {}).filter(([, cfg]) => cfg && cfg.enabled);
     const enabledBaseline = enabledCovariates.filter(([, cfg]) => (cfg.type || 'baseline') !== 'time').length;
     const enabledTime = enabledCovariates.filter(([, cfg]) => cfg.type === 'time').length;
+    const coxPrepared = series.length > 1 ? prepareCoxData(safeSummary) : null;
+    const coxParameterCount = coxPrepared?.available
+      ? coxPrepared.predictors
+      : Math.max(0, series.length - 1) + enabledCovariates.length;
+    const coxEventCount = coxPrepared?.available ? coxPrepared.eventCount : totalEvents;
     const context = {
       summary: safeSummary,
       groupCount: series.length,
@@ -2489,8 +2638,12 @@
       censored,
       totalParticipants,
       totalEvents,
+      coxEventCount,
+      coxParameterCount,
+      eventsPerCoxParameter: coxParameterCount > 0 ? coxEventCount / coxParameterCount : Infinity,
       zeroEventGroups,
       hasCensoring: censored.some(value => value > 0),
+      hasDelayedEntry: series.some(group => Array.isArray(group.records) && group.records.some(record => Number(record.entry) > 0)),
       medianReachedCount: series.filter(group => group?.km?.median != null).length,
       covariateCount: covariateColumns.length,
       enabledCovariateCount: enabledCovariates.length,
@@ -2690,8 +2843,8 @@
         if(context.enabledCovariateCount === 0 && context.covariateCount === 0){
           recommendation.warnings.push('Add extra columns for covariates if you plan to adjust beyond group membership.');
         }
-        if(context.totalEvents < 10){
-          recommendation.warnings.push('Cox regression is unreliable with very few events; confirm that event counts support the model.');
+        if(context.coxParameterCount > 0 && context.eventsPerCoxParameter < 10){
+          recommendation.warnings.push(`There are ${formatReportNumber(context.eventsPerCoxParameter, 1)} observed events per Cox model parameter; this low ratio may make estimates unstable. Ten events per parameter is only a rough heuristic, not a validity threshold.`);
         }
         break;
       default:
@@ -2699,6 +2852,9 @@
         return recommendation;
     }
     recommendation.warnings.push('Kaplan–Meier and log-rank interpretation require independent subjects and non-informative censoring within the compared groups.');
+    if(context.hasDelayedEntry){
+      recommendation.warnings.push('Delayed-entry KM/log-rank risk sets assume independent entry and event times. Cox can account for dependence only through included covariates; informative cohort entry can still bias estimates.');
+    }
     if(recommendation.showHazardRatios || recommendation.fitCoxModel){
       recommendation.warnings.push('Cox hazard-ratio interpretation requires proportional hazards conditional on the included predictors. Inspect the curves and model diagnostics; crossing curves may make a single constant hazard ratio misleading.');
       if(context.enabledCovariateCount>0){
@@ -3225,8 +3381,15 @@
     });
   }
 
-  function computeKaplanMeier(records){
-    const sorted = records.slice().sort((a, b) => {
+  function computeKaplanMeier(records, ciLevel = 0.95){
+    const validRecords = (Array.isArray(records) ? records : []).filter(record => {
+      const entry = Number.isFinite(Number(record?.entry)) ? Number(record.entry) : 0;
+      return Number.isFinite(Number(record?.time)) && entry >= 0 && entry < Number(record.time);
+    });
+    if(validRecords.length !== (Array.isArray(records) ? records.length : 0)){
+      return { available: false, message: 'Entry time must be non-negative and earlier than the event or censoring time.' };
+    }
+    const sorted = validRecords.slice().sort((a, b) => {
       if(a.time === b.time){
         if(a.event === b.event) return 0;
         return a.event ? -1 : 1;
@@ -3237,8 +3400,18 @@
     const lowerSteps = [{ time: 0, value: 1 }];
     const upperSteps = [{ time: 0, value: 1 }];
     const censorPoints = [];
-    const z = 1.96;
-    let atRisk = sorted.length;
+    const safeCiLevel = Number.isFinite(Number(ciLevel)) && Number(ciLevel) > 0.5 && Number(ciLevel) < 1
+      ? Number(ciLevel)
+      : 0.95;
+    const z = Shared.stats?.normalQuantile?.((1 + safeCiLevel) / 2)
+      ?? global.jStat?.normal?.inv?.((1 + safeCiLevel) / 2, 0, 1);
+    let atRisk = 0;
+    const entries = sorted.slice().sort((a, b) => {
+      const aEntry = Number.isFinite(Number(a.entry)) ? Number(a.entry) : 0;
+      const bEntry = Number.isFinite(Number(b.entry)) ? Number(b.entry) : 0;
+      return aEntry - bEntry || a.time - b.time;
+    });
+    let entryIndex = 0;
     let survivalProb = 1;
     let cumulativeVar = 0;
     let median = null;
@@ -3248,8 +3421,17 @@
 
     for(let i = 0; i < sorted.length; ){
       const currentTime = sorted[i].time;
+      while(entryIndex < entries.length){
+        const entry = Number.isFinite(Number(entries[entryIndex].entry)) ? Number(entries[entryIndex].entry) : 0;
+        if(entry < currentTime){
+          atRisk += 1;
+          entryIndex += 1;
+        }else{
+          break;
+        }
+      }
       const group = [];
-      while(i < sorted.length && Math.abs(sorted[i].time - currentTime) < 1e-9){
+      while(i < sorted.length && sorted[i].time === currentTime){
         group.push(sorted[i]);
         i += 1;
       }
@@ -3325,6 +3507,7 @@
       medianCiHigh = swap;
     }
     return {
+      available: true,
       steps: stepPoints,
       lower: lowerSteps,
       upper: upperSteps,
@@ -3571,7 +3754,12 @@
       return { available: false, message: 'No events detected for log-rank test.' };
     }
     const k = series.length;
-    const atRisk = series.map(group => group.records.length);
+    const riskState = series.map(group => {
+      const records = Array.isArray(group.records) ? group.records : [];
+      const entries = records.map(record => Number.isFinite(Number(record.entry)) ? Number(record.entry) : 0).sort((a, b) => a - b);
+      const exits = records.map(record => Number(record.time)).filter(Number.isFinite).sort((a, b) => a - b);
+      return { entries, exits, entryIndex: 0, exitIndex: 0, entered: 0, exited: 0 };
+    });
     const eventMaps = series.map(group => {
       const map = new Map();
       group.records.forEach(rec => {
@@ -3585,8 +3773,18 @@
     const variance = Array.from({ length: k }, () => new Array(k).fill(0));
 
     uniqueTimes.forEach(time => {
+      const atRisk = riskState.map(risk => {
+        while(risk.entryIndex < risk.entries.length && risk.entries[risk.entryIndex] < time){
+          risk.entered += 1;
+          risk.entryIndex += 1;
+        }
+        while(risk.exitIndex < risk.exits.length && risk.exits[risk.exitIndex] < time){
+          risk.exited += 1;
+          risk.exitIndex += 1;
+        }
+        return Math.max(0, risk.entered - risk.exited);
+      });
       const eventsAtTime = eventMaps.map(map => map.get(time)?.events || 0);
-      const censoredAtTime = eventMaps.map(map => map.get(time)?.censored || 0);
       const totalEvents = eventsAtTime.reduce((sum, value) => sum + value, 0);
       const totalAtRisk = atRisk.reduce((sum, value) => sum + value, 0);
       if(totalEvents > 0 && totalAtRisk > 0){
@@ -3617,12 +3815,6 @@
               }
             }
           }
-        }
-      }
-      for(let idx = 0; idx < k; idx += 1){
-        atRisk[idx] -= (eventsAtTime[idx] + censoredAtTime[idx]);
-        if(atRisk[idx] < 0){
-          atRisk[idx] = 0;
         }
       }
     });
@@ -3699,9 +3891,14 @@
     const groups = new Map();
     let maxTime = 0;
     let usedRows = 0;
+    let invalidEntryRows = 0;
+    let invalidOutcomeRows = 0;
     for(let i = 0; i < data.length; i += 1){
       const row = data[i];
       if(!row){
+        continue;
+      }
+      if(Array.isArray(row) && row.every(value => value == null || String(value).trim() === '')){
         continue;
       }
       const groupRaw = row[0];
@@ -3710,9 +3907,16 @@
       const entryRaw = row[3];
       const groupName = typeof groupRaw === 'string' ? groupRaw.trim() : (groupRaw != null ? String(groupRaw).trim() : '');
       const time = Shared.dataTransforms.toFiniteNumber(timeRaw);
-      const eventFlag = Number(eventRaw);
-      const entry = Shared.dataTransforms.toFiniteNumber(entryRaw);
-      if(!groupName || !Number.isFinite(time)){
+      const eventText = eventRaw == null ? '' : String(eventRaw).trim();
+      const eventFlag = eventText === '' ? NaN : Number(eventText);
+      const entryText = entryRaw == null ? '' : String(entryRaw).trim();
+      const entry = entryText === '' ? 0 : Shared.dataTransforms.toFiniteNumber(entryRaw);
+      if(!groupName || !Number.isFinite(time) || (eventFlag !== 0 && eventFlag !== 1)){
+        invalidOutcomeRows += 1;
+        continue;
+      }
+      if(!Number.isFinite(entry) || entry < 0 || entry >= time){
+        invalidEntryRows += 1;
         continue;
       }
       usedRows += 1;
@@ -3720,13 +3924,10 @@
       const record = {
         time,
         event: eventFlag === 1,
-        entry: Number.isFinite(entry) ? entry : 0,
+        entry,
         extras: Array.isArray(row) ? row.slice(BASE_COLUMN_COUNT) : [],
         rowIndex: i
       };
-      if(Number.isFinite(record.entry) && record.entry > record.time){
-        logDebug('entry greater than event time encountered', { rowIndex: i, entry: record.entry, time: record.time });
-      }
       bucket.records.push(record);
       if(record.event){ bucket.events += 1; } else { bucket.censored += 1; }
       groups.set(groupName, bucket);
@@ -3736,7 +3937,7 @@
     }
     const groupNames = Array.from(groups.keys());
     if(!groupNames.length || usedRows === 0){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false, message: 'Add at least two groups, then calculate statistics.' }, covariateColumns, headers: headerLookup, supportsTimeDependent };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false, message: invalidEntryRows ? 'No valid survival rows remain after checking entry times.' : 'Add at least two groups, then calculate statistics.' }, covariateColumns, headers: headerLookup, supportsTimeDependent, invalidEntryRows, invalidOutcomeRows };
     }
     state.groupOrder = state.groupOrder.filter(name => groups.has(name));
     groupNames.forEach(name => {
@@ -3750,7 +3951,7 @@
       if(!entry){
         return null;
       }
-      const km = computeKaplanMeier(entry.records);
+      const km = computeKaplanMeier(entry.records, 1 - getSurvivalStatsAlpha());
       maxTime = Math.max(maxTime, km.maxTime);
       return {
         name,
@@ -3774,11 +3975,20 @@
       logRank: { available: false, message: 'Calculate statistics to run survival curve tests.' },
       covariateColumns,
       headers: headerLookup,
-      supportsTimeDependent
+      supportsTimeDependent,
+      invalidEntryRows,
+      invalidOutcomeRows
     };
   }
 
-  function createSurvivalStatsAnalysisSignature(controls, includeDecisionSettings){
+  function createSurvivalStatsAnalysisSignature(controls, options = {}){
+    const {
+      includeDecisionSettings = false,
+      version = null,
+      includeDelayedEntryFix = false,
+      pairwiseCorrection = state.pairwiseCorrection,
+      includePairwiseCorrection = true
+    } = options;
     const rawData = typeof state.hot?.getIncludedDataMatrix === 'function'
       ? state.hot.getIncludedDataMatrix()
       : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
@@ -3790,8 +4000,13 @@
       covariateSettings: state.covariateSettings || {}
     };
     if(includeDecisionSettings){
-      signature.pairwiseCorrection = state.pairwiseCorrection || 'holm-sidak';
+      if(includePairwiseCorrection){
+        signature.pairwiseCorrection = pairwiseCorrection || 'holm-sidak';
+      }
       signature.inferenceLevel = getSurvivalStatsAlpha();
+    }
+    if(includeDelayedEntryFix){
+      signature.delayedEntryRiskSets = true;
     }
     const source = JSON.stringify(signature) || '';
     let firstHash = 2166136261;
@@ -3801,16 +4016,28 @@
       firstHash = Math.imul(firstHash ^ code, 16777619);
       secondHash = Math.imul(secondHash ^ code, 3266489917);
     }
-    const version = includeDecisionSettings ? 'v1' : 'v2';
-    return `survival-stats-${version}-${(firstHash >>> 0).toString(36)}-${(secondHash >>> 0).toString(36)}-${source.length}`;
+    const signatureVersion = version || (includeDecisionSettings ? 'v1' : 'v2');
+    return `survival-stats-${signatureVersion}-${(firstHash >>> 0).toString(36)}-${(secondHash >>> 0).toString(36)}-${source.length}`;
   }
 
   function buildSurvivalStatsAnalysisSignature(controls = state.controls){
-    return createSurvivalStatsAnalysisSignature(controls, false);
+    // Pairwise correction only transforms already-computed raw log-rank p-values.
+    // It does not change the fitted/statistical calculations, so keep it out of
+    // the calculation signature and reproject the report when the method changes.
+    return createSurvivalStatsAnalysisSignature(controls, {
+      includeDecisionSettings: true,
+      version: 'v5',
+      includeDelayedEntryFix: true,
+      includePairwiseCorrection: false
+    });
   }
 
   function buildLegacySurvivalStatsAnalysisSignature(controls = state.controls){
-    return createSurvivalStatsAnalysisSignature(controls, true);
+    return createSurvivalStatsAnalysisSignature(controls, { includeDecisionSettings: true });
+  }
+
+  function buildPreviousSurvivalStatsAnalysisSignature(controls = state.controls){
+    return createSurvivalStatsAnalysisSignature(controls);
   }
 
   function applySavedSurvivalStats(summary, stats){
@@ -3841,6 +4068,17 @@
     summary.medianRatios = cloneSimple(stats.medianRatios) || { available: false };
     summary.hazardRatios = cloneSimple(stats.hazardRatios) || { available: false, message: 'Hazard ratios were not calculated.' };
     summary.coxModel = cloneSimple(stats.coxModel) || { available: false, message: 'Cox model was not calculated.' };
+    if(summary.coxModel?.available && !summary.coxModel?.diagnostics?.proportionalHazards){
+      summary.coxModel.diagnostics = {
+        ...(summary.coxModel.diagnostics || {}),
+        proportionalHazards: {
+          available: false,
+          method: 'Efron partial-likelihood score test with rank-transformed time interactions',
+          transform: 'event-time midranks',
+          reason: 'The saved Cox result predates the formal proportional-hazards diagnostic. Recalculate statistics to update the test.'
+        }
+      };
+    }
     summary.flags = cloneSimple(stats.flags) || {
       hazardRatiosEnabled: false,
       coxEnabled: false,
@@ -4019,7 +4257,7 @@
     if(!data.length){
       return { available: false, message: 'No valid observations to fit Cox model.' };
     }
-    const truncated = false;
+    const truncated = data.some(obs => obs.entry > 0);
     data.sort((a, b) => a.time - b.time);
     const eventCount = data.reduce((sum, rec) => sum + (rec.event ? 1 : 0), 0);
     if(eventCount === 0){
@@ -4064,7 +4302,6 @@
     let exitPointer = 0;
     let atRiskCount = 0;
     let maxRiskCount = 0;
-    const epsilon = 1e-9;
     eventsByTime.forEach(group => {
       const timeValue = group.time;
       while(entryPointer < entryOrder.length){
@@ -4074,7 +4311,7 @@
           continue;
         }
         const entryTime = Number.isFinite(candidate.entry) ? candidate.entry : 0;
-        if(entryTime <= timeValue + epsilon){
+        if(entryTime < timeValue){
           atRiskCount += 1;
           entryPointer += 1;
         } else {
@@ -4087,7 +4324,7 @@
           exitPointer += 1;
           continue;
         }
-        if(candidate.time < timeValue - epsilon){
+        if(candidate.time < timeValue){
           atRiskCount = Math.max(0, atRiskCount - 1);
           exitPointer += 1;
           continue;
@@ -4129,13 +4366,17 @@
     };
   }
 
-  function evaluateCoxAt(beta, prepared){
+  function evaluateCoxAt(beta, prepared, options = {}){
     const { data, predictors, eventsByTime } = prepared;
     const gradient = new Array(predictors).fill(0);
     const fisher = Array.from({ length: predictors }, () => new Array(predictors).fill(0));
+    const timeScores = Array.isArray(options.timeScores) ? options.timeScores : null;
+    const timeGradient = timeScores ? new Array(predictors).fill(0) : null;
+    const timeCrossFisher = timeScores ? createZeroMatrix(predictors) : null;
+    const timeFisher = timeScores ? createZeroMatrix(predictors) : null;
     let logLik = 0;
     if(!Array.isArray(eventsByTime) || !eventsByTime.length){
-      return { gradient, fisher, logLik };
+      return { gradient, fisher, logLik, timeInteraction: null };
     }
     const entryOrder = Array.isArray(prepared.entryOrder) && prepared.entryOrder.length === data.length
       ? prepared.entryOrder
@@ -4156,7 +4397,6 @@
     const weightedXX = createZeroMatrix(predictors);
     let entryPointer = 0;
     let exitPointer = 0;
-    const epsilon = 1e-9;
     eventsByTime.forEach((group, idx) => {
       const eventIndices = Array.isArray(group.eventIndices) ? group.eventIndices : [];
       if(!eventIndices.length){
@@ -4171,7 +4411,7 @@
           continue;
         }
         const entryTime = Number.isFinite(obs.entry) ? obs.entry : 0;
-        if(entryTime <= timeValue + epsilon){
+        if(entryTime < timeValue){
           const weight = weights[candidateIndex];
           denom += weight;
           for(let r = 0; r < predictors; r += 1){
@@ -4194,7 +4434,7 @@
           exitPointer += 1;
           continue;
         }
-        if(obs.time < timeValue - epsilon){
+        if(obs.time < timeValue){
           const weight = weights[candidateIndex];
           denom -= weight;
           for(let r = 0; r < predictors; r += 1){
@@ -4211,6 +4451,8 @@
         break;
       }
       const eventCount = group.eventCount || eventIndices.length;
+      const timeScore = Number(timeScores?.[idx]);
+      const hasTimeScore = !!timeScores && Number.isFinite(timeScore);
       const observedSum = new Array(predictors).fill(0);
       let eventWeightSum = 0;
       const eventWeightedX = new Array(predictors).fill(0);
@@ -4245,7 +4487,17 @@
           gradient[r] -= expectedX[r];
           for(let c = 0; c < predictors; c += 1){
             const expectedXX = (weightedXX[r][c] - fraction * eventWeightedXX[r][c]) / adjustedDenom;
-            fisher[r][c] += expectedXX - expectedX[r] * expectedX[c];
+            const variance = expectedXX - expectedX[r] * expectedX[c];
+            fisher[r][c] += variance;
+            if(hasTimeScore){
+              timeCrossFisher[r][c] += timeScore * variance;
+              timeFisher[r][c] += timeScore * timeScore * variance;
+            }
+          }
+        }
+        if(hasTimeScore){
+          for(let r = 0; r < predictors; r += 1){
+            timeGradient[r] += timeScore * (observedSum[r] - (eventCount * expectedX[r]));
           }
         }
       }
@@ -4257,7 +4509,7 @@
           exitPointer += 1;
           continue;
         }
-        if(obs.time <= timeValue + epsilon){
+        if(obs.time <= timeValue){
           const weight = weights[candidateIndex];
           denom -= weight;
           for(let r = 0; r < predictors; r += 1){
@@ -4282,7 +4534,14 @@
         });
       }
     });
-    return { gradient, fisher, logLik };
+    return {
+      gradient,
+      fisher,
+      logLik,
+      timeInteraction: timeScores
+        ? { gradient: timeGradient, crossFisher: timeCrossFisher, fisher: timeFisher }
+        : null
+    };
   }
 
   function summarizeNumericSeries(values){
@@ -4357,14 +4616,13 @@
     const weightedX = new Array(predictors).fill(0);
     let entryPointer = 0;
     let exitPointer = 0;
-    const epsilon = 1e-9;
     const eventGroups = [];
     eventsByTime.forEach(group => {
       const timeValue = Number.isFinite(group?.time) ? group.time : 0;
       while(entryPointer < entryOrder.length){
         const obs = data[entryOrder[entryPointer]];
         const entryTime = Number.isFinite(obs?.entry) ? obs.entry : 0;
-        if(entryTime <= timeValue + epsilon){
+        if(entryTime < timeValue){
           const weight = weights[entryOrder[entryPointer]];
           denom += weight;
           for(let idx = 0; idx < predictors; idx += 1){
@@ -4377,7 +4635,7 @@
       }
       while(exitPointer < exitOrder.length){
         const obs = data[exitOrder[exitPointer]];
-        if(Number(obs?.time) < timeValue - epsilon){
+        if(Number(obs?.time) < timeValue){
           const weight = weights[exitOrder[exitPointer]];
           denom -= weight;
           for(let idx = 0; idx < predictors; idx += 1){
@@ -4473,6 +4731,123 @@
     };
   }
 
+  function createCoxRankTimeScores(prepared){
+    const groups = Array.isArray(prepared?.eventsByTime) ? prepared.eventsByTime : [];
+    const eventCount = groups.reduce((sum, group) => sum + (group?.eventIndices?.length || 0), 0);
+    if(eventCount < 2){
+      return null;
+    }
+    let precedingEvents = 0;
+    return groups.map(group => {
+      const tiedEvents = Array.isArray(group?.eventIndices) ? group.eventIndices.length : 0;
+      if(!tiedEvents){
+        return NaN;
+      }
+      const firstRank = precedingEvents + 1;
+      const lastRank = precedingEvents + tiedEvents;
+      const midRank = (firstRank + lastRank) / 2;
+      precedingEvents += tiedEvents;
+      return (midRank - ((eventCount + 1) / 2)) / Math.max(eventCount - 1, 1);
+    });
+  }
+
+  function computeCoxProportionalHazardsScoreTest(beta, prepared, coefficients, options = {}){
+    const predictorCount = Number(prepared?.predictors) || 0;
+    const eventTimeCount = Array.isArray(prepared?.eventsByTime)
+      ? prepared.eventsByTime.filter(group => Array.isArray(group?.eventIndices) && group.eventIndices.length).length
+      : 0;
+    const unavailable = reason => ({
+      available: false,
+      method: 'Efron partial-likelihood score test with rank-transformed time interactions',
+      transform: 'event-time midranks',
+      eventCount: Number(prepared?.eventCount) || 0,
+      eventTimeCount,
+      reason
+    });
+    if(!predictorCount){
+      return unavailable('No fitted Cox predictors are available for a proportional-hazards test.');
+    }
+    if(options.converged !== true || options.inferenceAvailable !== true){
+      return unavailable('A converged, non-regularized Cox fit is required for the formal proportional-hazards score test.');
+    }
+    const timeScores = createCoxRankTimeScores(prepared);
+    if(!timeScores || eventTimeCount < 2){
+      return unavailable('At least two distinct observed event times are required.');
+    }
+
+    const evaluated = evaluateCoxAt(beta, prepared, { timeScores });
+    const interaction = evaluated.timeInteraction;
+    const nuisanceFit = tryInvertCoxInformation(evaluated.fisher, {
+      context: 'cox proportional-hazards nuisance information',
+      epsilons: [0]
+    });
+    if(!interaction || !nuisanceFit || nuisanceFit.ridgeEpsilon){
+      return unavailable('The fitted Cox information matrix is singular for the proportional-hazards score test.');
+    }
+
+    const nuisanceScore = multiplyMatrixVector(nuisanceFit.inverse, evaluated.gradient);
+    const efficientScore = interaction.gradient.map((value, row) => {
+      let adjustment = 0;
+      for(let column = 0; column < predictorCount; column += 1){
+        adjustment += interaction.crossFisher[column][row] * nuisanceScore[column];
+      }
+      return value - adjustment;
+    });
+    const efficientInformation = Array.from({ length: predictorCount }, (_, row) => (
+      Array.from({ length: predictorCount }, (_, column) => {
+        let adjustment = 0;
+        for(let left = 0; left < predictorCount; left += 1){
+          for(let right = 0; right < predictorCount; right += 1){
+            adjustment += interaction.crossFisher[left][row]
+              * nuisanceFit.inverse[left][right]
+              * interaction.crossFisher[right][column];
+          }
+        }
+        return interaction.fisher[row][column] - adjustment;
+      })
+    ));
+    const efficientFit = tryInvertCoxInformation(efficientInformation, {
+      context: 'cox proportional-hazards efficient information',
+      epsilons: [0]
+    });
+    if(!efficientFit || efficientFit.ridgeEpsilon){
+      return unavailable('Time-interaction information is singular; the proportional-hazards score test is not estimable.');
+    }
+
+    const globalStatistic = dotProduct(efficientScore, multiplyMatrixVector(efficientFit.inverse, efficientScore));
+    const globalP = pValueFromChiSquare(globalStatistic, predictorCount);
+    if(!Number.isFinite(globalStatistic) || globalStatistic < 0 || !isValidPValue(globalP)){
+      return unavailable('The proportional-hazards score statistic could not be evaluated.');
+    }
+    const coefficientsForTest = Array.isArray(coefficients) ? coefficients : [];
+    const terms = efficientScore.map((score, index) => {
+      const information = efficientInformation[index]?.[index];
+      const statistic = information > 0 ? (score * score) / information : NaN;
+      const p = Number.isFinite(statistic) ? pValueFromChiSquare(statistic, 1) : null;
+      return {
+        key: coefficientsForTest[index]?.key || `predictor:${index}`,
+        predictor: coefficientsForTest[index]?.label || `Predictor ${index + 1}`,
+        statistic,
+        df: 1,
+        p
+      };
+    });
+    const adjustedPValues = Shared.stats?.adjustPValues?.(terms.map(term => term.p), { method: 'holm' }) || [];
+    terms.forEach((term, index) => {
+      term.adjustedP = toNumericPValue(adjustedPValues[index]);
+      term.adjustment = 'Holm';
+    });
+    return {
+      available: true,
+      method: 'Efron partial-likelihood efficient score test with rank-transformed time interactions',
+      transform: 'event-time midranks',
+      eventCount: Number(prepared.eventCount) || 0,
+      eventTimeCount,
+      global: { statistic: globalStatistic, df: predictorCount, p: globalP },
+      terms
+    };
+  }
+
   function computeCoxDiagnosticsSummary(prepared, beta, coefficients){
     const derived = computeCoxDerivedEventStats(prepared, beta);
     if(!derived){
@@ -4547,6 +4922,10 @@
       return { available: false, message: prepared.message };
     }
     const { predictors, baselineGroup } = prepared;
+    const ciLevel = Number.isFinite(Number(options?.ciLevel)) && Number(options.ciLevel) > 0.5 && Number(options.ciLevel) < 1
+      ? Number(options.ciLevel)
+      : 0.95;
+    const zCritical = Shared.stats?.normalQuantile?.((1 + ciLevel) / 2) ?? NaN;
     let beta = new Array(predictors).fill(0);
     let currentEvaluation = evaluateCoxAt(beta, prepared);
     if(!hasFullRankCoxInformation(currentEvaluation.fisher)){
@@ -4636,8 +5015,8 @@
       const variance = inferenceAvailable ? Math.max(covariance[idx]?.[idx] ?? NaN, 0) : NaN;
       const se = Number.isFinite(variance) ? Math.sqrt(variance) : NaN;
       const hr = Math.exp(coef);
-      const ciLow = Number.isFinite(se) && se > 0 ? Math.exp(coef - 1.96 * se) : NaN;
-      const ciHigh = Number.isFinite(se) && se > 0 ? Math.exp(coef + 1.96 * se) : NaN;
+      const ciLow = Number.isFinite(se) && se > 0 && Number.isFinite(zCritical) ? Math.exp(coef - zCritical * se) : NaN;
+      const ciHigh = Number.isFinite(se) && se > 0 && Number.isFinite(zCritical) ? Math.exp(coef + zCritical * se) : NaN;
       const z = Number.isFinite(se) && se > 0 ? coef / se : NaN;
       const p = (Number.isFinite(z) || z === Number.POSITIVE_INFINITY || z === Number.NEGATIVE_INFINITY)
         ? pValueFromZ(z)
@@ -4700,6 +5079,10 @@
       inferenceAvailable,
       ridgeEpsilon: Number(ridgeEpsilon) > 0 ? Number(ridgeEpsilon) : null
     };
+    diagnostics.proportionalHazards = computeCoxProportionalHazardsScoreTest(beta, prepared, coefficients, {
+      converged,
+      inferenceAvailable
+    });
     const residualDiagnostics = computeCoxDiagnosticsSummary(prepared, beta, coefficients);
     if(residualDiagnostics){
       diagnostics.concordance = residualDiagnostics.concordance;
@@ -4720,6 +5103,9 @@
       available: true,
       baselineGroup,
       coefficients,
+      eventCount: prepared.eventCount,
+      parameterCount: predictors,
+      eventsPerParameter: predictors > 0 ? prepared.eventCount / predictors : NaN,
       covariance,
       coefficientIndex,
       design: prepared.design,
@@ -4774,6 +5160,10 @@
       return { available: false, inferenceAvailable: false, message: 'At least two groups required for hazard ratios.' };
     }
     const inference = resolveCoxInferenceContract(coxModel);
+    const ciLevel = Number.isFinite(Number(options?.ciLevel)) && Number(options.ciLevel) > 0.5 && Number(options.ciLevel) < 1
+      ? Number(options.ciLevel)
+      : 0.95;
+    const zCritical = Shared.stats?.normalQuantile?.((1 + ciLevel) / 2) ?? NaN;
     const rows = [];
     const cov = inference.available ? coxModel.covariance : null;
     const indexMap = coxModel.coefficientIndex || {};
@@ -4798,8 +5188,8 @@
           const variance = varA + varB - 2 * covAB;
           if(Number.isFinite(variance) && variance > 0){
             const se = Math.sqrt(variance);
-            ciLow = Math.exp(diff - 1.96 * se);
-            ciHigh = Math.exp(diff + 1.96 * se);
+            ciLow = Number.isFinite(zCritical) ? Math.exp(diff - zCritical * se) : null;
+            ciHigh = Number.isFinite(zCritical) ? Math.exp(diff + zCritical * se) : null;
             z = diff / se;
             p = pValueFromZ(z);
           }
@@ -5384,7 +5774,7 @@
       if(row && Number.isFinite(Number(row.hazardRatio))){
         const label = `HR ${row.groupB} vs ${row.groupA}`;
         const ci = Number.isFinite(Number(row.ciLow)) && Number.isFinite(Number(row.ciHigh))
-          ? `; 95% CI [${formatReportNumber(Number(row.ciLow), 2)}, ${formatReportNumber(Number(row.ciHigh), 2)}]`
+          ? `; ${Math.round((1 - getSurvivalStatsAlpha()) * 100)}% CI [${formatReportNumber(Number(row.ciLow), 2)}, ${formatReportNumber(Number(row.ciHigh), 2)}]`
           : '';
         const p = toNumericPValue(row.p);
         const pText = Number.isFinite(p) && p >= 0 && p <= 1 ? `; ${formatSurvivalPExpression(p)}` : '';
@@ -5588,11 +5978,30 @@
     const calculateStatistics = options.calculateStatistics === true;
     const selectedCovariateCount = getSelectedCovariates(summary.covariateColumns).length;
     const statsAnalysisSignature = buildSurvivalStatsAnalysisSignature(controls);
+    const priorAnalysisSignature = buildPreviousSurvivalStatsAnalysisSignature(controls);
+    const canReusePreviousResults = !summary.invalidEntryRows
+      && !summary.invalidOutcomeRows
+      && !summary.series.some(group => group.records.some(record => record.entry > 0))
+      && Math.abs(getSurvivalStatsAlpha() - 0.05) < 1e-12;
     let savedStats = state.lastStats
       || drawSession?.results?.stats
       || drawSession?.state?.lastStats
       || null;
-    if(savedStats && typeof savedStats === 'object' && !savedStats.analysisSignature
+    const savedPairwiseCorrection = savedStats?.pairwiseComparisons?.correction?.key;
+    const correctionOnlySignature = savedPairwiseCorrection
+      ? createSurvivalStatsAnalysisSignature(controls, {
+        includeDecisionSettings: true,
+        version: 'v3',
+        includeDelayedEntryFix: true,
+        pairwiseCorrection: savedPairwiseCorrection
+      })
+      : null;
+    const canReuseAfterCorrectionChange = !summary.invalidEntryRows
+      && !summary.invalidOutcomeRows
+      && typeof savedPairwiseCorrection === 'string'
+      && savedPairwiseCorrection !== (state.pairwiseCorrection || 'holm-sidak')
+      && savedStats?.analysisSignature === correctionOnlySignature;
+    if(canReusePreviousResults && savedStats && typeof savedStats === 'object' && !savedStats.analysisSignature
       && (savedStats.logRank?.available || savedStats.logRankWilcoxon?.available
         || savedStats.pairwiseComparisons?.available || savedStats.coxModel?.available
         || savedStats.hazardRatios?.available)){
@@ -5601,13 +6010,14 @@
       savedStats.analysisSignature = statsAnalysisSignature;
       state.lastStats = savedStats;
     }
-    if(savedStats?.analysisSignature === buildLegacySurvivalStatsAnalysisSignature(controls)){
+    if(canReusePreviousResults && (savedStats?.analysisSignature === buildLegacySurvivalStatsAnalysisSignature(controls)
+      || savedStats?.analysisSignature === priorAnalysisSignature)){
       savedStats.analysisSignature = statsAnalysisSignature;
       state.lastStats = savedStats;
       if(drawSession?.results){ drawSession.results.stats = savedStats; }
     }
     const reusedSavedStats = !calculateStatistics
-      && savedStats?.analysisSignature === statsAnalysisSignature
+      && (savedStats?.analysisSignature === statsAnalysisSignature || canReuseAfterCorrectionChange)
       && applySavedSurvivalStats(summary, savedStats);
     if(!reusedSavedStats && !calculateStatistics
       && savedStats?.analysisSignature
@@ -5860,16 +6270,22 @@
       return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
     };
 
+    const importedXMin = Number(axisSettings.x?.min);
+    const importedXMax = Number(axisSettings.x?.max);
+    const hasImportedXRange = Number.isFinite(importedXMin) && Number.isFinite(importedXMax) && importedXMax > importedXMin;
+    const importedYMin = Number(axisSettings.y?.min);
+    const importedYMax = Number(axisSettings.y?.max);
+    const hasImportedYRange = Number.isFinite(importedYMin) && Number.isFinite(importedYMax) && importedYMax > importedYMin;
     const autoXMax = summary.maxTime > 0 ? summary.maxTime : 1;
     const manualXMax = Number.parseFloat(controls.timeMax);
     let xMax = Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : autoXMax;
-    xMax = Math.max(xMax, autoXMax || 1);
+    xMax = hasImportedXRange ? importedXMax : Math.max(xMax, autoXMax || 1);
     if(Shared.isDebugEnabled?.()){
       survivalDebug('Debug: survival x-axis max resolved', { autoXMax, manualXMax, xMax });
     }
-    const xMin = 0;
-    const yMin = 0;
-    const yMax = 1;
+    const xMin = hasImportedXRange ? importedXMin : 0;
+    const yMin = hasImportedYRange ? importedYMin : 0;
+    const yMax = hasImportedYRange ? importedYMax : 1;
     logDebug('axis range auto',{ yMin, yMax });
 
     const xTickTarget = riskTableTickTarget;
@@ -5944,19 +6360,37 @@
       xScale = buildAxisScale({
         dataMin: xMin,
         dataMax: xMax,
-        manualMin: 0,
-        manualMax: Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : null,
-        targetTickCount: xTickTarget
+        autoRangeDataMin: 0,
+        autoRangeDataMax: xMax,
+        autoRangeHint: !hasImportedXRange ? axisSettings.x?.autoRangeHint : null,
+        manualMin: hasImportedXRange ? importedXMin : null,
+        manualMax: hasImportedXRange ? importedXMax : (Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : null),
+        targetTickCount: xTickTarget,
+        fixedStep: manualIntervalX,
+        tickStart: hasImportedXRange || axisSettings.x?.autoRangeHint
+          ? Number(axisSettings.x?.tickStart) : null
       });
       yScale = buildAxisScale({
         dataMin: yMin,
         dataMax: yMax,
-        manualMin: 0,
-        manualMax: 1,
-        targetTickCount: yTickTarget
+        autoRangeDataMin: 0,
+        autoRangeDataMax: 1,
+        autoRangeHint: !hasImportedYRange ? axisSettings.y?.autoRangeHint : null,
+        manualMin: hasImportedYRange ? importedYMin : null,
+        manualMax: hasImportedYRange ? importedYMax : null,
+        targetTickCount: yTickTarget,
+        fixedStep: manualIntervalY,
+        tickStart: hasImportedYRange || axisSettings.y?.autoRangeHint
+          ? Number(axisSettings.y?.tickStart) : null
       });
       if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
-        const manualX = buildManualTicks(xScale.min, xScale.max, manualIntervalX);
+        const manualX = buildManualTicks(
+          xScale.min,
+          xScale.max,
+          manualIntervalX,
+          hasImportedXRange || axisSettings.x?.autoRangeHint
+            ? Number(axisSettings.x?.tickStart) : null
+        );
         if(manualX){
           xScale.min = manualX.min;
           xScale.max = manualX.max;
@@ -5965,7 +6399,13 @@
         }
       }
       if(Number.isFinite(manualIntervalY) && manualIntervalY > 0){
-        const manualY = buildManualTicks(yScale.min, yScale.max, manualIntervalY);
+        const manualY = buildManualTicks(
+          yScale.min,
+          yScale.max,
+          manualIntervalY,
+          hasImportedYRange || axisSettings.y?.autoRangeHint
+            ? Number(axisSettings.y?.tickStart) : null
+        );
         if(manualY){
           yScale.min = manualY.min;
           yScale.max = manualY.max;
@@ -5974,7 +6414,12 @@
         }
       }
       formatXAxisTick = chartStyle.createAxisTickFormatter(xScale.ticks, { notation: 'auto', maxDecimals: 2 });
-      formatYAxisTick = chartStyle.createAxisTickFormatter(yScale.ticks, { notation: 'auto', maxDecimals: 2 });
+      const yTickLabelMultiplier = Number(axisSettings.y?.tickLabelMultiplier) || 1;
+      const yLabelFormatter = chartStyle.createAxisTickFormatter(
+        yScale.ticks.map(value => value * yTickLabelMultiplier),
+        { notation: 'auto', maxDecimals: 2 }
+      );
+      formatYAxisTick = value => yLabelFormatter(value * yTickLabelMultiplier);
       xTickLabels = xScale.ticks.map(formatXAxisTick);
       yTickLabels = yScale.ticks.map(formatYAxisTick);
       const yLabelWidths = yTickLabels.map(label => chartStyle.measureText ? chartStyle.measureText(label, tickFont) : label.length * fs * 0.6);
@@ -6046,6 +6491,14 @@
       minimumPlot: { width: 20, height: 20 },
       rounding: { mode: 'none', precision: 6 }
     }) || null;
+    if(survivalCartesianPlan && consumeSurvivalPrismAxisLengthTarget(
+      survivalCartesianPlan,
+      drawSession,
+      { width: baseWidth, height: chartHeight },
+      refs.svgBox
+    )){
+      return false;
+    }
     if(survivalCartesianPlan){
       margin = {
         left: survivalCartesianPlan.plotRect.x,
@@ -6622,7 +7075,7 @@
       if(Number.isFinite(Number(group.km?.median))){
         parts.push(`median survival = ${formatReportNumber(group.km.median, 3)}`);
         if(Number.isFinite(Number(group.km?.medianCiLow)) && Number.isFinite(Number(group.km?.medianCiHigh))){
-          parts.push(`95% CI [${formatReportNumber(group.km.medianCiLow, 3)}, ${formatReportNumber(group.km.medianCiHigh, 3)}]`);
+          parts.push(`${Math.round((1 - alpha) * 100)}% CI [${formatReportNumber(group.km.medianCiLow, 3)}, ${formatReportNumber(group.km.medianCiHigh, 3)}]`);
         }
       }else{
         parts.push('median survival not reached');
@@ -6674,7 +7127,7 @@
       hazard.rows.forEach(row => {
         const parts = [`HR = ${formatReportNumber(row.hazardRatio, 3)}`];
         if(Number.isFinite(Number(row.ciLow)) && Number.isFinite(Number(row.ciHigh))){
-          parts.push(`; 95% CI [${formatReportNumber(row.ciLow, 3)}, ${formatReportNumber(row.ciHigh, 3)}]`);
+          parts.push(`; ${Math.round((1 - alpha) * 100)}% CI [${formatReportNumber(row.ciLow, 3)}, ${formatReportNumber(row.ciHigh, 3)}]`);
         }
         if(Number.isFinite(Number(row.z))) parts.push(`; z = ${formatReportNumber(row.z, 3)}`);
         const p = toNumericPValue(row.p);
@@ -6718,7 +7171,7 @@
             `; HR = ${formatReportNumber(coef.hazardRatio, 3)}`
           ];
           if(Number.isFinite(Number(coef.ciLow)) && Number.isFinite(Number(coef.ciHigh))){
-            parts.push(`; 95% CI [${formatReportNumber(coef.ciLow, 3)}, ${formatReportNumber(coef.ciHigh, 3)}]`);
+            parts.push(`; ${Math.round((1 - alpha) * 100)}% CI [${formatReportNumber(coef.ciLow, 3)}, ${formatReportNumber(coef.ciHigh, 3)}]`);
           }
           if(Number.isFinite(Number(coef.z))) parts.push(`; z = ${formatReportNumber(coef.z, 3)}`);
           const p = toNumericPValue(coef.p);
@@ -6739,6 +7192,24 @@
       if(diag.converged != null){
         diagnosticRows.push({ label:'Convergence', value:diag.converged ? `Converged${Number.isFinite(Number(diag.iterations)) ? ` in ${Number(diag.iterations)} iterations` : ''}.` : 'Model did not converge; coefficient-level inference should not be interpreted.' });
       }
+      const proportionalHazards = diag.proportionalHazards;
+      if(proportionalHazards?.available && proportionalHazards.global){
+        diagnosticRows.push({
+          label:'Proportional-hazards score test',
+          value:`Rank-transformed time interaction: χ²(${proportionalHazards.global.df}) = ${formatReportNumber(proportionalHazards.global.statistic, 3)}, ${formatSurvivalPExpression(proportionalHazards.global.p)}.`
+        });
+        proportionalHazards.terms?.forEach(term => {
+          diagnosticRows.push({
+            label:`PH time interaction: ${term.predictor}`,
+            value:`χ²(1) = ${formatReportNumber(term.statistic, 3)}, ${formatSurvivalPExpression(term.p)}; Holm-adjusted ${formatSurvivalPExpression(term.adjustedP)}.`
+          });
+        });
+      }else if(proportionalHazards){
+        diagnosticRows.push({
+          label:'Proportional-hazards score test',
+          value:`Not available: ${proportionalHazards.reason || 'the fitted model does not support this test.'}`
+        });
+      }
       const schoenfeld = diag.residuals?.schoenfeld;
       if(Array.isArray(schoenfeld) && schoenfeld.length){
         schoenfeld.forEach(entry => {
@@ -6747,7 +7218,7 @@
             value:`exploratory corr(log time) = ${formatReportNumber(entry.correlation, 3)}${Number.isFinite(Number(entry.meanAbs)) ? `; mean |scaled residual| = ${formatReportNumber(entry.meanAbs, 3)}` : ''}`
           });
         });
-        diagnosticRows.push({ label:'PH diagnostic scope', value:'Schoenfeld residual–time correlations are exploratory only; they are not a formal Grambsch–Therneau proportional-hazards test.' });
+        diagnosticRows.push({ label:'Exploratory diagnostic scope', value:'Schoenfeld residual–time correlations are descriptive checks; use the separate rank-transformed score test for formal proportional-hazards inference.' });
       }
     }
 
@@ -6858,8 +7329,16 @@
           ? 'The duplicate Cox coefficient table was omitted because it repeats the single log(HR) coefficient.'
           : `${summary.coxModel.coefficients.length} Cox coefficient estimate${summary.coxModel.coefficients.length === 1 ? ' was' : 's were'} reported.`)
         : null;
+      const phDiagnostic = summary.coxModel?.diagnostics?.proportionalHazards;
+      const phMethodsText = summary.flags?.coxEnabled
+        ? (summary.statisticsCalculated
+          ? (phDiagnostic?.available
+            ? 'The proportional-hazards assumption was assessed with an Efron partial-likelihood efficient score test using event-time midranks; coefficient-level tests use Holm adjustment. This test is an omnibus check and does not establish that the model is correctly specified.'
+            : `A formal proportional-hazards score test was unavailable${phDiagnostic?.reason ? `: ${phDiagnostic.reason}` : '.'}`)
+          : 'Cox model fitting was requested but not calculated; proportional hazards have not been tested.')
+        : 'Cox modeling was off; proportional hazards were not tested.';
       Shared.statsReporting.appendReportPanel(refs.statsCox, {
-        methodsText: `Kaplan–Meier survival curves were summarized for ${groupCountText} using event-time and censoring indicators from the current table. ${summary.statisticsCalculated ? `Log-rank testing was used for overall group comparisons when estimable at α = ${Shared.statsInference?.formatLevel?.(getSurvivalStatsAlpha()) || getSurvivalStatsAlpha()}. Gehan-Breslow-Wilcoxon and trend tests were reported when supported by the data. Pairwise log-rank comparisons used ${summary.pairwiseComparisons?.correction?.label || state.pairwiseCorrection || 'the selected correction'} at ${pairwiseCriterion} = ${pairwiseLevel}.` : 'Optional survival tests were not calculated; use Calculate statistics to run them.'} ${summary.flags?.hazardRatiosEnabled ? (summary.statisticsCalculated ? 'Pairwise hazard ratios were estimated for the requested comparison.' : 'Hazard ratio estimation was requested but not calculated.') : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? (summary.statisticsCalculated ? `A Cox proportional-hazards model was fitted by partial likelihood with Efron handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox model fitting was requested but not calculated.') : 'Cox modeling was off.'} Rows with missing or invalid survival time, group, event, or covariate values were excluded from each affected analysis.`,
+        methodsText: `Kaplan–Meier survival curves were summarized for ${groupCountText} using event-time and censoring indicators from the current table; confidence intervals use ${Math.round((1 - getSurvivalStatsAlpha()) * 100)}% confidence. ${summary.invalidEntryRows ? `${summary.invalidEntryRows} row${summary.invalidEntryRows === 1 ? ' was' : 's were'} excluded because entry time was invalid, negative, or not earlier than exit time. ` : ''}${summary.invalidOutcomeRows ? `${summary.invalidOutcomeRows} row${summary.invalidOutcomeRows === 1 ? ' was' : 's were'} excluded because group, time, or event was missing or invalid; event must be coded 1 for event or 0 for censoring. ` : ''}${summary.series.some(group => group.records.some(record => record.entry > 0)) ? 'Delayed-entry risk sets were used for Kaplan–Meier, log-rank, and Cox analyses. KM/log-rank adjustment assumes independent entry and event times; Cox can address dependence only through included covariates. Informative cohort entry can still bias estimates. ' : ''}${summary.statisticsCalculated ? `Log-rank testing was used for overall group comparisons when estimable at α = ${Shared.statsInference?.formatLevel?.(getSurvivalStatsAlpha()) || getSurvivalStatsAlpha()}. Gehan-Breslow-Wilcoxon and trend tests were reported when supported by the data. Pairwise log-rank comparisons used ${summary.pairwiseComparisons?.correction?.label || state.pairwiseCorrection || 'the selected correction'} at ${pairwiseCriterion} = ${pairwiseLevel}.` : 'Optional survival tests were not calculated; use Calculate statistics to run them.'} ${summary.flags?.hazardRatiosEnabled ? (summary.statisticsCalculated ? 'Pairwise hazard ratios were estimated for the requested comparison.' : 'Hazard ratio estimation was requested but not calculated.') : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? (summary.statisticsCalculated ? `A Cox proportional-hazards model was fitted by partial likelihood with Efron handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox model fitting was requested but not calculated.') : 'Cox modeling was off.'} ${phMethodsText} Kaplan–Meier and log-rank inference assumes independent subjects and non-informative censoring within groups. Rows with missing or invalid survival time, group, event, or covariate values were excluded from each affected analysis.`,
         resultsText: [
           `${groupCountText} contributed survival data.`,
           logRankText,
@@ -6947,7 +7426,7 @@
         { key: 'events', label: 'Events', align: 'right' },
         { key: 'censored', label: 'Censored', align: 'right' },
         { key: 'median', label: 'Median survival', align: 'right' },
-        { key: 'medianCi', label: 'Median 95% CI', align: 'right' }
+        { key: 'medianCi', label: `Median ${Math.round((1 - getSurvivalStatsAlpha()) * 100)}% CI`, align: 'right' }
       ],
       rows,
       footnotes,
@@ -7124,7 +7603,7 @@
       columns: [
         { key: 'comparison', label: 'Comparison', align: 'left' },
         { key: 'hazardRatio', label: 'Hazard ratio', align: 'right' },
-        { key: 'ci', label: '95% CI', align: 'right' },
+        { key: 'ci', label: `${Math.round((1 - getSurvivalStatsAlpha()) * 100)}% CI`, align: 'right' },
         { key: 'z', label: 'z', align: 'right' },
         { key: 'p', label: 'p-value', align: 'right' }
       ],
@@ -7196,6 +7675,56 @@
     });
   }
 
+  function renderCoxProportionalHazardsTestCard(container, proportionalHazards){
+    if(!container || !proportionalHazards){
+      return;
+    }
+    const hasResult = proportionalHazards.available === true && !!proportionalHazards.global;
+    renderStatsTableCard(container, {
+      caption: 'Formal Proportional-Hazards Score Test',
+      section: 'diagnostics',
+      columns: [
+        { key: 'predictor', label: 'Test', align: 'left' },
+        { key: 'statistic', label: 'χ²', align: 'right' },
+        { key: 'df', label: 'df', align: 'right' },
+        { key: 'p', label: 'p', align: 'right' },
+        { key: 'adjustedP', label: 'Holm-adjusted p', align: 'right' }
+      ],
+      rows: hasResult
+        ? [
+          {
+            predictor: 'Global',
+            statistic: formatReportNumber(proportionalHazards.global.statistic, 3),
+            df: String(proportionalHazards.global.df),
+            p: formatSurvivalPExpression(proportionalHazards.global.p),
+            adjustedP: '—'
+          },
+          ...(proportionalHazards.terms || []).map(term => ({
+            predictor: term.predictor,
+            statistic: formatReportNumber(term.statistic, 3),
+            df: '1',
+            p: formatSurvivalPExpression(term.p),
+            adjustedP: formatSurvivalPExpression(term.adjustedP)
+          }))
+        ]
+        : [{
+          predictor: 'Unavailable',
+          statistic: '—',
+          df: '—',
+          p: proportionalHazards.reason || 'The fitted model does not support this test.',
+          adjustedP: '—'
+        }],
+      footnotes: [
+        'The global test jointly evaluates time interactions for all fitted Cox coefficients. Individual coefficient tests are Holm-adjusted. The score test uses Efron tie handling and a rank transform of event times; the selected transform defines the alternative being tested. A non-significant result does not prove proportional hazards.'
+      ],
+      options: {
+        fileName: 'survival-proportional-hazards-test',
+        contextLabel: 'survival-proportional-hazards-test'
+      },
+      append: true
+    });
+  }
+
   function renderSurvivalCoxModel(summary){
     if(!refs.statsCox){
       return;
@@ -7224,6 +7753,7 @@
       }else{
         renderStatsLead(refs.statsCox, summary.hazardRatios?.message || 'Cox model hazard ratio unavailable.');
       }
+      renderCoxProportionalHazardsTestCard(refs.statsCox, summary.coxModel.diagnostics?.proportionalHazards);
       logDebug('cox coefficient table omitted as duplicate', {
         groupCount: summary.series.length,
         covariateCount: getCoxSelectedCovariates(summary).length,
@@ -7247,6 +7777,7 @@
     const coxCaption = adjustedModel
       ? 'Cox Model Coefficients'
       : (groupCoefficientCount > 0 ? 'Cox Model Group Effects' : 'Cox Model Coefficients');
+        const ciLabel = `${Math.round((1 - getSurvivalStatsAlpha()) * 100)}% CI`;
     const footnotes = [
       `Baseline group: ${summary.coxModel.baselineGroup || 'Reference'}`,
       adjustedModel && groupCoefficientCount > 0 ? 'Group hazard ratios are adjusted for the selected Cox covariates.' : null,
@@ -7256,7 +7787,8 @@
         ? (lr.reason || 'Likelihood-ratio test unavailable because the partial log-likelihood did not stabilize.')
         : [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatReportNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))],
       `AIC = ${formatReportNumber(diag.aic, 3)} | BIC = ${formatReportNumber(diag.bic, 3)}`,
-      `Iterations = ${diag.iterations ?? 'n/a'} | Converged: ${diag.converged ? 'Yes' : 'No'}`
+      `Iterations = ${diag.iterations ?? 'n/a'} | Converged: ${diag.converged ? 'Yes' : 'No'}`,
+      `Events = ${summary.coxModel.eventCount ?? 'n/a'} | parameters = ${summary.coxModel.parameterCount ?? 'n/a'} | events per parameter = ${formatReportNumber(summary.coxModel.eventsPerParameter, 2)}`
     ].filter(Boolean);
     renderStatsTableCard(refs.statsCox, {
       caption: coxCaption,
@@ -7266,7 +7798,7 @@
         { key: 'type', label: 'Type', align: 'left' },
         { key: 'beta', label: 'β', align: 'right' },
         { key: 'hazardRatio', label: 'Hazard Ratio', align: 'right' },
-        { key: 'ci', label: '95% CI', align: 'right' },
+        { key: 'ci', label: ciLabel, align: 'right' },
         { key: 'z', label: 'z', align: 'right' },
         { key: 'p', label: 'p-value', align: 'right' }
       ],
@@ -7344,7 +7876,7 @@
           correlation: formatReportNumber(entry.correlation, 3),
           meanAbs: formatReportNumber(entry.meanAbs, 3)
         })),
-        footnotes: ['Exploratory only: these are simple residual–log(time) correlations, not the formal Grambsch–Therneau proportional-hazards test implemented by cox.zph.'],
+        footnotes: ['Exploratory only: these are simple residual–log(time) correlations; the formal rank-transformed score test is reported separately.'],
         options: {
           fileName: 'survival-schoenfeld-checks',
           contextLabel: 'survival-schoenfeld-checks'
@@ -7352,6 +7884,7 @@
         append: true
       });
     }
+    renderCoxProportionalHazardsTestCard(refs.statsCox, diag.proportionalHazards);
     logDebug('cox stats rendered', {
       rowCount: rows.length,
       baseline: summary.coxModel.baselineGroup
@@ -7473,6 +8006,15 @@
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          tickStartX: axisSettings.x?.tickStart ?? null,
+          tickStartY: axisSettings.y?.tickStart ?? null,
+          autoRangeHintX: axisSettings.x?.autoRangeHint ?? null,
+          autoRangeHintY: axisSettings.y?.autoRangeHint ?? null,
+          tickLabelMultiplierY: axisSettings.y?.tickLabelMultiplier ?? 1,
+          xMin: axisSettings.x?.min ?? null,
+          xMax: axisSettings.x?.max ?? null,
+          yMin: axisSettings.y?.min ?? null,
+          yMax: axisSettings.y?.max ?? null,
           majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
           majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
           xLabelAngle: axisSettings.x?.labelAngle ?? null,
@@ -8023,7 +8565,9 @@
     [refs.timeMax].forEach(input => {
       input?.addEventListener('input', event => {
         logDebug('control input', { id: input.id, value: input.value });
-      schedule(event, 'survival-time-max-change', { renderImpact: 'layout' });
+        const ownerSession = getSurvivalSessionForEvent(event, { reason: 'survival-time-max-range-invalidation' }, { create: false });
+        clearSurvivalAutoRangeHints(ownerSession, ['x'], 'survival-time-max-range-invalidation');
+        schedule(event, 'survival-time-max-change', { renderImpact: 'layout' });
       });
     });
     refs.fontSize?.addEventListener('input', event => {
@@ -8273,10 +8817,14 @@
         console.warn('Survival import skipped: Shared.tableImport.openFile unavailable');
         return;
       }
-      const applySurvivalPrismStyle = style => {
+      const applySurvivalPrismStyle = (style, meta = {}) => {
         if(!style || typeof style !== 'object'){
-          return;
+          return null;
         }
+        const styleOwner = (meta.tabId
+          ? getSurvivalSession(meta.tabId, { tabId: meta.tabId, reason: 'survival-prism-style-owner' }, { create: false })
+          : null) || ownerSession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' });
+        const ownerActive = !styleOwner || isSurvivalSessionActive(styleOwner);
         const title = style.title != null ? String(style.title).trim() : '';
         const xLabel = style.xLabel != null ? String(style.xLabel).trim() : '';
         const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
@@ -8284,25 +8832,143 @@
         const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
         const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
         const fontSizeValue = Number(style.fontSize);
+        let nextControls = normalizeSurvivalRuntimeControls(styleOwner?.state?.controls || state.controls || {});
         if(title){
-          state.titleText = title;
+          if(styleOwner?.state){ styleOwner.state.titleText = title; }
+          if(ownerActive){ state.titleText = title; }
         }
         if(xLabel || yLabel){
-          state.controls = normalizeSurvivalRuntimeControls({
-            ...(state.controls || {}),
+          nextControls = normalizeSurvivalRuntimeControls({
+            ...nextControls,
             ...(xLabel ? { xLabel } : {}),
             ...(yLabel ? { yLabel } : {})
           });
         }
-        if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && refs.fontSize){
-          refs.fontSize.value = String(fontSizeValue);
-          if(refs.fontSize.dataset){
-            refs.fontSize.dataset.fontBasePt = String(fontSizeValue);
+        if(Number.isFinite(fontSizeValue) && fontSizeValue > 0){
+          nextControls = normalizeSurvivalRuntimeControls({ ...nextControls, fontSize: String(fontSizeValue) });
+          if(ownerActive && refs.fontSize){
+            refs.fontSize.value = String(fontSizeValue);
+            if(refs.fontSize.dataset){
+              refs.fontSize.dataset.fontBasePt = String(fontSizeValue);
+            }
+            chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: fontSizeValue, input: refs.fontSize, manual: true });
           }
-          chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: fontSizeValue, input: refs.fontSize, manual: true });
         }
-        if(axisColor){
-          updateAxisColor(axisColor);
+        if(styleOwner?.state){
+          styleOwner.state.controls = nextControls;
+          styleOwner.updatedAt = Date.now();
+        }
+        if(ownerActive){
+          state.controls = nextControls;
+        }
+        const axisBase = !ownerActive && styleOwner?.state?.axisSettings
+          ? cloneSimple(styleOwner.state.axisSettings)
+          : ensureAxisSettings();
+        if(axisColor && axisBase){
+          axisBase.color = axisColor;
+        }
+        const prismAxisStyle = Shared.tableImport.resolvePrismAxisStyle?.(style);
+        if(prismAxisStyle?.showGrid != null){
+          nextControls = normalizeSurvivalRuntimeControls({ ...nextControls, showGrid: prismAxisStyle.showGrid });
+          if(ownerActive && refs.showGrid){ refs.showGrid.checked = prismAxisStyle.showGrid; }
+        }
+        if(prismAxisStyle?.showFrame != null){
+          nextControls = normalizeSurvivalRuntimeControls({ ...nextControls, showFrame: prismAxisStyle.showFrame });
+          if(ownerActive && refs.showFrame){ refs.showFrame.checked = prismAxisStyle.showFrame; }
+        }
+        const nextAxisSettings = {
+          ...axisBase,
+          ...(prismAxisStyle?.strokeWidth != null ? { strokeWidth: prismAxisStyle.strokeWidth } : {}),
+          ...(prismAxisStyle?.axisTargetPx ? { prismAxisTargetPx: prismAxisStyle.axisTargetPx } : {}),
+          x: { ...(axisBase?.x || createDefaultAxisSettings().x) },
+          y: { ...(axisBase?.y || createDefaultAxisSettings().y) }
+        };
+        // Prism survival axes store percentages while the Kaplan–Meier model
+        // uses probabilities in [0, 1]. Keep calculations normalized and
+        // render tick labels in the source graph's percentage units.
+        nextAxisSettings.y.tickLabelMultiplier = 100;
+        Object.entries(prismAxisStyle?.tickLengths || {}).forEach(([axis, length]) => {
+          nextAxisSettings[axis].majorTickLength = length;
+        });
+        Object.entries(prismAxisStyle?.tickIntervals || {}).forEach(([axis, interval]) => {
+          // Prism stores Survival Y ticks as percentages; the renderer uses
+          // survival proportions from 0 to 1.
+          nextAxisSettings[axis].tickInterval = axis === 'y' ? interval / 100 : interval;
+        });
+        ['x', 'y'].forEach(axis => {
+          const divisor = axis === 'y' ? 100 : 1;
+          const manualRange = prismAxisStyle?.ranges?.[axis] || null;
+          const automaticRange = prismAxisStyle?.autoRanges?.[axis] || null;
+          const savedRange = manualRange || automaticRange;
+          nextAxisSettings[axis].autoRangeHint = automaticRange
+            ? chartStyle.axisTicks?.normalizeAutoRangeHint?.({
+                min: automaticRange.min / divisor,
+                max: automaticRange.max / divisor,
+                tickInterval: automaticRange.tickInterval / divisor,
+                tickStart: automaticRange.tickStart / divisor
+              }) || null
+            : null;
+          nextAxisSettings[axis].min = manualRange ? manualRange.min / divisor : null;
+          nextAxisSettings[axis].max = manualRange ? manualRange.max / divisor : null;
+          nextAxisSettings[axis].tickStart = savedRange && Number.isFinite(Number(savedRange.tickStart))
+            ? Number(savedRange.tickStart) / divisor
+            : null;
+          if(axis === 'x' && manualRange){
+            nextControls = normalizeSurvivalRuntimeControls({
+              ...nextControls,
+              timeMax: String(manualRange.max)
+            });
+          }else if(axis === 'x'){
+            nextControls = normalizeSurvivalRuntimeControls({ ...nextControls, timeMax: '' });
+          }
+          if(axis === 'x' && refs.timeMax && ownerActive){
+            refs.timeMax.value = manualRange ? String(manualRange.max) : '';
+          }
+        });
+        if(styleOwner?.state){
+          styleOwner.state.controls = nextControls;
+          styleOwner.state.axisSettings = createDefaultSurvivalDurableState({ axisSettings: nextAxisSettings }).axisSettings;
+        }
+        if(ownerActive){
+          state.controls = nextControls;
+          applyAxisSettings(nextAxisSettings);
+        }
+        const nextColors = { ...(styleOwner?.state?.labelColors || state.labelColors || {}) };
+        const nextWidths = { ...(styleOwner?.state?.labelStrokeWidth || state.labelStrokeWidth || {}) };
+        const nextOpacities = { ...(styleOwner?.state?.labelOpacity || state.labelOpacity || {}) };
+        (Array.isArray(style.seriesStyles) ? style.seriesStyles : []).forEach(series => {
+          const label = String(series?.dataSetTitle || '').trim();
+          if(!label){ return; }
+          const lineColor = series.lineColor;
+          if(typeof lineColor?.hex === 'string' && /^#[0-9a-f]{6}$/i.test(lineColor.hex)){
+            nextColors[label] = lineColor.hex;
+            const opacity = Number(lineColor.opacity);
+            if(Number.isFinite(opacity)){
+              nextOpacities[label] = Math.max(0, Math.min(1, opacity));
+            }
+          }
+          const lineWidth = Number(series.lineThickness?.cssPixels);
+          if(Number.isFinite(lineWidth) && lineWidth > 0){
+            nextWidths[label] = lineWidth;
+          }
+        });
+        if(styleOwner?.state){
+          styleOwner.state.labelColors = nextColors;
+          styleOwner.state.labelStrokeWidth = nextWidths;
+          styleOwner.state.labelOpacity = nextOpacities;
+          styleOwner.updatedAt = Date.now();
+        }
+        if(!styleOwner || isSurvivalSessionActive(styleOwner)){
+          state.labelColors = nextColors;
+          state.labelStrokeWidth = nextWidths;
+          state.labelOpacity = nextOpacities;
+        }
+        const fontStyles = Shared.tableImport.resolvePrismFontStyles?.(style) || {};
+        if(Object.keys(fontStyles).length){
+          importFontStyles('survival', fontStyles, {
+            tabId: styleOwner?.tabId || getSurvivalProjectionTabId() || null,
+            prune: false
+          });
         }
         if(fontFamily || fontColor){
           const graphStyle = {};
@@ -8312,18 +8978,71 @@
           if(fontColor){
             graphStyle.fill = fontColor;
           }
-            importFontStyles('survival', { __graph__: graphStyle }, { tabId: ownerSession?.tabId || getSurvivalProjectionTabId() || getActiveSurvivalSessionForState()?.tabId || null });
+            importFontStyles('survival', { __graph__: graphStyle }, {
+              tabId: ownerSession?.tabId || getSurvivalProjectionTabId() || getActiveSurvivalSessionForState()?.tabId || null,
+              prune: false
+            });
         }
         logDebug('prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
-        syncSurvivalRuntimeControlsFromDom(ownerSession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }));
-        syncSurvivalStateToSession(ownerSession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
-          titleText: state.titleText,
-          controls: state.controls,
-          axisSettings: state.axisSettings
-        });
-        scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), { force: true, renderImpact: 'structural', reason: 'import-prism-style', tabId: ownerSession?.tabId || undefined });
+        if(ownerActive){
+          syncSurvivalRuntimeControlsFromDom(styleOwner);
+          syncSurvivalStateToSession(styleOwner, {
+            titleText: state.titleText,
+            controls: state.controls,
+            axisSettings: state.axisSettings,
+            labelColors: state.labelColors,
+            labelStrokeWidth: state.labelStrokeWidth,
+            labelOpacity: state.labelOpacity
+          });
+        }else if(styleOwner?.state){
+          syncSurvivalStateToSession(styleOwner, {
+            titleText: styleOwner.state.titleText,
+            controls: styleOwner.state.controls,
+            axisSettings: styleOwner.state.axisSettings,
+            labelColors: styleOwner.state.labelColors,
+            labelStrokeWidth: styleOwner.state.labelStrokeWidth,
+            labelOpacity: styleOwner.state.labelOpacity
+          });
+        }
+        scheduleSurvivalDrawForSession(styleOwner || getActiveSurvivalSessionForState(), { force: true, renderImpact: 'structural', reason: 'import-prism-style', tabId: styleOwner?.tabId || undefined });
+        if(!ownerActive && styleOwner?.state){
+          const axis = styleOwner.state.axisSettings || createDefaultAxisSettings();
+          const controls = styleOwner.state.controls || createDefaultSurvivalRuntimeControls();
+          return { payloadPatch: { config: {
+            ...(title ? { title } : {}),
+            ...(xLabel ? { xLabel } : {}),
+            ...(yLabel ? { yLabel } : {}),
+            ...(Number.isFinite(fontSizeValue) && fontSizeValue > 0 ? { fontSize: String(fontSizeValue) } : {}),
+            ...(prismAxisStyle?.showGrid != null ? { showGrid: controls.showGrid } : {}),
+            ...(prismAxisStyle?.showFrame != null ? { showFrame: controls.showFrame } : {}),
+            timeMax: controls.timeMax || '',
+            labelColors: cloneSimple(styleOwner.state.labelColors) || {},
+            labelStrokeWidth: cloneSimple(styleOwner.state.labelStrokeWidth) || {},
+            labelOpacity: cloneSimple(styleOwner.state.labelOpacity) || {},
+            fontStyles: exportFontStyles('survival', { tabId: styleOwner.tabId }) || {},
+            axis: {
+              strokeWidth: axis.strokeWidth,
+              color: axis.color,
+              tickIntervalX: axis.x?.tickInterval ?? null,
+              tickIntervalY: axis.y?.tickInterval ?? null,
+              tickStartX: axis.x?.tickStart ?? null,
+              tickStartY: axis.y?.tickStart ?? null,
+              autoRangeHintX: axis.x?.autoRangeHint ?? null,
+              autoRangeHintY: axis.y?.autoRangeHint ?? null,
+              tickLabelMultiplierY: axis.y?.tickLabelMultiplier ?? 1,
+              xMin: axis.x?.min ?? null,
+              xMax: axis.x?.max ?? null,
+              yMin: axis.y?.min ?? null,
+              yMax: axis.y?.max ?? null,
+              majorTickLengthX: axis.x?.majorTickLength ?? null,
+              majorTickLengthY: axis.y?.majorTickLength ?? null
+            }
+          } } };
+        }
+        return true;
       };
       Shared.tableImport.openFile(refs.fileInput, {
+        componentKey: 'survival',
         hot: ownerSession?.managers?.hot || state.hot,
         targetFirstRowIsHeader: false,
         minCols: SURVIVAL_DEFAULT_COLS,
@@ -8336,6 +9055,12 @@
         }),
         debugLabel: 'survival',
         onPrismStyle: applySurvivalPrismStyle,
+        onOwnerInactive: (inactiveResult, meta = {}) => {
+          const styleResult = inactiveResult?.prismStyle
+            ? applySurvivalPrismStyle(inactiveResult.prismStyle, { tabId: meta.tabId || ownerSession?.tabId })
+            : null;
+          return styleResult?.payloadPatch ? styleResult : null;
+        },
         onProcessed: info => logDebug('import processed', info)
       });
     });
@@ -8916,6 +9641,9 @@
     ),
     prepareCoxData: summary => prepareCoxData(summary),
     evaluateCoxAt: (beta, prepared) => evaluateCoxAt(beta, prepared),
+    computeCoxProportionalHazardsScoreTest: (beta, prepared, coefficients, options) => (
+      computeCoxProportionalHazardsScoreTest(beta, prepared, coefficients, options || {})
+    ),
     atRiskCount: (group, time) => survivalAtRiskCount(group, time),
     cumulativeCensoredCount: (group, time) => survivalCumulativeCensoredCount(group, time),
     buildPlotStatsLines: summary => buildSurvivalPlotStatsLines(summary),

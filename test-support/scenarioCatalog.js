@@ -1,14 +1,19 @@
 'use strict';
 
 const REVIEWED_SCENARIO_METADATA = Object.freeze({
+  'ARCHIVE.welcome-drop-save-target': Object.freeze({ requirement: 'Welcome graph drops acquire the native file handle during the drop event and retain it through delayed Save; unavailable handles preserve readable data, dirty edits and explicit Save As guidance', capability: 'dropped-file-save', evidence: 'native-chromium-file-drop-delayed-toolbar-save-and-unsupported-null-rejected-handle-contract', setup: 'ui', transition: 'native-file-drop-open-edit-expire-gesture-toolbar-save', environment: 'real-vendor-chromium-native-file-handle-with-mocked-permission-and-write' }),
   'ARCHIVE.save-picker-before-preparation': Object.freeze({ requirement: 'First Save and Save As choose a destination before capture; cancellation does no preparation and failures never write or mark saved; replacement and tab ownership remain isolated', capability: 'destination-first-save', evidence: 'picker-order-cancel-failure-replacement-dom-and-three-toolbar-save-modes-chromium', setup: 'mixed', transition: 'first-save-save-as-picker-prepare-write-cancel-replace', environment: 'jsdom-and-real-vendor-chromium-with-mocked-file-picker' }),
   'ARCHIVE.reopened-write-permission': Object.freeze({ requirement: 'Reopened files acquire write permission during the Save click before slow checkpoint preparation; permission waits preserve document ownership and revision dirtiness', capability: 'existing-file-save', evidence: 'permission-expiry-replacement-revision-dom-and-toolbar-chromium-contract', setup: 'mixed', transition: 'archive-reopen-toolbar-save-slow-capture-existing-file-write', environment: 'jsdom-and-real-vendor-chromium-with-mocked-file-handle' }),
   'REC.background-preparation': Object.freeze({ requirement: 'Background preparation never activates inactive tabs and publishes only exact owner snapshots; first restored presentation is complete; workload predictions show feedback immediately or stay silent, retained views are inert and isolated, and highlight/content commit together', capability: 'owner-scoped-preparation', evidence: 'sliced-copy-prediction-timing-retained-shadow-presentation-and-real-browser-reopen-recovery', setup: 'mixed', transition: 'open-prepare-switch-close-replace-fast-slow-error', environment: 'jest-and-real-vendor-chromium' }),
   'STATS.box-advisor-plan-parity': Object.freeze({ requirement:'Box advice names and applies the exact engine test, validates grouped subject structure, and refreshes aligned diagnostic targets after value or design edits', capability:'advisor-engine-parity', evidence:'unit-engine-resolution-and-chromium-calculated-test-and-diagnostic-contract', setup:'mixed', transition:'prior-test-answer-apply-calculate-edit-recheck', environment:'real-vendor-chromium-and-unit' }),
+  'STATS.box-lognormal-repeated': Object.freeze({ requirement:'Box lognormal repeated-measures advice applies a complete-case log-scale model, reports corrected omnibus inference and geometric-mean ratio effects with explicit covariance assumptions, and preserves settings and report through archive reopen', capability:'lognormal-repeated-measures-inference', evidence:'independent-scipy-oracle-and-calculated-advisor-archive-reopen-contract', setup:'mixed', transition:'positive-paired-data-answer-apply-calculate-save-reopen', environment:'python-scipy-and-real-vendor-chromium' }),
   'STATS.box-nested-repeated': Object.freeze({ requirement:'The advisor blocks nested repeated-measures interaction tests with three conditions; the supported two-condition design uses the correct split-plot error terms, matches an independent model, and preserves its report through archive reopen', capability:'nested-repeated-anova', evidence:'three-condition-block-two-condition-statsmodels-contrasts-worker-report-archive-reopen', setup:'mixed', transition:'grouped-data-design-answer-block-or-apply-compute-save-reopen', environment:'statsmodels-and-real-vendor-chromium' }),
+  'STATS.box-crossed-sphericity': Object.freeze({ requirement:'Fully crossed Box row-random repeated-measures effects use separate GG-primary and HF-supplementary covariance corrections; the one-way path shares the stable estimator and refuses zero-error inference; calculations are scale-stable, match independent SciPy/statsmodels references, and retain the versioned result through worker and archive paths', capability:'effect-specific-sphericity', evidence:'numpy-eigenvalue-scipy-f-tail-statsmodels-anovarm-production-worker-report-restore-and-one-way-scale-edge-checks', setup:'mixed', transition:'crossed-subject-data-to-three-corrections-worker-calculate-save-reopen', environment:'python-numpy-scipy-statsmodels-jest-and-box-integration' }),
+  'STATS.survival-delayed-entry-logrank': Object.freeze({ requirement:'Log-rank risk sets exclude subjects before entry and after event or censoring, matching an independent calculation at each event time', capability:'survival-inference', evidence:'independent-delayed-entry-logrank-risk-set-reference', setup:'api', transition:'entry-exit-event-records-to-logrank', environment:'python-scipy-oracle-and-jest' }),
+  'STATS.box-methods-guidance': Object.freeze({ requirement:'Grouped Box controls use concise design cues while copyable Methods text reports row-random assumptions and corrections, nested-design assumptions and error terms, and selected comparison scope and multiplicity family', capability:'statistical-guidance', evidence:'grouped-guidance-control-length-and-methods-report-browser-contract-plus-model-unit-contract', setup:'mixed', transition:'select-grouped-analysis-read-control-cue-calculate-and-read-methods', environment:'unit-and-real-vendor-chromium' }),
   'STATS.heatmap-correlation-oracle': Object.freeze({ requirement:'Heatmap Pearson and tied Spearman coefficients and p-values match an independent SciPy reference with complete-pair missing-data handling', capability:'correlation-inference', evidence:'heatmap-production-hook-scipy-pearson-and-tied-spearman-reference', setup:'api', transition:'paired-vectors-to-correlation-and-p-value', environment:'python-scipy-oracle-and-jest' }),
-  'STATS.heatmap-correlation-inference': Object.freeze({ requirement:'Heatmap correlation reports complete-pair raw p-values and the adjusted values for the full unique-pair family', capability:'correlation-inference', evidence:'rendered-heatmap-spearman-raw-and-bh-adjusted-family-contract', setup:'mixed', transition:'correlation-data-enable-inference-render-and-adjust', environment:'jest-jsdom' }),
-  'STATS.heatmap-inference-guidance': Object.freeze({ requirement:'Heatmap explains Pearson and Spearman null/calibration choices, complete pairs, and the multiple-testing family only while a correlation view is active', capability:'statistical-guidance', evidence:'heatmap-inference-help-browser-visibility-contract', setup:'ui', transition:'open-correlation-view-switch-to-values-hide-help', environment:'real-vendor-chromium' }),
+  'STATS.heatmap-correlation-inference': Object.freeze({ requirement:'Heatmap adjusts only computable pairwise p-values across the unique off-diagonal family, leaves unavailable adjusted values null, and reports the same family count', capability:'correlation-inference', evidence:'rendered-heatmap-available-pair-bh-holm-and-report-family-contract', setup:'mixed', transition:'correlation-data-enable-inference-adjust-save-report', environment:'jest-jsdom' }),
+  'STATS.heatmap-inference-guidance': Object.freeze({ requirement:'Heatmap keeps only a concise Methods cue in Graph controls and places method, pair-handling, and computable-family details in copyable Methods text when inference is enabled', capability:'statistical-guidance', evidence:'heatmap-report-methods-guidance-browser-contract', setup:'ui', transition:'load-correlation-toggle-inference-read-methods-report', environment:'real-vendor-chromium' }),
   'STATS.venn-universe-guidance': Object.freeze({ requirement:'Venn overlap help directs users to the full eligible reference universe instead of assuming the observed list union is a valid background', capability:'enrichment-background', evidence:'venn-reference-universe-help-browser-contract', setup:'ui', transition:'open-overlap-significance-read-universe-guidance', environment:'real-vendor-chromium' }),
   'STATS.pca-parallel-analysis': Object.freeze({ requirement:'PCA parallel analysis is repeatable, applies the empirical 95th-percentile rule, and retains a clearly separated component count across 200 and 500 simulations', capability:'component-retention', evidence:'seeded-parallel-analysis-rule-and-budget-sensitivity-contract', setup:'api', transition:'matrix-to-seeded-null-and-retained-count', environment:'jest-and-svd-js' }),
   'STATS.cox-delayed-entry': Object.freeze({ requirement:'Efron Cox estimates, partial likelihood and LR inference for delayed-entry data match statsmodels PHReg', capability:'survival-inference', evidence:'1200-record-left-truncated-efron-independent-reference', setup:'api', transition:'time-entry-event-covariates-to-cox-fit', environment:'python-statsmodels-oracle-and-jest' }),
@@ -77,6 +82,7 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   'OWN.component-dom-binding': Object.freeze({ requirement: 'Mounted component DOM binds to its owner', capability: 'tab-isolation', evidence: 'component-dom-binding-contract' }),
   'OWN.cross-browser-feature-matrix': Object.freeze({ requirement: 'Browser feature coverage is declared by lane', capability: 'test-governance', evidence: 'cross-browser-feature-matrix-contract' }),
   'ARCHIVE.session-save-policies': Object.freeze({ requirement: 'Save policies use canonical session state', capability: 'archive', evidence: 'session-save-policy-contract' }),
+  'ARCHIVE.zip-entry-bounds': Object.freeze({ requirement: 'ZIP archive members decompress within their declared byte limit and oversized streams stop before excess output is retained', capability: 'archive-bounds', evidence: 'jszip-valid-bound-overrun-and-stream-pause-contract', setup: 'api', transition: 'compressed-member-at-limit-and-over-limit-stream' , environment: 'jest-with-jszip-stream' }),
   'REC.archive-restore-transaction': Object.freeze({ requirement: 'Archive restore is staged as one transaction', capability: 'recovery', evidence: 'archive-restore-transaction-contract' }),
   'REC.primary-graph-publication': Object.freeze({ requirement: 'Recovery publishes one owner-valid primary graph', capability: 'recovery', evidence: 'primary-graph-publication-contract' }),
   'REC.single-tab-recovery-checkpoint': Object.freeze({ requirement: 'Single-tab recovery checkpoints are owner-scoped', capability: 'recovery', evidence: 'single-tab-recovery-checkpoint-contract' }),
@@ -158,6 +164,8 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   'LAYOUT.title-alignment-owner-switch': Object.freeze({ requirement: 'Multiline title text and alignment remain isolated when returning to a same-component tab', capability: 'persistence', evidence: 'title-alignment-owner-switch-browser-contract', setup: 'ui' }),
   'PERSIST.multiline-title-draft-save-all': Object.freeze({ requirement: 'Graph and axis title drafts are saved from their owning session while inline editing remains active', capability: 'persistence', evidence: 'multiline-title-live-draft-archive-contract', setup: 'ui' }),
   'LAYOUT.box-reserve-invariants': Object.freeze({ requirement: 'Box layouts preserve panel reserve invariants', capability: 'layout', evidence: 'box-reserve-invariant-contract' }),
+  'LAYOUT.box-axis-comparison-clearance': Object.freeze({ requirement: 'Box comparison levels and labels remain separated after manual axis edits with absent or explicit zero tick origins', capability: 'comparison-layout', evidence: 'mixed-sign-five-column-three-comparison-rendered-clearance', setup: 'mixed', transition: 'hydrate-calculate-edit-axis-bounds-rehydrate-tick-origin', environment: 'real-vendor-chromium' }),
+  'LAYOUT.scatter-optional-tick-origin': Object.freeze({ requirement: 'Scatter preserves absent versus explicit numeric tick origins on both rendered axes and through archive reopen', capability: 'axis-tick-placement', evidence: 'fractional-manual-bounds-unit-interval-null-blank-missing-zero-custom-origins', setup: 'mixed', transition: 'hydrate-redraw-capture-archive-reopen', environment: 'real-vendor-chromium' }),
   'LAYOUT.small-viewport-stability': Object.freeze({ requirement: 'All eleven component pages avoid document and body overflow from phone through desktop widths after cross-component activation, including a 640×450 CSS viewport equivalent to a 1280×900 desktop at 200% zoom', capability: 'layout', evidence: 'small-viewport-stability-contract' }),
   'LAYOUT.live-resize-responsive-stack': Object.freeze({ requirement: 'Surface and UpSet graph marks remain visible during graph-frame resizing in stacked responsive layouts', capability: 'layout', evidence: 'responsive-stacked-live-resize-browser-contract' }),
   'LAYOUT.scatter-dense-live-resize': Object.freeze({ requirement: 'Dense Scatter marks remain visible and its graph frame changes during continuous resize in a stacked mobile layout', capability: 'layout', evidence: 'dense-scatter-live-resize-frame-contract' }),
@@ -180,7 +188,7 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   , 'DOM.hot-native-selection': Object.freeze({ requirement: 'Shared native selection projections preserve pinned seams, merged headers, virtualized rows, cell geometry and table-owned observer disposal', capability: 'native-grid-selection-projection', evidence: 'native-pane-fixture-and-mutation-microtask-contract', setup: 'api', transition: 'select-scroll-recycle-virtualize-destroy-sibling-owner', environment: 'jsdom-fake-vendor-no-compositing-claim' })
   , 'LAYOUT.ag-grid-pinned-row-scroll': Object.freeze({ requirement: 'Pinned AG Grid columns remain visibly aligned when horizontal scrolling is routed through the shared scrollbar', capability: 'grid-layout', evidence: 'ag-grid-pinned-row-scroll-contract' })
   , 'PERSIST.ag-grid-column-reorder-undo': Object.freeze({ requirement: 'AG Grid column reorder undo is durable and owner-scoped', capability: 'grid-persistence', evidence: 'ag-grid-column-reorder-undo-contract' })
-  , 'IMPORT.prism-multi-dataset': Object.freeze({ requirement: 'Prism multi-dataset import preserves dataset boundaries', capability: 'data-import', evidence: 'prism-multi-dataset-import-contract' })
+    , 'IMPORT.prism-multi-dataset': Object.freeze({ requirement: 'Prism imports route and render every supported v1 single-table fixture, preserve mixed-table and multi-graph boundaries, persist styles and graph subtype metadata when the owning tab becomes inactive, render PZFX parts-of-a-whole data, and apply confirmed styles, axes, and saved automatic bounds', capability: 'data-import', evidence: 'prism-v1-render-sweep-multi-dataset-owner-inactive-confirmed-style-and-automatic-axis-range-browser-contract' })
   , 'EXPORT.format-dimensions': Object.freeze({ requirement: 'Export format dimensions preserve the requested physical geometry', capability: 'export-geometry', evidence: 'export-format-dimensions-contract' })
   , 'EXPORT.multiline-hybrid-title': Object.freeze({ requirement: 'Hybrid SVG raster layers preserve positioned multiline title text and alignment', capability: 'export-fidelity', evidence: 'hybrid-svg-multiline-title-browser-contract' })
   , 'OWN.box-formula-fill': Object.freeze({ requirement: 'Box formula fill edits write through to the owning table', capability: 'formula-editing', evidence: 'box-formula-fill-contract' })
@@ -358,7 +366,7 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   , 'DOM.table-import-aggrid-paste': Object.freeze({ requirement: 'AG Grid paste imports into the canonical table source', capability: 'data-import', evidence: 'table-import-aggrid-paste-dom-contract' })
   , 'DOM.table-import-owner': Object.freeze({ requirement: 'Table import commits to the owning component tab', capability: 'data-import', evidence: 'table-import-owner-dom-contract' })
   , 'OWN.table-import-delayed-owner-switch': Object.freeze({ requirement: 'A delayed shared table import updates its originating tab after switching to a same-type sibling', capability: 'owner-isolation', evidence: 'table-import-delayed-file-read-owner-session-and-projection-regression', setup: 'api', transition: 'pause-file-read-switch-to-sibling-then-complete-owner-import' })
-  , 'DOM.table-import-prism': Object.freeze({ requirement: 'Prism import projects the selected dataset into the owning table', capability: 'data-import', evidence: 'table-import-prism-dom-contract' })
+  , 'DOM.table-import-prism': Object.freeze({ requirement: 'Prism import projects the selected dataset into the owning table and scopes axis thickness/tick decoding away from per-series border records', capability: 'data-import', evidence: 'table-import-prism-dom-and-axis-record-contract' })
   , 'DOM.fileio-activation': Object.freeze({ requirement: 'File I/O activation preserves the active owner boundary', capability: 'archive', evidence: 'fileio-activation-dom-contract' })
   , 'OWN.workspace-save-owner-scope': Object.freeze({ requirement: 'Workspace archive saves remain workspace-scoped while a component tab is active', capability: 'owner-isolation', evidence: 'workspace-save-unscoped-from-component-owner', setup: 'api', transition: 'save-workspace-archive-with-active-component-tab' })
   , 'DOM.hot-aggrid-binding': Object.freeze({ requirement: 'AG Grid binding preserves owner and table identity', capability: 'grid-ownership', evidence: 'hot-aggrid-binding-dom-contract' })
@@ -587,6 +595,8 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'LAYOUT.legend-font-reserve-undo', kind: 'contract', contract: 'LAYOUT', components: ['box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'] }),
   Object.freeze({ id: 'PERSIST.session-payload-write-through', kind: 'contract', contract: 'PERSIST', components: ['*'], requirement: 'Owner session payload write-through', capability: 'persistence', evidence: 'owner-payload-write-through-contract' }),
   Object.freeze({ id: 'ARCHIVE.session-save-policies', kind: 'contract', contract: 'ARCHIVE', components: ['*'] }),
+  Object.freeze({ id: 'ARCHIVE.zip-entry-bounds', kind: 'contract', contract: 'ARCHIVE', components: ['*'] }),
+  Object.freeze({ id: 'ARCHIVE.welcome-drop-save-target', kind: 'contract', contract: 'ARCHIVE', components: ['scatter'] }),
   Object.freeze({ id: 'ARCHIVE.reopened-write-permission', kind: 'contract', contract: 'ARCHIVE', components: ['scatter'] }),
   Object.freeze({ id: 'ARCHIVE.save-picker-before-preparation', kind: 'contract', contract: 'ARCHIVE', components: ['scatter'] }),
   Object.freeze({ id: 'ARCH.semantic-render-impact', kind: 'contract', contract: 'ARCH', components: ['*'], requirement: 'Semantic render-impact scheduling', capability: 'render-scheduling', evidence: 'shared-draw-impact-contract' }),
@@ -651,7 +661,9 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'ASYNC.hist-analysis-snapshot', kind: 'contract', contract: 'ASYNC', components: ['hist'], setup: 'mixed' }),
   Object.freeze({ id: 'OWN.hist-analysis-cancel', kind: 'contract', contract: 'OWN', components: ['hist'], setup: 'mixed' }),
   Object.freeze({ id: 'STATS.box-advisor-plan-parity', kind: 'contract', contract: 'STATS', components: ['box'], setup: 'mixed' }),
+  Object.freeze({ id: 'STATS.box-lognormal-repeated', kind: 'contract', contract: 'STATS', components: ['box'], setup: 'mixed' }),
   Object.freeze({ id: 'STATS.box-nested-repeated', kind: 'contract', contract: 'STATS', components: ['box'], setup: 'mixed' }),
+  Object.freeze({ id: 'STATS.box-methods-guidance', kind: 'contract', contract: 'STATS', components: ['box'], setup: 'mixed' }),
   Object.freeze({ id: 'OWN.closed-tab-session-disposal', kind: 'contract', contract: 'OWN', components: ['box', 'scatter', 'pca', 'line', 'surface', 'pie', 'roc', 'survival'], setup: 'mixed' }),
   Object.freeze({ id: 'LAYOUT.workspace-document-responsive', kind: 'contract', contract: 'LAYOUT', components: ['*'], setup: 'mixed' }),
   Object.freeze({ id: 'STATS.advisor-model-design', kind: 'contract', contract: 'STATS', components: ['line','scatter'], setup: 'ui' }),
@@ -694,7 +706,7 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'REC.reopen-data-redraw', kind: 'contract', contract: 'REC', components: ['*'] }),
   Object.freeze({ id: 'LAYOUT.axis-tick-label-optical-clearance', kind: 'contract', contract: 'LAYOUT', components: ['*'] }),
   Object.freeze({ id: 'PERSIST.dataview-lite-archive', kind: 'contract', contract: 'PERSIST', components: ['*'] }),
-  Object.freeze({ id: 'IMPORT.prism-multi-dataset', kind: 'contract', contract: 'IMPORT', components: ['box', 'line', 'survival', 'scatter'] }),
+  Object.freeze({ id: 'IMPORT.prism-multi-dataset', kind: 'contract', contract: 'IMPORT', components: ['box', 'line', 'survival', 'scatter', 'pie'] }),
   Object.freeze({ id: 'EXPORT.background', kind: 'contract', contract: 'EXPORT', components: ['scatter'], requirement: 'PNG, SVG and hybrid downloads and image copy honor explicit theme or transparent backgrounds; keyboard menus share a tab-owned preference across switching and archive reopen', capability: 'export-background', evidence: 'real-pixel-menu-tab-and-archive-contract', setup: 'mixed', transition: 'light-dark-copy-download-switch-save-reopen', environment: 'real-vendor-chromium' }),
   Object.freeze({ id: 'EXPORT.format-dimensions', kind: 'contract', contract: 'EXPORT', components: ['*'] }),
   Object.freeze({ id: 'EXPORT.multiline-hybrid-title', kind: 'contract', contract: 'EXPORT', components: ['scatter'], requirement: 'Hybrid SVG raster layers preserve positioned multiline title text and alignment', capability: 'export-fidelity', evidence: 'hybrid-svg-multiline-title-browser-contract', setup: 'ui' }),
@@ -716,6 +728,8 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'PERSIST.multiline-title-draft-save-all', kind: 'contract', contract: 'PERSIST', components: ['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'], requirement: 'Live graph and axis title drafts are stored in their owner payload and survive archive reopen', capability: 'persistence', evidence: 'multiline-title-live-draft-archive-contract', setup: 'ui' }),
   Object.freeze({ id: 'LAYOUT.upset-multiline-title-exact-reserve', kind: 'contract', contract: 'LAYOUT', components: ['venn'], requirement: 'UpSet graph and X/Y title lines reserve exact rendered line-height and shift the plot without resizing it', capability: 'layout', evidence: 'upset-multiline-title-exact-reserve-browser-contract', setup: 'ui' }),
   Object.freeze({ id: 'LAYOUT.box-reserve-invariants', kind: 'contract', contract: 'LAYOUT', components: ['box'] }),
+  Object.freeze({ id: 'LAYOUT.box-axis-comparison-clearance', kind: 'contract', contract: 'LAYOUT', components: ['box'] }),
+  Object.freeze({ id: 'LAYOUT.scatter-optional-tick-origin', kind: 'contract', contract: 'LAYOUT', components: ['scatter'] }),
   Object.freeze({ id: 'LAYOUT.box-flip-reserve-invariants', kind: 'contract', contract: 'LAYOUT', components: ['box'], requirement: 'Box flip-axis reserve invariants', capability: 'layout', evidence: 'box-flip-reserve-invariants' }),
   Object.freeze({ id: 'LAYOUT.small-viewport-stability', kind: 'contract', contract: 'LAYOUT', components: ['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'] }),
   Object.freeze({ id: 'LAYOUT.live-resize-responsive-stack', kind: 'contract', contract: 'LAYOUT', components: ['surface', 'venn'], requirement: 'Surface and UpSet graph marks remain visible during graph-frame resizing in stacked responsive layouts', capability: 'layout', evidence: 'responsive-stacked-live-resize-browser-contract', setup: 'ui' }),
@@ -787,7 +801,10 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'OWN.box-example-controls', kind: 'contract', contract: 'OWN', components: ['box'], requirement: 'Box example control ownership', capability: 'tab-isolation', evidence: 'box-example-controls' }),
   Object.freeze({ id: 'OWN.box-flip-isolation', kind: 'contract', contract: 'OWN', components: ['box'], requirement: 'Box flip isolation', capability: 'tab-isolation', evidence: 'box-flip-isolation' }),
   Object.freeze({ id: 'LAYOUT.box-axis-role-tick-length', kind: 'contract', contract: 'LAYOUT', components: ['box'], requirement: 'Box axis-role tick length', capability: 'layout', evidence: 'box-axis-role-tick-length' }),
+  Object.freeze({ id: 'LAYOUT.box-category-spacing', kind: 'contract', contract: 'LAYOUT', components: ['box'], requirement: 'Every Box graph keeps two-thirds-pitch category edge reserves, matching Individual Values summary widths and half-width whisker caps through resize in both orientations', capability: 'layout', evidence: 'rendered-category-axis-symbol-summary-and-cap-geometry', setup: 'mixed', transition: 'single-and-multiple-categories-to-mean-and-median-to-each-graph-type-to-resize-and-grouped-layouts', environment: 'chromium-real-vendors' }),
   Object.freeze({ id: 'LAYOUT.box-whisker-geometry', kind: 'contract', contract: 'LAYOUT', components: ['box'], requirement: 'Box and notched whiskers extend outward from interpolated quartiles after data and orientation changes', capability: 'layout', evidence: 'box-whisker-geometry-browser-contract', setup: 'ui' }),
+  Object.freeze({ id: 'LAYOUT.box-inward-borders', kind: 'contract', contract: 'LAYOUT', components: ['box'], requirement: 'Bar, Box, Notched Box and Violin borders grow inward without changing painted bounds, semantic thickness or native vector output across redraw, resize and archive reopen', capability: 'symbol-border-geometry', evidence: 'chromium-pixel-bounds-formatting-redraw-native-pdf-emf-reopen-and-resize', setup: 'mixed', transition: 'zero-to-thick-border-to-redraw-export-cache-reopen-resize', environment: 'chromium-real-vendors' }),
+  Object.freeze({ id: 'LAYOUT.inward-stroke-vector', kind: 'contract', contract: 'LAYOUT', components: ['*'], requirement: 'Inward stroke geometry keeps semantic thickness and unique clone clips; transformed nested path clips remain native PDF/EMF with restored sibling clipping', capability: 'vector-clipping', evidence: 'svg-helper-geometry-identity-and-pdf-emf-native-record-contracts', setup: 'api', transition: 'geometry-to-inner-stroke-to-clone-and-transformed-nested-vector-clips', environment: 'jsdom' }),
   Object.freeze({ id: 'LAYOUT.box-flip-resize', kind: 'contract', contract: 'LAYOUT', components: ['box'], requirement: 'Box flip resize', capability: 'layout', evidence: 'box-flip-resize' }),
   Object.freeze({ id: 'OWN.box-formula-editor', kind: 'contract', contract: 'OWN', components: ['box'], requirement: 'Box formula editor ownership', capability: 'tab-isolation', evidence: 'box-formula-editor' }),
   Object.freeze({ id: 'OWN.box-formula-fill', kind: 'contract', contract: 'OWN', components: ['box'] }),
@@ -1030,7 +1047,9 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'WORKER.pca-embedding', kind: 'worker', components: ['pca'], requirement: 'PCA embedding worker', capability: 'worker', evidence: 'pca-embedding-worker-entrypoint' }),
   Object.freeze({ id: 'WORKER.scatter-render-stats', kind: 'worker', components: ['scatter'], requirement: 'Scatter render statistics worker', capability: 'worker', evidence: 'scatter-worker-entrypoint' }),
   Object.freeze({ id: 'STATS.numerical-oracle', kind: 'contract', contract: 'STATS', components: ['*'] }),
+  Object.freeze({ id: 'STATS.survival-delayed-entry-logrank', kind: 'contract', contract: 'STATS', components: ['survival'] }),
   Object.freeze({ id: 'STATS.box-subject-alignment', kind: 'contract', contract: 'STATS', components: ['box'] }),
+  Object.freeze({ id: 'STATS.box-crossed-sphericity', kind: 'contract', contract: 'STATS', components: ['box'] }),
   Object.freeze({ id: 'STATS.box-tied-friedman', kind: 'contract', contract: 'STATS', components: ['box'] }),
   Object.freeze({ id: 'STATS.box-screened-custom', kind: 'contract', contract: 'STATS', components: ['box'] }),
   Object.freeze({ id: 'STATS.box-aligned-reopen', kind: 'contract', contract: 'STATS', components: ['box'] }),
@@ -1052,6 +1071,9 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'LAYOUT.stats-analysis-settings', kind: 'contract', contract: 'LAYOUT', components: ['hist', 'box', 'scatter', 'line', 'pie', 'roc', 'survival'], requirement: 'Analysis settings, advisor disclosure, calculate action and Results header follow a consistent compact layout; Box balances its six main settings in two columns and places grouped Advanced parameters below, with equal dropdown widths', capability: 'statistics-settings-layout', evidence: 'seven-component-chromium-render-measurement-and-result-screenshot-contract', setup: 'mixed', transition: 'load-example-calculate-disclose-capture', environment: 'real-vendor-chromium' }),
   Object.freeze({ id: 'LAYOUT.stats-calculate-button', kind: 'contract', contract: 'LAYOUT', components: ['venn', 'hist', 'box', 'scatter', 'line', 'pie', 'roc', 'survival'], requirement: 'Existing Calculate statistics buttons share Histogram’s enabled and disabled appearance; Venn keeps its existing disclosure and gains no manual-analysis settings section', capability: 'statistics-action-button-style', evidence: 'computed-enabled-disabled-style-parity-and-venn-disclosure-chromium-contract', setup: 'mixed', transition: 'load-component-compare-enabled-and-disabled-styles', environment: 'real-vendor-chromium' }),
   Object.freeze({ id: 'LAYOUT.shared-statistics-panel-surfaces', kind: 'contract', contract: 'LAYOUT', components: ['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'], requirement: 'Shared result cards retain consistent gaps across semantic sections and rounded footer backgrounds without clipping export menus', capability: 'shared-statistics-card-layout', evidence: 'histogram-live-results-and-shared-renderer-primary-advanced-descriptive-restore-fixtures', setup: 'mixed', transition: 'calculate-render-open-details-export-capture-restore', environment: 'real-vendor-chromium-shared-renderer-with-histogram-integration' }),
+  Object.freeze({ id: 'LAYOUT.workspace-content-grid', kind: 'contract', contract: 'LAYOUT', components: ['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'], requirement: 'Graph controls fill the available width and row height beside the figure; Statistics spans the full right-pane content width; the divider margin alone separates input and graph; controls stay alongside figures on laptop viewports and stack below when content is under 600 pixels; controls narrow to 300 pixels before oversized figures expand the whole right-pane content and use its bottom horizontal scrollbar, while very wide layouts cap controls at 600 pixels, with canonical figure dimensions unchanged', capability: 'responsive-workspace-layout', evidence: 'eleven-component-divider-inset-laptop-and-constrained-pane-geometry-two-stage-resize-600px-control-cap-whole-pane-scroll-and-statistics-width-screenshot-contract', setup: 'ui', transition: 'wide-narrow-wide-viewport-resize-set-oversized-figure-scroll', environment: 'real-vendor-chromium' }),
+  Object.freeze({ id: 'LAYOUT.workspace-browser-zoom', kind: 'contract', contract: 'LAYOUT', components: ['hist', 'scatter'], requirement: 'Real browser zoom preserves canonical figure dimensions, full-width Statistics, pane-level scrolling, and a 600-pixel maximum for controls when extra width is available', capability: 'responsive-workspace-layout', evidence: 'histogram-and-scatter-real-browser-zoom-50-67-100-125-200-percent-geometry-and-screenshot-contract', setup: 'ui', transition: 'browser-zoom-out-and-in', environment: 'real-vendor-chromium-with-zoom-extension' }),
+  Object.freeze({ id: 'UNIT.axis-range-rules', kind: 'contract', contract: 'LAYOUT', components: [], requirement: 'Shared axis range helpers include zero and custom values only for automatic compatible limits, preserve exact manual limits, and clamp axis origins to their selected ranges', capability: 'axis-range-rules', evidence: 'pure-axis-range-zero-value-manual-limit-and-origin-unit-contract', setup: 'api', transition: 'automatic-manual-linear-log-range-resolution', environment: 'jest-jsdom-pure-helper' }),
   Object.freeze({ id: 'ARCH.static-contracts', kind: 'architecture', components: ['*'] }),
   Object.freeze({ id: 'ARCH.module-call-map', kind: 'architecture', components: ['*'] }),
   Object.freeze({ id: 'ARCH.owner-capture-normalization', kind: 'architecture', components: ['*'] }),
@@ -1084,6 +1106,7 @@ const CRITICAL_SCENARIO_IDS = Object.freeze([
 ]);
 
 const SCENARIOS_BY_FILE = Object.freeze({
+  '__tests__/unit/axisRange.test.js': Object.freeze(['UNIT.axis-range-rules']),
   '__tests__/dom/componentLayout.rootHydration.test.js': Object.freeze(['LAYOUT.workspace-root-hydration']),
   '__tests__/dom/productionFixtureLifetime.test.js': Object.freeze(['OWN.fixture-bootstrap-lifetime']),
   '__tests__/dom/session.liveAccess.test.js': Object.freeze(['OWN.live-session-access']),
@@ -1098,7 +1121,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/unit/coverageTrend.contract.test.js': Object.freeze(['GOVERNANCE.coverage-trend']),
   '__tests__/unit/testTrendReport.contract.test.js': Object.freeze(['GOVERNANCE.test-trend-report']),
   '__tests__/unit/integrationTeardown.contract.test.js': Object.freeze(['GOVERNANCE.integration-teardown']),
-  '__tests__/workers/box.worker.test.js': Object.freeze(['STATS.box-named-comparisons','STATS.box-rout-location','WORKER.box-actions', 'STATS.box-subject-alignment', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode', 'STATS.box-nested-repeated']),
+  '__tests__/workers/box.worker.test.js': Object.freeze(['STATS.box-named-comparisons','STATS.box-rout-location','WORKER.box-actions', 'STATS.box-subject-alignment', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode', 'STATS.box-nested-repeated', 'STATS.box-crossed-sphericity']),
   '__tests__/workers/hist.worker.test.js': Object.freeze(['WORKER.hist-distribution-comparison']),
   '__tests__/workers/graphArchive.worker.test.js': Object.freeze(['WORKER.archive-protocol']),
   '__tests__/workers/heatmap.worker.test.js': Object.freeze(['WORKER.heatmap-clustering']),
@@ -1138,7 +1161,9 @@ const SCENARIOS_BY_FILE = Object.freeze({
   'e2e/box/box.example-control-panel.spec.js': Object.freeze(['OWN.box-example-controls', 'PERSIST.box-notes-direct']),
   'e2e/box/box.flip-axes.tab-isolation.spec.js': Object.freeze(['OWN.box-flip-isolation']),
   'e2e/box/box.flip-axes.tick-length.spec.js': Object.freeze(['LAYOUT.box-axis-role-tick-length']),
+  'e2e/box/box.category-spacing.spec.js': Object.freeze(['LAYOUT.box-category-spacing']),
   'e2e/box/box.whisker-geometry.spec.js': Object.freeze(['LAYOUT.box-whisker-geometry']),
+  'e2e/box/box.inward-borders.spec.js': Object.freeze(['LAYOUT.box-inward-borders']),
   'e2e/box/box.conditional-controls.visibility.spec.js': Object.freeze(['LAYOUT.box-conditional-controls', 'PERSIST.box-conditional-controls-reopen']),
   'e2e/box/box.flip-axes.transpose-manual-resize.spec.js': Object.freeze(['LAYOUT.box-flip-resize']),
   'e2e/box/box.formula-editor.spec.js': Object.freeze(['OWN.box-formula-editor', 'LAYOUT.ag-grid-formula-reference-outline']),
@@ -1165,7 +1190,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/architecture/hot.pasteScheduling.contract.test.js': Object.freeze(['ARCH.hot-paste-scheduling']),
   '__tests__/unit/vendorRuntime.smoke.test.js': Object.freeze(['VENDOR.real-npm-runtime']),
   '__tests__/unit/colorSchemes.colorMath.test.js': Object.freeze(['UNIT.color-scheme-math']),
-  '__tests__/unit/box.statsTestSelection.model.test.js': Object.freeze(['UNIT.box-statistics-model', 'STATS.box-subject-alignment', 'STATS.box-screened-custom', 'STATS.box-tied-friedman', 'STATS.box-control-sidak', 'STATS.box-decimal-ranks', 'STATS.box-outlier-guidance', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode']),
+  '__tests__/unit/box.statsTestSelection.model.test.js': Object.freeze(['UNIT.box-statistics-model', 'STATS.box-subject-alignment', 'STATS.box-crossed-sphericity', 'STATS.box-lognormal-repeated', 'STATS.box-methods-guidance', 'STATS.box-screened-custom', 'STATS.box-tied-friedman', 'STATS.box-control-sidak', 'STATS.box-decimal-ranks', 'STATS.box-outlier-guidance', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode']),
   '__tests__/unit/stats.reportingText.migration.test.js': Object.freeze(['UNIT.box-report-text-migration']),
   '__tests__/unit/dataPipeline.test.js': Object.freeze(['UNIT.data-pipeline']),
   '__tests__/unit/dataTransforms.test.js': Object.freeze(['UNIT.data-transforms']),
@@ -1192,6 +1217,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/unit/stringAnalysis.test.js': Object.freeze(['UNIT.string-analysis']),
   '__tests__/unit/uniprot.test.js': Object.freeze(['UNIT.uniprot']),
   '__tests__/unit/graphArchive.adaptiveCompression.test.js': Object.freeze(['UNIT.graph-archive']),
+  '__tests__/unit/graphArchive.boundedZipRead.test.js': Object.freeze(['ARCHIVE.zip-entry-bounds']),
   '__tests__/unit/graphArchive.payloadLiteLoad.test.js': Object.freeze(['UNIT.graph-archive']),
   '__tests__/unit/debug.contract.test.js': Object.freeze(['UNIT.debug-contract']),
   '__tests__/unit/diagnostics.contract.test.js': Object.freeze(['UNIT.diagnostic-evidence']),
@@ -1211,12 +1237,12 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/unit/renderCacheDiagnostics.contract.test.js': Object.freeze(['UNIT.cache-diagnostics']),
   '__tests__/unit/snapshotPolicy.recoveryParity.test.js': Object.freeze(['UNIT.snapshot-policy']),
   '__tests__/unit/stats.audit.remediation.core.test.js': Object.freeze(['UNIT.stats-remediation-engine']),
-  '__tests__/unit/stats.figureSummary.reportingMatrix.test.js': Object.freeze(['UNIT.stats-figure-summary-matrix']),
+  '__tests__/unit/stats.figureSummary.reportingMatrix.test.js': Object.freeze(['UNIT.stats-figure-summary-matrix','STATS.box-crossed-sphericity']),
   '__tests__/unit/stats.audit.remediation.components.test.js': Object.freeze(['UNIT.stats-remediation-components']),
   '__tests__/unit/hist.advisor.test.js': Object.freeze(['STATS.hist-advisor','STATS.hist-aicc-availability','WORKER.hist-distribution-comparison']),
   '__tests__/unit/stats.twoSampleKolmogorovSmirnov.test.js': Object.freeze(['STATS.hist-distribution-calibration']),
   '__tests__/unit/stats.advisorPolicies.test.js': Object.freeze(['STATS.advisor-contract','STATS.roc-advisor-class-replication']),
-  '__tests__/unit/box.advisor.test.js': Object.freeze(['UNIT.box-advisor','STATS.box-advisor-plan-parity','STATS.box-nested-repeated']),
+  '__tests__/unit/box.advisor.test.js': Object.freeze(['UNIT.box-advisor','STATS.box-advisor-plan-parity','STATS.box-lognormal-repeated','STATS.box-nested-repeated','STATS.box-crossed-sphericity']),
   '__tests__/unit/box.assumptions.test.js': Object.freeze(['UNIT.box-assumptions']),
   '__tests__/unit/box.axisAutoScale.test.js': Object.freeze(['UNIT.box-axis-autoscale']),
   '__tests__/unit/box.barNegativeGeometry.test.js': Object.freeze(['UNIT.box-bar-geometry']),
@@ -1327,7 +1353,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/dom/exporter.statsFigureSummary.test.js': Object.freeze(['DOM.exporter-projection']),
   '__tests__/dom/exporter.significanceHitOverlay.test.js': Object.freeze(['DOM.exporter-projection']),
   '__tests__/dom/exporter.hybridSource.test.js': Object.freeze(['DOM.exporter-projection']),
-  '__tests__/dom/exporter.physicalProjection.test.js': Object.freeze(['DOM.exporter-projection']),
+  '__tests__/dom/exporter.physicalProjection.test.js': Object.freeze(['DOM.exporter-projection', 'LAYOUT.inward-stroke-vector']),
   '__tests__/dom/exporter.inkscapeUngroupStability.test.js': Object.freeze(['DOM.exporter-projection']),
   '__tests__/dom/exporter.savePicker.test.js': Object.freeze(['DOM.exporter-projection']),
   '__tests__/dom/exporter.firefoxSvgCopy.test.js': Object.freeze(['DOM.exporter-projection']),
@@ -1410,15 +1436,15 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/dom/statsAdvisor.contract.test.js': Object.freeze(['STATS.advisor-contract']),
   '__tests__/statistical-oracle/stats.differential.python.test.js': Object.freeze(['STATS.numerical-oracle']),
   '__tests__/statistical-oracle/stats.component.differential.matrix.test.js': Object.freeze(['STATS.numerical-oracle']),
-  '__tests__/statistical-oracle/stats.component.differential.edges.test.js': Object.freeze(['STATS.numerical-oracle', 'STATS.heatmap-correlation-oracle']),
-  '__tests__/statistical-oracle/stats.matrix.box.test.js': Object.freeze(['STATS.numerical-oracle', 'STATS.box-subject-alignment', 'STATS.box-tied-friedman', 'STATS.box-screened-custom', 'STATS.box-control-sidak', 'STATS.box-decimal-ranks', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode', 'STATS.box-nested-repeated']),
+  '__tests__/statistical-oracle/stats.component.differential.edges.test.js': Object.freeze(['STATS.numerical-oracle', 'STATS.heatmap-correlation-oracle', 'STATS.survival-delayed-entry-logrank']),
+  '__tests__/statistical-oracle/stats.matrix.box.test.js': Object.freeze(['STATS.numerical-oracle', 'STATS.box-subject-alignment', 'STATS.box-tied-friedman', 'STATS.box-screened-custom', 'STATS.box-control-sidak', 'STATS.box-decimal-ranks', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode', 'STATS.box-nested-repeated', 'STATS.box-crossed-sphericity', 'STATS.box-lognormal-repeated']),
   '__tests__/statistical-oracle/stats.namedMethods.test.js': Object.freeze(['STATS.box-named-comparisons', 'STATS.box-rout-location']),
   '__tests__/statistical-oracle/stats.matrix.line.test.js': Object.freeze(['STATS.numerical-oracle']),
   '__tests__/statistical-oracle/stats.matrix.scatter.test.js': Object.freeze(['STATS.numerical-oracle']),
   '__tests__/statistical-oracle/stats.extended.coverage.test.js': Object.freeze(['STATS.numerical-oracle', 'STATS.cox-lr-convergence', 'STATS.cox-identifiability', 'STATS.cox-scale-invariance']),
   '__tests__/statistical-oracle/stats.survival.cox-delayed-entry.test.js': Object.freeze(['STATS.cox-delayed-entry']),
   '__tests__/integration/stats.ui.presentation.branches.test.js': Object.freeze(['STATS.ui-presentation-branches']),
-  '__tests__/integration/stats.ui.persistence.restore.test.js': Object.freeze(['STATS.ui-persistence-restore', 'STATS.box-grouped-owner-reopen', 'STATS.box-legacy-signature-boundaries', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode']),
+  '__tests__/integration/stats.ui.persistence.restore.test.js': Object.freeze(['STATS.ui-persistence-restore', 'STATS.box-grouped-owner-reopen', 'STATS.box-legacy-signature-boundaries', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode', 'STATS.box-crossed-sphericity']),
   '__tests__/architecture/audit.remaining-issues.contract.test.js': Object.freeze(['ARCH.static-contracts']),
   '__tests__/architecture/axis-major-tick-length.contract.test.js': Object.freeze(['ARCH.static-contracts']),
   '__tests__/architecture/box.architectureOwnership.contract.test.js': Object.freeze(['ARCH.static-contracts']),
@@ -1581,7 +1607,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   'e2e/cross-component/color-appearance.persistence.spec.js': Object.freeze(['PERSIST.color-appearance-identity']),
   'e2e/box/box.loading-overlay.stop.spec.js': Object.freeze(['ASYNC.job-cancellation', 'ASYNC.inactive-owner-completion', 'A11Y.reduced-motion-heavy-draw']),
   'e2e/box/box.opacity-style-tab-isolation.spec.js': Object.freeze(['OWN.style-control-tab-isolation']),
-  'e2e/box/box.significance-layout.spec.js': Object.freeze(['STATS.box-significance-restore', 'LAYOUT.box-reserve-invariants']),
+  'e2e/box/box.significance-layout.spec.js': Object.freeze(['STATS.box-significance-restore', 'LAYOUT.box-reserve-invariants', 'LAYOUT.box-axis-comparison-clearance']),
   'e2e/box/box.single-values-point-size-resize.spec.js': Object.freeze(['LAYOUT.component-resize-persistence', 'LAYOUT.box-reserve-invariants']),
   'e2e/box/box.stats-custom-pairs.spec.js': Object.freeze(['STATS.component-reporting', 'STATS.box-controls-isolation']),
   'e2e/stats/stats.panel-surfaces.spec.js': Object.freeze(['LAYOUT.shared-statistics-panel-surfaces']),
@@ -1591,13 +1617,13 @@ const SCENARIOS_BY_FILE = Object.freeze({
   'e2e/hist/hist.advisor.spec.js': Object.freeze(['STATS.hist-advisor', 'STATS.hist-distribution-calibration', 'STATS.hist-ks-result-reclassification', 'STATS.hist-aicc-availability', 'ASYNC.hist-analysis-snapshot', 'OWN.hist-analysis-cancel', 'WORKER.hist-distribution-comparison', 'LAYOUT.stats-table-scroll']),
   'e2e/stats/stats.advisor-disclosure.spec.js': Object.freeze(['STATS.advisor-disclosure', 'STATS.advisor-owner-persistence']),
   'e2e/stats/stats.advisor-contract.spec.js': Object.freeze(['STATS.advisor-contract']),
-  'e2e/stats/stats.advisor-reviewed-plans.spec.js': Object.freeze(['STATS.box-advisor-plan-parity','STATS.box-nested-repeated','STATS.advisor-model-design','STATS.hist-advisor','STATS.roc-advisor-class-replication']),
+  'e2e/stats/stats.advisor-reviewed-plans.spec.js': Object.freeze(['STATS.box-advisor-plan-parity','STATS.box-lognormal-repeated','STATS.box-nested-repeated','STATS.advisor-model-design','STATS.hist-advisor','STATS.roc-advisor-class-replication']),
   'e2e/ownership/component.close-tab.disposes-session.spec.js': Object.freeze(['OWN.closed-tab-session-disposal']),
   'e2e/layout/workspace-toolbar.document-responsive.spec.js': Object.freeze(['LAYOUT.workspace-document-responsive']),
   'e2e/box/box.stats-one-sample-controls.spec.js': Object.freeze(['STATS.box-one-sample-control-order']),
   'e2e/box/box.stats-performance.regression.spec.js': Object.freeze(['STATS.box-controls-isolation', 'UNIT.performance-framework']),
   'e2e/box/box.stats-reporting-sections.regression.spec.js': Object.freeze(['STATS.component-reporting', 'STATS.box-significance-restore']),
-  'e2e/box/box.stats-test-selection.regression.spec.js': Object.freeze(['STATS.box-named-comparisons','STATS.box-rout-location','STATS.box-controls-isolation', 'STATS.box-aligned-reopen', 'STATS.box-subject-alignment', 'STATS.box-method-reopen', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode']),
+  'e2e/box/box.stats-test-selection.regression.spec.js': Object.freeze(['STATS.box-named-comparisons','STATS.box-rout-location','STATS.box-controls-isolation', 'STATS.box-aligned-reopen', 'STATS.box-subject-alignment', 'STATS.box-method-reopen', 'STATS.box-paired-rank-effect', 'STATS.box-friedman-mode', 'STATS.box-crossed-sphericity', 'STATS.box-methods-guidance']),
   'e2e/box/box.title-new-tab-isolation.spec.js': Object.freeze(['OWN.same-type-switching.all-components', 'OWN.style-control-tab-isolation']),
   'e2e/layout/canvas-tab-preview.spec.js': Object.freeze(['CACHE.preview-reuse', 'CACHE.tab-switch-reuse']),
   'e2e/ownership/component.duplicate-reuse.payload-fidelity.spec.js': Object.freeze(['PERSIST.component-reopen-fidelity', 'CACHE.tab-switch-reuse']),
@@ -1609,6 +1635,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   'e2e/layout/dark-theme.resize-text.spec.js': Object.freeze(['OWN.style-control-tab-isolation', 'LAYOUT.component-resize-persistence']),
   'e2e/workspace/data-aware-defaults.spec.js': Object.freeze(['PERSIST.explicit-component-mutations', 'DOM.requested-defaults', 'PERSIST.scatter-data-aware-color-override']),
   'e2e/workspace/document-open.transaction.spec.js': Object.freeze(['ARCHIVE.session-save-policies', 'ARCHIVE.reopened-write-permission', 'ARCHIVE.save-picker-before-preparation', 'REC.archive-restore-transaction', 'A11Y.reduced-motion-document-open', 'A11Y.modal-lifecycle']),
+  'e2e/workspace/welcome.graph-drop-save.spec.js': Object.freeze(['ARCHIVE.welcome-drop-save-target']),
   'e2e/workspace/modal-lifecycle.contract.spec.js': Object.freeze(['A11Y.modal-lifecycle', 'LAYOUT.modal-short-viewport']),
   'e2e/layout/export.physical-projection.all-components.spec.js': Object.freeze(['EXPORT.component-artifact', 'EXPORT.format-dimensions']),
   'e2e/layout/graph-axis-resize-invariants.spec.js': Object.freeze(['LAYOUT.axis-tick-label-optical-clearance', 'LAYOUT.component-resize-persistence', 'LAYOUT.cartesian-locked-resize-envelope']),
@@ -1623,6 +1650,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   'e2e/layout/graph.fixed-default-fit.spec.js': Object.freeze(['LAYOUT.fixed-default-fit', 'LAYOUT.view-mode-owner-archive']),
   'e2e/layout/new-tab-layout.reopen.spec.js': Object.freeze(['LAYOUT.new-tab-defaults-after-reopen']),
   'e2e/workspace/config-panel.fieldset-containment.spec.js': Object.freeze(['LAYOUT.legend-label-reserve', 'LAYOUT.component-resize-persistence']),
+  'e2e/layout/workspace-content-layout.spec.js': Object.freeze(['LAYOUT.workspace-content-grid', 'LAYOUT.workspace-browser-zoom']),
   'e2e/layout/graph.export-controls-layout.spec.js': Object.freeze(['EXPORT.component-artifact', 'EXPORT.format-dimensions', 'LAYOUT.graph-resize-boundary', 'LAYOUT.graph-frame-theme', 'LAYOUT.graph-controls-header', 'LAYOUT.graph-envelope-containment']),
   'e2e/layout/graph.live-resize.spec.js': Object.freeze(['LAYOUT.component-resize-persistence']),
   'e2e/layout/graph.live-style.spec.js': Object.freeze(['OWN.style-control-tab-isolation', 'DOM.style-undo']),
@@ -1718,6 +1746,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   ,'e2e/scatter/scatter.horizontal-resize-axis.spec.js': Object.freeze(['LAYOUT.component-resize-persistence', 'LAYOUT.axis-tick-label-optical-clearance'])
   ,'e2e/scatter/scatter.loading-overlay.threshold.spec.js': Object.freeze(['ASYNC.job-cancellation', 'OWN.readiness-observability'])
   ,'e2e/scatter/scatter.manual-view-refresh.spec.js': Object.freeze(['OWN.readiness-projection', 'OWN.component-transition-boundary', 'OWN.scatter-canvas-frame-cancellation', 'A11Y.chart-point-keyboard-navigation'])
+  ,'e2e/scatter/scatter.tick-origin.spec.js': Object.freeze(['LAYOUT.scatter-optional-tick-origin'])
   ,'e2e/scatter/scatter.graph-controls.visibility.spec.js': Object.freeze(['LAYOUT.scatter-graph-control-visibility'])
   ,'e2e/scatter/scatter.overlay-controls.stats-gating.spec.js': Object.freeze(['STATS.component-reporting', 'OWN.readiness-projection'])
   ,'e2e/scatter/scatter.panel-resizer.undo-entry-count.spec.js': Object.freeze(['LAYOUT.component-resize-persistence', 'PERSIST.session-payload-write-through'])

@@ -63,7 +63,7 @@ async function captureHeatmapVisualSignature(page) {
   });
 }
 
-test('Heatmap explains correlation inference and its multiplicity family', async ({ page }) => {
+test('Heatmap puts inference methods in the copyable report, not graph controls', async ({ page }) => {
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   const component = { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' };
@@ -71,13 +71,19 @@ test('Heatmap explains correlation inference and its multiplicity family', async
   await clickExpectedExampleButton(page, 'heatmapLoadExample');
   await waitForHeatmapCells(page);
 
-  const help = page.locator('#heatmapInferenceHelp');
-  await expect(help).toBeVisible();
-  await expect(help).toContainText('population correlation = 0');
-  await expect(help).toContainText('Spearman uses exact or seeded Monte Carlo permutation calibration');
-  await expect(help).toContainText('Unique off-diagonal pairs form the multiplicity family');
-  await page.locator('#heatmapView').selectOption('values');
-  await expect(help).toBeHidden();
+  const graphControls = page.locator('#heatmapPage:not([hidden]) #heatmapGraphPanel');
+  const methods = page.locator('#heatmapStatsContent pre[data-stats-report-block="methods"]');
+  const inferenceHelp = page.locator('#heatmapInferenceHelp');
+  await expect(inferenceHelp).toHaveText('See Methods in Reporting and reproducibility for correlation test details.');
+  expect((await inferenceHelp.innerText()).length).toBeLessThan(100);
+  await expect(graphControls).not.toContainText('Pearson tests H₀');
+  await expect(methods).toContainText('Inference is off; no cell p-values or adjustments are shown.');
+
+  await graphControls.locator('#heatmapShowSignificance').check();
+  await expect(methods).toContainText('two-sided Student t approximation', { timeout: 30_000 });
+  await expect(methods).toContainText('computable unique off-diagonal pairs');
+  await expect(methods).toContainText('zero population correlation');
+  await expect(methods).toContainText('available finite observations for each item pair');
 });
 
 function expectNear(actual, expected, tolerance, label) {

@@ -4,6 +4,7 @@ const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { saveWorkspaceArchive, openWorkspaceArchive } = require('../helpers/archiveDriver');
+const rowRandomSphericityFixture = require('../../test-support/fixtures/box-row-random-sphericity-v1.json');
 
 const active = selector => `#boxPage:not([hidden]) ${selector}`;
 
@@ -196,6 +197,152 @@ test('repeated-measures and Friedman calculations use complete source subjects',
   const friedman = await computeAndRead(page, 'friedman');
   expect(friedman.reportText).toContain('Friedman');
   expect(friedman.resultsText).toContain('4.6667');
+});
+
+test('Box row-random inference renders effect-specific corrections and survives archive reopen', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  await openBox(page);
+  await page.evaluate(rows => {
+    const box=window.Components.box;
+    const groupsCount=rows[0]?.length || 0;
+    const conditionsCount=rows[0]?.[0]?.length || 0;
+    const groups=Array.from({length:groupsCount},(_,index)=>`Group ${index+1}`);
+    const conditions=Array.from({length:conditionsCount},(_,index)=>`Condition ${index+1}`);
+    const payload=box.createEmptyPayload();
+    payload.config.tableFormat='grouped';
+    payload.config.grouped={
+      ...(payload.config.grouped || {}),
+      replicatesPerGroup:conditionsCount,
+      groups,
+      conditions
+    };
+    payload.config.stats={
+      ...(payload.config.stats || {}),
+      groupedAnalysis:'rowRandomMixed',
+      test:'parametric',
+      mode:'all'
+    };
+    const groupHeader=groups.flatMap(label=>[label,...Array(conditionsCount-1).fill('')]);
+    const conditionHeader=groups.flatMap(()=>conditions);
+    payload.data=[groupHeader,conditionHeader,...rows.map(subject=>subject.flat())];
+    box.loadFromPayload(payload,{source:'e2e-row-random-sphericity'});
+  },rowRandomSphericityFixture.rows);
+  await waitForComponentOwnerReady(page,'box',{requireMountedRoot:true,requireIdle:true});
+  await page.locator(active('#boxComputeStats')).click();
+  await expect(page.locator(active('#boxStatsStatus'))).toContainText('Statistics up to date.',{timeout:60_000});
+
+  const read=()=>page.evaluate(()=>{
+    const box=window.Components.box;
+    const owner=box.__testHooks.getSession(window.Main.session.getActiveTab().id,{create:false});
+    return {
+      report:owner?.state?.results?.report || null,
+      text:document.querySelector('#boxPage:not([hidden]) #statsResults')?.textContent || ''
+    };
+  });
+  const before=await read();
+  const repeated=before.report?.analysisSpec?.repeatedMeasures;
+  expect(repeated).toMatchObject({
+    design:'fully-crossed-within-subjects',
+    primaryCorrection:'greenhouse-geisser',
+    subjectCount:16
+  });
+  for(const effect of Object.values(repeated.effects)){
+    expect(effect.gg.available).toBe(true);
+    expect(effect.hf.available).toBe(true);
+    expect(effect.primaryMethod).toBe('greenhouse-geisser');
+  }
+  expect(before.text).toContain('Effect-specific sphericity corrections');
+  expect(before.text).toContain('p (GG primary)');
+  expect(before.text).toContain('p (HF supplementary)');
+  expect(before.text).toContain('p (uncorrected reference)');
+
+  const archive=testInfo.outputPath('row-random-sphericity.graph');
+  await saveWorkspaceArchive(page,archive,{scope:'workspace',snapshotKind:'document-snapshot',compression:'STORE'});
+  await openWorkspaceArchive(page,archive,{componentType:'box'});
+  await waitForComponentOwnerReady(page,'box',{requireMountedRoot:true,requireIdle:true});
+  await expect.poll(async()=>(await read()).report).toEqual(before.report);
+  expect((await read()).text).toBe(before.text);
+});
+
+test('Box grouped model guidance stays concise while Methods records each design', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openBox(page);
+  await page.evaluate(() => {
+    const box=window.Components.box;
+    const rows=[
+      [[10,13],[16,18]], [[12,14],[17,21]], [[9,12],[16,17]],
+      [[13,17],[19,20]], [[11,15],[18,22]], [[14,16],[21,22]]
+    ];
+    const groups=['Control','Treatment'];
+    const conditions=['Before','After'];
+    const payload=box.createEmptyPayload();
+    payload.config.tableFormat='grouped';
+    payload.config.grouped={
+      ...(payload.config.grouped || {}),
+      replicatesPerGroup:2,
+      groups,
+      conditions
+    };
+    payload.config.stats={
+      ...(payload.config.stats || {}),
+      groupedAnalysis:'rowRandomMixed',
+      groupedComparisonScope:'groupsWithinCondition',
+      groupedMultiplicityFamily:'global',
+      correction:'holm',
+      test:'parametric',
+      mode:'all'
+    };
+    payload.data=[
+      ['Control','','Treatment',''],
+      ['Before','After','Before','After'],
+      ...rows.map(subject=>subject.flat())
+    ];
+    box.loadFromPayload(payload,{source:'e2e-grouped-methods-guidance'});
+  });
+  await waitForComponentOwnerReady(page,'box',{requireMountedRoot:true,requireIdle:true});
+
+  const cases=[
+    {
+      analysis:'rowRandomMixed',
+      controlHint:'Complete subjects are required; see Methods for the model and corrections.',
+      methodTerms:['normal contrast errors','Greenhouse–Geisser','Huynh–Feldt','No formal sphericity test']
+    },
+    {
+      analysis:'nestedRepeatedTwoWay',
+      controlHint:'Requires complete, balanced data with two conditions; see Methods.',
+      methodTerms:['exactly two conditions','complete and balanced','approximately normal residuals','homogeneous group-level error variances','subject-within-group-by-condition error']
+    },
+    {
+      analysis:'multipleComparisons',
+      controlHint:'See Methods for the selected comparisons and multiplicity family.',
+      methodTerms:['groups within each condition','Welch t-tests','global multiplicity family','Holm adjustment']
+    }
+  ];
+  for(const item of cases){
+    await page.evaluate(analysis=>{
+      const box=window.Components.box;
+      const payload=box.getPayload();
+      payload.config.stats.groupedAnalysis=analysis;
+      payload.config.stats.groupedComparisonScope='groupsWithinCondition';
+      payload.config.stats.groupedMultiplicityFamily='global';
+      payload.config.stats.correction='holm';
+      box.loadFromPayload(payload,{source:`e2e-grouped-methods-${analysis}`});
+    },item.analysis);
+    await waitForComponentOwnerReady(page,'box',{requireMountedRoot:true,requireIdle:true});
+    const guidance=page.locator(active('#statsControls .stats-help-text'));
+    await expect(guidance).toHaveText(item.controlHint);
+    expect((await guidance.innerText()).length).toBeLessThan(100);
+    await page.locator(active('#boxComputeStats')).click();
+    await expect(page.locator(active('#boxStatsStatus'))).toContainText('Statistics up to date.',{timeout:60_000});
+    const report=await page.evaluate(()=>{
+      const tab=window.Main.session.getActiveTab();
+      return window.Components.box.__testHooks.getSession(tab.id,{create:false})?.state?.results?.report || null;
+    });
+    expect(report?.methodsText).toBeTruthy();
+    for(const term of item.methodTerms){
+      expect(report.methodsText).toContain(term);
+    }
+  }
 });
 
 async function openBox(page) {

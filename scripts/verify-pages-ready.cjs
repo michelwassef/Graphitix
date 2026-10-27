@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
 const forbiddenPaths = [
@@ -19,10 +20,19 @@ function fail(message) {
   throw new Error(message);
 }
 
-function assertAbsent(relativePath) {
-  const target = path.join(root, relativePath);
-  if (fs.existsSync(target)) {
-    fail(`Publication artifact should not be committed: ${relativePath}`);
+function assertUntracked(relativePath) {
+  let trackedFiles;
+  try {
+    trackedFiles = execFileSync('git', ['ls-files', '--cached', '--', relativePath], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    }).split(/\r?\n/).filter(Boolean);
+  } catch (error) {
+    fail(`Could not verify tracked publication artifacts for ${relativePath}: ${error.message}`);
+  }
+  if (trackedFiles.length) {
+    fail(`Publication artifact is tracked: ${trackedFiles.join(', ')}`);
   }
 }
 
@@ -49,7 +59,7 @@ function assertStaticReferencesExist() {
 }
 
 function main() {
-  forbiddenPaths.forEach(assertAbsent);
+  forbiddenPaths.forEach(assertUntracked);
   assertStaticReferencesExist();
   console.log('GitHub Pages readiness checks passed.');
 }

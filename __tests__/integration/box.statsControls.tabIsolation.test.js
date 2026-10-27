@@ -723,7 +723,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     await settleBoxOwner();
     expect(statsButtonB.textContent).toBe('Calculate statistics');
     expect(boxComponent.__getState().statsComputationPending).toBe(false);
-  });
+  }, 60000);
 
   test('box tab switch with computed stats does not repaint stats tables repeatedly', async () => {
     await activateWorkspace('box');

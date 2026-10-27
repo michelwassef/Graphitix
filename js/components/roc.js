@@ -1004,7 +1004,7 @@
     };
   }
 
-  function buildRocCompareResultSignature({ graphType, diffMethod, compareSelection, pairsA, pairsB, resamplingSeed, resamplingIterations, positiveClass, negativeClass, scoreDirection } = {}){
+  function buildRocCompareResultSignature({ graphType, diffMethod, compareSelection, pairsA, pairsB, resamplingSeed, resamplingIterations, positiveClass, negativeClass, scoreDirection, alpha = 0.05 } = {}){
     const normalizePairs = pairs => (Array.isArray(pairs) ? pairs : []).map(pair => [
       pair?.label === 1 ? 1 : 0,
       Number.isFinite(Number(pair?.score)) ? Number(pair.score) : null
@@ -1018,6 +1018,7 @@
       positiveClass,
       negativeClass,
       scoreDirection: normalizeRocScoreDirection(scoreDirection),
+      alpha: Number.isFinite(Number(alpha)) && Number(alpha) > 0 && Number(alpha) < 1 ? Number(alpha) : 0.05,
       pairsA: normalizePairs(pairsA),
       pairsB: normalizePairs(pairsB)
     });
@@ -1043,13 +1044,14 @@
     return normalized;
   }
 
-  function buildRocAnalysisSignature({ data, graphType, positiveClass, negativeClass, scoreDirection, singleRocPMethod, diffMethod, compareSelection, resamplingSeed, resamplingIterations } = {}){
+  function buildRocAnalysisSignature({ data, graphType, positiveClass, negativeClass, scoreDirection, singleRocPMethod, diffMethod, compareSelection, resamplingSeed, resamplingIterations, alpha = 0.05 } = {}){
     return JSON.stringify({
       data: normalizeRocAnalysisSignatureData(data),
       graphType: String(graphType || 'roc').toLowerCase() === 'pr' ? 'pr' : 'roc',
       positiveClass,
       negativeClass,
       scoreDirection: normalizeRocScoreDirection(scoreDirection),
+      alpha: Number.isFinite(Number(alpha)) && Number(alpha) > 0 && Number(alpha) < 1 ? Number(alpha) : 0.05,
       singleRocPMethod: normalizeSingleRocPMethod(singleRocPMethod),
       diffMethod: String(diffMethod || 'delong'),
       compareSelection: compareSelection == null ? null : String(compareSelection),
@@ -1058,13 +1060,14 @@
     });
   }
 
-  function buildRocSingleCurveSignature({ data, graphType, positiveClass, negativeClass, scoreDirection, singleRocPMethod } = {}){
+  function buildRocSingleCurveSignature({ data, graphType, positiveClass, negativeClass, scoreDirection, singleRocPMethod, alpha = 0.05 } = {}){
     return JSON.stringify({
       data: normalizeRocAnalysisSignatureData(data),
       graphType: String(graphType || 'roc').toLowerCase() === 'pr' ? 'pr' : 'roc',
       positiveClass,
       negativeClass,
       scoreDirection: normalizeRocScoreDirection(scoreDirection),
+      alpha: Number.isFinite(Number(alpha)) && Number(alpha) > 0 && Number(alpha) < 1 ? Number(alpha) : 0.05,
       singleRocPMethod: normalizeSingleRocPMethod(singleRocPMethod)
     });
   }
@@ -1113,17 +1116,22 @@
     const diff = Number(result.diff);
     const p = toNumericPValue(result.p);
     const ci = Array.isArray(result.ci) ? result.ci : null;
+    const ciPercent = Math.round((Number.isFinite(Number(result.ciLevel)) ? Number(result.ciLevel) : 0.95) * 100);
+    const ciText = ci && Number.isFinite(Number(ci[0])) && Number.isFinite(Number(ci[1]))
+      ? `; ${ciPercent}% CI [${Number(ci[0]).toFixed(3)}, ${Number(ci[1]).toFixed(3)}]`
+      : '';
+    const method = String(result.method || diffMethod || '').toLowerCase();
     if(!Number.isFinite(diff) || !isValidPValue(p)){
       return '';
     }
     const metric = graphType === 'roc' ? 'ΔAUC' : 'ΔAP';
-    if(graphType === 'roc' && diffMethod === 'delong'){
-      return `${metric} = ${diff.toFixed(3)}; 95% CI [${Number(ci?.[0]).toFixed(3)}, ${Number(ci?.[1]).toFixed(3)}]; ${formatRocPExpression(p)}`;
+    if(graphType === 'roc' && method === 'delong'){
+      return `${metric} = ${diff.toFixed(3)}${ciText}; ${formatRocPExpression(p)}`;
     }
-    if(diffMethod === 'bootstrap'){
-      return `${metric} = ${diff.toFixed(3)}; 95% CI [${Number(ci?.[0]).toFixed(3)}, ${Number(ci?.[1]).toFixed(3)}]; ${formatRocPExpression(p)}`;
+    if(method.includes('bootstrap')){
+      return `${metric} = ${diff.toFixed(3)}${ciText}; ${formatRocPExpression(p)}`;
     }
-    if(diffMethod === 'permutation'){
+    if(method.includes('permutation')){
       return `${metric} = ${diff.toFixed(3)}; ${formatRocPExpression(p)}`;
     }
     return '';
@@ -2579,14 +2587,14 @@
     return nextControls;
   }
 
-  function buildRocSeriesAnalysis(serie, graphType, pMethod = state.singleRocPMethod, calculateHypothesisTest = false){
+  function buildRocSeriesAnalysis(serie, graphType, pMethod = state.singleRocPMethod, calculateHypothesisTest = false, alpha = 0.05){
     const pairs = Array.isArray(serie?.pairs) ? serie.pairs : [];
     const rankedCurve = buildRankedCurve(pairs, graphType);
     const normalizedGraphType = String(graphType || 'roc').toLowerCase();
     const aucUncertainty = normalizedGraphType === 'roc'
       ? (calculateHypothesisTest && normalizeSingleRocPMethod(pMethod) !== 'off'
-        ? computeSingleAucInference(rankedCurve.sorted, 0.05, pMethod)
-        : computeDeLongAucEstimate(rankedCurve.sorted, 0.05))
+        ? computeSingleAucInference(rankedCurve.sorted, alpha, pMethod)
+        : computeDeLongAucEstimate(rankedCurve.sorted, alpha))
       : null;
     return {
       serie,
@@ -4414,6 +4422,12 @@
       });
     });
     comparisonMethod.appendChild(select);
+    if(graphType === 'roc' && state.diffMethod === 'delong'){
+      const comparisonCaution = document.createElement('p');
+      comparisonCaution.className = 'stats-help-text';
+      comparisonCaution.textContent = 'For nested models developed and evaluated on the same sample, the DeLong significance test is not valid.';
+      comparisonControls.appendChild(comparisonCaution);
+    }
 
     if(state.diffMethod === 'bootstrap' || state.diffMethod === 'permutation'){
       const resamplingControls = document.createElement('div');
@@ -4935,15 +4949,27 @@
     const v10 = positives.map(score => negatives.reduce((sum, negative) => sum + kernel(score, negative), 0) / n);
     const v01 = negatives.map(score => positives.reduce((sum, positive) => sum + kernel(positive, score), 0) / m);
     const auc = v10.reduce((sum, value) => sum + value, 0) / m;
-    const variance = Math.max(0, (computeSampleVariance(v10) / m) + (computeSampleVariance(v01) / n));
+    const variance = m > 1 && n > 1
+      ? Math.max(0, (computeSampleVariance(v10) / m) + (computeSampleVariance(v01) / n))
+      : NaN;
     const se = Math.sqrt(variance);
     const zCritical = resolveRocZCritical(alpha);
+    let ciLow = null;
+    let ciHigh = null;
+    if(auc > 0 && auc < 1 && Number.isFinite(se) && se > 0 && Number.isFinite(zCritical)){
+      const logit = Math.log(auc) - Math.log1p(-auc);
+      const logitSe = se / (auc * (1 - auc));
+      const inverseLogit = value => value >= 0 ? 1 / (1 + Math.exp(-value)) : Math.exp(value) / (1 + Math.exp(value));
+      ciLow = inverseLogit(logit - zCritical * logitSe);
+      ciHigh = inverseLogit(logit + zCritical * logitSe);
+    }
     return {
       auc,
       variance,
       se,
-      ciLow: Math.max(0, auc - (zCritical * se)),
-      ciHigh: Math.min(1, auc + (zCritical * se)),
+      ciLow,
+      ciHigh,
+      ciLevel: 1 - alpha,
       method: 'DeLong'
     };
   }
@@ -5159,9 +5185,14 @@
     if(!diffs.length){ return null; }
     const centeredExtreme = diffs.filter(diff => Math.abs(diff - baseDiff) >= Math.abs(baseDiff)).length;
     diffs.sort((a, b) => a - b);
+    const ciLevel = Number.isFinite(Number(options?.ciLevel)) && Number(options.ciLevel) > 0.5 && Number(options.ciLevel) < 1
+      ? Number(options.ciLevel)
+      : 0.95;
+    const tail = (1 - ciLevel) / 2;
     return {
       p: (centeredExtreme + 1) / (diffs.length + 1),
-      ci: [percentile(diffs, 0.025), percentile(diffs, 0.975)],
+      ci: [percentile(diffs, tail), percentile(diffs, 1 - tail)],
+      ciLevel,
       diff: baseDiff,
       seed: config.seed,
       iterations: config.iterations,
@@ -5189,7 +5220,11 @@
     if(!diffs.length){ return null; }
     const centeredExtreme = diffs.filter(diff => Math.abs(diff - baseDiff) >= Math.abs(baseDiff)).length;
     diffs.sort((a, b) => a - b);
-    return { p:(centeredExtreme + 1)/(diffs.length + 1), ci:[percentile(diffs,0.025),percentile(diffs,0.975)], diff:baseDiff, seed:config.seed, iterations:config.iterations, pairedCount:aligned.length, method:'paired-bootstrap' };
+    const ciLevel = Number.isFinite(Number(options?.ciLevel)) && Number(options.ciLevel) > 0.5 && Number(options.ciLevel) < 1
+      ? Number(options.ciLevel)
+      : 0.95;
+    const tail = (1 - ciLevel) / 2;
+    return { p:(centeredExtreme + 1)/(diffs.length + 1), ci:[percentile(diffs,tail),percentile(diffs,1-tail)], ciLevel, diff:baseDiff, seed:config.seed, iterations:config.iterations, pairedCount:aligned.length, method:'paired-bootstrap' };
   }
 
   function permutationCurveDiff(pairs1, pairs2, graphType, options = {}){
@@ -5226,7 +5261,7 @@
     return { p:(count+1)/(config.iterations+1), diff:baseDiff, seed:config.seed, iterations:config.iterations, pairedCount:aligned.length, method:'paired-permutation' };
   }
 
-  function delongCurveDiff(pairs1, pairs2){
+  function delongCurveDiff(pairs1, pairs2, alpha = 0.05){
     const aligned = alignPairedCurveObservations(pairs1, pairs2);
     const positives = aligned.filter(row => row.label === 1);
     const negatives = aligned.filter(row => row.label === 0);
@@ -5254,8 +5289,8 @@
     const diff=first.auc-second.auc;
     const z=se>0?diff/se:(diff===0?0:Math.sign(diff)*Infinity);
     const p=se>0?rocNormalTwoSidedPValue(z):(diff===0?1:0);
-    const critical=resolveRocZCritical(0.05);
-    return { p, diff, ci:[diff-critical*se,diff+critical*se], se, z, pairedCount:aligned.length, method:'DeLong' };
+    const critical=resolveRocZCritical(alpha);
+    return { p, diff, ci:[diff-critical*se,diff+critical*se], ciLevel:1-alpha, se, z, pairedCount:aligned.length, method:'DeLong' };
   }
 
   function toNumericPValue(value){
@@ -5506,6 +5541,7 @@
       return false;
     }
     const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const ciPercent = Math.round((1 - getRocStatsAlpha({ session })) * 100);
     const statsResults = rocRefs.statsResults || null;
     if(!statsResults){
       return false;
@@ -5612,7 +5648,7 @@
               { key:'series', label:'Series', align:'left' },
               { key:'auc', label:'AUC', align:'right' },
               { key:'aucSe', label:'AUC SE', align:'right' },
-              { key:'aucCi', label:'AUC 95% CI', align:'right' },
+              { key:'aucCi', label:`AUC ${ciPercent}% CI`, align:'right' },
               ...(hasSingleCurveInference ? [
                 { key:'pCell', label:'p (AUC = 0.5)', align:'right' },
                 { key:'pMethod', label:'Test method', align:'left' }
@@ -5620,7 +5656,7 @@
             ],
             rows,
             footnotes:[
-              'AUC is tie-aware; standard errors and 95% confidence intervals use the nonparametric DeLong estimate.',
+              `AUC is tie-aware; standard errors use the nonparametric DeLong estimate and ${ciPercent}% confidence intervals use a logit transformation.`,
               ...(hasSingleCurveInference ? [`Single-curve p-values test AUC = 0.5${pMethods.length ? `; method(s): ${pMethods.join('; ')}` : ''}.`] : []),
               ...fallbacks.map(reason => `Exact-test fallback: ${reason}`)
             ],
@@ -5639,7 +5675,7 @@
             footnotes:[
               'Cutoffs maximize Youden’s J; ties are resolved by proximity to the top-left ROC corner, then by the original score threshold.',
               `Positive class: ${formatRocClassValue(setup.positiveClass)}; negative class: ${formatRocClassValue(setup.negativeClass)}. ${setup.scoreDirection === 'lower' ? 'Lower' : 'Higher'} scores indicate positive.`,
-              'Full cutoff tables include Wilson 95% confidence intervals for sensitivity, specificity, PPV, and NPV.'
+              `Full cutoff tables include Wilson ${ciPercent}% confidence intervals for sensitivity, specificity, PPV, and NPV. The cutoff and its metrics are apparent estimates selected and evaluated on this same sample.`
             ],
             options:{ fileName:'roc-operating-point', contextLabel:'roc-operating-point' }
           },
@@ -5670,10 +5706,10 @@
         }];
     const thresholdTableColumns = [
       { key:'threshold', label:'Threshold', align:'right' },
-      { key:'sensitivity', label:'Sensitivity (95% CI)', align:'right' },
-      { key:'specificity', label:'Specificity (95% CI)', align:'right' },
-      { key:'ppv', label:'PPV (95% CI)', align:'right' },
-      { key:'npv', label:'NPV (95% CI)', align:'right' },
+      { key:'sensitivity', label:`Sensitivity (${ciPercent}% CI)`, align:'right' },
+      { key:'specificity', label:`Specificity (${ciPercent}% CI)`, align:'right' },
+      { key:'ppv', label:`PPV (${ciPercent}% CI)`, align:'right' },
+      { key:'npv', label:`NPV (${ciPercent}% CI)`, align:'right' },
       { key:'lrPositive', label:'LR+', align:'right' },
       { key:'lrNegative', label:'LR-', align:'right' },
       { key:'accuracy', label:'Accuracy', align:'right' }
@@ -5888,7 +5924,7 @@
       columns: [
         { key: 'comparison', label: 'Comparison', align: 'left' },
         { key: 'difference', label: metricLabel, align: 'right' },
-        { key: 'ci', label: '95% CI', align: 'right' },
+        { key: 'ci', label: `${ciPercent}% CI`, align: 'right' },
         { key: 'p', label: 'p-value', align: 'right' },
         { key: 'method', label: 'Method', align: 'left' }
       ],
@@ -5969,6 +6005,7 @@
     const rocRefs = resolveRocStatsRefsForSession(session, options);
     const formatOptions = { ...options, session, refs: rocRefs };
     const alpha = getRocStatsAlpha(formatOptions);
+    const ciPercent = Math.round((1 - alpha) * 100);
     const setup = list[0] || {};
     const singleCurvePMethods = Array.from(new Set(list
       .filter(stat => isValidPValue(stat?.pVal) && stat?.pMethod)
@@ -5993,7 +6030,7 @@
     if(normalizedGraphType === 'roc'){
       analysisRows.push({
       label: 'Inference',
-        value: `95% DeLong AUC confidence intervals${singleCurveMethodText}; α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}${list.length > 1 ? '; per-curve AUC p-values are unadjusted across curves' : ''}`,
+        value: `${ciPercent}% logit-transformed DeLong AUC confidence intervals${singleCurveMethodText}; α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}${list.length > 1 ? '; per-curve AUC p-values are unadjusted across curves' : ''}`,
         figureRole:'inference',
         figurePriority:70
       });
@@ -6012,7 +6049,7 @@
           `${sampleText}AUC = ${formatRocDecimal(stat?.auc, 3)}`
         ];
         if(Number.isFinite(Number(stat?.aucCiLow)) && Number.isFinite(Number(stat?.aucCiHigh))){
-          parts.push(`; 95% CI [${formatRocDecimal(stat.aucCiLow, 3)}, ${formatRocDecimal(stat.aucCiHigh, 3)}]`);
+          parts.push(`; ${ciPercent}% CI [${formatRocDecimal(stat.aucCiLow, 3)}, ${formatRocDecimal(stat.aucCiHigh, 3)}]`);
         }
         if(Number.isFinite(Number(stat?.mannWhitneyU))){
           parts.push(`; U = ${formatRocDecimal(stat.mannWhitneyU, 2)}`);
@@ -6056,6 +6093,13 @@
     const hasValidComparison = Number.isInteger(firstIndex) && Number.isInteger(secondIndex)
       && firstIndex >= 0 && secondIndex > firstIndex && secondIndex < list.length
       && Number.isFinite(Number(diffResult?.diff));
+    const activeDiffMethod = session?.results?.diffMethod || session?.state?.diffMethod || state.diffMethod || 'delong';
+    if(normalizedGraphType === 'roc' && activeDiffMethod === 'delong' && compareSelection){
+      analysisRows.push({
+        label:'DeLong comparison caution',
+        value:'The DeLong significance test is not valid when comparing nested models developed and evaluated on the same sample.'
+      });
+    }
     if(hasValidComparison){
       const firstName = String(list[firstIndex]?.name || `Curve ${firstIndex + 1}`);
       const secondName = String(list[secondIndex]?.name || `Curve ${secondIndex + 1}`);
@@ -6064,12 +6108,12 @@
       if(isValidPValue(diffResult?.p)){
         analysisRows.push({
           label:'Curve-comparison inference',
-          value:`One prespecified paired comparison (${firstName} vs ${secondName}); ${comparisonMethod || 'configured paired method'}; two-sided p-value; 95% confidence interval; α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}; no multiplicity adjustment required.`
+          value:`One prespecified paired comparison (${firstName} vs ${secondName}); ${comparisonMethod || 'configured paired method'}; two-sided p-value; ${Math.round((Number.isFinite(Number(diffResult?.ciLevel)) ? Number(diffResult.ciLevel) : 0.95) * 100)}% confidence interval; α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}; no multiplicity adjustment required.`
         });
       }
       const parts = [`${firstName} − ${secondName}: ${metric} = ${formatRocDecimal(diffResult.diff, 3)}`];
       if(Array.isArray(diffResult?.ci) && Number.isFinite(Number(diffResult.ci[0])) && Number.isFinite(Number(diffResult.ci[1]))){
-        parts.push(`; 95% CI [${formatRocDecimal(diffResult.ci[0], 3)}, ${formatRocDecimal(diffResult.ci[1], 3)}]`);
+        parts.push(`; ${Math.round((Number.isFinite(Number(diffResult?.ciLevel)) ? Number(diffResult.ciLevel) : 0.95) * 100)}% CI [${formatRocDecimal(diffResult.ci[0], 3)}, ${formatRocDecimal(diffResult.ci[1], 3)}]`);
       }
       if(Number.isFinite(Number(diffResult?.z))){
         parts.push(`; z = ${formatRocDecimal(diffResult.z, 3)}`);
@@ -6121,8 +6165,9 @@
     const resamplingIterations = session?.state?.resamplingIterations ?? state.resamplingIterations;
     const compareSelection = session?.results?.compareSelection || session?.state?.compareSelection || state.compareSelection || (isRocSessionActive(session) ? state.compareSel?.value : null) || null;
     const formatOptions = { ...options, session, refs: rocRefs };
+    const ciPercent = Math.round((1 - getRocStatsAlpha(formatOptions)) * 100);
     const primaryCiText = graphType === 'roc' && Number.isFinite(primary?.aucCiLow) && Number.isFinite(primary?.aucCiHigh)
-      ? `; 95% CI [${formatRocDecimal(primary.aucCiLow,3)}, ${formatRocDecimal(primary.aucCiHigh,3)}]`
+      ? `; ${ciPercent}% CI [${formatRocDecimal(primary.aucCiLow,3)}, ${formatRocDecimal(primary.aucCiHigh,3)}]`
       : '';
     const primaryTextPrefix = primary
       ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'average precision'} = ${formatRocDecimal(primary.auc,3)}${primaryCiText}${graphType === 'roc' && isValidPValue(primary.pVal) ? '; two-sided Mann–Whitney p = ' : '.'}`
@@ -6132,13 +6177,13 @@
     const compareParts = compareText && diffResult && isValidPValue(diffResult.p)
       ? [
           `${graphType === 'roc' ? 'ΔAUC' : 'ΔAP'} = ${diffResult.diff.toFixed(3)} (${diffResult.method || diffMethod})`,
-          Array.isArray(diffResult.ci) ? `; 95% CI [${diffResult.ci[0].toFixed(3)}, ${diffResult.ci[1].toFixed(3)}]` : '',
+          Array.isArray(diffResult.ci) ? `; ${Math.round((Number.isFinite(Number(diffResult.ciLevel)) ? Number(diffResult.ciLevel) : 0.95) * 100)}% CI [${diffResult.ci[0].toFixed(3)}, ${diffResult.ci[1].toFixed(3)}]` : '',
           '; p = ',
           { type:'pValue', value:diffResult.p, fallback:String(formatPValue(diffResult.p, formatOptions)), __statsInference:createRocInferenceSpec(formatOptions) }
         ]
       : (compareText || null);
     Shared.statsReporting.appendReportPanel(statsResults, {
-      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. Positive class: ${positiveClassText}. Negative class: ${negativeClassText}. Score direction: ${scoreDirectionText}. ${graphType === 'roc' ? `Tied scores were processed as one threshold. AUC standard errors and Wald 95% confidence intervals were calculated using the nonparametric DeLong variance estimate. ${hasSingleCurveInference ? 'Single-curve significance was tested with a two-sided Mann–Whitney test of AUC = 0.5. Exact inference was used for eligible untied samples; otherwise, tie-corrected, continuity-corrected asymptotic inference was used.' : 'Single-curve hypothesis tests were not calculated.'} The default cutoff maximized the Youden index. Diagnostic-rate confidence intervals used the Wilson method.` : 'Tied scores were processed as one threshold. Average precision used step-wise precision weighted by increases in recall. The displayed cutoff maximized F1.'} ${diffResult && diffMethod !== 'delong' ? `Monte Carlo curve-comparison p-values used ${resamplingIterations} iterations with seed ${resamplingSeed}.` : ''} ${hasSingleCurveInference || (diffResult && isValidPValue(diffResult.p)) ? `Inferential decisions used α = ${Shared.statsInference?.formatLevel?.(getRocStatsAlpha(formatOptions)) || getRocStatsAlpha(formatOptions)}.` : ''} Cutoff rule: ${cutoffRuleText}.`,
+      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. Positive class: ${positiveClassText}. Negative class: ${negativeClassText}. Score direction: ${scoreDirectionText}. ${graphType === 'roc' ? `Tied scores were processed as one threshold. AUC standard errors use the nonparametric DeLong variance estimate; ${ciPercent}% AUC confidence intervals use a logit transformation. ${hasSingleCurveInference ? 'Single-curve significance was tested with a two-sided Mann–Whitney test of AUC = 0.5. Exact inference was used for eligible untied samples; otherwise, tie-corrected, continuity-corrected asymptotic inference was used.' : 'Single-curve hypothesis tests were not calculated.'} The default cutoff maximized the Youden index. Cutoff and diagnostic-rate estimates are apparent because they were selected and evaluated on the same data; validate thresholds on independent data. Diagnostic-rate confidence intervals used the Wilson method.` : 'Tied scores were processed as one threshold. Average precision used step-wise precision weighted by increases in recall. The displayed cutoff maximized F1 on the same sample and is an apparent estimate.'} ${graphType === 'roc' && compareSelection && diffMethod === 'delong' ? 'The DeLong significance test is not valid for nested models developed and evaluated on the same sample.' : ''} ${diffResult && diffMethod !== 'delong' ? `Monte Carlo curve-comparison p-values used ${resamplingIterations} iterations with seed ${resamplingSeed}.` : ''} ${hasSingleCurveInference || (diffResult && isValidPValue(diffResult.p)) ? `Inferential decisions used α = ${Shared.statsInference?.formatLevel?.(getRocStatsAlpha(formatOptions)) || getRocStatsAlpha(formatOptions)}.` : ''} Cutoff rule: ${cutoffRuleText}.`,
       resultsText: [
         `${stats.length} series were analyzed.`,
         primary ? (graphType === 'roc' && isValidPValue(primary.pVal) ? `${primaryTextPrefix}${formatPValue(primary.pVal, formatOptions)}.` : primaryTextPrefix) : null,
@@ -6479,6 +6524,7 @@
       populateRocCompareOptions(series.map(s => s.name), drawSession);
     }
 
+    const analysisAlpha = getRocStatsAlpha({ session:drawSession, tabId:drawTabId });
     const analysisSignature = buildRocAnalysisSignature({
       data,
       graphType,
@@ -6489,7 +6535,8 @@
       diffMethod: state.diffMethod,
       compareSelection: state.compareSelection || state.compareSel?.value || null,
       resamplingSeed: state.resamplingSeed,
-      resamplingIterations: state.resamplingIterations
+      resamplingIterations: state.resamplingIterations,
+      alpha: analysisAlpha
     });
     const singleCurveSignature = buildRocSingleCurveSignature({
       data,
@@ -6497,7 +6544,8 @@
       positiveClass: classification.positiveClass,
       negativeClass: classification.negativeClass,
       scoreDirection: classification.scoreDirection,
-      singleRocPMethod: state.singleRocPMethod
+      singleRocPMethod: state.singleRocPMethod,
+      alpha: analysisAlpha
     });
     // A settings-change redraw may cache the curve estimates before the user
     // requests hypothesis tests. Rebuild on the explicit action so the test is
@@ -6529,7 +6577,8 @@
         serie,
         graphType,
         state.singleRocPMethod,
-        meta.calculateStatistics === true
+        meta.calculateStatistics === true,
+        analysisAlpha
       ));
       if(meta.calculateStatistics !== true && graphType === 'roc' && state.singleRocPMethod !== 'off'){
         seriesAnalyses = applyRocSingleCurveInference(
@@ -7163,7 +7212,7 @@
         allPairs.push(rankedPairs);
         const auc = rankedCurve.metric;
         const avgPrecision = graphType === 'pr' ? rankedCurve.metric : undefined;
-        const analysisThresholdRows = buildRocThresholdMetricsTable(rankedPairs);
+        const analysisThresholdRows = buildRocThresholdMetricsTable(rankedPairs, analysisAlpha);
         const selectedCutoff = graphType === 'roc' ? selectYoudenThreshold(analysisThresholdRows) : selectMaximumF1Threshold(analysisThresholdRows);
         const thresholdRows = analysisThresholdRows.map(row => ({
           ...row,
@@ -7413,7 +7462,8 @@
         resamplingIterations: state.resamplingIterations,
         positiveClass: classification.positiveClass,
         negativeClass: classification.negativeClass,
-        scoreDirection: classification.scoreDirection
+        scoreDirection: classification.scoreDirection,
+        alpha: analysisAlpha
       });
       const savedCompareResult = normalizeRocCompareResultModel(state.compareResultModel);
       if(savedCompareResult
@@ -7427,9 +7477,9 @@
         diffResult = cloneSimple(savedCompareResult.result) || null;
       }else if(meta.calculateStatistics === true){
         if(graphType === 'roc' && state.diffMethod === 'delong'){
-          diffResult = delongCurveDiff(pairsA, pairsB);
+          diffResult = delongCurveDiff(pairsA, pairsB, analysisAlpha);
         }else if(state.diffMethod === 'bootstrap'){
-          diffResult = await bootstrapCurveDiffCooperative(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations }, checkpoint);
+          diffResult = await bootstrapCurveDiffCooperative(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations, ciLevel:1-analysisAlpha }, checkpoint);
         }else if(state.diffMethod === 'permutation'){
           diffResult = await permutationCurveDiffCooperative(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations }, checkpoint);
         }
@@ -8174,7 +8224,11 @@
         diffMethod: state.diffMethod,
         compareSelection: state.compareSelection,
         resamplingSeed: state.resamplingSeed,
-        resamplingIterations: state.resamplingIterations
+        resamplingIterations: state.resamplingIterations,
+        alpha: getRocStatsAlpha({
+          session:payloadSession || scheduleTargetSession || getActiveRocSessionForState(),
+          tabId:scheduleTargetTab || null
+        })
       });
       const statsSignatureMatches = !state.statsPanelSignature || state.statsPanelSignature === expectedAnalysisSignature;
       const statsOwnerSession = payloadSession || scheduleTargetSession || getActiveRocSessionForState();

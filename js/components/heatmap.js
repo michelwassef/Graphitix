@@ -6828,45 +6828,61 @@
     const method = ['bh', 'by', 'holm', 'none'].includes(String(correction || '').toLowerCase())
       ? String(correction).toLowerCase()
       : 'bh';
-    const pairCells = [];
+    const pairResults = [];
     for(let row = 0; row < model.cells.length; row += 1){
       for(let column = row + 1; column < model.cells[row].length; column += 1){
-        const pValue = toNumericPValue(model.cells[row]?.[column]?.pValue);
-        if(Number.isFinite(Number(model.cells[row]?.[column]?.raw))){
-          pairCells.push({ row, column, pValue: Number.isFinite(pValue) && pValue >= 0 && pValue <= 1 ? pValue : 1, available: Number.isFinite(pValue) && pValue >= 0 && pValue <= 1 });
+        const cell = model.cells[row]?.[column];
+        if(Number.isFinite(toNumericPValue(cell?.raw))){
+          pairResults.push({
+            row,
+            column,
+            raw:cell.raw,
+            rawPValue:cell.pValue
+          });
         }
       }
     }
-    if(model.significanceCorrection === method
-      && pairCells.filter(pair => pair.available).every(pair => Number.isFinite(toNumericPValue(model.cells[pair.row]?.[pair.column]?.adjustedPValue)))){
+    const adjustedPairResults = adjustHeatmapPairResults(pairResults, method);
+    const alreadyCurrent = model.significanceCorrection === method
+      && adjustedPairResults.every(pair => {
+        const expected = pair.adjustedPValue;
+        const current = model.cells[pair.row]?.[pair.column]?.adjustedPValue;
+        const mirrored = model.cells[pair.column]?.[pair.row]?.adjustedPValue;
+        return expected === null
+          ? current === null && mirrored === null
+          : toNumericPValue(current) === expected && toNumericPValue(mirrored) === expected;
+      });
+    if(alreadyCurrent){
       return model;
     }
-    const adjusted = adjustHeatmapPValueFamily(pairCells.map(pair => pair.pValue), method);
     const cells = model.cells.map(row => row.slice());
-    pairCells.forEach((pair, index) => {
-      if(!pair.available){ return; }
-      const adjustedPValue = adjusted[index];
-      cells[pair.row][pair.column] = { ...cells[pair.row][pair.column], adjustedPValue };
+    adjustedPairResults.forEach(pair => {
+      cells[pair.row][pair.column] = { ...cells[pair.row][pair.column], adjustedPValue:pair.adjustedPValue };
       if(cells[pair.column]?.[pair.row]){
-        cells[pair.column][pair.row] = { ...cells[pair.column][pair.row], adjustedPValue };
+        cells[pair.column][pair.row] = { ...cells[pair.column][pair.row], adjustedPValue:pair.adjustedPValue };
       }
     });
     return { ...model, cells, significanceCorrection: method };
   }
 
-  function adjustHeatmapPairResults(pairResults, correction){
+  function getHeatmapComputablePairResultIndexes(pairResults){
     const source = Array.isArray(pairResults) ? pairResults : [];
     const indices = [];
-    const rawPValues = [];
     source.forEach((pair, index) => {
       const rawPValue = toNumericPValue(pair?.rawPValue ?? pair?.pValue);
-      if(Number.isFinite(Number(pair?.raw))){
+      if(Number.isFinite(toNumericPValue(pair?.raw)) && Number.isFinite(rawPValue) && rawPValue >= 0 && rawPValue <= 1){
         indices.push(index);
-        rawPValues.push(Number.isFinite(rawPValue) && rawPValue >= 0 && rawPValue <= 1 ? rawPValue : 1);
       }
     });
+    return indices;
+  }
+
+  function adjustHeatmapPairResults(pairResults, correction){
+    const source = Array.isArray(pairResults) ? pairResults : [];
+    const indices = getHeatmapComputablePairResultIndexes(source);
+    const rawPValues = indices.map(index => toNumericPValue(source[index]?.rawPValue ?? source[index]?.pValue));
     const adjusted = adjustHeatmapPValueFamily(rawPValues, correction);
-    const output = source.map(pair => ({ ...pair }));
+    const output = source.map(pair => ({ ...pair, adjustedPValue:null }));
     indices.forEach((index, order) => {
       const rawPValue = toNumericPValue(output[index]?.rawPValue ?? output[index]?.pValue);
       output[index].adjustedPValue = Number.isFinite(rawPValue) && rawPValue >= 0 && rawPValue <= 1
@@ -9868,6 +9884,76 @@
     }
   }
 
+  function buildHeatmapCorrelationInferenceDisclosure(stats){
+    const pairResults = Array.isArray(stats?.pairResults) ? stats.pairResults.filter(Boolean) : [];
+    const computableIndexes = getHeatmapComputablePairResultIndexes(pairResults);
+    const computablePairResults = computableIndexes.map(index => pairResults[index]);
+    const showInference = stats?.showSignificance === true;
+    const savedInferencePairCount = Number.isFinite(Number(stats?.inferencePairCount))
+      ? Math.max(0, Number(stats.inferencePairCount))
+      : 0;
+    const inferencePairCount = showInference && stats?.method !== 'uncentered'
+      ? (pairResults.length > 0 ? pairResults.length : savedInferencePairCount)
+      : 0;
+    const unavailablePValueCount = Math.max(0, inferencePairCount - computablePairResults.length);
+    const pairwisePMethods = [...new Set(computablePairResults
+      .map(pair => String(pair?.pMethod || '').trim())
+      .filter(Boolean))];
+    const correction = String(stats?.significanceCorrection || 'none').toLowerCase();
+    const correctionLookup = { bh:'Benjamini–Hochberg', by:'Benjamini–Yekutieli', holm:'Holm', none:'None' };
+    const correctionName = correctionLookup[correction] || correction;
+    const isFdr = correction === 'bh' || correction === 'by';
+    const criterionLabel = isFdr ? 'target FDR' : (correction === 'none' ? 'α' : 'family-wise α');
+    const levelLabel = formatHeatmapInferenceLevelLabel(stats?.inferenceLevel);
+    const pairCountLabel = `${computablePairResults.length} computable unique off-diagonal pair${computablePairResults.length === 1 ? '' : 's'}`;
+    let methodsText = 'Inference is off; no cell p-values or adjustments are shown.';
+    let pValueMethodText = '';
+
+    if(showInference && stats?.method === 'uncentered'){
+      methodsText = 'Uncentered correlation does not compute p-values; multiplicity adjustment is not applicable.';
+      pValueMethodText = methodsText;
+    }else if(showInference && computablePairResults.length === 0){
+      const attemptedLabel = `${inferencePairCount} pair${inferencePairCount === 1 ? '' : 's'}`;
+      methodsText = `Inference was enabled, but no pairwise p-values were computable for ${attemptedLabel}; no multiplicity adjustment was applied.`;
+      pValueMethodText = `No ${stats?.method === 'spearman' ? 'Spearman' : 'Pearson'} pairwise p-values were computable.`;
+    }else if(showInference){
+      const adjustmentText = correction === 'none'
+        ? `No multiplicity adjustment was applied to ${pairCountLabel}; decisions used ${criterionLabel} = ${levelLabel}.`
+        : `${correctionName} adjustment was applied across ${pairCountLabel}; decisions used ${criterionLabel} = ${levelLabel}.`;
+      const methodLabel = stats?.method === 'spearman' ? 'Spearman' : 'Pearson';
+      const calibrationText = `${methodLabel} pairwise p-values used ${pairwisePMethods.join('; ') || 'the selected calibration'}.`;
+      const pearsonNullText = stats?.method === 'pearson'
+        ? 'The two-sided Pearson test evaluated a zero population correlation.'
+        : '';
+      const permutationAssumption = pairwisePMethods.some(method => /permutation/i.test(method))
+        ? 'Permutation calibration assumes exchangeability under the null.'
+        : '';
+      const unavailableText = unavailablePValueCount > 0
+        ? `${unavailablePValueCount} of ${inferencePairCount} pairs had no computable p-value and were excluded from adjustment.`
+        : '';
+      methodsText = [adjustmentText, calibrationText, pearsonNullText, permutationAssumption, unavailableText]
+        .filter(Boolean)
+        .join(' ');
+      pValueMethodText = calibrationText;
+    }
+
+    return {
+      pairResults,
+      computablePairResults,
+      pairwisePMethods,
+      testedPairCount: computablePairResults.length,
+      inferencePairCount,
+      unavailablePValueCount,
+      hasPairwiseInference: showInference && computablePairResults.length > 0,
+      methodsText,
+      pValueMethodText,
+      correction,
+      correctionName,
+      criterionLabel,
+      levelLabel
+    };
+  }
+
   function buildHeatmapFigureSummary(stats){
     if(!stats || typeof stats !== 'object'){ return null; }
     if(stats.type === 'values'){
@@ -9890,34 +9976,32 @@
     const methodLookup = { pearson:'Pearson correlation', spearman:'Spearman rank correlation', uncentered:'Uncentered correlation' };
     const methodLabel = methodLookup[stats.method] || String(stats.method || 'Correlation');
     const symbol = getHeatmapCorrelationSymbol(stats.method);
-    const correction = String(stats.significanceCorrection || 'none').toLowerCase();
-    const correctionLookup = { bh:'Benjamini–Hochberg', by:'Benjamini–Yekutieli', holm:'Holm', none:'None' };
-    const pairResults = Array.isArray(stats.pairResults) ? stats.pairResults.filter(Boolean) : [];
-    const pairwisePMethods = [...new Set(pairResults.map(pair => String(pair?.pMethod || '').trim()).filter(Boolean))];
-    const unavailablePValueCount = Number(stats.unavailablePValueCount || 0);
-    const hasPairwiseInference = stats.showSignificance === true && pairResults.some(pair => {
-      const value = toNumericPValue(pair.rawPValue ?? pair.pValue);
-      return Number.isFinite(value) && value >= 0 && value <= 1;
-    });
+    const inference = buildHeatmapCorrelationInferenceDisclosure(stats);
+    const pairResults = inference.pairResults;
+    const hasPairwiseInference = inference.hasPairwiseInference;
+    const correction = inference.correction;
     const analysisRows = [{ label:'Analysis', value:`${methodLabel} · ${Number(stats.itemCount || 0)} items · ${Number(stats.pairCount || 0)} evaluable unique pairs` }];
     if(stats.method === 'pearson' && hasPairwiseInference){
-      analysisRows.push({ label:'P-value method', value:'Two-sided Student t approximation for each Pearson correlation.' });
+      analysisRows.push({ label:'P-value method', value:inference.pValueMethodText });
     }else if(stats.method === 'spearman' && hasPairwiseInference){
-      analysisRows.push({ label:'P-value method', value:`Spearman pairwise inference used ${pairwisePMethods.join('; ')} as permitted by the computation budget.${unavailablePValueCount ? ` No p-value was calculated for ${unavailablePValueCount} pair(s); those pairs were assigned p = 1 for multiplicity adjustment.` : ''}` });
+      analysisRows.push({ label:'P-value method', value:inference.pValueMethodText });
     }else if(stats.method === 'spearman' && stats.showSignificance){
-      analysisRows.push({ label:'P-value method', value:'No Spearman pairwise p-values were available under the configured computation budget.' });
+      analysisRows.push({ label:'P-value method', value:inference.pValueMethodText });
+    }else if(stats.method === 'pearson' && stats.showSignificance){
+      analysisRows.push({ label:'P-value method', value:inference.pValueMethodText });
     }else if(stats.method === 'uncentered' && stats.showSignificance){
-      analysisRows.push({ label:'Inference', value:'P-values are not computed for uncentered correlation; significance adjustment is therefore not applicable.' });
+      analysisRows.push({ label:'Inference', value:inference.pValueMethodText });
+    }
+    if(inference.unavailablePValueCount > 0 && hasPairwiseInference){
+      analysisRows.push({ label:'P-value availability', value:`${inference.unavailablePValueCount} of ${inference.inferencePairCount} pairs had no computable p-value and were excluded from the adjustment family.` });
     }
     if(stats.useAbs){ analysisRows.push({ label:'Display', value:'Absolute correlations are displayed; signed coefficients are retained for statistical reporting.' }); }
     if(hasPairwiseInference){
-      const level = Number(stats.inferenceLevel);
-      const isFdr = correction === 'bh' || correction === 'by';
       analysisRows.push({
         label:'Multiplicity',
-        value: correction === 'none'
-          ? `${pairResults.length || Number(stats.testedPairCount || 0)} tested pairs; p-values are unadjusted; ${isFdr ? 'target FDR' : 'α'} = ${formatHeatmapInferenceLevelLabel(level)}.`
-          : `${correctionLookup[correction] || correction} adjustment across ${pairResults.length || Number(stats.testedPairCount || 0)} unique pairwise tests; ${isFdr ? 'target FDR' : 'family-wise α'} = ${formatHeatmapInferenceLevelLabel(level)}.`
+        value: inference.correction === 'none'
+          ? `${inference.testedPairCount} computable unique pairs; p-values are unadjusted; ${inference.criterionLabel} = ${inference.levelLabel}.`
+          : `${inference.correctionName} adjustment across ${inference.testedPairCount} computable unique pairs; ${inference.criterionLabel} = ${inference.levelLabel}.`
       });
     }
     if(stats.rowClusterLabel || stats.columnClusterLabel){
@@ -9954,11 +10038,11 @@
       }else if(significant.length){
         const ordered = significant.slice().sort((a,b) => decisionP(a) - decisionP(b));
         const selected = ordered.slice(0,5);
-        resultRows.push({ label:'Significant pairs', value:`${significant.length} of ${pairResults.length} at the configured ${correction === 'none' ? 'significance' : 'FDR'} threshold.`, figureRole:'effect', figurePriority:65 });
+        resultRows.push({ label:'Significant pairs', value:`${significant.length} of ${inference.testedPairCount} computable pairs at the configured ${inference.correction === 'none' ? 'significance' : 'FDR'} threshold.`, figureRole:'effect', figurePriority:65 });
         selected.forEach(pair => resultRows.push(buildPairRow(pair)));
       }else{
-        resultRows.push({ label:'Significant pairs', value:`0 of ${pairResults.length} at the configured ${correction === 'bh' || correction === 'by' ? 'FDR' : 'significance'} threshold.`, figureRole:'effect', figurePriority:65 });
-        const strongestPair = pairResults.slice().sort((a,b) => Math.abs(Number(b.raw) || 0) - Math.abs(Number(a.raw) || 0))[0];
+        resultRows.push({ label:'Significant pairs', value:`0 of ${inference.testedPairCount} computable pairs at the configured ${inference.correction === 'bh' || inference.correction === 'by' ? 'FDR' : 'significance'} threshold.`, figureRole:'effect', figurePriority:65 });
+        const strongestPair = inference.computablePairResults.slice().sort((a,b) => Math.abs(Number(b.raw) || 0) - Math.abs(Number(a.raw) || 0))[0];
         if(strongestPair) resultRows.push({ ...buildPairRow(strongestPair), label:`Strongest: ${strongestPair.left} vs ${strongestPair.right}` });
       }
     }else{
@@ -10014,38 +10098,19 @@
         : 'none';
       const correctionLabel = correctionLookup[significanceCorrection];
       const isFdrCorrection = ['bh', 'by'].includes(significanceCorrection);
-      const criterionLabel = isFdrCorrection ? 'target FDR' : (significanceCorrection === 'none' ? 'α' : 'family-wise α');
-      const correctionName = significanceCorrection === 'bh'
-        ? 'Benjamini–Hochberg'
-        : significanceCorrection === 'by'
-          ? 'Benjamini–Yekutieli'
-          : significanceCorrection === 'holm'
-            ? 'Holm'
-            : 'selected';
-      const pairResults = Array.isArray(stats.pairResults) ? stats.pairResults : [];
-      const pairwisePMethods = [...new Set(pairResults.map(pair => String(pair?.pMethod || '').trim()).filter(Boolean))];
-      const reportPairCount = Number(stats.testedPairCount || 0);
-      const hasCalculatedPairPValue = pairResults.some(pair => {
-        const value = toNumericPValue(pair?.rawPValue ?? pair?.pValue);
-        return Number.isFinite(value) && value >= 0 && value <= 1;
-      });
-      const correlationInferenceText = stats.showSignificance && reportPairCount > 0 && hasCalculatedPairPValue
-        ? `${significanceCorrection === 'none' ? 'No multiplicity adjustment was applied to' : `The ${correctionName} adjustment was applied to`} p-values from ${reportPairCount} unique off-diagonal pairs; decisions used ${criterionLabel} = ${formatHeatmapInferenceLevelLabel(stats.inferenceLevel)}.${pairwisePMethods.length ? ` Pairwise p-values used these methods as appropriate: ${pairwisePMethods.join('; ')}.` : ''}${Number(stats.unavailablePValueCount) > 0 ? ` P-values were unavailable for ${Number(stats.unavailablePValueCount)} pair(s); those pairs were assigned p = 1 for adjustment.` : ''}`
-        : (stats.showSignificance
-          ? 'No cell-level p-values could be computed for the available pairwise data.'
-          : 'Inference is off; no cell p-values or adjustments are shown.');
+      const inference = buildHeatmapCorrelationInferenceDisclosure(stats);
+      const pairResults = inference.pairResults;
+      const reportPairCount = inference.testedPairCount;
+      const correlationInferenceText = inference.methodsText;
       appendStatRow('Items analyzed', String(stats.itemCount || 0));
       appendStatRow('Pairs evaluated', String(stats.pairCount || 0));
       appendStatRow('Method', methodLabel, { trailing: stats.useAbs ? [' (absolute values shown)'] : [] });
-      if(stats.showSignificance){
-        const threshold = Number(stats.inferenceLevel);
-        const thresholdText = Number.isFinite(threshold) ? formatHeatmapInferenceLevelLabel(threshold) : 'n/a';
-        const testedPairCount = Number.isFinite(Number(stats.testedPairCount))
-          ? Number(stats.testedPairCount)
-          : Number(stats.pairCount || 0);
+      if(stats.showSignificance && stats.method !== 'uncentered' && reportPairCount > 0){
         appendStatRow(isFdrCorrection ? 'FDR procedure' : 'Multiplicity control', correctionLabel, {
-          trailing: [` (${criterionLabel} = ${thresholdText}; ${testedPairCount} unique pairs)`]
+          trailing: [` (${inference.criterionLabel} = ${inference.levelLabel}; ${reportPairCount} computable unique pairs)`]
         });
+      }else if(stats.showSignificance){
+        appendStatRow('Inference', inference.methodsText);
       }
       if(stats.rowClusterLabel){
         appendStatRow('Row clustering', stats.rowClusterLabel + (stats.rowDendrogram ? ' (dendrogram)' : ''));
@@ -10119,6 +10184,8 @@
             showSignificance: !!stats.showSignificance,
             significanceCorrection,
             inferenceLevel: Number.isFinite(Number(stats.inferenceLevel)) ? Number(stats.inferenceLevel) : null,
+            inferencePairCount: inference.inferencePairCount,
+            unavailablePValueCount: inference.unavailablePValueCount,
             inference: stats.showSignificance && typeof Shared.statsInference?.createSnapshot === 'function'
               ? Shared.statsInference.createSnapshot({
                   tabId:getHeatmapStatsInferenceTabId(),
@@ -10127,7 +10194,7 @@
                   includeComparisons:true
                 })
               : null,
-            testedPairCount: Number(stats.testedPairCount || 0),
+            testedPairCount: reportPairCount,
             rowClusterLabel: stats.rowClusterLabel || null,
             columnClusterLabel: stats.columnClusterLabel || null
           }
@@ -12840,9 +12907,9 @@
         }
       }
     }
-    // Correlation cells form one multiple-testing family. Adjust each unique
-    // off-diagonal pair exactly once, then mirror the adjusted value so the
-    // symmetric matrix does not artificially double the family size.
+    // Computable pairwise p-values form the adjustment family. A unique
+    // off-diagonal pair is included once; unavailable p-values stay unavailable
+    // and do not inflate the family. Mirror adjusted values across the matrix.
     const pairCells = [];
     for(let i = 0; i < items.length; i += 1){
       for(let j = i + 1; j < items.length; j += 1){
@@ -12855,14 +12922,26 @@
     const significanceCorrection = ['bh','by','holm','none'].includes(String(settings.significanceCorrection || '').toLowerCase())
       ? String(settings.significanceCorrection).toLowerCase()
       : 'bh';
-    const adjustedPairValues = adjustHeatmapPValueFamily(
-      pairCells.map(entry => Number.isFinite(entry.pValue) && entry.pValue >= 0 && entry.pValue <= 1 ? entry.pValue : 1),
+    const pairResults = pairCells.map(entry => ({
+      left:entry.left,
+      right:entry.right,
+      raw:entry.raw,
+      n:entry.n,
+      rawPValue:entry.pValue,
+      pMethod:entry.pMethod || null,
+      exactPValue:entry.exactPValue === true,
+      hasTies:entry.hasTies === true
+    }));
+    const adjustedPairResults = adjustHeatmapPairResults(
+      pairResults,
       settings.showSignificance ? significanceCorrection : 'none'
     );
+    const adjustedPairValues = adjustedPairResults.map(entry => toNumericPValue(entry.adjustedPValue));
     pairCells.forEach((entry, idx) => {
-      const adjustedPValue = Number.isFinite(entry.pValue) ? toNumericPValue(adjustedPairValues[idx]) : NaN;
-      matrix[entry.i][entry.j].adjustedPValue = Number.isFinite(adjustedPValue) && adjustedPValue >= 0 && adjustedPValue <= 1 ? adjustedPValue : entry.pValue;
-      matrix[entry.j][entry.i].adjustedPValue = Number.isFinite(adjustedPValue) && adjustedPValue >= 0 && adjustedPValue <= 1 ? adjustedPValue : entry.pValue;
+      const candidate = Number.isFinite(entry.pValue) ? toNumericPValue(adjustedPairValues[idx]) : NaN;
+      const adjustedPValue = Number.isFinite(candidate) && candidate >= 0 && candidate <= 1 ? candidate : null;
+      matrix[entry.i][entry.j].adjustedPValue = adjustedPValue;
+      matrix[entry.j][entry.i].adjustedPValue = adjustedPValue;
     });
 
     const clusterConfig = axis === 'columns' ? settings.clustering.columns : settings.clustering.rows;
@@ -12921,26 +13000,12 @@
           showSignificance: !!settings.showSignificance,
           significanceCorrection,
           inferenceLevel: settings.inferenceLevel,
-          testedPairCount: pairCells.length,
-          inferencePairCount: settings.showSignificance ? pairCount : 0,
-          unavailablePValueCount: Math.max(0, pairCount - pairCells.filter(entry => Number.isFinite(entry.pValue)).length),
-          pairResults: pairCells.map((entry, idx) => {
-            const adjusted = toNumericPValue(adjustedPairValues[idx]);
-            const adjustedPValue = Number.isFinite(adjusted) && adjusted >= 0 && adjusted <= 1
-              ? adjusted
-              : entry.pValue;
-            return {
-              left:entry.left,
-              right:entry.right,
-              raw:entry.raw,
-              n:entry.n,
-              rawPValue:entry.pValue,
-              adjustedPValue: Number.isFinite(entry.pValue) ? adjustedPValue : null,
-              pMethod:entry.pMethod || null,
-              exactPValue:entry.exactPValue === true,
-              hasTies:entry.hasTies === true
-            };
-          }),
+          testedPairCount: getHeatmapComputablePairResultIndexes(adjustedPairResults).length,
+          inferencePairCount: settings.showSignificance && settings.correlationMethod !== 'uncentered' ? pairCells.length : 0,
+          unavailablePValueCount: settings.showSignificance && settings.correlationMethod !== 'uncentered'
+            ? Math.max(0, pairCells.length - getHeatmapComputablePairResultIndexes(adjustedPairResults).length)
+            : 0,
+          pairResults: adjustedPairResults,
           rowClusterLabel: resolvedCluster && clusterConfig.enabled
             ? `${clusterConfig.metric} (${settings.clustering.linkage})`
             : null,
@@ -13375,6 +13440,8 @@
       stats.showSignificance = !!viewOptions?.showSignificance;
       if(!stats.showSignificance){
         stats.testedPairCount = 0;
+        stats.inferencePairCount = 0;
+        stats.unavailablePValueCount = 0;
         stats.pairResults = [];
       }
       stats.significanceCorrection = ['bh', 'by', 'holm', 'none'].includes(String(viewOptions?.significanceCorrection || '').toLowerCase())
@@ -13383,6 +13450,9 @@
       stats.inferenceLevel = viewOptions?.inferenceLevel;
       if(stats.showSignificance){
         stats.pairResults = adjustHeatmapPairResults(stats.pairResults, stats.significanceCorrection);
+        stats.testedPairCount = getHeatmapComputablePairResultIndexes(stats.pairResults).length;
+        stats.inferencePairCount = stats.method === 'uncentered' ? 0 : stats.pairResults.length;
+        stats.unavailablePValueCount = Math.max(0, stats.inferencePairCount - stats.testedPairCount);
       }
       state.lastResolvedValueScale = null;
       updateHeatmapRenderRuntime(targetSession, runtime => {

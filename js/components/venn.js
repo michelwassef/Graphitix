@@ -376,7 +376,6 @@
 
   function getVennStatsAlpha(){
     return Shared.statsInference?.getAlpha?.({ tabId: getVennStatsInferenceTabId() })
-      ?? Shared.statsInference?.DEFAULT_ALPHA
       ?? 0.05;
   }
 
@@ -7447,7 +7446,7 @@
     const sliceLimit = Number.isFinite(limit) && limit > 0 ? limit : 5;
     const rows = items.slice(0, sliceLimit).map(r => {
       const desc = r.termDescription || r.description || 'unknown term';
-      return '<div>' + desc + ' (FDR=' + formatSharedPValue(r.fdr) + ')</div>';
+      return '<div>' + desc + ' (STRING FDR=' + formatSharedPValue(r.fdr) + ')</div>';
     }).join('');
     state.ui.stringResults.innerHTML = '<strong>STRING enrichment</strong>' + rows;
   }
@@ -8529,7 +8528,7 @@
         'shape-rendering': 'crispEdges',
         'data-go-term-index': row.index
       });
-      bar.appendChild(createSvgNode('title', {}, `${row.label}\n${row.source}\n${row.pValue == null ? 'p = n/a' : formatSharedPExpression(row.pValue)}\n−log₁₀(p) = ${formatGoChartNumber(row.value)}`));
+      bar.appendChild(createSvgNode('title', {}, `${row.label}\n${row.source}\ng:SCS-adjusted ${row.pValue == null ? 'p = n/a' : formatSharedPExpression(row.pValue)}\n−log₁₀(g:SCS-adjusted p) = ${formatGoChartNumber(row.value)}`));
       plotGroup.appendChild(bar);
     });
 
@@ -8568,7 +8567,7 @@
       'font-size': config.axisTitleFontPx,
       fill: config.textColor,
       'text-anchor': 'middle'
-    }, '−log₁₀(p)'));
+    }, '−log₁₀(g:SCS-adjusted p)'));
 
     setGoChartExportVisible(true);
     debugLog('goChart.svg.rendered', {
@@ -8596,11 +8595,15 @@
     const title = doc.createElement('strong');
     title.textContent = normalizedLimit === 5 ? 'Top 5 GO terms' : 'All GO terms';
     state.ui.goResults.appendChild(title);
+    const correctionNote = doc.createElement('p');
+    correctionNote.className = 'stats-help-text';
+    correctionNote.textContent = 'g:Profiler g:SCS-adjusted p-values';
+    state.ui.goResults.appendChild(correctionNote);
     state.analysis.lastGOResult.slice(0, normalizedLimit).forEach(result => {
       const row = doc.createElement('div');
       const term = result?.term_name || result?.name || 'unknown term';
       const source = result?.source || 'unknown source';
-      row.textContent = `${term} [${source}] (${formatSharedPExpression(result?.p_value)})`;
+      row.textContent = `${term} [${source}] (g:SCS-adjusted ${formatSharedPExpression(result?.p_value)})`;
       state.ui.goResults.appendChild(row);
     });
     const actions = doc.createElement('div');
@@ -9430,6 +9433,7 @@
           sources,
           background,
           domainScope,
+          correctionMethod: 'g_SCS',
           fetch: typeof global.fetch === 'function' ? global.fetch.bind(global) : undefined
         });
         const results = response.result || [];

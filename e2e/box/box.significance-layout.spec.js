@@ -1015,6 +1015,70 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
   expect(issues.critical).toEqual([]);
 });
 
+test('manual Y bounds preserve comparison levels and label clearance', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await page.evaluate(async () => {
+    const payload = window.Components.box.getPayload();
+    payload.data = [
+      ['A', 'B', 'C', 'D', 'E'],
+      [1.50288085, 1.22918958, -0.97978524, -0.53951953, -3.78427131],
+      [1.4900141, 2.52757502, -1.31618847, -0.77420499, -3.55639335],
+      [1.448562, 2.29278175, -0.63270399, -0.90206206, -3.70043972]
+    ];
+    payload.config.graphType = 'bar';
+    payload.config.stats = { ...payload.config.stats, selectedColumns: [1, 3, 4] };
+    await window.Components.box.loadFromPayload(payload, {
+      tabId: window.Main.session.workspaceState.activeTabId,
+      reason: 'e2e-manual-axis-comparison-fixture'
+    });
+  });
+  await waitForBoxOwnerIdle(page);
+  await ensureBoxStatsAndSignificanceReady(page);
+  await setBoxSignificanceToggle(page, true);
+  await waitForVerticalSignificanceAnnotations(page);
+  await waitForBoxOwnerIdle(page);
+
+  for (const tickStart of [null, 0]) {
+    await page.evaluate(async origin => {
+      const payload = window.Components.box.getPayload();
+      payload.config.axis.tickStart = { x: null, y: origin };
+      await window.Components.box.loadFromPayload(payload, {
+        tabId: window.Main.session.workspaceState.activeTabId,
+        reason: 'e2e-optional-tick-origin'
+      });
+    }, tickStart);
+    await waitForBoxOwnerIdle(page);
+    expect(await page.evaluate(() => window.Components.box.getPayload().config.axis.tickStart.y)).toBe(tickStart);
+    for (const minimum of ['-10', '-1000', '']) {
+      await page.locator('#boxYMin').fill(minimum);
+      await page.locator('#boxYMin').press('Tab');
+      await waitForBoxOwnerIdle(page);
+      await expect.poll(() => page.evaluate(() => {
+        const svg = document.querySelector('#boxPlot svg');
+        const paths = Array.from(svg?.querySelectorAll('path.box-significance-annotation') || []);
+        const levels = new Map();
+        for (const path of paths) {
+          const level = Number(path.getAttribute('data-sig-level'));
+          levels.set(level, Number(path.getAttribute('data-sig-inner')));
+        }
+        const ordered = Array.from(levels).sort((a, b) => a[0] - b[0]);
+        const labels = Array.from(svg?.querySelectorAll('text.box-significance-annotation') || [])
+          .map(node => node.getBoundingClientRect());
+        const labelsClear = labels.every((a, index) => labels.slice(index + 1).every(b =>
+          a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top));
+        return paths.length === 3 && ordered.length === 3 && labels.length === paths.length
+          && ordered.every((entry, index) => index === 0 || ordered[index - 1][1] - entry[1] >= 20)
+          && labelsClear;
+      })).toBe(true);
+    }
+  }
+  expect(issues.critical).toEqual([]);
+});
+
 test('changing Y log scale after Box statistics reapplies significance geometry', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -1060,6 +1124,21 @@ test('changing Y log scale after Box statistics reapplies significance geometry'
     const pairs = Array.isArray(state?.statsLastAnnotationModel?.pairs)
       ? state.statsLastAnnotationModel.pairs
       : [];
+    const valueToCoord = state?.statsContext?.helpers?.valueToCoord;
+    const maxRawValue = traces.reduce((max, trace) => (trace?.rawY || []).reduce((traceMax, value) => (
+      Number.isFinite(Number(value)) ? Math.max(traceMax, Number(value)) : traceMax
+    ), max), -Infinity);
+    const maxDataCoord = typeof valueToCoord === 'function' ? Number(valueToCoord(maxRawValue)) : NaN;
+    const annotations = Array.from(svg?.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]') || [])
+      .map(path => {
+        const d = path.getAttribute('d') || '';
+        const coordinates = (d.match(/[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?/gi) || []).map(Number);
+        return {
+          d,
+          finite: coordinates.length >= 4 && coordinates.every(Number.isFinite),
+          topY: coordinates.filter((_, index) => index % 2 === 1).reduce((min, value) => Math.min(min, value), Infinity)
+        };
+      });
     const rawRangeMax = (ai, bi) => {
       let max = -Infinity;
       for (let index = Math.min(ai, bi); index <= Math.max(ai, bi); index += 1) {
@@ -1073,10 +1152,13 @@ test('changing Y log scale after Box statistics reapplies significance geometry'
       logScale: !!document.querySelector('#boxLogScale')?.checked,
       pathCount: svg?.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]').length || 0,
       labelCount: svg?.querySelectorAll('text.box-significance-annotation').length || 0,
+      transform: state?.statsContext?.helpers?.dataTransform?.type || null,
+      maxDataCoord,
+      annotations,
       pairs: pairs.map(pair => ({
         ai: Number(pair.ai),
         bi: Number(pair.bi),
-        rangeMax: Number(pair.rangeMax),
+        storesDisplayGeometry: Object.prototype.hasOwnProperty.call(pair, 'rangeMax'),
         rawRangeMax: rawRangeMax(Number(pair.ai), Number(pair.bi))
       }))
     };
@@ -1086,8 +1168,13 @@ test('changing Y log scale after Box statistics reapplies significance geometry'
   expect(metrics.pathCount).toBeGreaterThan(0);
   expect(metrics.labelCount).toBe(metrics.pathCount);
   expect(metrics.pairs.length).toBe(metrics.pathCount);
+  expect(metrics.transform).toBe('identity');
+  expect(Number.isFinite(metrics.maxDataCoord)).toBe(true);
+  expect(metrics.annotations.every(annotation => annotation.finite), JSON.stringify(metrics.annotations)).toBe(true);
+  expect(metrics.annotations.every(annotation => annotation.topY < metrics.maxDataCoord), JSON.stringify(metrics)).toBe(true);
   metrics.pairs.forEach(pair => {
-    expect(pair.rangeMax).toBeCloseTo(pair.rawRangeMax, 8);
+    expect(Number.isFinite(pair.rawRangeMax)).toBe(true);
+    expect(pair.storesDisplayGeometry).toBe(false);
   });
   expect(issues.critical).toEqual([]);
 });

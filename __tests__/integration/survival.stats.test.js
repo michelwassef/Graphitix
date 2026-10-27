@@ -115,7 +115,9 @@ describe('Survival statistics pipeline', () => {
     expect(payload.config.showHazardRatios).toBe(true);
     expect(payload.config.fitCoxModel).toBe(true);
     expect(payload.stats?.logRank?.available).toBe(true);
-    expect(payload.stats?.analysisSignature).toMatch(/^survival-stats-v2-/);
+    expect(payload.stats?.coxModel?.diagnostics?.proportionalHazards).toBeTruthy();
+    expect(document.getElementById('survivalStatsCox')?.textContent).toMatch(/Formal Proportional-Hazards Score Test/i);
+    expect(payload.stats?.analysisSignature).toMatch(/^survival-stats-v5-/);
   }, 30000);
 
   test('a selected covariate enables and calculates a one-cohort Cox model', async () => {
@@ -177,6 +179,12 @@ describe('Survival statistics pipeline', () => {
     expect(after?.available).toBe(true);
     expect(after.rows.map(row => row.p)).toEqual(rawPValues);
     expect(after.correction?.key).toBe('holm');
+    expect(after.rows.map(row => row.adjustedP)).toEqual(
+      window.Shared.stats.adjustPValues(rawPValues, { method: 'holm' })
+    );
+    const reportModel = survival.getPayload()?.config?.statsPanels?.cox?.reportModel;
+    expect(JSON.stringify(reportModel)).toContain('Holm');
+    expect(JSON.stringify(reportModel)).not.toContain('Benjamini');
 
     const session = survival.__testHooks.getSession(tabId);
     const currentStats = survival.getPayload()?.stats;
@@ -184,7 +192,7 @@ describe('Survival statistics pipeline', () => {
     session.results.stats = legacyStats;
     survival.__getState().lastStats = legacyStats;
     await survival.draw({ tabId, force: true, reason: 'survival-legacy-stat-signature-reuse' });
-    expect(survival.getPayload()?.stats?.analysisSignature).toMatch(/^survival-stats-v2-/);
+    expect(survival.getPayload()?.stats?.analysisSignature).toMatch(/^survival-stats-v5-/);
     expect(survival.getPayload()?.stats?.pairwiseComparisons?.available).toBe(true);
   }, 30000);
 

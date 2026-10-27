@@ -95,10 +95,9 @@ test('Box trace border stays independent and meets bar whiskers', async ({ page 
     const error = document.querySelector('#boxSvg [data-box-overlay-kind="bar-error"][data-trace="1"]');
     const bodyBounds = body.getBBox();
     const errorBounds = error.getBBox();
-    const bodyHalf = Number(body.getAttribute('stroke-width')) / 2;
     const errorWidth = Number(error.getAttribute('stroke-width'));
     const capExtension = error.getAttribute('stroke-linecap') === 'square' ? errorWidth / 2 : 0;
-    const visibleBarTop = bodyBounds.y - bodyHalf;
+    const visibleBarTop = bodyBounds.y;
     const visibleWhiskerBottom = errorBounds.y + errorBounds.height + capExtension;
     return Math.abs(visibleBarTop - visibleWhiskerBottom);
   });
@@ -111,10 +110,9 @@ test('Box trace border stays independent and meets bar whiskers', async ({ page 
     const error = document.querySelector('#boxSvg [data-box-overlay-kind="bar-error"][data-trace="1"]');
     const bodyBounds = body.getBBox();
     const errorBounds = error.getBBox();
-    const bodyHalf = Number(body.getAttribute('stroke-width')) / 2;
     const errorWidth = Number(error.getAttribute('stroke-width'));
     const capExtension = error.getAttribute('stroke-linecap') === 'square' ? errorWidth / 2 : 0;
-    const visibleBarRight = bodyBounds.x + bodyBounds.width + bodyHalf;
+    const visibleBarRight = bodyBounds.x + bodyBounds.width;
     const visibleWhiskerLeft = errorBounds.x - capExtension;
     return Math.abs(visibleBarRight - visibleWhiskerLeft);
   });
@@ -181,7 +179,7 @@ test('Box grouped formatting scopes trace styles to the selected series', async 
 
   const selectedGroupWidths = await page.locator(
     `#boxSvg [data-box-shape="body"][data-group-index="${groupPair.groupIndex}"]:not([data-summary-line="1"])`
-  ).evaluateAll(nodes => nodes.map(node => Number(node.getAttribute('stroke-width'))));
+  ).evaluateAll(nodes => nodes.map(node => window.Shared.svgGeometry.getStrokeWidth(node)));
   expect(selectedGroupWidths.length).toBeGreaterThan(1);
   expect(selectedGroupWidths.every(width => width === 4.5)).toBe(true);
 
@@ -199,7 +197,7 @@ test('Box grouped formatting scopes trace styles to the selected series', async 
 
   const uniformLegendWidths = await page.locator(
     '#boxSvg [data-legend-viewport-content="true"] [data-legend-swatch="1"]'
-  ).evaluateAll(nodes => nodes.map(node => Number(node.getAttribute('stroke-width'))));
+  ).evaluateAll(nodes => nodes.map(node => window.Shared.svgGeometry.getStrokeWidth(node)));
   expect(uniformLegendWidths.length).toBeGreaterThan(0);
   expect(uniformLegendWidths[groupPair.groupIndex]).toBe(4.5);
 });

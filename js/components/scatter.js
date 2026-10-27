@@ -198,9 +198,9 @@
   const SCATTER_THRESHOLD_SELECTION_SELECTED_LIMIT = 1000;
   const SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT = SCATTER_POINT_BATCH_THRESHOLD;
 
-  const SCATTER_SHAPE_OPTIONS = Shared.getShapePickerOptions
+  const SCATTER_SHAPE_BASE_OPTIONS = Shared.getShapePickerOptions
     ? Shared.getShapePickerOptions()
-    : Object.freeze([
+    : [
         { value: 'circle', label: 'Circle' },
         { value: 'triangle', label: 'Triangle' },
         { value: 'square', label: 'Square' },
@@ -208,11 +208,16 @@
         { value: 'cross', label: 'Cross' },
         { value: 'plus', label: 'Plus' },
         { value: 'star', label: 'Star' }
-      ]);
-  const SCATTER_SHAPE_DEFAULTS = Object.freeze(SCATTER_SHAPE_OPTIONS.map(opt => opt.value));
-  const SCATTER_SHAPE_VALUES = Shared.getShapePickerValues
-    ? Shared.getShapePickerValues()
-    : new Set(SCATTER_SHAPE_DEFAULTS);
+      ];
+  const SCATTER_SHAPE_OPTIONS = Object.freeze([
+    ...SCATTER_SHAPE_BASE_OPTIONS,
+    { value: 'triangle-down', label: 'Triangle down' }
+  ]);
+  const SCATTER_SHAPE_DEFAULTS = Object.freeze(SCATTER_SHAPE_BASE_OPTIONS.map(opt => opt.value));
+  const SCATTER_SHAPE_VALUES = new Set([
+    ...(Shared.getShapePickerValues ? Shared.getShapePickerValues() : SCATTER_SHAPE_DEFAULTS),
+    'triangle-down'
+  ]);
 
   const SCATTER_3D_DEFAULTS = Object.freeze({
     rotationX: 0.24,
@@ -10875,8 +10880,9 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
+      prismAxisTargetPx: null,
+      x: { tickInterval: null, tickStart: null, autoRangeHint: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, tickStart: null, autoRangeHint: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -10947,11 +10953,15 @@
       scatterAxisSettings = createScatterAxisSettings();
     }
     if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
-      scatterAxisSettings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.x = { tickInterval: null, tickStart: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
-      scatterAxisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.y = { tickInterval: null, tickStart: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
+    ['x', 'y'].forEach(axis => {
+      scatterAxisSettings[axis].tickStart = normalizeScatterAxisTickStart(scatterAxisSettings[axis].tickStart);
+      scatterAxisSettings[axis].autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(scatterAxisSettings[axis].autoRangeHint) || null;
+    });
     if(typeof scatterAxisSettings.x.minorTicks !== 'boolean'){
       scatterAxisSettings.x.minorTicks = false;
     }
@@ -11021,6 +11031,17 @@
     }
     const numeric = Number(raw);
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function normalizeScatterAxisTickStart(value){
+    if(value == null || value === ''){ return null; }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function getScatterAxisTickStart(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    return normalizeScatterAxisTickStart(ensureScatterAxisSettings()[axis]?.tickStart);
   }
 
   function updateScatterAxisTickInterval(axis, value){
@@ -11411,7 +11432,7 @@
     scheduleScatterViewRefresh(`axis-broken-segments-${axis}`, { renderImpact: 'layout' });
   }
 
-  function applyScatterAxisSettings(settings){
+  function applyScatterAxisSettings(settings, ownerSession = null){
     const base = createScatterAxisSettings();
     if(settings && typeof settings === 'object'){
       const strokeCandidate = Number(settings.strokeWidth);
@@ -11421,10 +11442,25 @@
       if(typeof settings.color === 'string' && settings.color.trim()){
         base.color = settings.color;
       }
+      const targetX = Number(settings.prismAxisTargetPx?.x);
+      const targetY = Number(settings.prismAxisTargetPx?.y);
+      if(Number.isFinite(targetX) && targetX > 0 && Number.isFinite(targetY) && targetY > 0){
+        base.prismAxisTargetPx = { x: targetX, y: targetY };
+      }
       const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xTickStart = settings.tickStartX ?? settings?.x?.tickStart ?? null;
+      const yTickStart = settings.tickStartY ?? settings?.y?.tickStart ?? null;
+      base.x.tickStart = normalizeScatterAxisTickStart(xTickStart);
+      base.y.tickStart = normalizeScatterAxisTickStart(yTickStart);
+      base.x.autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(
+        settings.autoRangeHintX ?? settings.x?.autoRangeHint
+      ) || null;
+      base.y.autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(
+        settings.autoRangeHintY ?? settings.y?.autoRangeHint
+      ) || null;
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
@@ -11485,14 +11521,104 @@
         }
       }
     }
-    scatterAxisSettings = base;
-    ensureScatterAxisSettings();
-    const session = getActiveScatterSessionForState();
-    if(session?.state){
-      session.state.axisSettings = scatterAxisSettings;
-      session.updatedAt = Date.now();
+    const targetSession = ownerSession || getActiveScatterSessionForState();
+    if(targetSession?.state){
+      targetSession.state.axisSettings = cloneSimple(base) || base;
+      targetSession.updatedAt = Date.now();
+      if(isScatterSessionActiveForModuleState(targetSession)){
+        scatterAxisSettings = targetSession.state.axisSettings;
+      }
+    }else{
+      scatterAxisSettings = base;
+    }
+    if(!targetSession || isScatterSessionActiveForModuleState(targetSession)){
+      ensureScatterAxisSettings();
     }
     console.debug('Debug: scatter axis settings applied',{ settings: scatterAxisSettings });
+    return targetSession?.state?.axisSettings || scatterAxisSettings;
+  }
+
+  function clearScatterAutoRangeHints(session, axes = ['x', 'y'], reason = 'scatter-axis-auto-range-invalidated'){
+    if(!session?.state){ return false; }
+    const next = cloneSimple(session.state.axisSettings) || createScatterAxisSettings();
+    let changed = false;
+    axes.forEach(axis => {
+      if((axis === 'x' || axis === 'y') && next[axis]?.autoRangeHint){
+        next[axis].autoRangeHint = null;
+        changed = true;
+      }
+    });
+    if(changed){
+      applyScatterAxisSettings(next, session);
+      session.updatedAt = Date.now();
+    }
+    return changed;
+  }
+
+  function consumeScatterPrismAxisLengthTarget(plan, session, frame, svgBox){
+    const settings = session?.state?.axisSettings || null;
+    const target = settings?.prismAxisTargetPx;
+    if(!session?.tabId || !isScatterSessionActiveForModuleState(session)
+      || !plan?.axisFrameModel || !target || !svgBox
+      || !Number.isFinite(Number(frame?.width)) || !Number.isFinite(Number(frame?.height))){
+      return false;
+    }
+    const targetWidth = Number(target.x);
+    const targetHeight = Number(target.y);
+    const clearTarget = () => applyScatterAxisSettings({
+      ...settings,
+      prismAxisTargetPx: null
+    }, session);
+    if(!Number.isFinite(targetWidth) || targetWidth <= 0 || !Number.isFinite(targetHeight) || targetHeight <= 0){
+      clearTarget();
+      return false;
+    }
+    if(Math.abs(Number(plan.axisLengths?.x) - targetWidth) <= 0.75
+      && Math.abs(Number(plan.axisLengths?.y) - targetHeight) <= 0.75){
+      clearTarget();
+      return false;
+    }
+    const size = Shared.cartesianLayout?.resolveFrameSizeForAxisLengths?.(plan, target);
+    if(!size || typeof Shared.applyResizableBoxSize !== 'function'){
+      return false;
+    }
+    const frameChrome = Shared.cartesianLayout?.resolveFrameChromeForDrawableSize?.(svgBox, frame);
+    if(!frameChrome){
+      return false;
+    }
+    const currentWidth = Number(frame.width) + frameChrome.width;
+    const currentHeight = Number(frame.height) + frameChrome.height;
+    const width = Math.max(50, Math.round(size.width + frameChrome.width));
+    const height = Math.max(40, Math.round(size.height + frameChrome.height));
+    const changed = Math.abs(currentWidth - width) > 0.75 || Math.abs(currentHeight - height) > 0.75;
+    if(!changed){
+      clearTarget();
+      return false;
+    }
+    const applied = Shared.applyResizableBoxSize(svgBox, {
+      axis: 'both',
+      width,
+      height,
+      forceExact: true,
+      preserveAspectLock: false,
+      updateAspectRatio: true,
+      updateDefaults: false,
+      authorityMode: 'transient',
+      suppressOnResize: true,
+      reason: 'scatter-prism-axis-length-import'
+    });
+    if(!applied){
+      return false;
+    }
+    clearTarget();
+    scheduleActiveScatterDraw({
+      tabId: session.tabId,
+      force: true,
+      reason: 'scatter-prism-axis-length-followup',
+      skipThresholdEvaluation: true,
+      renderImpact: 'layout'
+    });
+    return true;
   }
 
   function clampScatterTickTarget(value){
@@ -15699,6 +15825,7 @@
             if(affectsAnalysis){
               revalidateActiveScatterLogAxis('x','data-edit');
               revalidateActiveScatterLogAxis('y','data-edit');
+              clearScatterAutoRangeHints(getScatterSessionForHot(hotInstance, { reason: 'scatter-data-edit-range-invalidation' }, { fallbackActive: false }));
             }
             syncScatterActiveDataViewFromHot(hotInstance, 'afterChange');
             const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType || 'scatter';
@@ -21303,11 +21430,13 @@
         rect.setAttribute('height', String(size));
         return applyCommonAttributes(rect);
       }
-      if(normalized === 'triangle'){
+      if(normalized === 'triangle' || normalized === 'triangle-down'){
         const size = Math.max(radius * 2, 2);
         const half = size / 2;
         const path = doc.createElementNS(NS, 'path');
-        const d = `M ${cx} ${cy - half} L ${cx + half} ${cy + half} L ${cx - half} ${cy + half} Z`;
+        const d = normalized === 'triangle-down'
+          ? `M ${cx} ${cy + half} L ${cx + half} ${cy - half} L ${cx - half} ${cy - half} Z`
+          : `M ${cx} ${cy - half} L ${cx + half} ${cy + half} L ${cx - half} ${cy + half} Z`;
         path.setAttribute('d', d);
         return applyCommonAttributes(path);
       }
@@ -21413,10 +21542,12 @@
         ctx.rect(x - safeRadius, y - safeRadius, safeRadius * 2, safeRadius * 2);
         return;
       }
-      if(normalized === 'triangle'){
-        ctx.moveTo(x, y - safeRadius);
-        ctx.lineTo(x + safeRadius, y + safeRadius);
-        ctx.lineTo(x - safeRadius, y + safeRadius);
+      if(normalized === 'triangle' || normalized === 'triangle-down'){
+        const top = normalized === 'triangle-down' ? y + safeRadius : y - safeRadius;
+        const bottom = normalized === 'triangle-down' ? y - safeRadius : y + safeRadius;
+        ctx.moveTo(x, top);
+        ctx.lineTo(x + safeRadius, bottom);
+        ctx.lineTo(x - safeRadius, bottom);
         ctx.closePath();
         return;
       }
@@ -27521,8 +27652,19 @@ async function drawScatter(drawOptions = {}){
       };
       const storedManualIntervalX = getScatterAxisTickInterval('x');
       const storedManualIntervalY = getScatterAxisTickInterval('y');
+      const storedManualTickStartX = getScatterAxisTickStart('x');
+      const storedManualTickStartY = getScatterAxisTickStart('y');
+      const scatterAxisSettingsForScale = drawSession?.state?.axisSettings || ensureScatterAxisSettings();
+      const scatterAutoRangeHintX = !logX && !shouldEqualScale
+        ? scatterAxisSettingsForScale.x?.autoRangeHint || null : null;
+      const scatterAutoRangeHintY = !logY && !shouldEqualScale
+        ? scatterAxisSettingsForScale.y?.autoRangeHint || null : null;
       const manualIntervalX = !logX ? storedManualIntervalX : null;
       const manualIntervalY = !logY ? storedManualIntervalY : null;
+      const manualTickStartX = !Number.isFinite(storedManualTickStartX) ? null
+        : (logX ? (storedManualTickStartX > 0 ? Math.log10(storedManualTickStartX) : null) : storedManualTickStartX);
+      const manualTickStartY = !Number.isFinite(storedManualTickStartY) ? null
+        : (logY ? (storedManualTickStartY > 0 ? Math.log10(storedManualTickStartY) : null) : storedManualTickStartY);
       if(logX && storedManualIntervalX){
         debug('Debug: scatter manual interval suppressed',{ axis: 'x', reason: 'log-scale', stored: storedManualIntervalX });
       }
@@ -27546,18 +27688,26 @@ async function drawScatter(drawOptions = {}){
       let xScale=buildScatterScale({
         dataMin:xMinT,
         dataMax:xMaxT,
+        autoRangeDataMin:xMinRaw,
+        autoRangeDataMax:xMaxRaw,
+        autoRangeHint:scatterAutoRangeHintX,
         manualMin:manualXMinValue,
         manualMax:manualXMaxValue,
         targetTickCount:xTickTarget,
-        fixedStep:Number.isFinite(manualIntervalX)&&manualIntervalX>0?manualIntervalX:null
+        fixedStep:Number.isFinite(manualIntervalX)&&manualIntervalX>0?manualIntervalX:null,
+        tickStart: manualTickStartX
       });
       let yScale=buildScatterScale({
         dataMin:yMinT,
         dataMax:yMaxT,
+        autoRangeDataMin:yMinRaw,
+        autoRangeDataMax:yMaxRaw,
+        autoRangeHint:scatterAutoRangeHintY,
         manualMin:manualYMinValue,
         manualMax:manualYMaxValue,
         targetTickCount:yTickTarget,
-        fixedStep:Number.isFinite(manualIntervalY)&&manualIntervalY>0?manualIntervalY:null
+        fixedStep:Number.isFinite(manualIntervalY)&&manualIntervalY>0?manualIntervalY:null,
+        tickStart: manualTickStartY
       });
       applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
       applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
@@ -27570,18 +27720,26 @@ async function drawScatter(drawOptions = {}){
         xScale=buildScatterScale({
           dataMin:xMinT,
           dataMax:xMaxT,
+          autoRangeDataMin:xMinRaw,
+          autoRangeDataMax:xMaxRaw,
+          autoRangeHint:scatterAutoRangeHintX,
           manualMin:manualXMinValue,
           manualMax:manualXMaxValue,
           targetTickCount:xTickTarget,
-          fixedStep:Number.isFinite(manualIntervalX)&&manualIntervalX>0?manualIntervalX:null
+          fixedStep:Number.isFinite(manualIntervalX)&&manualIntervalX>0?manualIntervalX:null,
+          tickStart: manualTickStartX
         });
         yScale=buildScatterScale({
           dataMin:yMinT,
           dataMax:yMaxT,
+          autoRangeDataMin:yMinRaw,
+          autoRangeDataMax:yMaxRaw,
+          autoRangeHint:scatterAutoRangeHintY,
           manualMin:manualYMinValue,
           manualMax:manualYMaxValue,
           targetTickCount:yTickTarget,
-          fixedStep:Number.isFinite(manualIntervalY)&&manualIntervalY>0?manualIntervalY:null
+          fixedStep:Number.isFinite(manualIntervalY)&&manualIntervalY>0?manualIntervalY:null,
+          tickStart: manualTickStartY
         });
         applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
         applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
@@ -27683,6 +27841,14 @@ async function drawScatter(drawOptions = {}){
         minimumPlot: { width: 20, height: 20 },
         rounding: { mode: 'none', precision: 6 }
       }) || null;
+      if(scatterCartesianPlan && consumeScatterPrismAxisLengthTarget(
+        scatterCartesianPlan,
+        drawSession,
+        { width: W, height: H },
+        scatterSvgBox || scatterSvgBoxRef || scatterRefs?.svgBox
+      )){
+        return DRAW_OUTCOME.SKIPPED;
+      }
       if(scatterCartesianPlan){
         margin={
           left: scatterCartesianPlan.plotRect.x,
@@ -28526,8 +28692,13 @@ async function drawScatter(drawOptions = {}){
           axis:{
             strokeWidth: axisSettings.strokeWidth,
             color: axisSettings.color,
+            prismAxisTargetPx: axisSettings.prismAxisTargetPx || null,
             tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          tickStartX: axisSettings.x?.tickStart ?? null,
+          tickStartY: axisSettings.y?.tickStart ?? null,
+          autoRangeHintX: axisSettings.x?.autoRangeHint ?? null,
+          autoRangeHintY: axisSettings.y?.autoRangeHint ?? null,
           majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
           majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
           xLabelAngle: axisSettings.x?.labelAngle ?? null,
@@ -28980,7 +29151,7 @@ async function drawScatter(drawOptions = {}){
         });
       }
       if(c.axis){
-        applyScatterAxisSettings(c.axis);
+        applyScatterAxisSettings(c.axis, targetSession);
         console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });
       }
       if(c.title !== undefined || c.xLabel !== undefined || c.yLabel !== undefined || c.zLabel !== undefined || c.labelPositions){
@@ -29648,6 +29819,16 @@ async function drawScatter(drawOptions = {}){
           forcedOverlay = !!forceScatterOverlay({ reason: 'file-import', tabId: importOwnerTabId }, { message: 'Importing table data...' });
           markScatterOverlayPending({ reason: 'file-import', tabId: importOwnerTabId });
         }
+        const shiftPrismExclusionsForGroupedScatter = result => {
+          const exclusions = result?.prismExclusions;
+          if(!exclusions || !Array.isArray(exclusions.cells)){
+            return;
+          }
+          result.prismExclusions = {
+            ...exclusions,
+            cells: exclusions.cells.map(cell => ({ ...cell, col: Number(cell.col) + 1 }))
+          };
+        };
         const applyScatterImportResult = result => {
           const fitRangeCleared = clearScatterFitRangeInputs('file-import');
           if(fitRangeCleared){
@@ -29673,6 +29854,7 @@ async function drawScatter(drawOptions = {}){
                 xReplicatesEnabled: false
               });
           if(!prismGroupedAdapter && scatterHot && typeof scatterHot.loadData === 'function'){
+            shiftPrismExclusionsForGroupedScatter(result);
             scatterHot.loadData(groupedMatrix, {
               source: 'scatter-prism-grouped',
               suppressSchedule: true
@@ -29728,7 +29910,164 @@ async function drawScatter(drawOptions = {}){
             )
           });
         };
+        const applyScatterPrismStyle = (style, meta = {}) => {
+          if(!style || typeof style !== 'object'){
+            return false;
+          }
+          const tabId = String(meta.tabId || importOwnerTabId || '').trim();
+          const ownerSession = tabId
+            ? getScatterSession(tabId, { tabId, reason: 'scatter-prism-style-owner' }, { create: false })
+            : null;
+          if(!ownerSession?.state){
+            return false;
+          }
+          const ownerActive = isScatterSessionActiveForModuleState(ownerSession);
+          const title = style.title != null ? String(style.title).trim() : '';
+          const xLabel = style.xLabel != null ? String(style.xLabel).trim() : '';
+          const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
+          const axisSettings = cloneSimple(ownerSession.state.axisSettings) || createScatterAxisSettings();
+          const prismAxisStyle = tableImport.resolvePrismAxisStyle(style);
+          ['x', 'y'].forEach(axis => {
+            axisSettings[axis].autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(prismAxisStyle.autoRanges?.[axis]) || null;
+            const savedRange = prismAxisStyle.ranges?.[axis] || prismAxisStyle.autoRanges?.[axis];
+            axisSettings[axis].tickStart = normalizeScatterAxisTickStart(savedRange?.tickStart);
+          });
+          if(prismAxisStyle.color){ axisSettings.color = prismAxisStyle.color; }
+          if(prismAxisStyle.strokeWidth != null){ axisSettings.strokeWidth = prismAxisStyle.strokeWidth; }
+          Object.entries(prismAxisStyle.tickIntervals || {}).forEach(([axis, interval]) => {
+            axisSettings[axis].tickInterval = interval;
+          });
+          Object.entries(prismAxisStyle.ranges || {}).forEach(([axis, range]) => {
+            axisSettings[axis].tickStart = range.tickStart;
+          });
+          ['x', 'y'].forEach(axis => {
+            const range = prismAxisStyle.ranges?.[axis] || null;
+            const minControl = getScatterNodeById(`scatter${axis.toUpperCase()}Min`, ownerSession.tabId);
+            const maxControl = getScatterNodeById(`scatter${axis.toUpperCase()}Max`, ownerSession.tabId);
+            if(minControl){ minControl.value = range ? String(range.min) : ''; }
+            if(maxControl){ maxControl.value = range ? String(range.max) : ''; }
+          });
+          Object.entries(prismAxisStyle.tickLengths).forEach(([axis, length]) => {
+            axisSettings[axis].majorTickLength = length;
+          });
+          if(prismAxisStyle.axisTargetPx){
+            axisSettings.prismAxisTargetPx = prismAxisStyle.axisTargetPx;
+          }
+          applyScatterAxisSettings(axisSettings, ownerSession);
+          if(ownerActive && prismAxisStyle.showGrid != null && scatterShowGrid){
+            scatterShowGrid.checked = prismAxisStyle.showGrid;
+          }
+          if(ownerActive && prismAxisStyle.showFrame != null && scatterShowFrame){
+            scatterShowFrame.checked = prismAxisStyle.showFrame;
+          }
+
+          const currentStyles = ownerSession.state.styles || createDefaultScatterOwnedStyleState();
+          const labelStyles = cloneSimple(currentStyles.labelStyles) || {};
+          const labelColors = cloneSimple(currentStyles.labelColors) || {};
+          const labelShapes = cloneSimple(currentStyles.labelShapes) || {};
+          (Array.isArray(style.seriesStyles) ? style.seriesStyles : []).forEach(series => {
+            const label = String(series?.dataSetTitle || '').trim();
+            if(!label){ return; }
+            const next = { ...(labelStyles[label] || {}) };
+            const size = Number(series.symbolSize);
+            if(Number.isFinite(size) && size > 0){ next.size = size; }
+            const prismShape = String(series.shape || '').toLowerCase();
+            const shape = prismShape === 'triangle-up' ? 'triangle'
+              : (prismShape === 'triangle-down' ? 'triangle-down' : prismShape);
+            if(SCATTER_SHAPE_VALUES.has(shape)){
+              next.shape = shape;
+              labelShapes[label] = shape;
+            }
+            const color = series.symbolColor;
+            if(typeof color?.hex === 'string' && color.hex){
+              next.fill = color.hex;
+              next.borderColor = color.hex;
+              const opacity = Number(color.opacity);
+              if(Number.isFinite(opacity)){
+                next.alpha = Math.max(0, Math.min(100, (1 - opacity) * 100));
+              }
+              labelColors[label] = color.hex;
+            }
+            labelStyles[label] = next;
+          });
+          patchScatterSessionStyleState(ownerSession, { labelStyles, labelColors, labelShapes }, {
+            reason: 'scatter-prism-series-styles'
+          });
+          if(Array.isArray(style.seriesStyles) && style.seriesStyles.length){
+            ownerSession.state.colorSchemeUserOverride = true;
+            ownerSession.updatedAt = Date.now();
+          }
+          if(ownerActive){
+            scatterLabelStyles = cloneSimple(labelStyles) || {};
+            scatterLabelColors = cloneSimple(labelColors) || {};
+            scatterLabelShapes = cloneSimple(labelShapes) || {};
+            scatterLabelCache.colorsSet = null;
+            scatterLabelCache.shapesSet = null;
+            scatterLabelCache.colorsValid = false;
+            scatterLabelCache.shapesValid = false;
+          }
+          if(title || xLabel || yLabel){
+            setScatterLabelsState(ownerSession, {
+              ...getScatterLabelsState(ownerSession),
+              ...(title ? { title } : {}),
+              ...(xLabel ? { x: xLabel } : {}),
+              ...(yLabel ? { y: yLabel } : {})
+            }, { reason: 'scatter-prism-style-labels' });
+          }
+
+          const fontStyles = tableImport.resolvePrismFontStyles(style);
+          if(Object.keys(fontStyles).length){
+            importFontStyles('scatter', fontStyles, {
+              tabId: ownerSession.tabId,
+              prune: false,
+              broadcast: ownerActive
+            });
+          }
+          Shared.componentLifecycle?.persistOwnedUserState?.('scatter', ownerSession, {
+            tabId: ownerSession.tabId,
+            reason: 'scatter-prism-style-import'
+          });
+          if(ownerActive){
+            return true;
+          }
+          const importedLabels = getScatterLabelsState(ownerSession);
+          const importedAxis = ownerSession.state.axisSettings || createScatterAxisSettings();
+          const configPatch = {
+            labelStyles: cloneSimple(ownerSession.state.styles?.labelStyles) || {},
+            labelColors: cloneSimple(ownerSession.state.styles?.labelColors) || {},
+            labelShapes: cloneSimple(ownerSession.state.styles?.labelShapes) || {},
+            axis: {
+              strokeWidth: importedAxis.strokeWidth,
+              color: importedAxis.color,
+              prismAxisTargetPx: importedAxis.prismAxisTargetPx || null,
+              tickIntervalX: importedAxis.x?.tickInterval ?? null,
+              tickIntervalY: importedAxis.y?.tickInterval ?? null,
+              tickStartX: importedAxis.x?.tickStart ?? null,
+              tickStartY: importedAxis.y?.tickStart ?? null,
+              autoRangeHintX: importedAxis.x?.autoRangeHint ?? null,
+              autoRangeHintY: importedAxis.y?.autoRangeHint ?? null,
+              majorTickLengthX: importedAxis.x?.majorTickLength ?? null,
+              majorTickLengthY: importedAxis.y?.majorTickLength ?? null
+            },
+            fontStyles: exportFontStyles('scatter', { tabId: ownerSession.tabId }) || {}
+          };
+          if(importedLabels.title){ configPatch.title = importedLabels.title; }
+          if(importedLabels.x){ configPatch.xLabel = importedLabels.x; }
+          if(importedLabels.y){ configPatch.yLabel = importedLabels.y; }
+          if(prismAxisStyle.showGrid != null){ configPatch.showGrid = prismAxisStyle.showGrid; }
+          if(prismAxisStyle.showFrame != null){ configPatch.showFrame = prismAxisStyle.showFrame; }
+          ['x', 'y'].forEach(axis => {
+            const range = prismAxisStyle.ranges?.[axis] || null;
+            configPatch[`${axis}Min`] = range ? range.min : '';
+            configPatch[`${axis}Max`] = range ? range.max : '';
+          });
+          if(Array.isArray(style.seriesStyles) && style.seriesStyles.length){
+            configPatch.colorSchemeUserOverride = true;
+          }
+          return { payloadPatch: { config: configPatch } };
+        };
         const importPromise = tableImport.openFile(scatterFileInput, {
+          componentKey: 'scatter',
           hot: scatterHot,
           minCols: 4,
           minRows: DEFAULT_ROWS,
@@ -29746,60 +30085,7 @@ async function drawScatter(drawOptions = {}){
             });
           },
           debugLabel: 'scatter',
-          onPrismStyle: style => {
-            if(!style || typeof style !== 'object'){
-              return;
-            }
-            const title = style.title != null ? String(style.title).trim() : '';
-            const xLabel = style.xLabel != null ? String(style.xLabel).trim() : '';
-            const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
-            const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
-            const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
-            const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
-            const fontSizeValue = Number(style.fontSize);
-            const styleSession = getActiveScatterSessionForState();
-            if(title){
-              scatterTitleText = title;
-              setScatterLabelsState(styleSession, {
-                ...getScatterLabelsState(styleSession),
-                title
-              }, { reason: 'scatter-prism-style-title' });
-            }
-            if(xLabel){
-              scatterXLabelText = xLabel;
-              scatterState.xLabelText = xLabel;
-              patchScatterLabelsState(styleSession, { x: xLabel }, { reason: 'scatter-prism-style-x-label' });
-            }
-            if(yLabel){
-              scatterYLabelText = yLabel;
-              scatterState.yLabelText = yLabel;
-              patchScatterLabelsState(styleSession, { y: yLabel }, { reason: 'scatter-prism-style-y-label' });
-            }
-            if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && scatterFontSize){
-              scatterFontSize.value = String(fontSizeValue);
-              if(scatterFontSize.dataset){
-                scatterFontSize.dataset.fontBasePt = String(fontSizeValue);
-              }
-              chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: fontSizeValue, input: scatterFontSize, manual: true });
-            }
-            if(axisColor){
-              updateScatterAxisColor(axisColor);
-            }
-            if(fontFamily || fontColor){
-              const graphStyle = {};
-              if(fontFamily){
-                graphStyle.fontFamily = fontFamily;
-              }
-              if(fontColor){
-                graphStyle.fill = fontColor;
-              }
-              importFontStyles('scatter', { __graph__: graphStyle }, { tabId: getScatterProjectionTabId() || null });
-            }
-            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: scatter prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
-            }
-            scheduleActiveScatterDraw({ force: true, reason: 'import-prism-style', renderImpact: 'layout' });
-          },
+          onPrismStyle: applyScatterPrismStyle,
           onProcessed: info => scatterLog('scatter data imported',{rows: info?.rows, cols: info?.cols}),
           onBeforeCompleted: applyScatterImportResult,
           onCompleted: (_result, meta = {}) => {
@@ -29809,8 +30095,61 @@ async function drawScatter(drawOptions = {}){
             forceScatterOverlay({ reason: renderReason, tabId }, { message: 'Rendering scatter plot...' });
             // Do not resolve here; final resolve happens after draw completes.
           },
-          onOwnerInactive: (_result, meta) => {
+          onOwnerInactive: (result, meta) => {
+            let stylePatch = null;
+            if(result?.prismStyle){
+              const styleResult = applyScatterPrismStyle(result.prismStyle, { tabId: meta?.tabId || importOwnerTabId });
+              stylePatch = styleResult?.payloadPatch || null;
+            }
+            const ownerTabId = String(meta?.tabId || importOwnerTabId || '').trim();
+            const ownerSession = ownerTabId
+              ? getScatterSession(ownerTabId, { tabId: ownerTabId, reason: 'scatter-inactive-prism-metadata' }, { create: false })
+              : null;
+            const prismMeta = result?.prismMeta;
+            const supportedGrouped = prismMeta?.adapter === 'scatter-grouped' || prismMeta?.kind === 'line';
+            const configPatch = { ...(stylePatch?.config || {}) };
+            let importedData = null;
+            if(supportedGrouped && ownerSession?.state){
+              const replicateCount = clampScatterReplicateCount(prismMeta.replicatesCount || SCATTER_MIN_REPLICATES);
+              const groupLabels = Array.isArray(prismMeta.groupLabels)
+                ? prismMeta.groupLabels.map((label, index) => sanitizeScatterGroupLabel(label, index))
+                : [];
+              const ownerHot = ownerSession.managers?.hot || null;
+              if(prismMeta.kind === 'line' && prismMeta.adapter !== 'scatter-grouped'
+                && ownerHot && typeof ownerHot.getData === 'function' && typeof ownerHot.loadData === 'function'){
+                const groupedMatrix = convertScatterLineImportToGroupedMatrix(ownerHot.getData() || [], {
+                  replicates: replicateCount,
+                  xReplicatesEnabled: false
+                });
+                shiftPrismExclusionsForGroupedScatter(result);
+                ownerHot.loadData(groupedMatrix, { source: 'scatter-prism-grouped', suppressSchedule: true });
+                ownerHot.__scatterDataViewsManager?.updateActiveData?.(normalizeScatterDataViewMatrix(groupedMatrix));
+                importedData = ownerHot.getData?.() || groupedMatrix;
+              }
+              ownerSession.state.grouped = normalizeScatterOwnedGroupedState({
+                ...(ownerSession.state.grouped || {}),
+                graphType: 'scatter',
+                tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+                replicates: replicateCount,
+                groupedXReplicates: false,
+                lastGroupedReplicateCount: replicateCount > SCATTER_MIN_REPLICATES
+                  ? Math.min(SCATTER_MAX_REPLICATES, Math.max(2, replicateCount))
+                  : ownerSession.state.grouped?.lastGroupedReplicateCount,
+                seriesGroupLabels: groupLabels.length ? groupLabels : ownerSession.state.grouped?.seriesGroupLabels || []
+              });
+              ownerSession.updatedAt = Date.now();
+              Object.assign(configPatch, {
+                graphType: 'scatter',
+                tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+                replicates: replicateCount,
+                xReplicates: false,
+                groupLabels: ownerSession.state.grouped.seriesGroupLabels.slice()
+              });
+            }
             resolveScatterOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || importOwnerTabId || null });
+            const payloadPatch = { config: configPatch };
+            if(importedData){ payloadPatch.data = importedData; }
+            return Object.keys(configPatch).length ? { payloadPatch } : null;
           }
         });
         Promise.resolve(importPromise).then(result => {
@@ -30341,6 +30680,9 @@ async function drawScatter(drawOptions = {}){
         }
         el.addEventListener('input',()=>{
           scatterLog(logLabel, el.value);
+          if(context === 'axis-min-input' || context === 'axis-max-input'){
+            clearScatterAutoRangeHints(getActiveScatterSessionForState(), [axis], 'scatter-axis-limit-edited');
+          }
           const logActive = axis === 'x' ? scatterLogX?.checked : scatterLogY?.checked;
           if(logActive && isScatterLogAxisInputInProgress(el)){
             if(scatterDebugEnabled()){

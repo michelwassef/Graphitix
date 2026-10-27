@@ -7,6 +7,7 @@ const {
   runPythonOracle,
   testWithOracle
 } = require('../../test-support/statsMatrixSuite');
+const rowRandomSphericityFixture = require('../../test-support/fixtures/box-row-random-sphericity-v1.json');
 
 describe('Box statistics oracle matrix', () => {
   let boxHooks;
@@ -273,6 +274,52 @@ describe('Box statistics oracle matrix', () => {
     }
   });
 
+  testWithOracle('lognormal repeated-measures ANOVA and paired geometric-mean ratios match an independent SciPy oracle', () => {
+    const groups = [
+      [1.1, 2.0, 1.4, 3.0, 2.2, 4.1, 1.7, 3.6],
+      [2.4, 2.7, 4.4, 4.0, 3.8, 6.3, 2.6, 6.4],
+      [4.5, 3.3, 7.2, 5.1, 7.0, 8.2, 4.0, 9.3]
+    ];
+    const expected = indexOracleResults(runPythonOracle([{
+      id: 'lognormal-rm',
+      operation: 'box_lognormal_repeated_measures_anova',
+      payload: { groups, ciLevel: 0.95, correction: 'holm', alternative: 'two-sided' }
+    }])).get('lognormal-rm')?.result;
+    const actual = window.Shared.boxStatsModel.computeBoxStatsModel({
+      mode: 'single',
+      statsMode: 'all',
+      statsTest: 'parametric',
+      statsPaired: true,
+      statsParametricVariant: 'lognormalClassic',
+      statsPostHoc: 'standard',
+      statsCorrection: 'holm',
+      statsCiLevel: 0.95,
+      statsAlternative: 'two-sided',
+      selection: groups.map((values, index) => ({ index, label: `Condition ${index + 1}`, values }))
+    });
+    expect(actual.ok).toBe(true);
+    expect(expected?.available).toBe(true);
+    expect(actual.analysis.id).toBe('lognormalRepeatedMeasuresAnova');
+    for (const key of ['F', 'ggEpsilon', 'hfEpsilon', 'ggP', 'hfP']) {
+      expectClose(actual.overall[key], expected[key], `lognormal repeated-measures ${key}`, { abs: 1e-8, rel: 1e-7 });
+    }
+    expectClose(actual.overall.pUncorrected, expected.pUncorrected, 'lognormal repeated-measures uncorrected p', { abs: 1e-8, rel: 1e-7 });
+    expect(actual.overall.p).toBe(actual.overall.ggP);
+    expect(actual.overall.subjectCount).toBe(expected.subjectCount);
+    expect(actual.pairs).toHaveLength(expected.pairs.length);
+    actual.pairs.forEach((pair, index) => {
+      const reference = expected.pairs[index];
+      expect(pair.a).toBe(reference.i);
+      expect(pair.b).toBe(reference.j);
+      expectClose(pair.stat, reference.t, `paired log-ratio t ${index}`, { abs: 1e-8, rel: 1e-7 });
+      expectClose(pair.p, reference.p, `paired log-ratio p ${index}`, { abs: 1e-9, rel: 1e-7 });
+      expectClose(pair.adjP, reference.adjustedP, `Holm-adjusted paired p ${index}`, { abs: 1e-9, rel: 1e-7 });
+      expectClose(pair.diff, reference.ratio, `geometric-mean ratio ${index}`, { abs: 1e-9, rel: 1e-7 });
+      expectClose(pair.ciLow, reference.ciLow, `ratio CI low ${index}`, { abs: 1e-9, rel: 1e-7 });
+      expectClose(pair.ciHigh, reference.ciHigh, `ratio CI high ${index}`, { abs: 1e-9, rel: 1e-7 });
+    });
+  });
+
   testWithOracle('box matrix covers parametric, non-parametric, paired, unpaired, exact, and asymptotic branches against oracle', () => {
     const data = buildBoxCases();
     expect(boxHooks).toBeTruthy();
@@ -321,6 +368,12 @@ describe('Box statistics oracle matrix', () => {
     cases.push({ id: 'box-friedman-exact', operation: 'box_friedman', payload: { groups: data.friedmanExact, resamplingMode: 'auto' } });
     cases.push({ id: 'box-friedman-asym', operation: 'box_friedman', payload: { groups: data.friedmanAsymptotic, resamplingMode: 'asymptotic' } });
     cases.push({ id: 'box-rm-anova', operation: 'box_repeated_measures_anova', payload: { groups: data.friedmanAsymptotic } });
+    const rmSphericityGroups = [
+      [10, 12, 9, 15, 14, 11, 13, 8],
+      [13, 13, 10, 17, 15, 14, 14, 10],
+      [12, 16, 13, 16, 20, 12, 18, 11]
+    ];
+    cases.push({ id: 'box-rm-sphericity', operation: 'box_repeated_measures_anova', payload: { groups: rmSphericityGroups } });
     cases.push({ id: 'box-ks', operation: 'box_kolmogorov_smirnov', payload: { a: data.ksA, b: data.ksB } });
     js['box-anova'] = boxHooks.anova(data.anovaGroups);
     js['box-welch-anova'] = boxHooks.welchAnova(data.welchGroups);
@@ -328,6 +381,7 @@ describe('Box statistics oracle matrix', () => {
     js['box-friedman-exact'] = boxHooks.friedmanTest(data.friedmanExact, { resamplingMode: 'auto' });
     js['box-friedman-asym'] = boxHooks.friedmanTest(data.friedmanAsymptotic, { resamplingMode: 'asymptotic' });
     js['box-rm-anova'] = boxHooks.repeatedMeasuresAnova(data.friedmanAsymptotic);
+    js['box-rm-sphericity'] = boxHooks.repeatedMeasuresAnova(rmSphericityGroups);
     js['box-ks'] = boxHooks.kolmogorovSmirnovTwoSample(data.ksA, data.ksB);
 
     const oracle = indexOracleResults(runPythonOracle(cases));
@@ -381,8 +435,14 @@ describe('Box statistics oracle matrix', () => {
     expect(js['box-friedman-asym'].ok).toBe(true);
     expectClose(js['box-friedman-asym'].Q, oracle.get('box-friedman-asym')?.result.Q, 'box-friedman-asym.Q', { abs: 1e-6, rel: 1e-5 });
     expectClose(js['box-friedman-asym'].p, oracle.get('box-friedman-asym')?.result.p, 'box-friedman-asym.p', { abs: 1e-6, rel: 1e-5 });
-    expectClose(js['box-rm-anova'].F, oracle.get('box-rm-anova')?.result.F, 'box-rm-anova.F', { abs: 1e-6, rel: 1e-5 });
-    expectClose(js['box-rm-anova'].p, oracle.get('box-rm-anova')?.result.p, 'box-rm-anova.p', { abs: 1e-6, rel: 1e-5 });
+    expect(js['box-rm-anova'].available).toBe(false);
+    expect(js['box-rm-anova'].p).toBeNull();
+    expect(oracle.get('box-rm-anova')?.result.available).toBe(false);
+    expect(oracle.get('box-rm-anova')?.result.p).toBeNull();
+    expectClose(js['box-rm-sphericity'].ggEpsilon, oracle.get('box-rm-sphericity')?.result.ggEpsilon, 'box-rm-sphericity.ggEpsilon', { abs: 1e-10, rel: 1e-9 });
+    expectClose(js['box-rm-sphericity'].hfEpsilon, oracle.get('box-rm-sphericity')?.result.hfEpsilon, 'box-rm-sphericity.hfEpsilon', { abs: 1e-10, rel: 1e-9 });
+    expectClose(js['box-rm-sphericity'].ggP, oracle.get('box-rm-sphericity')?.result.ggP, 'box-rm-sphericity.ggP', { abs: 1e-8, rel: 1e-7 });
+    expectClose(js['box-rm-sphericity'].hfP, oracle.get('box-rm-sphericity')?.result.hfP, 'box-rm-sphericity.hfP', { abs: 1e-8, rel: 1e-7 });
     expectClose(js['box-ks'].D, oracle.get('box-ks')?.result.D, 'box-ks.D', { abs: 1e-6, rel: 1e-5 });
     expectClose(js['box-ks'].p, oracle.get('box-ks')?.result.p, 'box-ks.p', { abs: 5e-4, rel: 1e-3 });
   });
@@ -654,5 +714,135 @@ describe('Box statistics oracle matrix', () => {
     expect(mc.p).toBeLessThan(0.01);
     expectClose(auto.p, mc.p, 'mann-whitney monte-carlo auto/manual parity', { abs: 0, rel: 0 });
     expectClose(mc.p, asym.p, 'mann-whitney monte-carlo vs asymptotic tie-heavy shift', { abs: 0.01, rel: 0.25 });
+  });
+
+  function crossedRepeatedPayload(rows, analysis = 'rowRandomMixed', overrides = {}) {
+    const groupsCount = rows[0]?.length || 0;
+    const conditionsCount = rows[0]?.[0]?.length || 0;
+    const cellData = Array.from({ length: groupsCount }, (_, groupIndex) =>
+      Array.from({ length: conditionsCount }, (_, conditionIndex) =>
+        rows.map(subject => subject[groupIndex][conditionIndex])));
+    return {
+      mode: 'grouped',
+      grouped: {
+        analysis,
+        data: {
+          ok: true,
+          groupsCount,
+          conditionsCount,
+          rowsWithData: rows.length,
+          partialRowsSkipped: 0,
+          groupLabels: Array.from({ length: groupsCount }, (_, index) => `Group ${index + 1}`),
+          conditionLabels: Array.from({ length: conditionsCount }, (_, index) => `Condition ${index + 1}`),
+          rows,
+          cellData,
+          ...overrides
+        }
+      },
+      statsAlpha: 0.05,
+      statsCorrection: 'holm'
+    };
+  }
+
+  testWithOracle('row-random crossed repeated-measures effects match independent SciPy and statsmodels references', () => {
+    const rows = rowRandomSphericityFixture.rows;
+    const actual = window.Shared.boxStatsModel.computeBoxStatsModel(crossedRepeatedPayload(rows, 'twoWayMixed'));
+    const expected = indexOracleResults(runPythonOracle([{
+      id: 'crossed-3x3',
+      operation: 'box_row_random_sphericity',
+      payload: { rows }
+    }])).get('crossed-3x3').result;
+
+    expect(expected).toEqual(rowRandomSphericityFixture.reference);
+    expect(actual.ok).toBe(true);
+    expect(actual.analysisId).toBe('rowRandomMixed');
+    expect(actual.repeatedMeasures).toMatchObject({
+      schemaVersion: 'box-row-random-sphericity-v1',
+      design: 'fully-crossed-within-subjects',
+      subjectCount: 16,
+      groupsCount: 3,
+      conditionsCount: 3,
+      primaryCorrection: 'greenhouse-geisser'
+    });
+
+    const exact = rowRandomSphericityFixture.exactAlgebra;
+    for (const effect of ['group', 'condition', 'interaction']) {
+      const result = actual.repeatedMeasures.effects[effect];
+      const reference = expected.effects[effect];
+      expect(result.available).toBe(true);
+      expect(result.contrastDimension).toBe(exact[effect].df1);
+      for (const field of ['ssEffect', 'ssError', 'f', 'pUncorrected']) {
+        const referenceField = field === 'f' ? 'F' : field;
+        expect(result[field]).toBeCloseTo(reference[referenceField], 9);
+      }
+      expect(result.df1).toBe(reference.df1);
+      expect(result.df2).toBe(reference.df2);
+      expect(result.gg.epsilon).toBeCloseTo(reference.epsilonGG, 10);
+      expect(result.hf.epsilon).toBeCloseTo(reference.epsilonHF, 10);
+      expect(result.gg.df1).toBeCloseTo(reference.df1GG, 9);
+      expect(result.gg.df2).toBeCloseTo(reference.df2GG, 9);
+      expect(result.gg.p).toBeCloseTo(reference.pGG, 10);
+      expect(result.hf.p).toBeCloseTo(reference.pHF, 10);
+      expect(result.primaryP).toBe(result.gg.p);
+      expect(result.primaryMethod).toBe('greenhouse-geisser');
+      expect(result.gg.epsilon).toBeCloseTo(Number(exact[effect].epsilonGG.split('/')[0]) / Number(exact[effect].epsilonGG.split('/')[1]), 10);
+    }
+    expect(actual.repeatedMeasures.effects.group.gg.epsilon).not.toBe(actual.repeatedMeasures.effects.interaction.gg.epsilon);
+    expect(actual.repeatedMeasures.effects.condition.gg.epsilon).not.toBe(actual.repeatedMeasures.effects.interaction.gg.epsilon);
+    expect(actual.tables).toHaveLength(2);
+    expect(actual.tables[0].rows.find(row => row.source === 'Group').p.value)
+      .toBe(actual.repeatedMeasures.effects.group.gg.p);
+    expect(actual.tables[1].caption).toMatch(/sphericity|correction/i);
+    expect(actual.report.analysisSpec.rowRandomSphericityVersion).toBe('row-random-sphericity-v1');
+    expect(actual.report.analysisSpec.repeatedMeasures).toEqual(actual.repeatedMeasures);
+    expect(actual.report.methodsText).toMatch(/Greenhouse.Geisser.*primary/i);
+    expect(actual.report.methodsText).toMatch(/Huynh.Feldt.*supplementary/i);
+  });
+
+  testWithOracle.each([
+    ['two groups by three conditions', rows => rows.map(subject => subject.slice(0, 2).map(group => group.slice(0, 3))), 1, 2],
+    ['three groups by two conditions', rows => rows.map(subject => subject.slice(0, 3).map(group => group.slice(0, 2))), 2, 1]
+  ])('%s uses an effect-specific covariance and preserves one-df epsilon', (_label, selectRows, groupEpsilonEffect, conditionEpsilonEffect) => {
+    const rows = selectRows(rowRandomSphericityFixture.rows);
+    const actual = window.Shared.boxStatsModel.computeBoxStatsModel(crossedRepeatedPayload(rows));
+    const expected = indexOracleResults(runPythonOracle([{
+      id: 'crossed-asymmetric',
+      operation: 'box_row_random_sphericity',
+      payload: { rows }
+    }])).get('crossed-asymmetric').result;
+    expect(actual.ok).toBe(true);
+    expect(actual.repeatedMeasures.subjectCount).toBe(rows.length);
+    for (const effect of ['group', 'condition', 'interaction']) {
+      const result = actual.repeatedMeasures.effects[effect];
+      const reference = expected.effects[effect];
+      expect(result.contrastDimension).toBe(reference.contrastDimension);
+      expect(result.gg.epsilon).toBeCloseTo(reference.epsilonGG, 9);
+      expect(result.gg.p).toBeCloseTo(reference.pGG, 9);
+    }
+    const oneDfEffect = groupEpsilonEffect === 1 ? 'group' : 'condition';
+    expect(actual.repeatedMeasures.effects[oneDfEffect].contrastDimension).toBe(1);
+    expect(actual.repeatedMeasures.effects[oneDfEffect].gg.epsilon).toBe(1);
+    expect(actual.repeatedMeasures.effects[oneDfEffect].hf.epsilon).toBe(1);
+    expect(actual.repeatedMeasures.effects[oneDfEffect].gg.p)
+      .toBe(actual.repeatedMeasures.effects[oneDfEffect].pUncorrected);
+    expect(actual.repeatedMeasures.effects[oneDfEffect].hf.p)
+      .toBe(actual.repeatedMeasures.effects[oneDfEffect].pUncorrected);
+    const twoDfEffect = groupEpsilonEffect === 1 ? 'condition' : 'group';
+    expect(actual.repeatedMeasures.effects[twoDfEffect].gg.epsilon)
+      .not.toBe(actual.repeatedMeasures.effects.interaction.gg.epsilon);
+  });
+
+  test('row-random repeated inference is unavailable when the subject error variance is zero', () => {
+    const rows = Array.from({ length: 4 }, (_, subject) => [[subject + 1, subject + 1], [subject + 1, subject + 1]]);
+    const actual = window.Shared.boxStatsModel.computeBoxStatsModel(crossedRepeatedPayload(rows));
+    expect(actual.ok).toBe(true);
+    for (const effect of Object.values(actual.repeatedMeasures.effects)) {
+      expect(effect.available).toBe(false);
+      expect(effect.primaryMethod).toBe('unavailable');
+      expect(effect.primaryP).toBeNull();
+      expect(effect.gg.available).toBe(false);
+      expect(effect.hf.available).toBe(false);
+    }
+    expect(JSON.parse(JSON.stringify(actual.repeatedMeasures))).toEqual(actual.repeatedMeasures);
   });
 });

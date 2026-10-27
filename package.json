@@ -10,6 +10,7 @@
     "test:integration": "node scripts/run-jest-shards.cjs --project integration --files-per-process 1",
     "test:workers": "jest --selectProjects workers",
     "test:vendor": "jest --selectProjects unit-node --runTestsByPath __tests__/unit/vendorRuntime.smoke.test.js",
+    "test:prism:binary": "node scripts/test-prism-binary-contract.cjs && node scripts/test-prism-import-integration.cjs",
     "test:coverage": "npm run test:lane -- --lane coverage",
     "test:coverage:trend": "node scripts/check-coverage-trend.cjs",
     "test:inventory": "node scripts/test-inventory.cjs",

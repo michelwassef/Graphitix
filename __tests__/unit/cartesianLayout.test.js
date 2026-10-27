@@ -14,6 +14,26 @@ describe('Cartesian layout transaction', () => {
     minimumPlot: { width: 20, height: 20 }
   });
 
+  test('resolves frame size from imported X and Y axis lengths', () => {
+    const plan = planner().planCartesianLayout(baseInput());
+    const target = { x: 288, y: 192 };
+    const frame = planner().resolveFrameSizeForAxisLengths(plan, target);
+
+    expect(frame.width).toBeCloseTo(plan.axisFrameModel.x.fixed + plan.axisFrameModel.x.count * target.x, 8);
+    expect(frame.height).toBeCloseTo(plan.axisFrameModel.y.fixed + plan.axisFrameModel.y.count * target.y, 8);
+    expect(planner().resolveFrameSizeForAxisLengths(plan, { x: 1, y: 1 })).toBeNull();
+  });
+
+  test('resolves drawable frame padding in unzoomed graph units', () => {
+    const svgBox = {
+      dataset: { graphWidthPx: '343', graphHeightPx: '283', resizerZoomLevel: '0.95' },
+      style: { width: '325.85px', height: '269px' }
+    };
+
+    expect(planner().resolveFrameChromeForDrawableSize(svgBox, { width: 312, height: 267 }))
+      .toEqual({ width: 31, height: 16 });
+  });
+
   test('measured reserves extend the envelope without mutating user frame or plot rectangle', () => {
     const short = planner().planCartesianLayout(baseInput());
     const long = planner().planCartesianLayout({

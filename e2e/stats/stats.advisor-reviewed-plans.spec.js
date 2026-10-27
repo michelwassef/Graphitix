@@ -25,7 +25,8 @@ for (const scenario of [
   { name: 'Welch', count: 2, distribution: 'normal', paired: 'unpaired', previous: 'classic', expected: 'welch', report: /Welch/i },
   { name: 'Mann-Whitney', count: 2, distribution: 'nonnormal', paired: 'unpaired', previous: 'kolmogorovSmirnov', expected: 'mannWhitney', report: /Mann.W?hitney/i },
   { name: 'Wilcoxon', count: 2, distribution: 'nonnormal', paired: 'paired', previous: 'mannWhitney', expected: 'wilcoxonSignedRank', report: /Wilcoxon/i },
-  { name: 'Friedman', count: 3, distribution: 'nonnormal', paired: 'paired', previous: 'kruskalWallis', expected: 'friedman', report: /Friedman/i }
+  { name: 'Friedman', count: 3, distribution: 'nonnormal', paired: 'paired', previous: 'kruskalWallis', expected: 'friedman', report: /Friedman/i },
+  { name: 'Lognormal repeated-measures ANOVA', count: 3, distribution: 'lognormal', paired: 'paired', previous: 'kruskalWallis', expected: 'lognormalClassic', report: /Lognormal repeated-measures ANOVA/i }
 ]) {
   test(`Box ${scenario.name} advice applies and calculates the named test`, async ({ page }, info) => {
     test.setTimeout(120_000);
@@ -63,6 +64,30 @@ for (const scenario of [
     await expect(root.locator('#statsResults')).toContainText(scenario.report);
     await root.locator('#statsResults').scrollIntoViewIfNeeded();
     await page.screenshot({ path: info.outputPath('calculated-advised-test.png') });
+    if(scenario.expected==='lognormalClassic'){
+      const read=()=>page.evaluate(()=>{
+        const box=window.Components.box;
+        const owner=box.__testHooks.getSession(window.Main.session.workspaceState.activeTabId);
+        return {
+          variant:box.getPayload().config.stats.parametricVariant,
+          analysisSpec:owner?.state?.results?.report?.analysisSpec || null,
+          text:document.querySelector('#boxPage:not([hidden]) #statsResults')?.textContent || ''
+        };
+      });
+      const before=await read();
+      expect(before.variant).toBe('lognormalClassic');
+      expect(before.analysisSpec).toMatchObject({
+        analysisId:'lognormalRepeatedMeasuresAnova',
+        modelVersion:'box-lognormal-one-way-repeated-v1',
+        estimand:'equality-of-geometric-means',
+        primaryWithinSubjectCorrection:'greenhouse-geisser'
+      });
+      const archive=info.outputPath('lognormal-repeated-measures.graph');
+      await saveWorkspaceArchive(page,archive,{scope:'workspace',snapshotKind:'document-snapshot',compression:'STORE'});
+      await openWorkspaceArchive(page,archive,{componentType:'box'});
+      await waitForComponentOwnerReady(page,'box',{requireMountedRoot:true,requireIdle:true});
+      await expect.poll(read).toEqual(before);
+    }
   });
 }
 

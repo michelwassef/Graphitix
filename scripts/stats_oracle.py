@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent statistical oracle used by Graphitix differential tests.
 
-Oracle contract version: 2026-10-24.1
+Oracle contract version: 2026-10-25.1
 
 The oracle intentionally relies on SciPy/statsmodels reference implementations
 where available. Missing/invalid inference is represented as JSON null and is
@@ -35,6 +35,7 @@ from typing import Any, Callable, Dict, List, Tuple
 import numpy as np
 from check_stats_oracle_runtime import validate_runtime
 from scipy import stats
+from scipy.linalg import helmert
 from scipy.interpolate import CubicSpline
 from scipy.optimize import least_squares, brentq, root
 from scipy.integrate import quad
@@ -252,6 +253,78 @@ def fit_distribution(distribution: str, values: List[Any]) -> Dict[str, Any]:
     raise ValueError(f"Unsupported distribution: {distribution!r}")
 
 
+def mean_equivalence(payload: Dict[str, Any]) -> Dict[str, Any]:
+    lower = float(payload.get("lowerBound"))
+    upper = float(payload.get("upperBound"))
+    alpha = float(payload.get("alpha", 0.05))
+    paired = payload.get("paired") is True
+    if not (math.isfinite(lower) and math.isfinite(upper) and lower < 0 < upper and lower < upper
+            and math.isfinite(alpha) and 0 < alpha < 0.5):
+        return {"available": False, "message": "Invalid equivalence bounds or alpha."}
+    raw_a = payload.get("sampleA") or []
+    raw_b = payload.get("sampleB") or []
+    if paired:
+        if len(raw_a) != len(raw_b):
+            return {"available": False, "message": "Paired samples must be aligned and have equal lengths."}
+        pairs = [
+            (float(a), float(b))
+            for a, b in zip(raw_a, raw_b)
+            if _is_finite_number(a) and _is_finite_number(b)
+        ]
+        if len(pairs) < 2:
+            return {"available": False, "message": "Insufficient complete pairs."}
+        differences = np.asarray([a - b for a, b in pairs], dtype=float)
+        estimate = float(np.mean(differences))
+        standard_error = float(np.std(differences, ddof=1) / math.sqrt(differences.size))
+        degrees = float(differences.size - 1)
+        lower_test = stats.ttest_1samp(differences, popmean=lower, alternative="greater")
+        upper_test = stats.ttest_1samp(differences, popmean=upper, alternative="less")
+        n_a = n_b = int(differences.size)
+        method = "paired"
+    else:
+        sample_a = np.asarray([float(value) for value in raw_a if _is_finite_number(value)], dtype=float)
+        sample_b = np.asarray([float(value) for value in raw_b if _is_finite_number(value)], dtype=float)
+        if sample_a.size < 2 or sample_b.size < 2:
+            return {"available": False, "message": "Insufficient observations per group."}
+        estimate = float(np.mean(sample_a) - np.mean(sample_b))
+        variance_a = float(np.var(sample_a, ddof=1) / sample_a.size)
+        variance_b = float(np.var(sample_b, ddof=1) / sample_b.size)
+        standard_error = math.sqrt(variance_a + variance_b)
+        denominator = (variance_a ** 2 / (sample_a.size - 1)) + (variance_b ** 2 / (sample_b.size - 1))
+        degrees = ((variance_a + variance_b) ** 2 / denominator) if denominator > 0 else float("nan")
+        lower_test = stats.ttest_ind(sample_a - lower, sample_b, equal_var=False, alternative="greater")
+        upper_test = stats.ttest_ind(sample_a - upper, sample_b, equal_var=False, alternative="less")
+        n_a, n_b = int(sample_a.size), int(sample_b.size)
+        method = "independent"
+    p_lower = float(lower_test.pvalue)
+    p_upper = float(upper_test.pvalue)
+    if not (standard_error > 0 and math.isfinite(standard_error) and degrees > 0
+            and math.isfinite(degrees) and math.isfinite(p_lower) and math.isfinite(p_upper)):
+        return {"available": False, "message": "Equivalence inference is unavailable for a degenerate sample."}
+    critical = float(stats.t.ppf(1 - alpha, degrees))
+    return {
+        "available": True,
+        "method": method,
+        "design": method,
+        "design": "paired" if paired else "independent",
+        "estimate": estimate,
+        "standardError": standard_error,
+        "df": degrees,
+        "lowerBound": lower,
+        "upperBound": upper,
+        "alpha": alpha,
+        "confidenceLevel": 1 - (2 * alpha),
+        "ciLow": estimate - critical * standard_error,
+        "ciHigh": estimate + critical * standard_error,
+        "pLower": p_lower,
+        "pUpper": p_upper,
+        "pValue": max(p_lower, p_upper),
+        "equivalent": p_lower < alpha and p_upper < alpha,
+        "nA": n_a,
+        "nB": n_b,
+    }
+
+
 def _make_cdf(distribution: str, params: Dict[str, Any]) -> Callable[[float], float]:
     key = str(distribution or "").strip().lower()
     if key == "normal":
@@ -314,7 +387,6 @@ def _ad_statistic(sorted_values: List[float], cdf: Callable[[float], float]) -> 
     return float(-n - (total / n))
 
 
-
 def goodness_of_fit(
     distribution: str,
     values: List[Any],
@@ -374,11 +446,15 @@ def goodness_of_fit(
             ad_extreme += int(sim_ad >= ad_stat - 1e-15)
     if valid_iterations == 0:
         return {"valid": False, "available": False, "n": n, "message": "Parametric-bootstrap calibration failed."}
+    ks_p_value = (ks_extreme + 1) / (valid_iterations + 1)
+    ad_p_value = (ad_extreme + 1) / (valid_iterations + 1)
     return {
         "valid": True, "available": True, "n": n,
         "ksStatistic": ks_stat, "adStatistic": ad_stat,
-        "ksPValue": (ks_extreme + 1) / (valid_iterations + 1),
-        "adPValue": (ad_extreme + 1) / (valid_iterations + 1),
+        "ksPValue": ks_p_value,
+        "adPValue": ad_p_value,
+        "ksMonteCarloSe": math.sqrt(ks_p_value * (1.0 - ks_p_value) / (valid_iterations + 1)),
+        "adMonteCarloSe": math.sqrt(ad_p_value * (1.0 - ad_p_value) / (valid_iterations + 1)),
         "calibration": "parametric bootstrap with parameter refitting",
         "parametersEstimated": True,
         "iterations": valid_iterations,
@@ -2638,15 +2714,295 @@ def box_repeated_measures_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
     df2 = (k - 1) * (n - 1)
     if df1 <= 0 or df2 <= 0:
         return {"available": False, "message": "Invalid repeated-measures degrees of freedom."}
+    if ss_error == 0.0:
+        return {
+            "available": False,
+            "message": "Repeated-measures inference is unavailable because within-subject error variance is zero.",
+            "F": None,
+            "p": None,
+            "df1": df1,
+            "df2": df2,
+        }
     ms_condition = ss_condition / df1
     ms_error = ss_error / df2
-    if ms_error == 0:
-        f_stat = float("inf") if ms_condition > 0 else 0.0
-        p_value = 0.0 if ms_condition > 0 else 1.0
+    f_stat = ms_condition / ms_error
+    p_value = float(stats.f.sf(f_stat, df1, df2))
+
+    # Independent covariance-eigenvalue reference for the one-way contrast
+    # space.  This intentionally avoids the production trace accumulation.
+    contrast_basis = helmert(k, full=False)
+    contrast_scores = matrix.T @ contrast_basis.T
+    contrast_dimension = k - 1
+    contrast_deviations = contrast_scores - contrast_scores.mean(axis=0)
+    contrast_deviation_scale = float(np.max(np.abs(contrast_deviations)))
+    contrast_score_scale = float(np.max(np.abs(contrast_scores)))
+    covariance_is_numerically_zero = contrast_deviation_scale <= (
+        64 * np.finfo(float).eps * max(contrast_score_scale, np.finfo(float).tiny)
+    )
+    if covariance_is_numerically_zero:
+        gg_epsilon = hf_epsilon = gg_p = hf_p = None
     else:
-        f_stat = ms_condition / ms_error
-        p_value = float(1 - stats.f.cdf(f_stat, df1, df2))
-    return {"available": True, "F": f_stat, "p": p_value, "df1": df1, "df2": df2}
+        contrast_covariance = np.cov(contrast_scores, rowvar=False, ddof=1)
+        eigenvalues = np.linalg.eigvalsh(np.atleast_2d(contrast_covariance))
+        eigenvalue_sum = float(eigenvalues.sum())
+        eigenvalue_square_sum = float(eigenvalues @ eigenvalues)
+        gg_epsilon = (eigenvalue_sum * eigenvalue_sum) / (contrast_dimension * eigenvalue_square_sum)
+        gg_epsilon = min(1.0, max(1 / contrast_dimension, float(gg_epsilon)))
+        if contrast_dimension == 1:
+            hf_epsilon = 1.0
+        else:
+            hf_denominator = contrast_dimension * (n - 1 - contrast_dimension * gg_epsilon)
+            hf_numerator = n * contrast_dimension * gg_epsilon - 2
+            hf_epsilon = (
+                min(1.0, max(gg_epsilon, float(hf_numerator / hf_denominator)))
+                if hf_denominator > 0
+                else None
+            )
+        gg_p = float(stats.f.sf(f_stat, gg_epsilon * df1, gg_epsilon * df2))
+        hf_p = float(stats.f.sf(f_stat, hf_epsilon * df1, hf_epsilon * df2)) if hf_epsilon is not None else None
+    return {
+        "available": True,
+        "F": f_stat,
+        "p": p_value,
+        "df1": df1,
+        "df2": df2,
+        "ggEpsilon": gg_epsilon,
+        "hfEpsilon": hf_epsilon,
+        "ggP": gg_p,
+        "hfP": hf_p,
+    }
+
+
+def box_lognormal_repeated_measures_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Independent reference for one-way lognormal repeated-measures ANOVA.
+
+    SciPy supplies the paired log-ratio t tests and confidence limits. The
+    repeated-measures omnibus reference is the independent blocked-regression
+    implementation above, applied to natural-log observations; sphericity is
+    recomputed from those transformed subject profiles.
+    """
+    raw_groups = payload.get("groups") or []
+    if len(raw_groups) < 3:
+        return {"available": False, "message": "Need at least three repeated conditions."}
+    groups: List[List[float]] = []
+    for group in raw_groups:
+        if not isinstance(group, list):
+            return {"available": False, "message": "Each repeated condition must be a numeric vector."}
+        values = [float(value) for value in group if _is_finite_number(value)]
+        if len(values) != len(group):
+            return {"available": False, "message": "Complete paired observations are required."}
+        if any(value <= 0 for value in values):
+            return {"available": False, "message": "Lognormal repeated-measures ANOVA requires strictly positive values."}
+        groups.append(values)
+    if len({len(group) for group in groups}) != 1 or len(groups[0]) < 2:
+        return {"available": False, "message": "Repeated-measures ANOVA requires equal paired group sizes >= 2."}
+
+    logged = [np.log(np.asarray(group, dtype=float)).tolist() for group in groups]
+    omnibus = box_repeated_measures_anova({"groups": logged})
+    if not omnibus.get("available"):
+        return omnibus
+
+    ci_level = float(payload.get("ciLevel", 0.95))
+    if not math.isfinite(ci_level) or not 0 < ci_level < 1:
+        ci_level = 0.95
+    alternative = _resolve_alternative(payload.get("alternative", "two-sided"))
+    pairs: List[Dict[str, Any]] = []
+    for i, j in itertools.combinations(range(len(groups)), 2):
+        log_ratios = np.asarray(logged[i], dtype=float) - np.asarray(logged[j], dtype=float)
+        n = len(log_ratios)
+        df = n - 1
+        mean_log_ratio = float(np.mean(log_ratios))
+        sd_log_ratio = float(np.std(log_ratios, ddof=1))
+        se_log_ratio = sd_log_ratio / math.sqrt(n)
+        t_value = mean_log_ratio / se_log_ratio if se_log_ratio > 0 else float("nan")
+        p_value = _p_from_t_stat(t_value, df, alternative)
+        critical = float(stats.t.ppf(0.5 + ci_level / 2, df))
+        margin = critical * se_log_ratio
+        pairs.append({
+            "i": i,
+            "j": j,
+            "t": t_value,
+            "df": float(df),
+            "p": p_value,
+            "logRatio": mean_log_ratio,
+            "ratio": math.exp(mean_log_ratio),
+            "ciLow": math.exp(mean_log_ratio - margin),
+            "ciHigh": math.exp(mean_log_ratio + margin),
+        })
+    adjusted = adjust_p_values(str(payload.get("correction", "holm")), [pair["p"] for pair in pairs])
+    for pair, adjusted_p in zip(pairs, adjusted):
+        pair["adjustedP"] = adjusted_p
+
+    return {
+        **omnibus,
+        "method": "lognormalRepeatedMeasuresAnova",
+        "pUncorrected": omnibus["p"],
+        "p": omnibus.get("ggP") if omnibus.get("ggP") is not None else omnibus["p"],
+        "primaryCorrection": "greenhouse-geisser" if omnibus.get("ggP") is not None else "uncorrected",
+        "subjectCount": len(groups[0]),
+        "geometricMeans": [math.exp(float(np.mean(group))) for group in logged],
+        "pairs": pairs,
+        "analysisScale": "log",
+        "reportingScale": "geometric-mean-ratio",
+    }
+
+
+def box_row_random_sphericity(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Independent reference for a fully crossed two-factor within-subject design.
+
+    SciPy supplies an orthonormal Helmert basis; NumPy projects each subject's
+    cell vector into each tested effect. Epsilon is checked from covariance
+    eigenvalues, independently of the production trace accumulation.
+    """
+    if sm is None:
+        return {"available": False, "message": "statsmodels is required for the crossed repeated-measures oracle."}
+    try:
+        values = np.asarray(payload.get("rows"), dtype=float)
+    except (TypeError, ValueError):
+        return {"available": False, "message": "Rows must be a numeric subject × group × condition array."}
+    if values.ndim != 3 or not np.isfinite(values).all():
+        return {"available": False, "message": "Rows must be finite and have subject × group × condition dimensions."}
+    subject_count, group_count, condition_count = (int(value) for value in values.shape)
+    if subject_count < 2 or group_count < 2 or condition_count < 2:
+        return {"available": False, "message": "The reference requires at least two subjects and two levels per factor."}
+
+    group_basis = helmert(group_count, full=False).T
+    condition_basis = helmert(condition_count, full=False).T
+    group_constant = np.full((condition_count, 1), 1 / np.sqrt(condition_count))
+    condition_constant = np.full((group_count, 1), 1 / np.sqrt(group_count))
+    bases = {
+        "group": np.kron(group_basis, group_constant),
+        "condition": np.kron(condition_constant, condition_basis),
+        "interaction": np.kron(group_basis, condition_basis),
+    }
+
+    effects: Dict[str, Any] = {}
+    for effect, basis in bases.items():
+        scores = values.reshape(subject_count, group_count * condition_count) @ basis
+        dimension = int(basis.shape[1])
+        means = scores.mean(axis=0)
+        residuals = scores - means
+        ss_effect = float(subject_count * np.sum(means ** 2))
+        ss_error = float(np.sum(residuals ** 2))
+        df1 = dimension
+        df2 = dimension * (subject_count - 1)
+        ms_effect = ss_effect / df1
+        ms_error = ss_error / df2
+        f_stat = ms_effect / ms_error if ms_error > 0 else None
+        p_raw = float(stats.f.sf(f_stat, df1, df2)) if f_stat is not None and math.isfinite(f_stat) else None
+        epsilon_gg = None
+        epsilon_hf = None
+        p_gg = None
+        p_hf = None
+        gg_reason = "zero within-subject contrast variance" if ss_error == 0 else None
+        hf_reason = gg_reason
+
+        if ss_error > 0:
+            covariance = np.atleast_2d(np.cov(scores, rowvar=False, ddof=1))
+            eigenvalues = np.linalg.eigvalsh(covariance)
+            eigen_scale = max(float(np.max(np.abs(eigenvalues))), np.finfo(float).tiny)
+            if float(np.min(eigenvalues)) < -64 * np.finfo(float).eps * eigen_scale:
+                gg_reason = "covariance is not positive semidefinite within roundoff"
+                hf_reason = gg_reason
+            else:
+                eigenvalues = np.maximum(eigenvalues, 0)
+                eigen_sum = float(np.sum(eigenvalues))
+                eigen_squares = float(np.sum(eigenvalues ** 2))
+                epsilon_candidate = (eigen_sum ** 2) / (dimension * eigen_squares) if eigen_squares > 0 else None
+                lower_bound = 1 / dimension
+                tolerance = 64 * np.finfo(float).eps * max(1.0, abs(epsilon_candidate or 0.0))
+                if epsilon_candidate is None or not math.isfinite(epsilon_candidate) or epsilon_candidate < lower_bound - tolerance or epsilon_candidate > 1 + tolerance:
+                    gg_reason = "Greenhouse-Geisser epsilon is outside its theoretical range"
+                    hf_reason = gg_reason
+                else:
+                    epsilon_gg = min(1.0, max(lower_bound, epsilon_candidate))
+                    gg_reason = None
+                    p_gg = float(stats.f.sf(f_stat, epsilon_gg * df1, epsilon_gg * df2)) if f_stat is not None else None
+                    if dimension == 1:
+                        epsilon_hf = 1.0
+                        hf_reason = None
+                    else:
+                        numerator = subject_count * dimension * epsilon_gg - 2
+                        denominator = dimension * (subject_count - 1 - dimension * epsilon_gg)
+                        raw_hf = numerator / denominator if denominator > 0 else None
+                        if raw_hf is None or not math.isfinite(raw_hf):
+                            hf_reason = "Huynh-Feldt denominator is not positive"
+                        elif raw_hf < lower_bound - tolerance or raw_hf < epsilon_gg - tolerance:
+                            hf_reason = "Huynh-Feldt estimate violates its lower bound"
+                        else:
+                            epsilon_hf = min(1.0, max(epsilon_gg, lower_bound, raw_hf))
+                            hf_reason = None
+                    if epsilon_hf is not None and f_stat is not None:
+                        p_hf = float(stats.f.sf(f_stat, epsilon_hf * df1, epsilon_hf * df2))
+
+        effects[effect] = {
+            "contrastDimension": dimension,
+            "ssEffect": ss_effect,
+            "ssError": ss_error,
+            "df1": df1,
+            "df2": df2,
+            "msEffect": ms_effect,
+            "msError": ms_error,
+            "F": f_stat,
+            "pUncorrected": p_raw,
+            "epsilonGG": epsilon_gg,
+            "df1GG": epsilon_gg * df1 if epsilon_gg is not None else None,
+            "df2GG": epsilon_gg * df2 if epsilon_gg is not None else None,
+            "pGG": p_gg,
+            "epsilonHF": epsilon_hf,
+            "df1HF": epsilon_hf * df1 if epsilon_hf is not None else None,
+            "df2HF": epsilon_hf * df2 if epsilon_hf is not None else None,
+            "pHF": p_hf,
+            "ggReason": gg_reason,
+            "hfReason": hf_reason,
+        }
+
+    raw_anova: Dict[str, Any] = {}
+    try:
+        import pandas as pd
+        from statsmodels.stats.anova import AnovaRM
+
+        records = [
+            {
+                "subject": f"subject-{subject_index}",
+                "group": f"group-{group_index}",
+                "condition": f"condition-{condition_index}",
+                "value": float(values[subject_index, group_index, condition_index]),
+            }
+            for subject_index in range(subject_count)
+            for group_index in range(group_count)
+            for condition_index in range(condition_count)
+        ]
+        table = AnovaRM(pd.DataFrame.from_records(records), "value", "subject", within=["group", "condition"]).fit().anova_table
+        names = {"group": "group", "condition": "condition", "group:condition": "interaction"}
+        for row_name, effect in names.items():
+            row = table.loc[row_name]
+            raw_anova[effect] = {
+                "F": float(row["F Value"]),
+                "df1": float(row["Num DF"]),
+                "df2": float(row["Den DF"]),
+                "p": float(row["Pr > F"]),
+            }
+    except Exception as error:
+        return {"available": False, "message": f"statsmodels AnovaRM reference failed: {error}"}
+
+    import scipy
+    import statsmodels
+
+    return {
+        "available": True,
+        "design": "fully-crossed-within-subjects",
+        "subjectCount": subject_count,
+        "groupsCount": group_count,
+        "conditionsCount": condition_count,
+        "effects": effects,
+        "rawAnova": raw_anova,
+        "referenceVersions": {
+            "numpy": np.__version__,
+            "scipy": scipy.__version__,
+            "statsmodels": statsmodels.__version__,
+        },
+    }
 
 
 def box_nested_repeated_two_condition(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -3052,11 +3408,15 @@ def roc_auc_uncertainty(payload: Dict[str, Any]) -> Dict[str, Any]:
     v10 = [sum(kernel(score, neg) for neg in negatives) / n for score in positives]
     v01 = [sum(kernel(pos, score) for pos in positives) / m for score in negatives]
     auc = sum(v10) / m
-    variance = (_sample_variance(v10) / m) + (_sample_variance(v01) / n)
+    variance = ((_sample_variance(v10) / m) + (_sample_variance(v01) / n)) if m > 1 and n > 1 else float("nan")
     se = math.sqrt(variance) if variance >= 0 else float("nan")
     z = _resolve_z_critical(alpha)
-    ci_low = max(0.0, auc - (z * se)) if math.isfinite(se) else float("nan")
-    ci_high = min(1.0, auc + (z * se)) if math.isfinite(se) else float("nan")
+    ci_low = ci_high = None
+    if 0 < auc < 1 and math.isfinite(se) and se > 0 and math.isfinite(z):
+        logit = math.log(auc) - math.log1p(-auc)
+        logit_se = se / (auc * (1 - auc))
+        ci_low = 1 / (1 + math.exp(-(logit - (z * logit_se))))
+        ci_high = 1 / (1 + math.exp(-(logit + (z * logit_se))))
     return {"available": True, "auc": auc, "se": se, "ciLow": ci_low, "ciHigh": ci_high, "method": "DeLong-style"}
 
 
@@ -3247,9 +3607,12 @@ def _prepare_survival_groups(series: Any) -> Tuple[List[List[Dict[str, Any]]], s
         records = []
         for record in (group.get("records") if isinstance(group, dict) else []) or []:
             time = record.get("time") if isinstance(record, dict) else None
+            entry = record.get("entry", 0) if isinstance(record, dict) else None
             event = record.get("event") if isinstance(record, dict) else None
-            if _is_finite_number(time):
-                records.append({"time": float(time), "event": bool(event)})
+            entry_value = 0.0 if entry is None else entry
+            if (_is_finite_number(time) and _is_finite_number(entry_value)
+                    and float(entry_value) >= 0 and float(entry_value) < float(time)):
+                records.append({"time": float(time), "entry": float(entry_value), "event": bool(event)})
         groups.append(records)
     if any(len(group) == 0 for group in groups):
         return [], "Each group must contain records."
@@ -3267,25 +3630,22 @@ def _weighted_survival_logrank(groups: List[List[Dict[str, Any]]], label: str, w
         return {"available": False, "message": f"No events detected for {label.lower()}."}
 
     k = len(groups)
-    at_risk = [len(group) for group in groups]
-    event_maps: List[Dict[float, Dict[str, int]]] = []
+    event_maps: List[Dict[float, int]] = []
     for group in groups:
-        mapping: Dict[float, Dict[str, int]] = {}
+        mapping: Dict[float, int] = {}
         for rec in group:
-            key = rec["time"]
-            bucket = mapping.get(key) or {"events": 0, "censored": 0}
             if rec["event"]:
-                bucket["events"] += 1
-            else:
-                bucket["censored"] += 1
-            mapping[key] = bucket
+                mapping[rec["time"]] = mapping.get(rec["time"], 0) + 1
         event_maps.append(mapping)
 
     diff = np.zeros(k, dtype=float)
     variance = np.zeros((k, k), dtype=float)
     for time in event_times:
-        events = np.array([event_maps[idx].get(time, {}).get("events", 0) for idx in range(k)], dtype=float)
-        censored = np.array([event_maps[idx].get(time, {}).get("censored", 0) for idx in range(k)], dtype=float)
+        at_risk = np.array([
+            sum(1 for record in group if record["entry"] < time <= record["time"])
+            for group in groups
+        ], dtype=float)
+        events = np.array([event_maps[idx].get(time, 0) for idx in range(k)], dtype=float)
         total_events = float(np.sum(events))
         total_at_risk = float(np.sum(at_risk))
         weight = total_at_risk if weight_mode == "gehan" else 1.0
@@ -3301,8 +3661,6 @@ def _weighted_survival_logrank(groups: List[List[Dict[str, Any]]], label: str, w
                             variance[i, j] += common * p[i] * (1 - p[i])
                         else:
                             variance[i, j] -= common * p[i] * p[j]
-        at_risk = [max(0, int(at_risk[idx] - events[idx] - censored[idx])) for idx in range(k)]
-
     if scores is not None:
         score_vec = np.asarray(scores, dtype=float)
         numerator = float(score_vec @ diff)
@@ -3543,6 +3901,101 @@ def survival_cox_efron(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def survival_cox_ph_rank_score(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Independent NumPy reference for the rank-time efficient score test."""
+    time = np.asarray(payload.get("time") or [], dtype=float)
+    entry = np.asarray(payload.get("entry") or np.zeros(time.size), dtype=float)
+    event = np.asarray(payload.get("event") or [], dtype=bool)
+    covariates = np.asarray(payload.get("covariates") or [], dtype=float)
+    beta = np.asarray(payload.get("beta") or [], dtype=float)
+    if (time.ndim != 1 or event.shape != time.shape or entry.shape != time.shape
+            or covariates.ndim != 2 or covariates.shape[0] != time.size
+            or beta.shape != (covariates.shape[1],) or time.size == 0
+            or not np.all(np.isfinite(time)) or not np.all(np.isfinite(entry))
+            or not np.all(np.isfinite(covariates)) or not np.all(np.isfinite(beta))):
+        return {"available": False, "message": "Invalid Cox proportional-hazards score-test inputs."}
+    event_times, counts = np.unique(time[event], return_counts=True)
+    event_count = int(np.sum(counts))
+    predictor_count = int(covariates.shape[1])
+    if event_count < 2 or event_times.size < 2 or predictor_count < 1:
+        return {"available": False, "message": "Insufficient observed event times or predictors."}
+
+    score_beta = np.zeros(predictor_count, dtype=float)
+    information_beta = np.zeros((predictor_count, predictor_count), dtype=float)
+    score_time = np.zeros(predictor_count, dtype=float)
+    information_cross = np.zeros((predictor_count, predictor_count), dtype=float)
+    information_time = np.zeros((predictor_count, predictor_count), dtype=float)
+    preceding_events = 0
+    linear_predictor = covariates @ beta
+    risk_weights = np.exp(np.clip(linear_predictor, -700.0, 700.0))
+    for time_value, tied_events in zip(event_times, counts):
+        first_rank = preceding_events + 1
+        last_rank = preceding_events + int(tied_events)
+        mid_rank = (first_rank + last_rank) / 2.0
+        time_score = (mid_rank - ((event_count + 1.0) / 2.0)) / max(event_count - 1, 1)
+        preceding_events += int(tied_events)
+
+        event_mask = event & (time == time_value)
+        risk_mask = (entry < time_value) & (time >= time_value)
+        risk_x = covariates[risk_mask]
+        risk_w = risk_weights[risk_mask]
+        event_x = covariates[event_mask]
+        event_w = risk_weights[event_mask]
+        observed = np.sum(event_x, axis=0)
+        event_weight_sum = float(np.sum(event_w))
+        weighted_x_sum = risk_x.T @ risk_w
+        weighted_xx_sum = (risk_x.T * risk_w) @ risk_x
+        event_weighted_x = event_x.T @ event_w
+        event_weighted_xx = (event_x.T * event_w) @ event_x
+        for tied_index in range(int(tied_events)):
+            fraction = tied_index / float(tied_events)
+            denominator = float(np.sum(risk_w) - fraction * event_weight_sum)
+            adjusted_x = weighted_x_sum - fraction * event_weighted_x
+            adjusted_xx = weighted_xx_sum - fraction * event_weighted_xx
+            mean = adjusted_x / denominator
+            covariance = (adjusted_xx / denominator) - np.outer(mean, mean)
+            score_beta += observed - mean
+            score_time += time_score * (observed - mean)
+            information_beta += covariance
+            information_cross += time_score * covariance
+            information_time += (time_score ** 2) * covariance
+
+    try:
+        nuisance_solve_score = np.linalg.solve(information_beta, score_beta)
+        nuisance_solve_cross = np.linalg.solve(information_beta, information_cross)
+        efficient_score = score_time - information_cross.T @ nuisance_solve_score
+        efficient_information = information_time - information_cross.T @ nuisance_solve_cross
+        statistic = float(efficient_score @ np.linalg.solve(efficient_information, efficient_score))
+    except np.linalg.LinAlgError:
+        return {"available": False, "message": "Singular information in Cox proportional-hazards score test."}
+    if not math.isfinite(statistic) or statistic < 0:
+        return {"available": False, "message": "Invalid Cox proportional-hazards score statistic."}
+
+    term_statistics = np.diag(np.outer(efficient_score, efficient_score) / np.diag(efficient_information))
+    term_p_values = stats.chi2.sf(term_statistics, 1)
+    if sm is not None:
+        adjusted = sm.stats.multipletests(term_p_values, method="holm")[1]
+    else:
+        order = np.argsort(term_p_values)
+        adjusted = np.empty_like(term_p_values)
+        running = 0.0
+        for rank, index in enumerate(order):
+            running = max(running, (predictor_count - rank) * term_p_values[index])
+            adjusted[index] = min(1.0, running)
+    return {
+        "available": True,
+        "statistic": statistic,
+        "df": predictor_count,
+        "p": float(stats.chi2.sf(statistic, predictor_count)),
+        "termStatistics": term_statistics.tolist(),
+        "termPValues": term_p_values.tolist(),
+        "termAdjustedPValues": adjusted.tolist(),
+        "eventCount": event_count,
+        "eventTimeCount": int(event_times.size),
+        "transform": "event-time midranks",
+    }
+
+
 
 def survival_harrell_c(payload: Dict[str, Any]) -> Dict[str, Any]:
     times = payload.get("time") or []
@@ -3596,11 +4049,11 @@ def oracle_capabilities(_: Dict[str, Any]) -> Dict[str, Any]:
         "scipy": getattr(__import__("scipy"), "__version__", "unknown"),
         "statsmodelsAvailable": sm is not None,
         "operations": [
-            "adjust_pvalues", "distribution_fit", "goodness_of_fit",
+            "adjust_pvalues", "distribution_fit", "goodness_of_fit", "mean_equivalence",
             "regression_logistic", "box_tukey_hsd", "box_studentized_range", "box_games_howell",
             "box_welch_pairwise_sidak", "box_friedman_pairwise_maxstat", "box_control_sidak", "box_named_comparisons", "box_rout_location", "box_studentized_maximum", "box_decimal_signed_rank", "box_raw_rank_reference", "box_paired_rank_biserial",
             "pie_gof_test", "pie_contingency_test", "roc_mann_whitney",
-            "survival_kaplan_meier", "survival_cox_efron", "survival_harrell_c",
+            "survival_kaplan_meier", "survival_cox_efron", "survival_cox_ph_rank_score", "survival_harrell_c",
         ],
     }
 
@@ -3640,6 +4093,8 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         distribution = payload.get("distribution")
         values = payload.get("values") or []
         result = fit_distribution(str(distribution or ""), values)
+    elif operation == "mean_equivalence":
+        result = mean_equivalence(payload)
     elif operation == "goodness_of_fit":
         distribution = str(payload.get("distribution") or "")
         values = payload.get("values") or []
@@ -3790,6 +4245,10 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_friedman_pairwise_maxstat(payload)
     elif operation == "box_repeated_measures_anova":
         result = box_repeated_measures_anova(payload)
+    elif operation == "box_lognormal_repeated_measures_anova":
+        result = box_lognormal_repeated_measures_anova(payload)
+    elif operation == "box_row_random_sphericity":
+        result = box_row_random_sphericity(payload)
     elif operation == "box_nested_repeated_two_condition":
         result = box_nested_repeated_two_condition(payload)
     elif operation == "box_kolmogorov_smirnov":
@@ -3830,6 +4289,8 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = survival_kaplan_meier(payload)
     elif operation == "survival_cox_efron":
         result = survival_cox_efron(payload)
+    elif operation == "survival_cox_ph_rank_score":
+        result = survival_cox_ph_rank_score(payload)
     elif operation == "survival_harrell_c":
         result = survival_harrell_c(payload)
     else:

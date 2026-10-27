@@ -353,7 +353,7 @@
     const detail = result.reason === 'existing-file-write-permission-denied'
       ? `The browser did not grant write access to ${fileName}. Your changes remain unsaved.`
       : result.reason === 'existing-file-handle-unavailable'
-        ? `Graphitix cannot update ${fileName} because the browser did not provide write access. Reopen the original with Graphitix Open. Your changes remain unsaved.`
+        ? `The browser opened ${fileName} for reading only. Use Save As and select the original file to save your changes.`
         : result.reason === 'existing-file-target-mismatch'
           ? `The current save target does not belong to this tab. Your changes remain unsaved.`
           : `Graphitix could not save ${fileName}. Your changes remain unsaved.`;
@@ -1209,7 +1209,11 @@
     }
     const readiness = await target.awaitReadyForSnapshot({
       tabId: ownerId,
-      reason: 'prism-batch-import-settle'
+      reason: 'prism-batch-import-settle',
+      // Multi-table Prism imports can trigger a full Box redraw before the
+      // next table is opened. The snapshot default is intentionally short;
+      // give this sequential import boundary enough time to settle.
+      timeoutMs: 30_000
     });
     if (readiness?.ok === false) {
       throw new Error(`Prism import graph did not settle for ${type}.`);
@@ -1310,12 +1314,28 @@
         setActive(false);
       });
     });
-    dropZone.addEventListener('drop', event => {
+    dropZone.addEventListener('drop', async event => {
       const file = event.dataTransfer?.files?.[0] || null;
-      if (file) {
-        void openWelcomeFile(file, { fileName: file.name, source: 'drop-zone' }).catch(err => {
-          console.error('welcome drop import error', err);
+      if (!file) return;
+      try {
+        let fileHandle = null;
+        if (getFileExtension(file) === 'graph') {
+          const item = Array.from(event.dataTransfer?.items || []).find(entry => entry.kind === 'file');
+          if (typeof item?.getAsFileSystemHandle === 'function') {
+            // Acquire the handle during the drop event, before any await or
+            // opening prompt makes the drag data store inaccessible.
+            fileHandle = await item.getAsFileSystemHandle().catch(err => {
+              debug('Debug: welcome dropped file handle unavailable', { name: err?.name });
+              return null;
+            });
+          }
+        }
+        await openWelcomeFile(file, {
+          fileHandle: fileHandle?.kind === 'file' ? fileHandle : null,
+          fileName: file.name
         });
+      } catch (err) {
+        console.error('welcome drop import error', err);
       }
     });
     dropZone.addEventListener('click', () => {

@@ -15,8 +15,8 @@ const scenarioIds = new Set(SCENARIO_CATALOG.map(scenario => scenario.id));
 const browserEvidenceIds = new Set(Object.entries(SCENARIOS_BY_FILE)
   .filter(([file]) => file.startsWith('e2e/'))
   .flatMap(([, ids]) => ids));
-// Keep the two overrides required to hold AG Grid's inline header geometry at the tested compact size.
-const priorityBudget = 50;
+// Includes the two browser-reviewed reduced-motion clipboard feedback overrides.
+const priorityBudget = 51;
 
 function normalizeWhitespace(value) {
   return value.replace(/\s+/g, ' ').trim();

@@ -159,9 +159,13 @@
   const X_DATASET_SPACING_STEP = 0.05;
   const STRIP_INTER_DATASET_GAP_FACTOR = 0.70;
   const STRIP_INTER_DATASET_MIN_GAP_PX = 4;
-  const BOX_BODY_BAND_FRACTION = 0.60;
+  // Equal end and inter-symbol gaps: inset - width / 2 = pitch - width.
+  const BOX_CATEGORY_EDGE_PITCH_FRACTION = 2 / 3;
+  const BOX_BODY_BAND_FRACTION = BOX_CATEGORY_EDGE_PITCH_FRACTION;
   const BOX_SIDE_BODY_BAND_FRACTION = 0.40;
-  const BOX_VIOLIN_HALF_BAND_FRACTION = 0.225;
+  const BOX_WHISKER_CAP_BODY_FRACTION = 0.5;
+  const BOX_RENDER_GEOMETRY_VERSION = 2;
+  const BOX_VIOLIN_HALF_BAND_FRACTION = BOX_BODY_BAND_FRACTION / 2;
   const BOX_SIDE_SUMMARY_GAP_MIN_PX = 2;
   const BOX_SIDE_PLOT_EDGE_GAP_PX = 2;
   const STRIP_MIN_RADIUS_ASYMPTOTE = 0.2;
@@ -243,7 +247,7 @@
     if(!Number.isFinite(span) || span <= 0 || count <= 0){
       return null;
     }
-    const baseBand = span / count;
+    const baseBand = span / (count - 1 + 2 * BOX_CATEGORY_EDGE_PITCH_FRACTION);
     if(count < 2){
       return baseBand;
     }
@@ -798,6 +802,7 @@
     const liveScheme = normalizeBoxCacheColorSchemeId(getBoxSelectedColorSchemeId(), state.tableFormat);
     const ownerTabId = getBoxProjectionTabId() || getActiveBoxSessionForState()?.tabId || tab?.id || null;
     const extra = {
+      renderGeometryVersion: BOX_RENDER_GEOMETRY_VERSION,
       symbolGeometryVersion: symbolGeometry.RENDER_GEOMETRY_VERSION,
       colorScheme: payloadScheme || liveScheme,
       liveColorScheme: liveScheme,
@@ -882,6 +887,7 @@
   }
 
   function canRestoreBoxRenderCache(cache, meta = {}){
+    if(getBoxRenderCacheMetadata(cache)?.renderGeometryVersion !== BOX_RENDER_GEOMETRY_VERSION){ return false; }
     if(!isCompleteBoxRenderCache(cache) || !symbolGeometry.isRenderCacheCurrent(cache)){
       return false;
     }
@@ -1291,7 +1297,26 @@
   const BOX_POINT_CANVAS_SYNC_SOURCE_LIMIT = 20000;
   const BOX_POINT_CANVAS_FRAME_POINT_BUDGET = 6000;
   const BOX_POINT_DENSITY_CANVAS_RENDERER = 'canvas-density';
-  const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
+  const BOX_POINT_SHAPE_BASE_OPTIONS = Shared.getShapePickerOptions
+    ? Shared.getShapePickerOptions()
+    : [
+        { value: 'circle', label: 'Circle' },
+        { value: 'triangle', label: 'Triangle' },
+        { value: 'square', label: 'Square' },
+        { value: 'diamond', label: 'Diamond' },
+        { value: 'cross', label: 'Cross' },
+        { value: 'plus', label: 'Plus' },
+        { value: 'star', label: 'Star' }
+      ];
+  const BOX_POINT_SHAPE_OPTIONS = Object.freeze([
+    ...BOX_POINT_SHAPE_BASE_OPTIONS,
+    { value: 'triangle-down', label: 'Triangle down' }
+  ]);
+  const BOX_POINT_SHAPE_VALUES = new Set([
+    ...(Shared.getShapePickerValues ? Shared.getShapePickerValues() : BOX_POINT_SHAPE_BASE_OPTIONS.map(option => option.value)),
+    'triangle-down'
+  ]);
+  const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','triangle-down','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
     iqr3:{ key:'iqr3', mode:'iqr', multiplier:3, label:'3×IQR' },
@@ -1936,6 +1961,7 @@
 
   function attachBoxShapeHandler(node){
     if(!node){ return; }
+    Shared.svgGeometry.applyInnerStroke(node);
     registerBoxChartKeyboardMark(node, {
       kind: 'box-body',
       traceIndex: resolveBoxTraceIndexFromNode(node)
@@ -2105,8 +2131,8 @@
       return { start, end, inset: 0 };
     }
     const lineHalf = Number.isFinite(overlay) && overlay > 0 ? overlay / 2 : 0;
-    const bodyHalf = Number.isFinite(bodyStroke) && bodyStroke > 0 ? bodyStroke / 2 : 0;
-    const inset = Math.max(0, lineHalf + bodyHalf);
+    const bodyInset = Number.isFinite(bodyStroke) && bodyStroke > 0 ? bodyStroke : 0;
+    const inset = Math.max(0, lineHalf + bodyInset);
     const min = Math.min(start, end);
     const max = Math.max(start, end);
     if((max - min) <= inset * 2){
@@ -2132,20 +2158,17 @@
     return 0;
   }
 
-  function resolveSummaryOverlayBoundaryInset(overlayWidth, bodyStrokeWidth, patternValue){
-    const bodyStroke = Number(bodyStrokeWidth);
-    const bodyHalf = Number.isFinite(bodyStroke) && bodyStroke > 0 ? bodyStroke / 2 : 0;
-    const capExtension = resolveSummaryStrokeCapExtension(overlayWidth, patternValue);
-    return Math.max(0, bodyHalf + capExtension);
+  function resolveSummaryOverlayBoundaryInset(overlayWidth, patternValue){
+    return resolveSummaryStrokeCapExtension(overlayWidth, patternValue);
   }
 
-  function insetSummaryOverlayEndpointFromBodyEdge(bodyEdgeCoord, outerCoord, overlayWidth, bodyStrokeWidth, patternValue){
+  function insetSummaryOverlayEndpointFromBodyEdge(bodyEdgeCoord, outerCoord, overlayWidth, patternValue){
     const bodyEdge = Number(bodyEdgeCoord);
     const outer = Number(outerCoord);
     if(!Number.isFinite(bodyEdge) || !Number.isFinite(outer)){
       return bodyEdgeCoord;
     }
-    const inset = resolveSummaryOverlayBoundaryInset(overlayWidth, bodyStrokeWidth, patternValue);
+    const inset = resolveSummaryOverlayBoundaryInset(overlayWidth, patternValue);
     if(!(inset > 0) || outer === bodyEdge){
       return bodyEdge;
     }
@@ -3252,9 +3275,7 @@
       return resolveBoxTraceDisplayLabel(traceIndex);
     })();
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
-      const shapeValues = Shared.getShapePickerValues && typeof Shared.getShapePickerValues === 'function'
-        ? Shared.getShapePickerValues()
-        : new Set(['circle', 'triangle', 'square', 'diamond', 'cross', 'plus', 'star']);
+      const shapeValues = BOX_POINT_SHAPE_VALUES;
       const sanitizeShape = shape => shapeValues.has(shape) ? shape : 'circle';
       const previewTracePatch = patch => {
         if(traceIndex == null){ return; }
@@ -3339,7 +3360,7 @@
         },
         fillShape: {
           label: 'Fill / shape',
-          shapeOptions: Shared.getShapePickerOptions ? Shared.getShapePickerOptions() : [{ value: 'circle', label: 'Circle' }],
+          shapeOptions: BOX_POINT_SHAPE_OPTIONS,
           getColor(ctx){
             const style = resolvePointStyle(ctx);
             return style.fill
@@ -4153,7 +4174,7 @@
           getWidth(ctx){
             const scopeValue = resolveScope(ctx);
             const node = resolveRepresentativeBodyTarget(scopeValue);
-            const attrWidth = Number(node?.getAttribute ? node.getAttribute('stroke-width') : null);
+            const attrWidth = node ? Shared.svgGeometry.getStrokeWidth(node) : NaN;
             if(Number.isFinite(attrWidth)){ return Math.max(0, attrWidth); }
             const style = resolveStyleByScope(scopeValue);
             const configured = Number(style?.thickness);
@@ -4164,7 +4185,7 @@
             const numeric = Number(value);
             const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
             const scopeValue = resolveScope(ctx);
-            resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('stroke-width', String(normalized)));
+            resolveBodyTargets(scopeValue).forEach(node => Shared.svgGeometry.setStrokeWidth(node, normalized));
             applyScopePatch({ thickness: normalized }, scopeValue);
             scheduleBoxViewRefresh('shape-border-width-change', { renderImpact: 'paint' });
           }
@@ -4369,11 +4390,13 @@
         if(r > 0){
           parts.push(`M ${x + r} ${y} a ${r} ${r} 0 1 0 ${-2 * r} 0 a ${r} ${r} 0 1 0 ${2 * r} 0`);
         }
-      }else if(normalizedShape === 'triangle'){
+      }else if(normalizedShape === 'triangle' || normalizedShape === 'triangle-down'){
         const r = half;
         const x = pt.x;
         const y = pt.y;
-        parts.push(`M ${x} ${y - r} L ${x + r} ${y + r} L ${x - r} ${y + r} Z`);
+        const top = normalizedShape === 'triangle-down' ? y - r : y + r;
+        const apex = normalizedShape === 'triangle-down' ? y + r : y - r;
+        parts.push(`M ${x - r} ${top} L ${x + r} ${top} L ${x} ${apex} Z`);
       }else if(normalizedShape === 'diamond'){
         const r = half;
         const x = pt.x;
@@ -4481,10 +4504,12 @@
       ctx.rect(x - safeRadius, y - safeRadius, safeRadius * 2, safeRadius * 2);
       return;
     }
-    if(shape === 'triangle'){
-      ctx.moveTo(x, y - safeRadius);
-      ctx.lineTo(x + safeRadius, y + safeRadius);
-      ctx.lineTo(x - safeRadius, y + safeRadius);
+    if(shape === 'triangle' || shape === 'triangle-down'){
+      const top = shape === 'triangle-down' ? y - safeRadius : y + safeRadius;
+      const apex = shape === 'triangle-down' ? y + safeRadius : y - safeRadius;
+      ctx.moveTo(x - safeRadius, top);
+      ctx.lineTo(x + safeRadius, top);
+      ctx.lineTo(x, apex);
       ctx.closePath();
       return;
     }
@@ -6201,7 +6226,7 @@
     const boxSummary = computeTraceSummary(values, { requireSorted: false, assumeFiniteValues: true });
     const boxValueToCoord = createValueToCoord(boxSummary.min, boxSummary.max);
     const boxCoords = buildCoords(values, boxValueToCoord);
-    const boxW = Math.max(6, Math.min(60, axisSpacing * 0.6));
+    const boxW = resolveBoxCategoricalBodySpan(axisSpacing, 'overlay');
     const boxHalfWidth = Math.max(baseRadius * 1.1, boxW * 0.3);
     const boxSwarmStart = now();
     const boxSwarm = computeSwarmOffsets({ coords: boxCoords, raws: values }, {
@@ -6226,7 +6251,7 @@
     const violinScaleMax = Number.isFinite(densityInfo.domainMax) ? densityInfo.domainMax : violinSummary.max;
     const violinValueToCoord = createValueToCoord(violinScaleMin, violinScaleMax);
     const violinCoords = buildCoords(sortedValues, violinValueToCoord);
-    const violinHalfWidth = Math.max(3, Math.min(40, axisSpacing * 0.225));
+    const violinHalfWidth = resolveBoxSideSummaryHalfSpan('violin', axisSpacing);
     const violinBounds = createViolinBoundLookup(densityInfo, violinHalfWidth, densityInfo.peak) || (() => violinHalfWidth);
     const violinSwarmStart = now();
     const violinSwarm = computeSwarmOffsets({ coords: violinCoords, raws: sortedValues }, {
@@ -6275,20 +6300,25 @@
     if(!Array.isArray(groupIndices) || !groupIndices.length){
       return null;
     }
-    const baseUnits = 1;
     const centers = [];
-    let current = baseUnits / 2;
+    const pitches = [];
+    let current = 0;
     for(let idx = 0; idx < groupIndices.length; idx++){
       centers.push(current);
       if(idx < groupIndices.length - 1){
         const group = Number.isFinite(groupIndices[idx]) ? groupIndices[idx] : null;
         const nextGroup = Number.isFinite(groupIndices[idx + 1]) ? groupIndices[idx + 1] : null;
         const sameGroup = group !== null && nextGroup !== null && group === nextGroup;
-        const gapUnits = sameGroup ? baseUnits : baseUnits * SEPARATED_GROUP_GAP_MULTIPLIER;
+        const gapUnits = sameGroup ? 1 : SEPARATED_GROUP_GAP_MULTIPLIER;
+        pitches.push(gapUnits);
         current += gapUnits;
       }
     }
-    const totalSpan = current + baseUnits / 2;
+    const baseUnits = pitches.length ? Math.min(...pitches) : 1;
+    const startInset = (pitches[0] || baseUnits) * BOX_CATEGORY_EDGE_PITCH_FRACTION;
+    const endInset = (pitches[pitches.length - 1] || baseUnits) * BOX_CATEGORY_EDGE_PITCH_FRACTION;
+    for(let idx = 0; idx < centers.length; idx++) centers[idx] += startInset;
+    const totalSpan = current + startInset + endInset;
     boxLog('Debug: box separated spacing units',{ categories: centers.length, totalUnits: totalSpan, gapMultiplier: SEPARATED_GROUP_GAP_MULTIPLIER });
     return { centers, baseUnits, totalSpan };
   }
@@ -6300,16 +6330,8 @@
     const scale = plotSize / units.totalSpan;
     const bandWidth = units.baseUnits * scale;
     const centers = units.centers.map(unit => marginStart + unit * scale);
-    const spacing = {
-      centers,
-      bandWidth,
-      halfBand: bandWidth / 2,
-      start: centers.length ? centers[0] - bandWidth / 2 : marginStart,
-      end: centers.length ? centers[centers.length - 1] + bandWidth / 2 : marginStart + plotSize,
-      scale
-    };
-    boxLog('Debug: box separated spacing scaled',{ categories: centers.length, bandWidth, start: spacing.start, end: spacing.end });
-    return spacing;
+    boxLog('Debug: box separated spacing scaled',{ categories: centers.length, bandWidth });
+    return { centers, bandWidth };
   }
 
   function attachBoxSelectAutoSize(select, label){
@@ -6359,9 +6381,31 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, labelAngle: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [] },
-      y: { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, tickStart: null, autoRangeHint: null, majorTickLength: null, labelAngle: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [] },
+      y: { tickInterval: null, tickStart: null, autoRangeHint: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
+  }
+
+  function normalizeBoxLogBase(value){
+    return Number(value) === 2 ? 2 : 10;
+  }
+
+  function transformBoxLogValue(value, base, plusOne = false){
+    const numeric = Number(value) + (plusOne ? 1 : 0);
+    return numeric > 0 ? Math.log(numeric) / Math.log(normalizeBoxLogBase(base)) : NaN;
+  }
+
+  function invertBoxLogValue(exponent, base){
+    return Math.pow(normalizeBoxLogBase(base), Number(exponent));
+  }
+
+  function syncBoxLogBaseControl(enabled = !!els.boxLogScale?.checked, base = els.boxLogBase?.value){
+    if(els.boxLogBase){
+      els.boxLogBase.value = String(normalizeBoxLogBase(base));
+    }
+    if(els.boxLogBaseControl){
+      els.boxLogBaseControl.hidden = !enabled;
+    }
   }
 
   function sanitizeAxisAdditionalTickEntry(entry){
@@ -6942,12 +6986,12 @@
     const fraction = String(pointMode || '').toLowerCase() === 'side'
       ? BOX_SIDE_BODY_BAND_FRACTION
       : BOX_BODY_BAND_FRACTION;
-    return Math.max(6, Math.min(60, band * fraction));
+    return band * fraction;
   }
 
   function resolveBoxSideSummaryHalfSpan(graphType, localBand, bodySpan){
     if(String(graphType || '').toLowerCase() === 'violin'){
-      return Math.max(3, Math.min(40, Math.max(0, Number(localBand) || 0) * BOX_VIOLIN_HALF_BAND_FRACTION));
+      return Math.max(0, Number(localBand) || 0) * BOX_VIOLIN_HALF_BAND_FRACTION;
     }
     return Math.max(0, Number(bodySpan) || 0) / 2;
   }
@@ -7677,19 +7721,18 @@
     const debug = !!operations.debug;
     const drawPoint = typeof operations.drawPoint === 'function' ? operations.drawPoint : null;
     const drawInterval = typeof operations.drawInterval === 'function' ? operations.drawInterval : null;
-    const drawMedianLine = typeof operations.drawMedianLine === 'function' ? operations.drawMedianLine : null;
     const logSkip = (label, extra) => {
       if(debug){
         boxLog('Debug: box summary overlay skipped',{ mode: normalized, label, ...extra });
       }
     };
-    const ensurePoint = (value, radius, label) => {
+    const ensurePoint = (value, label) => {
       if(!drawPoint){ return false; }
       if(!Number.isFinite(value)){
         logSkip(label || 'point',{ value });
         return false;
       }
-      drawPoint(value, radius);
+      drawPoint(value);
       return true;
     };
     const ensureInterval = (low, high, label, opts) => {
@@ -7701,15 +7744,6 @@
       drawInterval(low, high, opts);
       return true;
     };
-    const ensureMedianLine = value => {
-      if(!drawMedianLine){ return false; }
-      if(!Number.isFinite(value)){
-        logSkip('median-line',{ value });
-        return false;
-      }
-      drawMedianLine(value);
-      return true;
-    };
     const getGeoStats = () => {
       if(!operations.__geoSummary){
         operations.__geoSummary = computeGeometricSummary(valueList);
@@ -7718,7 +7752,7 @@
     };
     switch(normalized){
       case 'mean-point':
-        ensurePoint(mean, 1.4, 'mean-point');
+        ensurePoint(mean, 'mean-point');
         break;
       case 'mean-sd':
         if(sampleCount > 1 && Number.isFinite(sd)){
@@ -7726,7 +7760,7 @@
         }else{
           logSkip('mean-sd spread',{ sampleCount, sd });
         }
-        ensurePoint(mean, 1.4, 'mean-sd-center');
+        ensurePoint(mean, 'mean-sd-center');
         break;
       case 'mean-sem':
         if(sampleCount > 1 && Number.isFinite(sd)){
@@ -7734,7 +7768,7 @@
         }else{
           logSkip('mean-sem spread',{ sampleCount, sd });
         }
-        ensurePoint(mean, 1.4, 'mean-sem-center');
+        ensurePoint(mean, 'mean-sem-center');
         break;
       case 'mean-ci':{
         if(summarySpec.hasInterval){
@@ -7742,17 +7776,17 @@
         }else{
           logSkip('mean-ci',{ sampleCount, sd });
         }
-        ensurePoint(mean, 1.4, 'mean-ci-center');
+        ensurePoint(mean, 'mean-ci-center');
         break;
       }
       case 'mean-range':
         ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'mean-range');
-        ensurePoint(mean, 1.4, 'mean-range-center');
+        ensurePoint(mean, 'mean-range-center');
         break;
       case 'geo-mean':{
         const geo = getGeoStats();
         if(geo){
-          ensurePoint(geo.geoMean, 1.4, 'geo-mean');
+          ensurePoint(geo.geoMean, 'geo-mean');
         }else{
           logSkip('geo-mean',{ reason:'invalid-data' });
         }
@@ -7762,7 +7796,7 @@
         const geo = getGeoStats();
         if(geo){
           ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'geo-mean-ci');
-          ensurePoint(geo.geoMean, 1.4, 'geo-mean-ci-center');
+          ensurePoint(geo.geoMean, 'geo-mean-ci-center');
         }else{
           logSkip('geo-mean-ci',{ reason:'invalid-data' });
         }
@@ -7772,15 +7806,14 @@
         const geo = getGeoStats();
         if(geo){
           ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'geo-mean-gsd');
-          ensurePoint(geo.geoMean, 1.4, 'geo-mean-gsd-center');
+          ensurePoint(geo.geoMean, 'geo-mean-gsd-center');
         }else{
           logSkip('geo-mean-gsd',{ reason:'invalid-data' });
         }
         break;
       }
       case 'median-point':
-        ensureMedianLine(median);
-        ensurePoint(median, 1.2, 'median-point');
+        ensurePoint(median, 'median-point');
         break;
       case 'median-ci':{
         if(summarySpec.hasInterval){
@@ -7788,19 +7821,16 @@
         }else{
           logSkip('median-ci',{ reason:'ci-missing' });
         }
-        ensureMedianLine(median);
-        ensurePoint(median, 1.2, 'median-ci-point');
+        ensurePoint(median, 'median-ci-point');
         break;
       }
       case 'median-range':
         ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'median-range');
-        ensureMedianLine(median);
-        ensurePoint(median, 1.2, 'median-range-point');
+        ensurePoint(median, 'median-range-point');
         break;
       case 'median-iqr':
         ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'median-iqr');
-        ensureMedianLine(median);
-        ensurePoint(median, 1.2, 'median-iqr-point');
+        ensurePoint(median, 'median-iqr-point');
         break;
       default:
         break;
@@ -7815,31 +7845,8 @@
     summaryGroup.dataset.boxSummary = '1';
     attachBoxSummaryGroupHandler(summaryGroup, params.onClick);
     const localBand = Number(params.localBand);
-    const pointRadius = Number(params.pointRadius);
-    const swarm = params.swarmResult?.swarm;
-    const summaryRadius = params.swarmResult?.effectiveRadius != null
-      ? params.swarmResult.effectiveRadius
-      : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
-    const summaryCap = Math.max(6, localBand * 0.12);
-    const offsetExtent = Number.isFinite(Number(params.swarmResult?.maxOffsetUsed)) ? Number(params.swarmResult.maxOffsetUsed) : 0;
-    const radiusExtent = Number.isFinite(Number(summaryRadius)) ? Number(summaryRadius) : pointRadius;
-    const pointSpreadHalfExtent = Math.max(0, offsetExtent) + Math.max(0, radiusExtent || 0);
-    const pointSpreadWidth = pointSpreadHalfExtent * 2;
-    const fallbackHalfSpan = Math.max(summaryCap, (summaryRadius || pointRadius) * 1.4, 4);
-    const scaledHalfSpan = pointSpreadHalfExtent > 0 ? pointSpreadHalfExtent * 1.3 : NaN;
-    const summaryPointHalfSpan = Number.isFinite(scaledHalfSpan) && scaledHalfSpan > 0
-      ? Math.max(fallbackHalfSpan, scaledHalfSpan)
-      : fallbackHalfSpan;
-    if(params.debugEnabled){
-      boxLog('Debug: box strip summary span',{
-        index: params.traceIndex,
-        orientation: params.orientation,
-        maxOffsetUsed: offsetExtent,
-        summaryRadius: radiusExtent,
-        pointSpreadWidth,
-        summaryBarWidth: summaryPointHalfSpan * 2
-      });
-    }
+    const summaryPointHalfSpan = resolveBoxCategoricalBodySpan(localBand, 'none') / 2;
+    const summaryCap = summaryPointHalfSpan * 2 * BOX_WHISKER_CAP_BODY_FRACTION;
     const summaryStyleIndex = params.styleTraceIndex == null ? params.traceIndex : params.styleTraceIndex;
     const summaryStyle = typeof params.getSummaryStyle === 'function' ? params.getSummaryStyle(summaryStyleIndex) : null;
     const summaryColor = resolveBoxSummaryOverlayColor(summaryStyle, params.fillColor, params.borderColor, {
@@ -7883,8 +7890,6 @@
       return node;
     };
     return {
-      summaryGroup,
-      summaryRadius,
       summaryCap,
       summaryPointHalfSpan,
       summaryStrokeWidth,
@@ -7903,62 +7908,9 @@
       ? params.summaryStrokeAttrs
       : (() => ({}));
     const summaryCap = Number(params.summaryCap);
-    const summaryRadius = Number(params.summaryRadius);
-    const pointRadius = Number(params.pointRadius);
     const summaryPointHalfSpan = Number(params.summaryPointHalfSpan);
     const summaryStrokeWidth = Number(params.summaryStrokeWidth);
     const summaryIntervalWidth = Number(params.summaryIntervalWidth);
-    const pendingBars = Array.isArray(params.pendingBars) ? params.pendingBars : null;
-    const pendingCaps = Array.isArray(params.pendingCaps) ? params.pendingCaps : null;
-    const getGlobalHalfSpan = typeof params.getGlobalHalfSpan === 'function'
-      ? params.getGlobalHalfSpan
-      : (() => NaN);
-    const setGlobalHalfSpan = typeof params.setGlobalHalfSpan === 'function'
-      ? params.setGlobalHalfSpan
-      : null;
-    const traceIndex = params.traceIndex;
-    const mode = params.mode;
-
-    const updateGlobalHalfSpan = halfSpan => {
-      if(!Number.isFinite(halfSpan) || halfSpan <= 0 || !setGlobalHalfSpan){
-        return;
-      }
-      const current = Number(getGlobalHalfSpan());
-      if(!(Number.isFinite(current) && current >= halfSpan)){
-        setGlobalHalfSpan(halfSpan);
-      }
-    };
-
-    const pushPendingBar = (node, valuePixel, kind) => {
-      if(!pendingBars || !node){
-        return;
-      }
-      pendingBars.push({
-        node,
-        orientation,
-        centerCoord,
-        valuePixel,
-        traceIndex,
-        mode,
-        kind
-      });
-    };
-
-    const pushPendingCap = (node, valuePixel) => {
-      if(!pendingCaps || !node){
-        return;
-      }
-      pendingCaps.push({
-        node,
-        orientation,
-        centerCoord,
-        valuePixel,
-        traceIndex,
-        mode,
-        kind: 'interval-cap'
-      });
-    };
-
     const createLine = attrs => {
       if(!summaryAdd){
         return null;
@@ -7998,7 +7950,7 @@
         const capsEnabled = opts.caps !== false;
         const capSize = opts.capSize ?? summaryCap;
         if(capsEnabled && capSize > 0){
-          const capStartNode = orientation === 'vertical'
+          orientation === 'vertical'
             ? createLine({
                 x1: centerCoord - capSize / 2,
                 y1: startPixel,
@@ -8013,7 +7965,7 @@
                 y2: centerCoord + capSize / 2,
                 ...summaryStrokeAttrs(summaryIntervalWidth)
               });
-          const capEndNode = orientation === 'vertical'
+          orientation === 'vertical'
             ? createLine({
                 x1: centerCoord - capSize / 2,
                 y1: endPixel,
@@ -8028,20 +7980,16 @@
                 y2: centerCoord + capSize / 2,
                 ...summaryStrokeAttrs(summaryIntervalWidth)
               });
-          pushPendingCap(capStartNode, startPixel);
-          pushPendingCap(capEndNode, endPixel);
         }
         return true;
       },
-      drawPoint: (value, radiusMultiplier = 1.4) => {
+      drawPoint: value => {
         if(!Number.isFinite(value) || !valueToPixel){
           return false;
         }
         const valuePixel = valueToPixel(value);
-        const fallbackHalfSpan = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
-        const halfSpan = Math.max(summaryPointHalfSpan, fallbackHalfSpan);
-        updateGlobalHalfSpan(halfSpan);
-        const node = orientation === 'vertical'
+        const halfSpan = summaryPointHalfSpan;
+        orientation === 'vertical'
           ? createLine({
               x1: centerCoord - halfSpan,
               y1: valuePixel,
@@ -8056,92 +8004,10 @@
               y2: centerCoord + halfSpan,
               ...summaryStrokeAttrs(summaryStrokeWidth)
             });
-        pushPendingBar(node, valuePixel, 'point');
-        return true;
-      },
-      drawMedianLine: value => {
-        if(!Number.isFinite(value) || !valueToPixel){
-          return false;
-        }
-        const valuePixel = valueToPixel(value);
-        const halfSpan = Math.max(summaryPointHalfSpan, Math.max(summaryCap, 4));
-        updateGlobalHalfSpan(halfSpan);
-        const node = orientation === 'vertical'
-          ? createLine({
-              x1: centerCoord - halfSpan,
-              y1: valuePixel,
-              x2: centerCoord + halfSpan,
-              y2: valuePixel,
-              ...summaryStrokeAttrs(summaryStrokeWidth)
-            })
-          : createLine({
-              x1: valuePixel,
-              y1: centerCoord - halfSpan,
-              x2: valuePixel,
-              y2: centerCoord + halfSpan,
-              ...summaryStrokeAttrs(summaryStrokeWidth)
-            });
-        pushPendingBar(node, valuePixel, 'median-line');
         return true;
       },
       debug: !!params.debugEnabled
     };
-  }
-
-  function normalizePendingIndividualSummarySpans(params = {}){
-    const orientation = params.orientation === 'horizontal' ? 'horizontal' : 'vertical';
-    const bars = Array.isArray(params.pendingBars) ? params.pendingBars : [];
-    const caps = Array.isArray(params.pendingCaps) ? params.pendingCaps : [];
-    const globalHalfSpan = Number(params.globalHalfSpan);
-    if(!(bars.length && Number.isFinite(globalHalfSpan) && globalHalfSpan > 0)){
-      return;
-    }
-    for(const pendingBar of bars){
-      const node = pendingBar?.node;
-      if(!node || typeof node.setAttribute !== 'function'){
-        continue;
-      }
-      if(orientation === 'vertical'){
-        node.setAttribute('x1', String(pendingBar.centerCoord - globalHalfSpan));
-        node.setAttribute('x2', String(pendingBar.centerCoord + globalHalfSpan));
-        node.setAttribute('y1', String(pendingBar.valuePixel));
-        node.setAttribute('y2', String(pendingBar.valuePixel));
-      }else{
-        node.setAttribute('x1', String(pendingBar.valuePixel));
-        node.setAttribute('x2', String(pendingBar.valuePixel));
-        node.setAttribute('y1', String(pendingBar.centerCoord - globalHalfSpan));
-        node.setAttribute('y2', String(pendingBar.centerCoord + globalHalfSpan));
-      }
-    }
-    const globalIntervalCapHalfSpan = globalHalfSpan / 2;
-    if(caps.length && Number.isFinite(globalIntervalCapHalfSpan) && globalIntervalCapHalfSpan > 0){
-      for(const pendingCap of caps){
-        const node = pendingCap?.node;
-        if(!node || typeof node.setAttribute !== 'function'){
-          continue;
-        }
-        if(orientation === 'vertical'){
-          node.setAttribute('x1', String(pendingCap.centerCoord - globalIntervalCapHalfSpan));
-          node.setAttribute('x2', String(pendingCap.centerCoord + globalIntervalCapHalfSpan));
-          node.setAttribute('y1', String(pendingCap.valuePixel));
-          node.setAttribute('y2', String(pendingCap.valuePixel));
-        }else{
-          node.setAttribute('x1', String(pendingCap.valuePixel));
-          node.setAttribute('x2', String(pendingCap.valuePixel));
-          node.setAttribute('y1', String(pendingCap.centerCoord - globalIntervalCapHalfSpan));
-          node.setAttribute('y2', String(pendingCap.centerCoord + globalIntervalCapHalfSpan));
-        }
-      }
-    }
-    if(params.debugEnabled){
-      boxLog('Debug: box strip summary span normalized globally',{
-        count: bars.length,
-        capCount: caps.length,
-        orientation,
-        globalSummaryBarWidth: globalHalfSpan * 2,
-        globalIntervalCapWidth: globalHalfSpan
-      });
-    }
   }
 
   function computeBoxViolinDensityShared(sorted, minVal, maxVal, sampleCount){
@@ -8193,7 +8059,7 @@
     const peak = densityInfo.densities.length
       ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0)
       : 1;
-    const halfSpan = Math.max(3, Math.min(40, Number(params.localBand) * 0.225));
+    const halfSpan = resolveBoxSideSummaryHalfSpan('violin', params.localBand);
     const pointBounds = createViolinBoundLookup(densityInfo, halfSpan, peak) || (() => halfSpan);
     return {
       densitySource,
@@ -8288,7 +8154,7 @@
         : (Array.isArray(rawValues)
           ? rawValues.map(value => {
               if(!els.boxLogScale?.checked){ return value; }
-              return state.logPlusOne ? Math.log10(value + 1) : Math.log10(value);
+              return transformBoxLogValue(value, els.boxLogBase?.value, state.logPlusOne === true);
             }).filter(Number.isFinite)
           : null);
       if(
@@ -8326,6 +8192,7 @@
     }
     pending.forEach(entry => {
       entry.path.setAttribute('d', entry.d);
+      Shared.svgGeometry.applyInnerStroke(entry.path);
       entry.path.setAttribute('data-box-violin-extent', entry.extentMode || DEFAULT_VIOLIN_EXTENT);
     });
     captureBoxSessionState(session, { reason: 'violin-density-samples-live' }, { readActiveGlobals: true });
@@ -8745,11 +8612,12 @@
       summary='Use a three-way ANOVA to evaluate group, condition, and the fixed row factor together.';
     }else if(repeated==='yes'){
       analysis='rowRandomMixed';
-      summary='Use a mixed model with rows as a random repeated-measures effect to assess group, condition, and their interaction.';
+      summary='Use a fully crossed repeated-measures ANOVA with each row as one subject measured at every group × condition cell; Greenhouse–Geisser corrected tests are primary.';
     }
     if(repeated==='yes'){
       rationale.push('Each complete row links one subject across every group and condition; the row-random repeated-measures model uses that crossed subject structure.');
-      warnings.push('This balanced row-random model is not a general mixed-effects fit for nested subjects or missing measurements. Check its covariance assumptions.');
+      rationale.push('Group, condition, and their interaction each use their own Greenhouse–Geisser correction; Huynh–Feldt results are available as supplementary inference.');
+      warnings.push('This complete-case crossed repeated-measures model is not a general mixed-effects fit for nested subjects or missing measurements. No formal sphericity test is performed.');
     }else{
       rationale.push('Groups and conditions are independent, so a standard ANOVA is appropriate.');
     }
@@ -8812,7 +8680,10 @@
     if(pairedAnswer==='paired' && context.pairedRowCount<2){
       return {ready:false,message:'Paired/repeated analysis requires at least two complete, aligned subject rows across the selected groups.',missing:['data']};
     }
-    if(distributionAnswer==='lognormal' && context.minimumValues?.some(value => !(value>0))){
+    const lognormalMinimumValues=pairedAnswer==='paired'
+      ? (context.pairedMinimumValues || context.minimumValues)
+      : context.minimumValues;
+    if(distributionAnswer==='lognormal' && lognormalMinimumValues?.some(value => !(value>0))){
       return { ready:false, message:'Log-normal analyses require strictly positive included observations. Choose a suitable analysis; values will not be removed to force a log transform.', missing:['data'] };
     }
     if(!distributionAnswer || distributionAnswer==='unsure'){
@@ -8913,16 +8784,20 @@
           rationale.push('Holm-adjusted paired contrasts provide a practical follow-up when specific pairwise differences are needed.');
         }else if(distributionAnswer==='lognormal'){
           statsTest='parametric';
-          primaryLabel='Repeated-measures ANOVA on log-transformed values';
+          primaryLabel=pairwiseOnlyScope ? 'Paired ratio t tests' : 'Lognormal repeated-measures ANOVA';
+          recommendationVariant=pairwiseOnlyScope ? 'ratioT' : 'lognormalClassic';
           postHoc='standard';
           recommendedCorrection='holm';
-          postHocLabel='If the omnibus test is significant, follow with Holm-adjusted paired contrasts on the log scale.';
-          rationale.push('For repeated positive data with a log-normal pattern, the mean model should be evaluated on the log scale so effects map to geometric means.');
-          if(!pairwiseOnlyScope){
-            canApply=false;
-            applyDisabledReason='A dedicated repeated-measures lognormal workflow is not yet exposed in the Box apply path.';
-            warnings.push('The advisor can identify a repeated-measures lognormal workflow, but Box does not yet expose it as a dedicated one-click analysis.');
-            warnings.push('Use strictly positive log-transformed values with repeated-measures ANOVA if you need this path today.');
+          postHocLabel=pairwiseOnlyScope
+            ? 'Use Holm-adjusted paired tests of within-subject log ratios for the selected comparisons.'
+            : 'If the omnibus test is significant, follow with Holm-adjusted paired tests of within-subject log ratios.';
+          rationale.push('The model logs strictly positive repeated observations internally and tests condition means on the log scale, which corresponds to equality of geometric means.');
+          rationale.push('Pairwise effects are ratios of geometric means (A/B), with confidence intervals back-transformed from paired log-ratio contrasts.');
+          warnings.push('This analysis targets geometric means and ratios, not arithmetic mean differences.');
+          if(pairwiseOnlyScope){
+            warnings.push('This scope runs only the selected paired contrasts; it does not run an omnibus repeated-measures test or a sphericity correction.');
+          }else{
+            warnings.push('The uncorrected univariate model assumes approximately normal errors on the log scale and sphericity of within-subject contrasts. Primary inference uses Greenhouse–Geisser corrected degrees of freedom and p-values; Huynh–Feldt results are supplementary. This workflow does not fit a general covariance structure or perform a formal sphericity test.');
           }
         }else if(distributionAnswer==='nonnormal'){
           statsTest='nonparametric';
@@ -9031,6 +8906,9 @@
     if(paired){
       warnings.push('If repeated-measures data contain missing or non-numeric values, a full mixed-effects engine is preferable to deleting incomplete subjects.');
     }
+    if(paired && primaryLabel==='Repeated-measures ANOVA'){
+      warnings.push('With three or more within-subject levels, repeated-measures ANOVA assumes sphericity. The report includes Greenhouse–Geisser and Huynh–Feldt corrected p-values; use these when sphericity is uncertain.');
+    }
     if(statsTest==='nonparametric'){
       warnings.push(paired
         ? (groupsAnswer==='two' || pairwiseOnlyScope
@@ -9076,20 +8954,6 @@
   }
 
 
-
-
-
-
-  function computePartialEtaSquared(ssEffect,ssError){
-    if(!Number.isFinite(ssEffect) || !Number.isFinite(ssError)){
-      return NaN;
-    }
-    const denom=ssEffect+ssError;
-    if(!(denom>0)){
-      return NaN;
-    }
-    return clamp(ssEffect/denom,0,1);
-  }
 
 
 
@@ -9207,6 +9071,8 @@
     'boxLayoutModeCtl',
     'boxLogScale',
     'boxLogScaleLabel',
+    'boxLogBase',
+    'boxLogBaseControl',
     'boxPointMode',
     'boxPointModeCtl',
     'boxShowCaps',
@@ -9457,6 +9323,8 @@
 
   function createDefaultBoxStatsResultsState(){
     const next = {
+      analysisId:null,
+      rowRandomMethodStale:false,
       signature: null,
       version: 0,
       lastRunVersion: 0,
@@ -9561,6 +9429,8 @@
       || null;
     const hasReportContent = !!(report && typeof report === 'object' && report.kind === 'stats-report');
     const next = {
+      analysisId:typeof source.analysisId==='string' ? source.analysisId : (typeof source.groupedAnalysis==='string' ? source.groupedAnalysis : null),
+      rowRandomMethodStale:source.rowRandomMethodStale===true,
       signature: typeof source.signature === 'string' && source.signature
         ? source.signature
         : (typeof source.contextSignature === 'string' && source.contextSignature ? source.contextSignature : null),
@@ -9598,6 +9468,51 @@
       return value;
     }
     return normalizeBoxStatsResultsState(value);
+  }
+
+  function hasCurrentRowRandomSphericityContract(model){
+    const repeated=model?.repeatedMeasures
+      || model?.deferredModel?.repeatedMeasures
+      || model?.analysisSpec?.repeatedMeasures
+      || model?.report?.analysisSpec?.repeatedMeasures;
+    if(repeated?.schemaVersion!=='box-row-random-sphericity-v1'
+      || repeated?.methodVersion!==BOX_ROW_RANDOM_SPHERICITY_VERSION
+      || repeated?.design!=='fully-crossed-within-subjects'
+      || repeated?.primaryCorrection!=='greenhouse-geisser'){
+      return false;
+    }
+    return ['group','condition','interaction'].every(key=>{
+      const effect=repeated.effects?.[key];
+      return !!effect
+        && effect.available=== (effect.gg?.available===true)
+        && ['gg','hf'].every(method=>{
+          const correction=effect[method];
+          return !!correction && typeof correction.available==='boolean'
+            && (correction.available
+              ? Number.isFinite(correction.epsilon) && Number.isFinite(correction.df1)
+                && Number.isFinite(correction.df2) && Number.isFinite(correction.p)
+              : typeof correction.reason==='string' && correction.reason.length>0);
+        });
+    });
+  }
+
+  function getBoxRowRandomAnalysisSpec(results){
+    const panelReport=readBoxStatsPanelModelParts(results?.panelModel).reportModel;
+    const candidates=[
+      results?.report?.analysisSpec,
+      panelReport?.analysisSpec,
+      results?.analysisSpec
+    ];
+    return candidates.find(spec=>spec && typeof spec==='object' && normalizeGroupedAnalysisId(spec.analysisId)==='rowRandomMixed') || null;
+  }
+
+  function isLegacyRowRandomStatsResult(results,analysisHint=null){
+    if(results?.rowRandomMethodStale===true) return !hasCurrentRowRandomSphericityContract(results?.report?.analysisSpec || results?.panelModel || results);
+    const spec=getBoxRowRandomAnalysisSpec(results);
+    const analysisId=spec?.analysisId || results?.analysisId || results?.groupedAnalysis || analysisHint;
+    if(normalizeGroupedAnalysisId(analysisId)!=='rowRandomMixed') return false;
+    const currentContract=hasCurrentRowRandomSphericityContract(spec || results?.report || results?.panelModel || results);
+    return !currentContract;
   }
 
   function resolveBoxStatsPanelContext(session = null){
@@ -10261,6 +10176,25 @@
       return getBoxSession(tabId, { ...(meta || {}), tabId }, { create: options.create === true });
     }
     return options.fallbackActive === false ? null : getActiveBoxSessionForState();
+  }
+
+  function clearBoxAutoRangeHint(session, axis = 'y', reason = 'box-axis-auto-range-invalidated'){
+    if(!session?.state || (axis !== 'x' && axis !== 'y')){ return false; }
+    const layout = session.state.layout && typeof session.state.layout === 'object'
+      ? session.state.layout : (session.state.layout = {});
+    const axisSettings = cloneSimple(layout.axisSettings) || createDefaultAxisSettings();
+    if(!axisSettings[axis]?.autoRangeHint){ return false; }
+    axisSettings[axis].autoRangeHint = null;
+    layout.axisSettings = axisSettings;
+    if(isBoxSessionActiveForModuleState(session)){
+      state.axisSettings = cloneSimple(axisSettings) || axisSettings;
+    }
+    captureBoxSessionState(session, { reason }, { readActiveGlobals: false });
+    Shared.componentLifecycle?.persistOwnedUserState?.('box', session, {
+      tabId: session.tabId,
+      reason
+    });
+    return true;
   }
 
   function scheduleActiveBoxDraw(options = {}){
@@ -11149,6 +11083,10 @@
         : (previous.lastRunVersion || 0);
       next = setBoxStatsResultsState({
         ...previous,
+        analysisId:isComputedResult && state.tableFormat==='grouped'
+          ? (normalizeGroupedAnalysisId(state.groupedStats?.analysis) || null)
+          : previous.analysisId,
+        rowRandomMethodStale:isComputedResult?false:previous.rowRandomMethodStale===true,
         signature: isComputedResult ? (state.statsContextSignature || previous.signature || null) : (previous.signature || null),
         version: resultVersion,
         lastRunVersion,
@@ -11165,6 +11103,10 @@
     }else{
       if(canUseLiveProjection){
         if(options.computed === true){
+          previous.analysisId=state.tableFormat==='grouped'
+            ? (normalizeGroupedAnalysisId(state.groupedStats?.analysis) || null)
+            : null;
+          previous.rowRandomMethodStale=false;
           previous.signature = state.statsContextSignature || previous.signature || null;
           previous.version = Number(state.statsContextVersion) || previous.version || 0;
           previous.lastRunVersion = Number(state.statsLastRunVersion) || previous.lastRunVersion || 0;
@@ -11245,6 +11187,22 @@
 
   function restoreBoxStatsResultsState(resultsState, options = {}){
     const normalized = ensureBoxStatsResultsState(resultsState);
+    if(isLegacyRowRandomStatsResult(normalized,options.analysisId || options.groupedAnalysis || resultsState?.groupedAnalysis)){
+      normalized.rowRandomMethodStale=true;
+      normalized.lastRunVersion=0;
+      normalized.status=STALE_BOX_CALCULATION_STATUS;
+      if(normalized.deferredModel?.analysisId
+        && normalizeGroupedAnalysisId(normalized.deferredModel.analysisId)==='rowRandomMixed'
+        && !hasCurrentRowRandomSphericityContract(normalized.deferredModel)){
+        normalized.deferredModel=null;
+        normalized.deferredContextSignature=null;
+        normalized.deferredContextVersion=0;
+        normalized.deferredAutoShowSignificance=false;
+      }
+      boxNormalizedStatsResultsStates.add(normalized);
+    }else if(hasCurrentRowRandomSphericityContract(normalized.report?.analysisSpec || normalized.panelModel)){
+      normalized.rowRandomMethodStale=false;
+    }
     const hasPanelContent = boxStatsPanelModelHasContent(normalized.panelModel);
     const hasTableContent = boxStatsTableModelHasContent(normalized.tableModel);
     const hasReportContent = !!(normalized.report && typeof normalized.report === 'object' && normalized.report.kind === 'stats-report');
@@ -11736,6 +11694,9 @@
 
   function readBoxOwnedRuntimeControls(session = null){
     const owner = (session || getActiveBoxSessionForState());
+    const ownerActive = !owner || isBoxSessionActiveForModuleState(owner);
+    const ownedControls = owner?.state?.controls && typeof owner.state.controls === 'object'
+      ? owner.state.controls : {};
     return {
       tableFormat: normalizeBoxTableFormat(state.tableFormat),
       graphType: normalizeBoxGraphType(els.boxGraphType?.value || 'box'),
@@ -11749,7 +11710,8 @@
       showGrid: !!els.boxShowGrid?.checked,
       showFrame: !!els.boxShowFrame?.checked,
       showLegend: !!els.boxShowLegend?.checked,
-      logScale: !!els.boxLogScale?.checked,
+      logScale: ownerActive ? !!els.boxLogScale?.checked : !!ownedControls.logScale,
+      logBase: normalizeBoxLogBase(ownerActive ? els.boxLogBase?.value : ownedControls.logBase),
       showCaps: !!els.boxShowCaps?.checked,
       flipAxes: owner?.state ? resolveBoxOwnedFlipAxes(owner.state, false) : !!state.flipAxes,
       yMin: normalizeBoxOwnedString(els.boxYMin?.value, ''),
@@ -12029,6 +11991,7 @@
     applyBoxControlChecked(els.boxShowFrame, controls.showFrame);
     applyBoxControlChecked(els.boxShowLegend, controls.showLegend ?? getDefaultBoxShowLegend(controls.tableFormat));
     applyBoxControlChecked(els.boxLogScale, controls.logScale);
+    syncBoxLogBaseControl(controls.logScale, controls.logBase);
     applyBoxControlChecked(els.boxShowCaps, controls.showCaps);
     applyBoxControlChecked(els.boxFlipAxes, resolveBoxOwnedFlipAxes(record, false));
     applyBoxControlChecked(els.boxConnectPointsAcrossDatasets, record.visual?.connectPointsAcrossDatasets);
@@ -13207,12 +13170,22 @@
     });
   }
 
+  function normalizeBoxAxisTickStart(value){
+    if(value == null || value === ''){ return null; }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
-    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [] }; }
-    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }; }
+    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, tickStart: null, majorTickLength: null, labelAngle: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [] }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, tickStart: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
+    ['x', 'y'].forEach(axis => {
+      settings[axis].tickStart = normalizeBoxAxisTickStart(settings[axis].tickStart);
+      settings[axis].autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(settings[axis].autoRangeHint) || null;
+    });
     settings.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.x.labelAngle);
     settings.x.datasetSpacing = sanitizeXAxisDatasetSpacing(settings.x.datasetSpacing);
     settings.y.datasetSpacing = sanitizeXAxisDatasetSpacing(settings.y.datasetSpacing);
@@ -14864,7 +14837,7 @@
       width: targetWidth,
       height: targetHeight,
       forceExact: true,
-      preserveAspectLock: true,
+      preserveAspectLock: false,
       updateAspectRatio: true,
       updateDefaults: false,
       authorityMode: 'transient',
@@ -15661,6 +15634,8 @@
     boxLegendControl = els.boxShowLegend?.closest('label') || null;
     els.boxLogScale=byId('boxLogScale');
     els.boxLogScaleLabel=byId('boxLogScaleLabel');
+    els.boxLogBase=byId('boxLogBase');
+    els.boxLogBaseControl=byId('boxLogBaseControl');
     if(!refsOnly){
       clearBoxLogWarning();
     }
@@ -18299,6 +18274,9 @@
             if(!applyingPayload && !systemGroupedHeaderNormalize){
               if(affectsAnalysis){
                 revalidateActiveBoxLogScale('data-edit');
+                const ownerSession = getBoxSessionForHot(instance, { reason: 'box-data-edit-range-invalidation' }, { fallbackActive: false });
+                clearBoxAutoRangeHint(ownerSession, 'x', 'box-data-edit-range-invalidation');
+                clearBoxAutoRangeHint(ownerSession, 'y', 'box-data-edit-range-invalidation');
               }
               syncBoxActiveDataViewFromHot(instance, 'afterChange');
             }
@@ -18589,48 +18567,334 @@
       }
     };
     const tableImport = Shared.tableImport;
-    const applyBoxPrismStyle = style => {
+    const applyBoxPrismStyle = (style, meta = {}) => {
       if(!style || typeof style !== 'object'){
-        return;
+        return false;
       }
+      const tabId = String(meta.tabId || '').trim();
+      const ownerSession = tabId
+        ? getBoxSession(tabId, { tabId, reason: 'box-prism-style-owner' }, { create: false })
+        : getActiveBoxSessionForState();
+      if(!ownerSession?.state){
+        return false;
+      }
+      const ownerActive = isBoxSessionActiveForModuleState(ownerSession);
       const title = style.title != null ? String(style.title).trim() : '';
       const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
       const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
       const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
       const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
       const fontSizeValue = Number(style.fontSize);
+      const importedSeriesStyles = Array.isArray(style.seriesStyles) ? style.seriesStyles : [];
+      if(ownerSession?.tabId && importedSeriesStyles.length){
+        const indexedStyles = getBoxIndexedDatasetStateBundle(ownerSession);
+        const pointStyles = indexedStyles.pointStyles;
+        const traceShapeStyles = indexedStyles.traceShapeStyles;
+        const summaryStyles = indexedStyles.summaryStyles;
+        const isBarOrBoxGraph = style.graphType === 'bar' || style.graphType === 'box';
+        let changed = false;
+        const colorToCss = color => {
+          if(!color || !/^#[0-9a-f]{6}$/i.test(String(color.hex || ''))
+            || !Array.isArray(color.rgba) || color.rgba.length !== 4){
+            return '';
+          }
+          const opacity = Number(color.opacity);
+          if(!Number.isFinite(opacity)){
+            return '';
+          }
+          if(opacity >= 1){
+            return color.hex;
+          }
+          const [red, green, blue] = color.rgba;
+          return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, opacity))})`;
+        };
+        importedSeriesStyles.forEach(seriesStyle => {
+          const dataSetIndex = Number(seriesStyle?.dataSetIndex);
+          if(!Number.isInteger(dataSetIndex) || dataSetIndex < 0){
+            return;
+          }
+          const patch = {};
+          const shapeMap = {
+            circle: 'circle',
+            square: 'square',
+            'triangle-up': 'triangle',
+            'triangle-down': 'triangle-down'
+          };
+          if(Object.prototype.hasOwnProperty.call(shapeMap, seriesStyle?.shape)){
+            patch.shape = shapeMap[seriesStyle.shape];
+          }
+          const symbolSize = Number(seriesStyle?.symbolSize);
+          if(Number.isFinite(symbolSize) && symbolSize > 0){
+            patch.size = symbolSize;
+            patch.sizeMode = BOX_POINT_SIZE_MODE_MANUAL;
+          }
+          const color = String(seriesStyle?.symbolColor?.hex || '').trim();
+          if(/^#[0-9a-f]{6}$/i.test(color)){
+            patch.fill = color;
+            patch.stroke = color;
+          }
+          const opacity = Number(seriesStyle?.symbolColor?.opacity);
+          if(Number.isFinite(opacity)){
+            patch.opacity = Math.max(0, Math.min(1, opacity));
+          }
+          if(Object.keys(patch).length){
+            pointStyles[dataSetIndex] = Object.assign({}, pointStyles[dataSetIndex] || {}, patch);
+            changed = true;
+          }
+          if(isBarOrBoxGraph){
+            const bodyPatch = {};
+            const summaryPatch = {};
+            const fillColor = colorToCss(seriesStyle?.fillColor);
+            if(fillColor){
+              indexedStyles.fillColors[dataSetIndex] = seriesStyle.fillColor.hex;
+              bodyPatch.fill = fillColor;
+            }
+            const borderColor = colorToCss(seriesStyle?.borderColor);
+            if(borderColor){
+              indexedStyles.borderColors[dataSetIndex] = seriesStyle.borderColor.hex;
+              bodyPatch.borderColor = borderColor;
+            }
+            const borderWidth = Number(seriesStyle?.borderThickness?.cssPixels);
+            if(Number.isFinite(borderWidth) && borderWidth >= 0){
+              bodyPatch.thickness = borderWidth;
+            }
+            if(style.graphType === 'box'){
+              if(borderColor){ summaryPatch.color = borderColor; }
+              if(Number.isFinite(borderWidth) && borderWidth >= 0){ summaryPatch.thickness = borderWidth; }
+            }else if(style.graphType === 'bar'){
+              const errorColor = colorToCss(seriesStyle?.errorColor);
+              const errorBarWidth = Number(seriesStyle?.errorBarThickness?.cssPixels);
+              if(errorColor){ summaryPatch.color = errorColor; }
+              if(Number.isFinite(errorBarWidth) && errorBarWidth >= 0){ summaryPatch.thickness = errorBarWidth; }
+            }
+            if(Object.keys(summaryPatch).length){
+              summaryStyles[dataSetIndex] = Object.assign({}, summaryStyles[dataSetIndex] || {}, summaryPatch);
+              changed = true;
+            }
+            if(Object.keys(bodyPatch).length){
+              traceShapeStyles[dataSetIndex] = Object.assign({}, traceShapeStyles[dataSetIndex] || {}, bodyPatch);
+              changed = true;
+            }
+          }
+        });
+        if(changed){
+          writeBoxIndexedDatasetStateBundle(
+            indexedStyles,
+            ownerSession,
+            getBoxActiveHotManager(ownerSession),
+            'prism-series-style-import',
+            { updateColumnOrder: false, markDrawDataDirty: false }
+          );
+        }
+      }
       if(title){
-        state.titleText = title;
-        commitBoxLabelStateToSession({ titleText: state.titleText }, getBoxProjectionSession({ reason: 'box-projection-mutation' }));
+        commitBoxLabelStateToSession({ titleText: title }, ownerSession);
+        if(ownerActive){ state.titleText = title; }
       }
       if(yLabel){
-        state.yLabelText = yLabel;
-        commitBoxLabelStateToSession({ yLabelText: state.yLabelText }, getBoxProjectionSession({ reason: 'box-projection-mutation' }));
+        commitBoxLabelStateToSession({ yLabelText: yLabel }, ownerSession);
+        if(ownerActive){ state.yLabelText = yLabel; }
       }
-      if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && els.boxFontSize){
-        els.boxFontSize.value = String(fontSizeValue);
-        if(els.boxFontSize.dataset){
-          els.boxFontSize.dataset.fontBasePt = String(fontSizeValue);
+      if(Number.isFinite(fontSizeValue) && fontSizeValue > 0){
+        ownerSession.state.controls = ownerSession.state.controls && typeof ownerSession.state.controls === 'object'
+          ? ownerSession.state.controls
+          : {};
+        ownerSession.state.controls.fontSize = String(fontSizeValue);
+        if(ownerActive){
+          els.boxFontSize.value = String(fontSizeValue);
+          if(els.boxFontSize.dataset){
+            els.boxFontSize.dataset.fontBasePt = String(fontSizeValue);
+          }
+          chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: fontSizeValue, input: els.boxFontSize, manual: true });
         }
-        chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: fontSizeValue, input: els.boxFontSize, manual: true });
       }
-      if(axisColor){
-        updateAxisColor(axisColor);
+      const axisThicknessPoints = Number(style.axisThickness?.points);
+      const prismAxisStyle = tableImport.resolvePrismAxisStyle(style);
+      const ownerLayout = ownerSession.state.layout && typeof ownerSession.state.layout === 'object'
+        ? ownerSession.state.layout
+        : (ownerSession.state.layout = {});
+      const ownerAxisSettings = cloneSimple(ownerLayout.axisSettings) || createDefaultAxisSettings();
+      const importedAxisNumberFormats = {};
+      [['x', 'x'], ['y', 'primaryY']].forEach(([axis, sourceAxis]) => {
+        const notation = prismAxisStyle.numberFormats?.[sourceAxis]?.notation;
+        if(notation === 'decimal' || notation === 'scientific'){
+          ownerAxisSettings[axis].notation = notation;
+          importedAxisNumberFormats[axis] = notation;
+        }
+      });
+      const primaryYAxisScale = prismAxisStyle.scales?.primaryY || null;
+      const importedLogBase = primaryYAxisScale?.type === 'log'
+        ? normalizeBoxLogBase(primaryYAxisScale.base) : null;
+      const hasImportedYAxisScale = primaryYAxisScale?.type === 'log' || primaryYAxisScale?.type === 'linear';
+      if(hasImportedYAxisScale){
+        ownerSession.state.controls = ownerSession.state.controls && typeof ownerSession.state.controls === 'object'
+          ? ownerSession.state.controls : {};
+        ownerSession.state.controls.logScale = primaryYAxisScale.type === 'log';
+        ownerSession.state.controls.logBase = String(importedLogBase || 10);
+        if(ownerActive){
+          if(els.boxLogScale){ els.boxLogScale.checked = primaryYAxisScale.type === 'log'; }
+          syncBoxLogBaseControl(primaryYAxisScale.type === 'log', importedLogBase || 10);
+        }
       }
-      if(fontFamily || fontColor){
-        const graphStyle = {};
-        if(fontFamily){
-          graphStyle.fontFamily = fontFamily;
+      if(axisColor){ ownerAxisSettings.color = axisColor; }
+      if(prismAxisStyle.color){ ownerAxisSettings.color = prismAxisStyle.color; }
+      if(prismAxisStyle.strokeWidth !== null){
+        // Prism 10.1.2 vector output measured in Inkscape follows this
+        // empirical mapping at 1, 2, and 3 pt. Keep the binary decoder's raw
+        // point value intact and calibrate only the imported visual width.
+        ownerAxisSettings.strokeWidth = prismAxisStyle.strokeWidth;
+      }
+      // Controlled Prism 10.1.2 samples map Normal/Short to the user's 8/6 px
+      // Graphitix settings. The binary value has no explicit unit marker.
+      const importedTickLengths = {};
+      Object.entries(prismAxisStyle.tickLengths).forEach(([axis, pixels]) => {
+        ownerAxisSettings[axis].majorTickLength = pixels;
+        importedTickLengths[axis] = pixels;
+      });
+      const importedTickIntervals = {};
+      Object.entries(prismAxisStyle.tickIntervals || {}).forEach(([axis, interval]) => {
+        ownerAxisSettings[axis].tickInterval = interval;
+        importedTickIntervals[axis] = interval;
+      });
+      const convertPrismLogRange = range => {
+        if(!importedLogBase || !range){ return range; }
+        const min = invertBoxLogValue(range.min, importedLogBase);
+        const max = invertBoxLogValue(range.max, importedLogBase);
+        const tickStart = invertBoxLogValue(range.tickStart, importedLogBase);
+        if(!Number.isFinite(min) || min <= 0 || !Number.isFinite(max) || max <= min
+          || !Number.isFinite(tickStart) || tickStart <= 0){
+          return null;
         }
-        if(fontColor){
-          graphStyle.fill = fontColor;
+        return { ...range, min, max, tickStart };
+      };
+      const importedAxisRanges = prismAxisStyle.ranges || {};
+      ['x', 'y'].forEach(axis => {
+        const rawAutoRange = prismAxisStyle.autoRanges?.[axis] || null;
+        const autoRange = axis === 'y' ? convertPrismLogRange(rawAutoRange) : rawAutoRange;
+        ownerAxisSettings[axis].autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(autoRange) || null;
+        const savedRange = importedAxisRanges[axis] || autoRange;
+        ownerAxisSettings[axis].tickStart = normalizeBoxAxisTickStart(savedRange?.tickStart);
+        if(!importedAxisRanges[axis]){
+          ownerAxisSettings[axis].min = null;
+          ownerAxisSettings[axis].max = null;
         }
-        importFontStyles('box', { __graph__: graphStyle });
+      });
+      const rangesForGraph = Object.fromEntries(Object.entries(importedAxisRanges).map(([axis, range]) => [
+        axis,
+        axis === 'y' ? (convertPrismLogRange(range) || range) : range
+      ]));
+      Object.entries(rangesForGraph).forEach(([axis, range]) => {
+        ownerAxisSettings[axis].min = range.min;
+        ownerAxisSettings[axis].max = range.max;
+        ownerAxisSettings[axis].tickStart = range.tickStart;
+        if(axis === 'y'){
+          ownerSession.state.controls = ownerSession.state.controls && typeof ownerSession.state.controls === 'object'
+            ? ownerSession.state.controls
+            : {};
+          ownerSession.state.controls.yMin = String(range.min);
+          ownerSession.state.controls.yMax = String(range.max);
+          if(ownerActive){
+            if(els.boxYMin){ els.boxYMin.value = String(range.min); }
+            if(els.boxYMax){ els.boxYMax.value = String(range.max); }
+          }
+        }
+      });
+      ownerSession.state.controls = ownerSession.state.controls && typeof ownerSession.state.controls === 'object'
+        ? ownerSession.state.controls : {};
+      if(!importedAxisRanges.y){
+        ownerSession.state.controls.yMin = '';
+        ownerSession.state.controls.yMax = '';
+        if(ownerActive){
+          if(els.boxYMin){ els.boxYMin.value = ''; }
+          if(els.boxYMax){ els.boxYMax.value = ''; }
+        }
+      }
+      // The Box renderer has a horizontal (Y-axis) grid. Only import this
+      // setting when Prism confirms there are no X-axis grid lines to lose.
+      const boxGridVisibility = prismAxisStyle.gridAxes?.x === false
+        ? prismAxisStyle.gridAxes.y : null;
+      if(boxGridVisibility != null){
+        ownerSession.state.controls.showGrid = boxGridVisibility;
+        if(ownerActive && els.boxShowGrid){ els.boxShowGrid.checked = boxGridVisibility; }
+      }
+      if(prismAxisStyle.showFrame != null){
+        ownerSession.state.controls.showFrame = prismAxisStyle.showFrame;
+        if(ownerActive && els.boxShowFrame){ els.boxShowFrame.checked = prismAxisStyle.showFrame; }
+      }
+      ownerLayout.axisSettings = ownerAxisSettings;
+      if(ownerActive){ state.axisSettings = cloneSimple(ownerAxisSettings) || createDefaultAxisSettings(); }
+      const axisTargetPx = prismAxisStyle.axisTargetPx;
+      if(ownerSession && axisTargetPx){
+        updateBoxGraphGeometry({ plot: { prismAxisTargetPx: axisTargetPx } }, {
+          session: ownerSession,
+          reason: 'prism-axis-length-import-pending'
+        });
+      }
+      const importedFontStyles = tableImport.resolvePrismFontStyles(style);
+      if(ownerSession?.tabId && Object.keys(importedFontStyles).length){
+        importFontStyles('box', importedFontStyles, {
+          tabId: ownerSession.tabId,
+          // Preserve existing graph-level font settings when this Prism file
+          // only provides the independently decoded axis tick-label styles.
+          prune: Boolean(fontFamily || fontColor),
+          broadcast: ownerActive
+        });
+      }
+      captureBoxSessionState(ownerSession, { reason: 'prism-style-import' }, { readActiveGlobals: ownerActive });
+      if(ownerActive){
+        Shared.componentLifecycle?.persistOwnedUserState?.('box', ownerSession, {
+          tabId: ownerSession.tabId,
+          reason: 'box-prism-style-import'
+        });
       }
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        boxLog('Debug: box prism style applied', { title, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
+        boxLog('Debug: box prism style applied', {
+          title, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor,
+          seriesStylesApplied: importedSeriesStyles.length,
+          axisThicknessPoints: Number.isFinite(axisThicknessPoints) ? axisThicknessPoints : null,
+          importedStrokeWidth: prismAxisStyle.strokeWidth,
+          importedAxisNumberFormats,
+          importedTickLengths,
+          importedAxisTextStyles: importedFontStyles,
+          axisTargetPx
+        });
       }
-      scheduleActiveBoxDraw({ force: true, renderImpact: 'layout', reason: 'import-prism-style' });
+      if(ownerActive){
+        scheduleActiveBoxDraw({ force: true, renderImpact: 'layout', reason: 'import-prism-style' });
+      }
+      if(ownerActive){
+        return true;
+      }
+      const axis = ownerSession.state.layout?.axisSettings || createDefaultAxisSettings();
+      const geometry = getBoxGraphGeometryForOwner(ownerSession);
+      return { payloadPatch: {
+        config: {
+          title: ownerSession.state.labels?.titleText || getDefaultBoxGraphTitle('strip'),
+          yLabel: ownerSession.state.labels?.yLabelText || 'Value',
+          colors: ownerSession.state.visual?.fillColors?.slice?.() || [],
+          borderColors: ownerSession.state.visual?.borderColors?.slice?.() || [],
+          shapeStyles: cloneSimple(ownerSession.state.styles?.traceShapeStyles) || {},
+          pointStyles: cloneSimple(ownerSession.state.styles?.pointStyles) || {},
+          summaryStyles: cloneSimple(ownerSession.state.styles?.summaryStyles) || {},
+          fontSize: ownerSession.state.controls?.fontSize || '',
+          logScale: !!ownerSession.state.controls?.logScale,
+          logBase: String(normalizeBoxLogBase(ownerSession.state.controls?.logBase)),
+          ...(boxGridVisibility != null ? { showGrid: boxGridVisibility } : {}),
+          ...(prismAxisStyle.showFrame != null ? { showFrame: prismAxisStyle.showFrame } : {}),
+          fontStyles: exportFontStyles('box', { tabId: ownerSession.tabId }) || {},
+          yMin: ownerSession.state.controls?.yMin ?? '',
+          yMax: ownerSession.state.controls?.yMax ?? '',
+          axis: {
+            strokeWidth: axis.strokeWidth,
+            color: axis.color,
+            tickInterval: { x: axis.x?.tickInterval ?? null, y: axis.y?.tickInterval ?? null },
+            tickStart: { x: axis.x?.tickStart ?? null, y: axis.y?.tickStart ?? null },
+            autoRangeHint: { x: axis.x?.autoRangeHint ?? null, y: axis.y?.autoRangeHint ?? null },
+            majorTickLength: { x: axis.x?.majorTickLength ?? null, y: axis.y?.majorTickLength ?? null }
+          }
+        },
+        layout: { boxGeometry: { graphGeometry: geometry } }
+      } };
     };
     bindBoxControlHandler(fileInput, 'change', 'import-file', ()=>{
       if(!tableImport || typeof tableImport.openFile !== 'function'){
@@ -18645,6 +18909,7 @@
         markBoxOverlayPending({ reason: 'file-import', tabId: importOwnerTabId });
       }
       const importPromise = tableImport.openFile(fileInput, {
+        componentKey: 'box',
         hot: state.hot,
         minCols: DEFAULT_COLS,
         minRows: DEFAULT_ROWS,
@@ -18712,8 +18977,67 @@
           markBoxOverlayPending({ reason: renderReason, tabId });
           forceBoxOverlay({ reason: renderReason, tabId }, { message: 'Rendering box plot...' });
         },
-        onOwnerInactive: (_result, meta) => {
+        onOwnerInactive: (result, meta) => {
+          let stylePatch = null;
+          if(result?.prismStyle){
+            const styleResult = applyBoxPrismStyle(result.prismStyle, { tabId: meta?.tabId || importOwnerTabId });
+            stylePatch = styleResult?.payloadPatch || null;
+          }
+          const prismMeta = result?.prismMeta;
+          const ownerTabId = String(meta?.tabId || importOwnerTabId || '').trim();
+          const ownerSession = ownerTabId
+            ? getBoxSession(ownerTabId, { tabId: ownerTabId, reason: 'box-inactive-prism-metadata-owner' }, { create: false })
+            : null;
+          if(prismMeta && ownerSession?.state){
+            ownerSession.state.controls = ownerSession.state.controls && typeof ownerSession.state.controls === 'object'
+              ? ownerSession.state.controls
+              : {};
+            ownerSession.state.visual = ownerSession.state.visual && typeof ownerSession.state.visual === 'object'
+              ? ownerSession.state.visual
+              : {};
+            const tableFormat = normalizeBoxTableFormat(prismMeta.tableFormat || 'single');
+            if(prismMeta.component === 'box'){
+              ownerSession.state.controls.tableFormat = tableFormat;
+              ownerSession.state.visual.tableFormat = tableFormat;
+              if(tableFormat === 'grouped'){
+                const replicateCount = Math.max(1, Number(prismMeta.groupedReplicatesPerGroup) || 1);
+                const grouped = cloneSimple(ownerSession.state.visual.grouped) || {};
+                ownerSession.state.visual.grouped = {
+                  ...grouped,
+                  replicatesPerGroup: replicateCount,
+                  groups: Array.isArray(prismMeta.groupLabels) ? prismMeta.groupLabels.slice() : [],
+                  conditions: Array.isArray(prismMeta.conditionLabels) ? prismMeta.conditionLabels.slice() : []
+                };
+                ownerSession.state.controls.groupedReplicates = replicateCount;
+              }
+            }
+            if(prismMeta.kind === 'column'){
+              const graphType = normalizeBoxGraphType(prismMeta.graphType || '');
+              const pointMode = String(prismMeta.pointMode || '').toLowerCase();
+              if(graphType){ ownerSession.state.controls.graphType = graphType; }
+              if(pointMode){ ownerSession.state.controls.pointMode = pointMode; }
+            }
+            ownerSession.state.updatedAt = Date.now();
+            ownerSession.updatedAt = Date.now();
+          }
           resolveBoxLoading({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || importOwnerTabId || null });
+          const configPatch = { ...(stylePatch?.config || {}) };
+          if(prismMeta?.component === 'box'){
+            configPatch.tableFormat = normalizeBoxTableFormat(prismMeta.tableFormat || 'single');
+            if(configPatch.tableFormat === 'grouped'){
+              configPatch.grouped = {
+                ...(configPatch.grouped || {}),
+                replicatesPerGroup: ownerSession?.state?.controls?.groupedReplicates || 1,
+                groups: ownerSession?.state?.visual?.grouped?.groups?.slice?.() || [],
+                conditions: ownerSession?.state?.visual?.grouped?.conditions?.slice?.() || []
+              };
+            }
+          }
+          if(prismMeta?.kind === 'column'){
+            if(ownerSession?.state?.controls?.graphType){ configPatch.graphType = ownerSession.state.controls.graphType; }
+            if(ownerSession?.state?.controls?.pointMode){ configPatch.pointMode = ownerSession.state.controls.pointMode; }
+          }
+          return { payloadPatch: { ...(stylePatch || {}), config: configPatch } };
         }
       });
       Promise.resolve(importPromise).then(result => {
@@ -19051,8 +19375,24 @@
         state.logPlusOne = false;
         clearBoxLogWarning();
       }
+      syncBoxLogBaseControl(enabling, els.boxLogBase?.value);
       boxLog('boxLogScale changed', els.boxLogScale.checked);
       scheduleActiveBoxDraw({ renderImpact: 'analysis', reason: 'log-scale-change' });
+    });
+    bindBoxControlHandler(els.boxLogBase, 'change', 'log-base', ()=>{
+      const owner = getBoxProjectionSession({ reason: 'box-log-base-change' }) || getActiveBoxSessionForState();
+      const controls = owner?.state?.controls && typeof owner.state.controls === 'object'
+        ? owner.state.controls : (owner?.state ? (owner.state.controls = {}) : null);
+      if(controls){ controls.logBase = String(normalizeBoxLogBase(els.boxLogBase?.value)); }
+      syncBoxLogBaseControl(!!els.boxLogScale?.checked, els.boxLogBase?.value);
+      if(owner){
+        captureBoxSessionState(owner, { reason: 'box-log-base-change' }, { readActiveGlobals: false });
+        Shared.componentLifecycle?.persistOwnedUserState?.('box', owner, {
+          tabId: owner.tabId,
+          reason: 'box-log-base-change'
+        });
+      }
+      scheduleActiveBoxDraw({ renderImpact: 'analysis', reason: 'log-base-change' });
     });
     const updateGraphTypeControls = () => {
       if(!els.boxGraphType){
@@ -19248,6 +19588,7 @@
       const target=event?.target;
       if(target===els.boxYMin){
         boxLog('boxYMin changed', els.boxYMin.value);
+        clearBoxAutoRangeHint(getActiveBoxSessionForState(), 'y', 'box-axis-limit-edited');
         if(els.boxLogScale?.checked && isBoxLogAxisInputInProgress(target)){
           if(boxDebugEnabled()){
             boxLog('Debug: box log scale validation deferred',{ context: 'axis-min-input', value: target.value });
@@ -19260,6 +19601,7 @@
         }
       }else if(target===els.boxYMax){
         boxLog('boxYMax changed', els.boxYMax.value);
+        clearBoxAutoRangeHint(getActiveBoxSessionForState(), 'y', 'box-axis-limit-edited');
         if(els.boxLogScale?.checked && isBoxLogAxisInputInProgress(target)){
           if(boxDebugEnabled()){
             boxLog('Debug: box log scale validation deferred',{ context: 'axis-max-input', value: target.value });
@@ -20029,6 +20371,7 @@
     return value === 'global' ? 'global' : 'within-scope';
   }
   const GROUPED_ANALYSIS_IDS = new Set(['twoWayAnova','rowRandomMixed','nestedRepeatedTwoWay','threeWayAnova','rowTTests','multipleComparisons']);
+  const BOX_ROW_RANDOM_SPHERICITY_VERSION = 'row-random-sphericity-v1';
   const GROUPED_ANALYSIS_ALIASES = {
     twoWayMixed: 'rowRandomMixed',
     threeWayMixed: 'rowRandomMixed'
@@ -20259,7 +20602,10 @@
             { value:'ratioT', label:isReferenceStatsContext(options) ? 'Ratio t tests vs reference' : 'Ratio t test' }
           ];
         }
-        return [{ value:'classic', label:'Repeated-measures ANOVA' }];
+        return [
+          { value:'classic', label:'Repeated-measures ANOVA' },
+          { value:'lognormalClassic', label:'Lognormal repeated-measures ANOVA' }
+        ];
       }
       if(pairwiseContext){
         return [
@@ -20387,372 +20733,6 @@
       return studentTLowerTailPValue(t, df);
     }
     return studentTTwoSidedPValue(t, df);
-  }
-  function estimateRandomInterceptVariance(residualClusters,dfResidual){
-    const clusterSizes=residualClusters.map(cluster=>cluster.length).filter(length=>length>0);
-    const clusterCount=clusterSizes.length;
-    const totalObs=clusterSizes.reduce((sum,val)=>sum+val,0);
-    if(clusterCount<2 || totalObs<=clusterCount){
-      const sse=residualClusters.reduce((sum,cluster)=>sum+cluster.reduce((inner,val)=>inner+(val*val),0),0);
-      const sigmaE=sse/Math.max(dfResidual,1);
-      return { sigmaSubject:0, sigmaResidual:Math.max(sigmaE,Number.EPSILON) };
-    }
-    let withinSS=0;
-    let withinDf=0;
-    const means=[];
-    residualClusters.forEach(cluster=>{
-      const meanVal=cluster.reduce((sum,val)=>sum+val,0)/cluster.length;
-      means.push(meanVal);
-      cluster.forEach(value=>{
-        withinSS+=Math.pow(value-meanVal,2);
-      });
-      withinDf+=Math.max(0,cluster.length-1);
-    });
-    const sigmaResidual=withinDf>0 ? Math.max(withinSS/withinDf,Number.EPSILON) : Number.EPSILON;
-    const grandMean=means.reduce((sum,val,idx)=>sum+(val*clusterSizes[idx]),0)/Math.max(totalObs,1);
-    let betweenSS=0;
-    means.forEach((meanVal,idx)=>{
-      betweenSS+=clusterSizes[idx]*Math.pow(meanVal-grandMean,2);
-    });
-    const msBetween=betweenSS/Math.max(clusterCount-1,1);
-    const mBar=(totalObs - (clusterSizes.reduce((sum,val)=>sum+(val*val),0)/Math.max(totalObs,1))) / Math.max(clusterCount-1,1);
-    const sigmaSubject=mBar>0 ? Math.max((msBetween-sigmaResidual)/mBar,0) : 0;
-    return { sigmaSubject, sigmaResidual };
-  }
-  function solveLinearSystem(matrix,vector){
-    const n=Array.isArray(matrix)?matrix.length:0;
-    if(!n){
-      return [];
-    }
-    const aug=matrix.map((row,idx)=>{
-      const source=Array.isArray(row)?row:[];
-      const next=new Array(n+1).fill(0);
-      for(let col=0; col<n; col++){
-        next[col]=Number(source[col]) || 0;
-      }
-      next[n]=Number(Array.isArray(vector)?vector[idx]:0) || 0;
-      return next;
-    });
-    const epsilon=1e-10;
-    for(let col=0; col<n; col++){
-      let pivotRow=col;
-      let pivotAbs=Math.abs(aug[col][col]);
-      for(let row=col+1; row<n; row++){
-        const candidate=Math.abs(aug[row][col]);
-        if(candidate>pivotAbs){
-          pivotAbs=candidate;
-          pivotRow=row;
-        }
-      }
-      if(pivotAbs<epsilon){
-        aug[col][col]+=epsilon;
-        pivotAbs=Math.abs(aug[col][col]);
-      }
-      if(pivotRow!==col){
-        const tmp=aug[col];
-        aug[col]=aug[pivotRow];
-        aug[pivotRow]=tmp;
-      }
-      const pivot=aug[col][col];
-      if(Math.abs(pivot)<epsilon){
-        continue;
-      }
-      for(let k=col; k<=n; k++){
-        aug[col][k]/=pivot;
-      }
-      for(let row=0; row<n; row++){
-        if(row===col){
-          continue;
-        }
-        const factor=aug[row][col];
-        if(factor===0){
-          continue;
-        }
-        for(let k=col; k<=n; k++){
-          aug[row][k]-=factor*aug[col][k];
-        }
-      }
-    }
-    return aug.map(row=>row[n]);
-  }
-  function invertSquareMatrix(matrix){
-    const n=Array.isArray(matrix)?matrix.length:0;
-    if(!n){
-      return [];
-    }
-    const aug=matrix.map((row,rowIdx)=>{
-      const left=new Array(n).fill(0).map((_,colIdx)=>Number(Array.isArray(row)?row[colIdx]:0) || 0);
-      const right=new Array(n).fill(0).map((_,colIdx)=>colIdx===rowIdx?1:0);
-      return left.concat(right);
-    });
-    const epsilon=1e-10;
-    for(let col=0; col<n; col++){
-      let pivotRow=col;
-      let pivotAbs=Math.abs(aug[col][col]);
-      for(let row=col+1; row<n; row++){
-        const candidate=Math.abs(aug[row][col]);
-        if(candidate>pivotAbs){
-          pivotAbs=candidate;
-          pivotRow=row;
-        }
-      }
-      if(pivotAbs<epsilon){
-        aug[col][col]+=epsilon;
-      }
-      if(pivotRow!==col){
-        const tmp=aug[col];
-        aug[col]=aug[pivotRow];
-        aug[pivotRow]=tmp;
-      }
-      const pivot=aug[col][col];
-      if(Math.abs(pivot)<epsilon){
-        return null;
-      }
-      for(let k=0; k<(2*n); k++){
-        aug[col][k]/=pivot;
-      }
-      for(let row=0; row<n; row++){
-        if(row===col){
-          continue;
-        }
-        const factor=aug[row][col];
-        if(factor===0){
-          continue;
-        }
-        for(let k=0; k<(2*n); k++){
-          aug[row][k]-=factor*aug[col][k];
-        }
-      }
-    }
-    return aug.map(row=>row.slice(n));
-  }
-  function fitRandomInterceptGLS(observations,designInfo){
-    const obs=Array.isArray(observations)?observations:[];
-    const X=designInfo?.X || [];
-    const y=obs.map(item=>Number(item?.value) || 0);
-    const clusterIds=obs.map(item=>Number(item?.row) || 0);
-    const n=y.length;
-    const p=Array.isArray(X[0]) ? X[0].length : 0;
-    if(!n || !p || n<=p){
-      return { ok:false, message:'Not enough observations to fit the mixed-effects model.' };
-    }
-    const xtx=Array.from({ length:p },()=>Array(p).fill(0));
-    const xty=new Array(p).fill(0);
-    for(let i=0; i<n; i++){
-      const row=X[i];
-      for(let a=0; a<p; a++){
-        xty[a]+=row[a]*y[i];
-        for(let b=0; b<p; b++){
-          xtx[a][b]+=row[a]*row[b];
-        }
-      }
-    }
-    const betaOls=solveLinearSystem(xtx,xty);
-    const residuals=y.map((value,idx)=>value - X[idx].reduce((sum,coef,colIdx)=>sum+coef*(betaOls[colIdx] || 0),0));
-    const clusterMap=new Map();
-    residuals.forEach((residual,idx)=>{
-      const key=clusterIds[idx];
-      if(!clusterMap.has(key)){
-        clusterMap.set(key,[]);
-      }
-      clusterMap.get(key).push(residual);
-    });
-    const residualClusters=Array.from(clusterMap.values());
-    const variance=estimateRandomInterceptVariance(residualClusters,n-p);
-    const sigmaSubject=Math.max(variance.sigmaSubject,0);
-    const sigmaResidual=Math.max(variance.sigmaResidual,Number.EPSILON);
-    const xtvix=Array.from({ length:p },()=>Array(p).fill(0));
-    const xtviy=new Array(p).fill(0);
-    const clusterObservations=new Map();
-    obs.forEach((item,idx)=>{
-      const key=clusterIds[idx];
-      if(!clusterObservations.has(key)){
-        clusterObservations.set(key,[]);
-      }
-      clusterObservations.get(key).push(idx);
-    });
-    clusterObservations.forEach(indices=>{
-      const m=indices.length;
-      const scale=1/sigmaResidual;
-      const corr=sigmaSubject>0 ? (sigmaSubject/(sigmaResidual + m*sigmaSubject)) : 0;
-      const xSums=new Array(p).fill(0);
-      let ySum=0;
-      indices.forEach(obsIndex=>{
-        const row=X[obsIndex];
-        ySum+=y[obsIndex];
-        for(let col=0; col<p; col++){
-          xSums[col]+=row[col];
-        }
-      });
-      indices.forEach(obsIndex=>{
-        const row=X[obsIndex];
-        const weightY=scale * (y[obsIndex] - corr*ySum);
-        for(let a=0; a<p; a++){
-          xtviy[a]+=row[a]*weightY;
-          for(let b=0; b<p; b++){
-            xtvix[a][b]+=row[a] * scale * (row[b] - corr*xSums[b]);
-          }
-        }
-      });
-    });
-    const beta=solveLinearSystem(xtvix,xtviy);
-    const xtvixInv=invertSquareMatrix(xtvix);
-    if(!xtvixInv){
-      return { ok:false, message:'Unable to invert the mixed-effects information matrix.' };
-    }
-    let sse=0;
-    clusterObservations.forEach(indices=>{
-      const m=indices.length;
-      const scale=1/sigmaResidual;
-      const corr=sigmaSubject>0 ? (sigmaSubject/(sigmaResidual + m*sigmaSubject)) : 0;
-      const residualCluster=indices.map(obsIndex=>y[obsIndex] - X[obsIndex].reduce((sum,coef,colIdx)=>sum+coef*(beta[colIdx] || 0),0));
-      const residualSum=residualCluster.reduce((sum,val)=>sum+val,0);
-      residualCluster.forEach(value=>{
-        sse+=scale * (value*value - corr*value*residualSum);
-      });
-    });
-    const dfResidual=Math.max(n-p,1);
-    const dispersion=sse/dfResidual;
-    return {
-      ok:true,
-      beta,
-      covariance:xtvixInv.map(row=>row.map(value=>value*dispersion)),
-      sse,
-      dfResidual,
-      observationCount:n,
-      subjectCount:clusterObservations.size,
-      sigmaSubject,
-      sigmaResidual
-    };
-  }
-  function extractSubmatrix(matrix,indices){
-    return indices.map(rowIdx=>indices.map(colIdx=>Number(matrix?.[rowIdx]?.[colIdx]) || 0));
-  }
-  function extractVector(values,indices){
-    return indices.map(idx=>Number(values?.[idx]) || 0);
-  }
-  function computeWaldTermStats(glsFit,indices){
-    if(!glsFit?.ok || !Array.isArray(indices) || !indices.length){
-      return { df1:0, df2:glsFit?.dfResidual || 0, F:NaN, p:NaN };
-    }
-    const betaSub=extractVector(glsFit.beta,indices);
-    const covSub=extractSubmatrix(glsFit.covariance,indices);
-    const invCov=invertSquareMatrix(covSub);
-    if(!invCov){
-      return { df1:indices.length, df2:glsFit.dfResidual, F:NaN, p:NaN };
-    }
-    let quad=0;
-    for(let i=0; i<indices.length; i++){
-      for(let j=0; j<indices.length; j++){
-        quad+=betaSub[i] * invCov[i][j] * betaSub[j];
-      }
-    }
-    const df1=indices.length;
-    const df2=Math.max(glsFit.dfResidual,1);
-    const F=quad/Math.max(df1,1);
-    const p=(Number.isFinite(F) || F === Number.POSITIVE_INFINITY)
-      ? fUpperTailPValue(F, df1, df2)
-      : NaN;
-    return { df1, df2, F, p };
-  }
-  function buildIncompleteMixedDesign(observations,groupCount,conditionCount){
-    const metadata={
-      group:[],
-      condition:[],
-      interaction:[]
-    };
-    const X=[];
-    (Array.isArray(observations)?observations:[]).forEach(observation=>{
-      const row=[1];
-      for(let g=1; g<groupCount; g++){
-        const index=row.length;
-        row.push(observation.group===g ? 1 : 0);
-        metadata.group.push(index);
-      }
-      for(let c=1; c<conditionCount; c++){
-        const index=row.length;
-        row.push(observation.condition===c ? 1 : 0);
-        metadata.condition.push(index);
-      }
-      for(let g=1; g<groupCount; g++){
-        for(let c=1; c<conditionCount; c++){
-          const index=row.length;
-          row.push(observation.group===g && observation.condition===c ? 1 : 0);
-          metadata.interaction.push(index);
-        }
-      }
-      X.push(row);
-    });
-    metadata.group=[...new Set(metadata.group)];
-    metadata.condition=[...new Set(metadata.condition)];
-    metadata.interaction=[...new Set(metadata.interaction)];
-    return { X, metadata };
-  }
-  function analyzeIncompleteMixedByGLS(data,options={}){
-    const observations=[];
-    const rowSource=Array.isArray(data?.allRows) ? data.allRows : [];
-    for(let rowIdx=0; rowIdx<rowSource.length; rowIdx++){
-      const rowEntry=rowSource[rowIdx];
-      for(let gIdx=0; gIdx<(data?.groupsCount || 0); gIdx++){
-        for(let cIdx=0; cIdx<(data?.conditionsCount || 0); cIdx++){
-          const value=rowEntry?.[gIdx]?.[cIdx];
-          if(Number.isFinite(value)){
-            observations.push({ row:rowIdx, group:gIdx, condition:cIdx, value });
-          }
-        }
-      }
-    }
-    if(!observations.length){
-      return { ok:false, message:'No observed values remain after filtering incomplete repeated-measures rows.' };
-    }
-    const design=buildIncompleteMixedDesign(observations,data.groupsCount,data.conditionsCount);
-    const glsFit=fitRandomInterceptGLS(observations,design);
-    if(!glsFit.ok){
-      return { ok:false, message:glsFit.message || 'Unable to fit the incomplete-data mixed model.' };
-    }
-    const groupStats=computeWaldTermStats(glsFit,design.metadata.group);
-    const conditionStats=computeWaldTermStats(glsFit,design.metadata.condition);
-    const interactionStats=computeWaldTermStats(glsFit,design.metadata.interaction);
-    const etaFromF=(stat)=>Number.isFinite(stat?.F) ? clamp((stat.F*stat.df1)/Math.max((stat.F*stat.df1)+stat.df2,Number.EPSILON),0,1) : NaN;
-    const caption=options?.caption || 'Mixed-effects model (random intercept)';
-    return {
-      ok:true,
-      caption,
-      columns:[
-        { key:'source', label:'Source', align:'left' },
-        { key:'df', label:'df', align:'right' },
-        { key:'f', label:'F approx', align:'right' },
-        { key:'p', label:'p-value', align:'right' },
-        { key:'etaP2', label:'ηp²', align:'right' }
-      ],
-      rows:[
-        { source:'Group', df:`${groupStats.df1}, ${groupStats.df2}`, f:formatStatNumber(groupStats.F), p:formatP(groupStats.p), etaP2:formatStatNumber(etaFromF(groupStats)) },
-        { source:'Condition', df:`${conditionStats.df1}, ${conditionStats.df2}`, f:formatStatNumber(conditionStats.F), p:formatP(conditionStats.p), etaP2:formatStatNumber(etaFromF(conditionStats)) },
-        { source:'Group × Condition', df:`${interactionStats.df1}, ${interactionStats.df2}`, f:formatStatNumber(interactionStats.F), p:formatP(interactionStats.p), etaP2:formatStatNumber(etaFromF(interactionStats)) },
-        { source:'Random intercept variance', df:'—', f:formatStatNumber(glsFit.sigmaSubject), p:'—', etaP2:'—' },
-        { source:'Residual variance', df:'—', f:formatStatNumber(glsFit.sigmaResidual), p:'—', etaP2:'—' }
-      ],
-      options:{
-        fileName:options?.fileName || 'box-mixed-incomplete',
-        contextLabel:options?.contextLabel || 'box-grouped-mixed-incomplete'
-      },
-      footnotes:[
-        `Approximate random-intercept mixed-effects model fitted by feasible GLS to retain incomplete repeated-measures rows (${glsFit.observationCount} observations across ${glsFit.subjectCount} row subjects).`,
-        `This path is intended for missing or non-numeric repeated-measures values; fixed-effect tests are Wald/F approximations rather than classical balanced ANOVA denominators.`
-      ],
-      diagnostics:{
-        observationCount:glsFit.observationCount,
-        subjectCount:glsFit.subjectCount,
-        dfResidual:glsFit.dfResidual,
-        sigmaSubject:glsFit.sigmaSubject,
-        sigmaResidual:glsFit.sigmaResidual
-      },
-      report:{
-        methodsText:`An approximate random-intercept mixed-effects model was fitted by feasible GLS to retain incomplete repeated-measures rows, with fixed effects for group, condition, and their interaction.`,
-        resultsText:`Mixed-effects model retained ${glsFit.observationCount} observed values across ${glsFit.subjectCount} row subjects.`,
-        analysisSpec:buildStatsAnalysisSpec({ grouped:true, groupedAnalysis:options?.analysisKey || 'mixed-incomplete', retainedObservations:glsFit.observationCount, retainedSubjects:glsFit.subjectCount })
-      }
-    };
   }
   function finalizeStatsReport(report,context={}){
     if(!report || typeof report!=='object'){
@@ -21785,228 +21765,7 @@
     });
     return info;
   }
-  function collectGroupedMomentInfo(data){
-    const I = data.groupsCount;
-    const J = data.conditionsCount;
-    const K = data.rowsWithData;
-    if(I === 0 || J === 0 || K === 0){
-      return { ok: false, message: 'Insufficient data for grouped statistics.', detail: { groups: I, conditions: J, rows: K } };
-    }
-    const cellMeans = Array.from({ length: I }, () => Array(J).fill(0));
-    const totalsByGroup = new Array(I).fill(0);
-    const totalsByCondition = new Array(J).fill(0);
-    let grandTotal = 0;
-    let sse = 0;
-    let balanced = true;
-    let mismatch = null;
-    for(let i = 0; i < I; i++){
-      for(let j = 0; j < J; j++){
-        const arr = data.cellData[i][j];
-        if(arr.length !== K){
-          balanced = false;
-          mismatch = { groupIndex: i, conditionIndex: j, count: arr.length, expected: K };
-        }
-        const sum = arr.reduce((acc, val)=>acc + val, 0);
-        const mean = arr.length ? sum / arr.length : 0;
-        cellMeans[i][j] = mean;
-        totalsByGroup[i] += sum;
-        totalsByCondition[j] += sum;
-        grandTotal += sum;
-        sse += arr.reduce((acc, val)=>acc + Math.pow(val - mean, 2), 0);
-      }
-    }
-    if(!balanced){
-      boxLog('Debug: grouped stats imbalance detected', mismatch);
-      return { ok: false, message: 'Each group/condition combination must contain the same number of complete rows.', detail: mismatch };
-    }
-    const N = I * J * K;
-    const grandMean = grandTotal / N;
-    const meanByGroup = totalsByGroup.map(sum => sum / (J * K));
-    const meanByCondition = totalsByCondition.map(sum => sum / (I * K));
-    let ssa = 0;
-    for(let i = 0; i < I; i++){
-      ssa += Math.pow(meanByGroup[i] - grandMean, 2);
-    }
-    ssa *= J * K;
-    let ssb = 0;
-    for(let j = 0; j < J; j++){
-      ssb += Math.pow(meanByCondition[j] - grandMean, 2);
-    }
-    ssb *= I * K;
-    let ssab = 0;
-    for(let i = 0; i < I; i++){
-      for(let j = 0; j < J; j++){
-        ssab += Math.pow(cellMeans[i][j] - meanByGroup[i] - meanByCondition[j] + grandMean, 2);
-      }
-    }
-    ssab *= K;
-    const subjectMeans = new Array(K).fill(0);
-    const asMeans = Array.from({ length: I }, () => Array(K).fill(0));
-    const bsMeans = Array.from({ length: J }, () => Array(K).fill(0));
-    let sstotal = 0;
-    for(let k = 0; k < K; k++){
-      let subjectSum = 0;
-      for(let i = 0; i < I; i++){
-        let rowSumForGroup = 0;
-        for(let j = 0; j < J; j++){
-          const value = data.rows[k][i][j];
-          subjectSum += value;
-          rowSumForGroup += value;
-          sstotal += Math.pow(value - grandMean, 2);
-        }
-        asMeans[i][k] = rowSumForGroup / J;
-      }
-      subjectMeans[k] = subjectSum / (I * J);
-    }
-    for(let j = 0; j < J; j++){
-      for(let k = 0; k < K; k++){
-        let rowSumForCondition = 0;
-        for(let i = 0; i < I; i++){
-          rowSumForCondition += data.rows[k][i][j];
-        }
-        bsMeans[j][k] = rowSumForCondition / I;
-      }
-    }
-    return {
-      ok: true,
-      I,
-      J,
-      K,
-      cellMeans,
-      meanByGroup,
-      meanByCondition,
-      subjectMeans,
-      asMeans,
-      bsMeans,
-      grandMean,
-      ssa,
-      ssb,
-      ssab,
-      sse,
-      sstotal
-    };
-  }
-  const GROUPED_ANOVA_COLUMNS = [
-    { key: 'source', label: 'Source', align: 'left' },
-    { key: 'df', label: 'df', align: 'right' },
-    { key: 'ss', label: 'SS', align: 'right' },
-    { key: 'ms', label: 'MS', align: 'right' },
-    { key: 'f', label: 'F', align: 'right' },
-    { key: 'p', label: 'p-value', align: 'right' },
-    { key: 'etaP2', label: 'ηp²', align: 'right' }
-  ];
-  function resolveGroupedMomentInfoForAnova(data){
-    const base = collectGroupedMomentInfo(data);
-    if(!base.ok){
-      return { ok: false, message: base.message };
-    }
-    const jStatLib = global.jStat;
-    if(!jStatLib){
-      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
-    }
-    return { ok: true, base, jStatLib };
-  }
-
-  function analyzeRowRandomMixedModel(data){
-    if(Number(data?.partialRowsSkipped || 0) > 0 && Array.isArray(data?.allRows) && data.allRows.length){
-      return analyzeIncompleteMixedByGLS(data,{
-        caption:'Mixed Effects Model',
-        section:'summary',
-        fileName:'box-row-random-mixed-incomplete',
-        contextLabel:'box-grouped-row-random-mixed-incomplete',
-        analysisKey:'rowRandomMixed'
-      });
-    }
-    const prepared = resolveGroupedMomentInfoForAnova(data);
-    if(!prepared.ok){
-      return { ok: false, message: prepared.message };
-    }
-    const { base } = prepared;
-    const { I, J, K, ssa, ssb, ssab, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
-    if(I < 2 || J < 2 || K < 2){
-      return { ok: false, message: 'Mixed model requires at least two groups, two conditions, and two complete rows.' };
-    }
-    const dfA = I - 1;
-    const dfB = J - 1;
-    const dfS = K - 1;
-    const dfAS = (I - 1) * (K - 1);
-    const dfBS = (J - 1) * (K - 1);
-    const dfAB = (I - 1) * (J - 1);
-    const dfABS = (I - 1) * (J - 1) * (K - 1);
-    if(dfAS <= 0 || dfBS <= 0 || dfABS <= 0){
-      return { ok: false, message: 'Mixed model requires at least two rows to estimate random-row error terms.' };
-    }
-    let sss = 0;
-    for(let k = 0; k < K; k++){
-      sss += Math.pow(subjectMeans[k] - grandMean, 2);
-    }
-    sss *= I * J;
-    let ssas = 0;
-    for(let i = 0; i < I; i++){
-      for(let k = 0; k < K; k++){
-        const value = asMeans[i][k] - meanByGroup[i] - subjectMeans[k] + grandMean;
-        ssas += Math.pow(value, 2);
-      }
-    }
-    ssas *= J;
-    let ssbs = 0;
-    for(let j = 0; j < J; j++){
-      for(let k = 0; k < K; k++){
-        const value = bsMeans[j][k] - meanByCondition[j] - subjectMeans[k] + grandMean;
-        ssbs += Math.pow(value, 2);
-      }
-    }
-    ssbs *= I;
-    let ssabs = 0;
-    for(let k = 0; k < K; k++){
-      for(let i = 0; i < I; i++){
-        for(let j = 0; j < J; j++){
-          const term = data.rows[k][i][j]
-            - base.cellMeans[i][j]
-            - asMeans[i][k]
-            - bsMeans[j][k]
-            + meanByGroup[i]
-            + meanByCondition[j]
-            + subjectMeans[k]
-            - grandMean;
-          ssabs += Math.pow(term, 2);
-        }
-      }
-    }
-    const msa = ssa / dfA;
-    const msas = ssas / dfAS;
-    const msb = ssb / dfB;
-    const msbs = ssbs / dfBS;
-    const msab = ssab / dfAB;
-    const msabs = ssabs / dfABS;
-    const fA = msas > 0 ? msa / msas : NaN;
-    const fB = msbs > 0 ? msb / msbs : NaN;
-    const fAB = msabs > 0 ? msab / msabs : NaN;
-    const pA = Number.isFinite(fA) ? fUpperTailPValue(fA, dfA, dfAS) : NaN;
-    const pB = Number.isFinite(fB) ? fUpperTailPValue(fB, dfB, dfBS) : NaN;
-    const pAB = Number.isFinite(fAB) ? fUpperTailPValue(fAB, dfAB, dfABS) : NaN;
-    boxLog('Debug: row-random mixed stats',{ dfA, dfAS, dfB, dfBS, dfAB, dfABS, fA, fB, fAB });
-    return {
-      ok: true,
-      caption: 'Mixed Model (Rows Random)',
-      section: 'summary',
-      columns: GROUPED_ANOVA_COLUMNS,
-      rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA), etaP2: formatStatNumber(computePartialEtaSquared(ssa, ssas)) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB), etaP2: formatStatNumber(computePartialEtaSquared(ssb, ssbs)) },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB), etaP2: formatStatNumber(computePartialEtaSquared(ssab, ssabs)) },
-        { source: 'Row (random)', df: String(dfS), ss: formatStatNumber(sss), ms: formatStatNumber(dfS ? sss / dfS : NaN), f: '—', p: '—', etaP2: '—' },
-        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '—', p: '—', etaP2: '—' },
-        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—', etaP2: '—' },
-        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—', etaP2: '—' }
-      ],
-      options:{ fileName:'box-row-random-mixed', contextLabel:'box-grouped-row-random-mixed' },
-      footnotes: ['Rows are modeled as a random repeated-measures effect; F-tests for fixed group, condition, and group × condition effects use row interactions as denominators. Partial eta squared (ηp²) is reported for fixed effects.'],
-      diagnostics: { dfA, dfAS, dfB, dfBS, dfS, dfAB, dfABS }
-    };
-  }
-
-    function analyzeRowWiseTTests(data){
+  function analyzeRowWiseTTests(data){
     return callBoxStatsModel('analyzeRowWiseTTests', data, state.statsCorrection);
   }
   function estimateGroupedMultipleComparisonCount(data, options={}){
@@ -22376,11 +22135,13 @@
     });
     const paired=answers.paired==='paired';
     const lognormal=answers.distribution==='lognormal';
-    // A log-scale diagnostic must never drop observations to make its domain fit.
-    if(lognormal && groups.some(values=>values.some(value=>Number.isFinite(value) && value<=0))){ return null; }
     if(paired){
       groups=callBoxStatsModel('alignCompleteRows',groups,indices.map(index=>traces[index]?.rowIndices)).groups;
     }
+    // In paired mode, validate the log domain after the same complete-subject
+    // alignment used by the analysis. Never remove a complete subject merely
+    // to make the log transform possible.
+    if(lognormal && groups.some(values=>values.some(value=>Number.isFinite(value) && value<=0))){ return null; }
     const labels=indices.map(index=>traces[index]?.name || `Group ${index+1}`);
     return computeAssumptionDiagnostics(groups,labels,{
       alpha:resolveStatsDiagnosticAlpha(),
@@ -22562,6 +22323,8 @@
         const trace=traces[index] || {};
         return (trace.rawY || trace.y || []).reduce((min,value)=>Number.isFinite(value)?Math.min(min,value):min,Infinity);
       }),
+      pairedMinimumValues:indices.map((_,groupIndex)=>(aligned.groups[groupIndex] || [])
+        .reduce((min,value)=>Number.isFinite(value)?Math.min(min,value):min,Infinity)),
       assumptions: state.assumptionDiagnostics || null,
       currentTest: state.statsTest,
       currentPaired: state.statsPaired,
@@ -22807,7 +22570,10 @@
     if(advisorState.open){
       const selectionIndices=[...state.selectedCols].filter(idx=>Number.isInteger(idx) && idx>=0 && idx<traces.length);
       const assumptionSignature=buildAdvisorDiagnosticSignature(traces,selectionIndices,answers);
-      const invalidLognormal=answers.distribution==='lognormal' && context.minimumValues?.some(value=>!(value>0));
+      const lognormalMinimumValues=answers.paired==='paired'
+        ? (context.pairedMinimumValues || context.minimumValues)
+        : context.minimumValues;
+      const invalidLognormal=answers.distribution==='lognormal' && lognormalMinimumValues?.some(value=>!(value>0));
       const normalityState=advisorState.normality || {};
       const varianceState=advisorState.variance || {};
       const normalityReady=!!(selectionIndices.length && normalityState.results && normalityState.signature===assumptionSignature);
@@ -24255,7 +24021,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   if(prepared.partialRowsSkipped){
     const note=document.createElement('div');
     note.className='box-grouped-stats-note';
-    note.textContent=`${prepared.partialRowsSkipped} row(s) contain missing or non-numeric repeated-measures values. Balanced ANOVA paths will omit them; mixed-effects models can retain their observed values.`;
+    note.textContent=`${prepared.partialRowsSkipped} incomplete row(s) contain missing or non-numeric repeated-measures values. Complete-case factorial analyses, including the row-random repeated-measures model, exclude those subjects from every effect.`;
     controls.appendChild(note);
   }
   const analysisWrap=document.createElement('div');
@@ -24398,11 +24164,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   if(state.groupedStats.analysis==='rowTTests'){
     analysisHelp.textContent='Per-condition pairwise tests use Welch t-statistics, then apply the selected multiplicity correction.';
   }else if(state.groupedStats.analysis==='multipleComparisons'){
-    analysisHelp.textContent='Grouped multiple comparisons expose Prism-style scopes: groups within conditions, conditions within groups, marginal means, or all cell means. Multiplicity can be controlled within each displayed scope or across all comparisons globally.';
+    analysisHelp.textContent='See Methods for the selected comparisons and multiplicity family.';
   }else if(state.groupedStats.analysis==='rowRandomMixed'){
-    analysisHelp.textContent='Mixed-effects models treat rows as repeated/random effects. When rows contain missing or non-numeric repeated-measures values, the mixed-effects path retains observed values instead of listwise deletion.';
+    analysisHelp.textContent='Complete subjects are required; see Methods for the model and corrections.';
   }else if(state.groupedStats.analysis==='nestedRepeatedTwoWay'){
-    analysisHelp.textContent='Independent groups with subjects repeated over exactly two conditions. Requires complete, balanced data, approximately normal residuals and comparable group-level residual variances; group uses subjects-within-group error, while condition and interaction use subjects-within-group × condition error.';
+    analysisHelp.textContent='Requires complete, balanced data with two conditions; see Methods.';
   }else{
     analysisHelp.textContent='ANOVA models assume approximately normal residuals and balanced, complete rows.';
   }
@@ -25160,7 +24926,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      ? opts.strokeWidth
 		      : chartStyle.scaleStrokeWidth(1, opts.styleScaleInfo, { context: 'box-annotation', min: 0.5 });
 		    const bracketSize=Number.isFinite(opts.bracketSize)?opts.bracketSize:10;
-		    const minY = Number.isFinite(opts.minY) ? opts.minY : null;
 		    const color = typeof opts.color === 'string' && opts.color.trim()
 		      ? opts.color.trim()
 		      : DEFAULT_SIGNIFICANCE_COLOR;
@@ -25266,15 +25031,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      labelOuterCoord = bracketGeom.refOuter;
 		      path.setAttribute('d', bracketGeom.d);
 		    }else{
-		      let outerY=valueCoord;
-		      if(minY != null){
-		        const fontSize = Number.isFinite(opts.fontSize) ? opts.fontSize : 12;
-	        const textYOffset = resolveSignificanceLabelGapPx(opts.fontSize);
-	        const minOuterY = minY + bracketSize + textYOffset + Math.max(2, fontSize * 0.1);
-		        if(Number.isFinite(minOuterY)){
-		          outerY = Math.max(outerY, minOuterY);
-		        }
-		      }
+		      // Comparison levels stay in layout coordinates; the content envelope
+		      // expands above the plot instead of clamping distinct levels together.
+		      const outerY=valueCoord;
 		      let outerCoordA = outerY;
 		      let outerCoordB = outerY;
 		      if(showWhiskers && whiskerMode === 'adaptive'){
@@ -25472,7 +25231,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const levelGap=Number.isFinite(opts.levelGap)?opts.levelGap:ANN_LEVEL_GAP;
     const fontSize=opts.fontSize;
     const bracketSize=Number.isFinite(opts.bracketSize)?opts.bracketSize:10;
-    const minY = Number.isFinite(opts.minY) ? opts.minY : null;
     const color = typeof opts.color === 'string' && opts.color.trim()
       ? opts.color.trim()
       : DEFAULT_SIGNIFICANCE_COLOR;
@@ -25505,14 +25263,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       txt.setAttribute('text-anchor','start');
       txt.setAttribute('dominant-baseline','middle');
     }else{
-      let y=baseCoord-baseOffset-level*levelGap;
+      const y=baseCoord-baseOffset-level*levelGap;
       const labelGap = resolveSignificanceLabelGapPx(fontSize);
-      if(minY != null){
-        const minOverall = minY + labelGap + Math.max(2, (Number.isFinite(fontSize) ? fontSize : 12) * 0.1);
-        if(Number.isFinite(minOverall)){
-          y = Math.max(y, minOverall);
-        }
-      }
       txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
       labelBottomTarget = y-labelGap;
       txt.setAttribute('y',labelBottomTarget);
@@ -25762,13 +25514,30 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       commitBoxSelectionStateToSession({ selectedCols: restoredSelection }, session);
     }
     if(!sessionResults.deferredModel && stats?.deferredModel){
-      setBoxStatsResultsState({
-        ...sessionResults,
-        deferredModel: stats.deferredModel,
-        deferredContextSignature: stats.deferredContextSignature || null,
-        deferredContextVersion: Number(stats.deferredContextVersion) || 0,
-        deferredAutoShowSignificance: stats.deferredAutoShowSignificance === true
-      }, session, { mirrorActive: false });
+      const staleRowRandom=isLegacyRowRandomStatsResult({
+        analysisId:stats.groupedAnalysis,
+        deferredModel:stats.deferredModel
+      },stats.groupedAnalysis);
+      if(staleRowRandom){
+        updateBoxStatsResultsFields(session,results=>{
+          results.deferredModel=null;
+          results.deferredContextSignature=null;
+          results.deferredContextVersion=0;
+          results.deferredAutoShowSignificance=false;
+          results.rowRandomMethodStale=true;
+          results.analysisId='rowRandomMixed';
+          results.lastRunVersion=0;
+          results.status=STALE_BOX_CALCULATION_STATUS;
+        },{mirrorActive:false});
+      }else{
+        setBoxStatsResultsState({
+          ...sessionResults,
+          deferredModel: stats.deferredModel,
+          deferredContextSignature: stats.deferredContextSignature || null,
+          deferredContextVersion: Number(stats.deferredContextVersion) || 0,
+          deferredAutoShowSignificance: stats.deferredAutoShowSignificance === true
+        }, session, { mirrorActive: false });
+      }
     }
     const hasDeferredModel = !!getBoxStatsResultsState(session).deferredModel;
     const hasSessionResults = !!(
@@ -26470,6 +26239,9 @@ ${report.resultsText}` : '');
       ? (procedureResolution.numericalCacheVersion || null)
       : null;
     const versionTokens = [
+      ...(state.tableFormat==='grouped' && normalizeGroupedAnalysisId(state.groupedStats?.analysis)==='rowRandomMixed'
+        ? [BOX_ROW_RANDOM_SPHERICITY_VERSION]
+        : []),
       ...(state.statsTest==='nonparametric' && (state.statsPaired || state.statsMode==='oneSample')?['rank-differences-decimal-v1']:[]),
       ...(state.statsPaired && state.statsEffectNonParametric==='rankBiserial'?['paired-rank-biserial-v2']:[]),
       ...(state.statsPaired && state.statsTest==='nonparametric' && state.statsMode==='all' && selectedGroupCount>=3?['friedman-resampling-v2']:[]),
@@ -26621,7 +26393,7 @@ ${report.resultsText}` : '');
 
   function getBoxHistoricalSignatureOptions(signature, parts){
     if(typeof signature !== 'string' || !parts){ return []; }
-    const versionToken = /^(?:studentized-range-.+|rank-differences-decimal-v\d+|paired-rank-biserial-v\d+|box-statistical-inputs-v\d+|friedman-resampling-v\d+|control-sidak-v\d+|outlier-screening-v\d+|stable-sidak-v\d+)$/;
+    const versionToken = /^(?:studentized-range-.+|rank-differences-decimal-v\d+|paired-rank-biserial-v\d+|box-statistical-inputs-v\d+|friedman-resampling-v\d+|control-sidak-v\d+|outlier-screening-v\d+|stable-sidak-v\d+|row-random-sphericity-v\d+)$/;
     const versionTokens = [];
     let offset = 0;
     for(;;){
@@ -26810,6 +26582,7 @@ ${report.resultsText}` : '');
     const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
     const statsOwnerSession = getBoxSession(contextTabId || null, { reason: 'box-stats-context-owner' }, { create: false }) || getActiveBoxSessionForState();
     const storedResults = getBoxStatsResultsState(statsOwnerSession);
+    const legacyRowRandomResults=isLegacyRowRandomStatsResult(storedResults,state.groupedStats?.analysis);
     const hasStoredResults = storedResults.hasResults === true && (
       boxStatsPanelModelHasContent(storedResults.panelModel)
       || boxStatsTableModelHasContent(storedResults.tableModel)
@@ -26817,9 +26590,13 @@ ${report.resultsText}` : '');
     );
     const preserveHistoricalResults = storedResults.hasResults === true
       && (!previousContext?.signature || previousContext.signature === signature)
-      && isSupportedHistoricalStatsSignatureChange(storedResults.signature || state.statsContextSignature, signatureParts);
+      && (
+        isSupportedHistoricalStatsSignatureChange(storedResults.signature || state.statsContextSignature, signatureParts)
+        || (legacyRowRandomResults && storedResults.signature === signature)
+      );
     const canPreserveStoredResults = options?.viewOnly === true
       && storedResults.hasResults === true
+      && !legacyRowRandomResults
       && storedResults.signature === signature;
     const canPreserveAnnotationsForViewRedraw = rawContextChanged
       && options?.viewOnly === true
@@ -26842,6 +26619,10 @@ ${report.resultsText}` : '');
         updateBoxStatsResultsFields(statsOwnerSession, results => {
           results.lastRunVersion = 0;
           results.status = STALE_BOX_CALCULATION_STATUS;
+          if(legacyRowRandomResults){
+            results.rowRandomMethodStale=true;
+            results.analysisId='rowRandomMixed';
+          }
         });
         updateBoxSignificanceResultsState(statsOwnerSession, next => {
           next.statsLastSignificanceEnabled = false;
@@ -27183,12 +26964,20 @@ ${report.resultsText}` : '');
     const analysisLabel = String(spec.analysisLabel || model?.analysis?.label || model?.analysisId || 'Statistical analysis');
 
     if(spec.mode === 'grouped'){
+      const isRowRandomRepeated=spec.analysisId==='rowRandomMixed'
+        && spec.rowRandomSphericityVersion===BOX_ROW_RANDOM_SPHERICITY_VERSION;
       analysisRows.push({
         label:'Analysis',
-        value:`${analysisLabel} · ${Number(spec.groupsCount)||0} groups × ${Number(spec.conditionsCount)||0} conditions · ${Number(spec.rowsWithData)||0} complete row${Number(spec.rowsWithData)===1?'':'s'}`
+        value:`${analysisLabel} · ${Number(spec.groupsCount)||0} groups × ${Number(spec.conditionsCount)||0} conditions · ${Number(spec.rowsWithData)||0} ${isRowRandomRepeated?'independent complete subject':'complete row'}${Number(spec.rowsWithData)===1?'':'s'}`
       });
       if(Number(spec.partialRowsSkipped)>0){
-        analysisRows.push({ label:'Missing data', value:`${Number(spec.partialRowsSkipped)} incomplete row${Number(spec.partialRowsSkipped)===1?' was':'s were'} excluded from complete-case factorial calculations.` });
+        analysisRows.push({ label:'Missing data', value:`${Number(spec.partialRowsSkipped)} incomplete subject row${Number(spec.partialRowsSkipped)===1?' was':'s were'} excluded from complete-case factorial calculations.` });
+      }
+      if(isRowRandomRepeated){
+        analysisRows.push({
+          label:'Within-subject correction',
+          value:'Effect-specific Greenhouse–Geisser p-values are primary; Huynh–Feldt values are supplementary.'
+        });
       }
       if(spec.comparisonScope){
         analysisRows.push({ label:'Comparison scope', value:String(spec.comparisonScope).replace(/([a-z])([A-Z])/g,'$1 $2') });
@@ -27260,7 +27049,39 @@ ${report.resultsText}` : '');
       const findDf = source => Number(rows.find(row => String(row?.source||'') === source)?.df);
       const defaultErrorDf = findDf('Error');
       const highestDf = findDf('Group × Condition × Row');
+      const rowRandomEffects=spec.analysisId==='rowRandomMixed'
+        && spec.rowRandomSphericityVersion===BOX_ROW_RANDOM_SPHERICITY_VERSION
+        ? (spec.repeatedMeasures?.effects || {})
+        : null;
+      const rowRandomEffectKeys={
+        'Group':'group',
+        'Condition':'condition',
+        'Group × Condition':'interaction'
+      };
       rows.forEach(row => {
+        const repeatedEffectKey=rowRandomEffectKeys[String(row?.source || '')];
+        if(rowRandomEffects && repeatedEffectKey){
+          const effect=rowRandomEffects[repeatedEffectKey];
+          const gg=effect?.gg;
+          if(!gg?.available){
+            resultRows.push({
+              label:String(row.source),
+              value:`Greenhouse–Geisser primary inference unavailable (${gg?.reason || effect?.reason || 'not estimable'}).`,
+              figureRole:'effect'
+            });
+            return;
+          }
+          const f=Number(row?.f);
+          const pToken=boxFigurePValueToken(row?.p);
+          if(!Number.isFinite(f) || !pToken) return;
+          const dfText=`F(${formatFigureStatNumber(gg.df1,2)}, ${formatFigureStatNumber(gg.df2,2)})`;
+          resultRows.push({
+            label:`${row.source} (GG primary)`,
+            valueParts:[`${dfText} = ${formatFigureStatNumber(f)}; p(GG) = `,pToken],
+            figureRole:'effect'
+          });
+          return;
+        }
         const f=Number(row?.f);
         const pToken=boxFigurePValueToken(row?.p);
         if(!Number.isFinite(f) || !pToken) return;
@@ -27472,7 +27293,7 @@ ${report.resultsText}` : '');
         return true;
       }
       if(Array.isArray(model?.tables) && model.tables.length){
-        renderTableModel(model.tables[0], true, statsDiv);
+        model.tables.forEach(tableModel=>renderTableModel(tableModel,true,statsDiv));
       }
       if(model.report){
         const report = finalizeStatsReport(model.report, {
@@ -28691,6 +28512,22 @@ ${report.resultsText}` : '');
     if(!model){
       return false;
     }
+    if(isLegacyRowRandomStatsResult(model,model.analysisId)){
+      updateBoxStatsResultsFields(owner,next=>{
+        next.deferredModel=null;
+        next.deferredContextSignature=null;
+        next.deferredContextVersion=0;
+        next.deferredAutoShowSignificance=false;
+        next.rowRandomMethodStale=true;
+        next.analysisId='rowRandomMixed';
+        next.lastRunVersion=0;
+        next.status=STALE_BOX_CALCULATION_STATUS;
+      },{mirrorActive:false});
+      setStatsStatus(STALE_BOX_CALCULATION_STATUS);
+      updateSignificanceControlState({statsReady:false});
+      persistBoxStatsTabState(`${reason}-discard-old-row-random-method`,owner);
+      return false;
+    }
     let context = getBoxStatsContextState(owner, { syncFallbackFromState: true });
     if(!context || !Array.isArray(context.traces) || !context.traces.length){
       return false;
@@ -28885,10 +28722,14 @@ ${report.resultsText}` : '');
       buildOrientationTraceRenderContext,
       cartesianRenderGeometry,
       checkpoint,
+      boxAutoRangeHint,
+      boxAutoRangeTickStart,
       connectPointsActive,
       createOrientationSwarmRenderer,
       debugEnabled,
       drawSession,
+      ymin,
+      ymax,
       ensureNegativeAutoAxisLowerPadding,
       errorBarWidthPx,
       finalizeOrientationTraceLayers,
@@ -28907,6 +28748,7 @@ ${report.resultsText}` : '');
       isResizeLiveCanvasPreview,
       labelTexts,
       logScale,
+      logBase,
       manualYMaxValue,
       manualYMinValue,
       maxLevelEstimate,
@@ -28969,7 +28811,6 @@ ${report.resultsText}` : '');
     const significanceDownShiftTarget = showSignificance && maxLevelEstimate >= 0 && Number.isFinite(topExtra) && topExtra > 0
       ? topExtra
       : 0;
-    let annotationMinY = null;
     let titleBaselineY = null;
     const resolveBottomLayoutForVerticalShift = (plotWidth, baseBottom) => {
       const compactLabelMargin = Math.max(8, Math.round(xTickFontSize * 0.5));
@@ -29038,7 +28879,6 @@ ${report.resultsText}` : '');
     let requiredMargins = { ...baselineMargins };
     const initialTitleReserveTop = Number.isFinite(Number(marginLocal.top)) ? Math.max(0, Number(marginLocal.top)) : 0;
     titleBaselineY = initialTitleReserveTop / 2;
-    annotationMinY = showSignificance && maxLevelEstimate >= 0 ? initialTitleReserveTop - topExtra : null;
     let plotWLocal = Math.max(20, baseCanvasWidth - marginLocal.left - marginLocal.right);
     let plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
     let canvasWidthLocal = baseCanvasWidth;
@@ -29079,14 +28919,33 @@ ${report.resultsText}` : '');
     let yScale = buildAxisScale({
       dataMin: scaleDataMin,
       dataMax: scaleDataMax,
+      autoRangeDataMin: ymin,
+      autoRangeDataMax: ymax,
+      autoRangeHint: boxAutoRangeHint,
       manualMin: manualYMinValue,
       manualMax: manualYMaxValue,
+      tickStart: boxAutoRangeTickStart,
       targetTickCount: yTickTarget
     });
     ensureNegativeAutoAxisLowerPadding(yScale);
     let manualYScale = null;
     if(yIntervalSetting){
-      const manual = buildManualTicks(scaleDataMin, scaleDataMax, yIntervalSetting);
+      const rawTickStart = ensureAxisSettings().y?.tickStart;
+      const tickStart = Number.isFinite(rawTickStart)
+        ? (logScale ? (rawTickStart > 0 ? transformBoxLogValue(rawTickStart, logBase) : null) : rawTickStart)
+        : null;
+      const manual = buildAxisScale({
+        dataMin: scaleDataMin,
+        dataMax: scaleDataMax,
+        autoRangeDataMin: ymin,
+        autoRangeDataMax: ymax,
+        autoRangeHint: boxAutoRangeHint,
+        manualMin: manualYMinValue,
+        manualMax: manualYMaxValue,
+        targetTickCount: yTickTarget,
+        fixedStep: yIntervalSetting,
+        tickStart: Number.isFinite(tickStart) ? tickStart : boxAutoRangeTickStart
+      });
       if(manual){
         ensureNegativeAutoAxisLowerPadding(manual);
         manualYScale = manual;
@@ -29105,19 +28964,23 @@ ${report.resultsText}` : '');
         yScale = buildAxisScale({
           dataMin: scaleDataMin,
           dataMax: scaleDataMax,
+          autoRangeDataMin: ymin,
+          autoRangeDataMax: ymax,
+          autoRangeHint: boxAutoRangeHint,
           manualMin: manualYMinValue,
           manualMax: manualYMaxValue,
+          tickStart: boxAutoRangeTickStart,
           targetTickCount: yTickTarget
         });
         applyLogTickOverride(yScale);
         ensureNegativeAutoAxisLowerPadding(yScale);
       }
-      updateAxisTickFormatter(yScale.ticks.map(t => logScale ? Math.pow(10, t) : t));
-      tickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
+      updateAxisTickFormatter(yScale.ticks.map(t => logScale ? invertBoxLogValue(t, logBase) : t));
+      tickLabels = yScale.ticks.map(t => formatTick(logScale ? invertBoxLogValue(t, logBase) : t));
       tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
       maxTickWidth = Math.max(...tickWidths, 0);
       yLabelGap = maxTickWidth + yMajorTickLength + tickGap;
-      const categoryEndpointInset = resolveCategoricalLabelBandWidth(plotWLocal, labelTexts.length, 'x') / 2;
+      const categoryEndpointInset = resolveCategoricalLabelBandWidth(plotWLocal, labelTexts.length, 'x') * BOX_CATEGORY_EDGE_PITCH_FRACTION;
       const measuredMargins = chartStyle.computeCartesianMarginRequirements({
         fontSize: fs,
         maxYLabelWidth: maxTickWidth,
@@ -29132,7 +28995,6 @@ ${report.resultsText}` : '');
       });
       const normalTitleReserveTop = Number.isFinite(Number(baselineMargins.top)) ? Math.max(0, Number(baselineMargins.top)) : 0;
       titleBaselineY = normalTitleReserveTop / 2;
-      annotationMinY = showSignificance && maxLevelEstimate >= 0 ? normalTitleReserveTop - topExtra : null;
       const yTitleSafetyPad = Math.max(2, Math.round((axisMetrics.yTitleGap || 0) * 0.5));
       requiredMargins = {
         ...requiredMargins,
@@ -29240,7 +29102,6 @@ ${report.resultsText}` : '');
       xLabelReservePx,
       topReservePx,
       bottomReservePx,
-      annotationMinY,
       titleBaselineY,
       baseCanvasHeight,
       baseCanvasWidth,
@@ -29258,7 +29119,6 @@ ${report.resultsText}` : '');
       valueMarginStart: marginLocal.top,
       categoricalPlotSpan,
       categoricalMarginStart: categoricalPlotStart,
-      plotDimensionLabel: 'plotWidth',
       linearProjector: ({ value, marginStart, plotLength, scale, valueRange }) => marginStart + plotLength * (1 - (value - scale.min) / valueRange),
       brokenProjector: ({ value, brokenScale, marginStart, plotLength }) => brokenScale.valueToPixel(value, marginStart, plotLength),
       resolveDisplayedPointMaxHalfWidth: ({ trace, traceIndex, localBand, boxThickness, requestedHalfWidth, pointRadius: localBaseRadius, categoricalLayout }) => {
@@ -29285,7 +29145,6 @@ ${report.resultsText}` : '');
       : fallbackOverlayPointRadius;
     const categoricalLayout = runtime.categoricalLayout;
 
-    const datasetGapPx = categoricalLayout.gapPx;
     const bandW = categoricalLayout.bandSize;
     const separatedSpacing = categoricalLayout.separatedSpacing;
     const plotWUsed = categoricalLayout.plotUsed;
@@ -29480,7 +29339,7 @@ ${report.resultsText}` : '');
       yMajorTick?.setAttribute?.('data-box-major-tick-axis', 'y');
       const txt = addAxisElement('text',{ x: yAxisX - (yMajorTickLength + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
       txt.setAttribute('data-box-axis-tick', 'y');
-      txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
+      txt.textContent = formatTick(logScale ? invertBoxLogValue(t, logBase) : t);
       markFontEditable(txt,'yTick');
       yTickFontCount += 1;
       yMajorTickLabels.push({ pixel: y, node: txt });
@@ -29562,27 +29421,9 @@ ${report.resultsText}` : '');
         });
       }
     }
-    const xTickPositions = categoricalLayout.tickCenters.slice();
     const xIntervalSetting = getAxisTickInterval('x');
     const xInterval = Number.isFinite(xIntervalSetting) && xIntervalSetting > 1 ? Math.max(1, Math.round(xIntervalSetting)) : null;
-    let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : yAxisX;
-    const axisHalfBand = separatedSpacing && Number.isFinite(separatedSpacing.halfBand)
-      ? separatedSpacing.halfBand
-      : Math.max(0, bandW / 2);
-    let axisXEnd = xTickPositions.length ? Math.max(...xTickPositions) + axisHalfBand : plotRightX;
-    if(xTickPositions.length === 1){
-      const halfBand = Math.max(6, bandW * 0.5);
-      axisXStart = xTickPositions[0] - halfBand;
-      axisXEnd = xTickPositions[0] + halfBand;
-    }
-    if(axisXStart === axisXEnd){
-      axisXStart = yAxisX;
-      axisXEnd = plotRightX;
-    }
-    axisXStart = Math.min(axisXStart, yAxisX);
-    const frameXMax = plotRightX;
-    axisXEnd = Math.max(yAxisX, Math.min(axisXEnd, frameXMax));
-    boxLog('Debug: box x-axis span',{ axisXStart, axisXEnd, yAxisX, frameXMax, plotWUsed });
+    const axisXEnd = plotRightX;
     addAxisElement('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth, 'data-box-primary-axis': 'x' });
     registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY }, axisControlConfig('x'));
     boxLog('Debug: box axes stroke scaled',{ axisStrokeWidth });
@@ -29625,8 +29466,7 @@ ${report.resultsText}` : '');
               }
               targetIdx = best;
             }else{
-              const bandSpan = bandW + datasetGapPx;
-              targetIdx = Math.floor((pos.x - marginLocal.left) / bandSpan);
+              targetIdx = Math.round((pos.x - categoricalLayout.tickCenters[0]) / bandW);
               targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
             }
             if(targetIdx !== i){
@@ -29725,9 +29565,6 @@ ${report.resultsText}` : '');
     const connectionMapsByTrace = connectPointsActive ? new Array(traces.length).fill(null) : null;
     const annotationMaxByTrace = new Array(traces.length).fill(null);
     let annotationObstaclePaddingPx = annotationDataObstaclePadding;
-    const pendingIndividualSummaryBars = [];
-    const pendingIndividualSummaryIntervalCaps = [];
-    let globalIndividualSummaryHalfSpan = 0;
     for(let i = 0; i < traces.length; i++){
       if(!isBoxDrawTokenCurrent(drawSession, token)){
         boxLog('boxplot draw cancelled during render loop',{ token });
@@ -29931,20 +29768,12 @@ ${report.resultsText}` : '');
               })
             : false;
           if(!reusedSummaryGroup){
-            const swarm = swarmResult?.swarm;
-            const summaryRadius = swarmResult?.effectiveRadius != null
-              ? swarmResult.effectiveRadius
-              : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
             const summaryContext = prepareStripIndividualSummaryOverlay({
               createGroup: () => add('g',{ 'data-trace': i, 'data-style-trace': colorInfo.styleIndex, 'data-summary': individualSummaryMode, 'data-color-index': colorInfo.colorIndex }),
               onClick: handleBoxSummaryClick,
               localBand,
-              swarmResult,
-              pointRadius,
               traceIndex: i,
               styleTraceIndex: colorInfo.styleIndex,
-              orientation: 'vertical',
-              debugEnabled,
               getSummaryStyle,
               fillColor,
               borderColor,
@@ -29958,20 +29787,12 @@ ${report.resultsText}` : '');
               centerCoord: cx,
               valueToPixel: y2px,
               summaryCap,
-              summaryRadius,
-              pointRadius,
               summaryPointHalfSpan,
               summaryStrokeWidth,
               summaryIntervalWidth,
               summaryStrokeAttrs,
               summaryAdd,
               summarySpec: t.__summarySpec,
-              pendingBars: pendingIndividualSummaryBars,
-              pendingCaps: pendingIndividualSummaryIntervalCaps,
-              getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
-              setGlobalHalfSpan: value => { globalIndividualSummaryHalfSpan = value; },
-              traceIndex: i,
-              mode: individualSummaryMode,
               debugEnabled
             });
             applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
@@ -30051,9 +29872,6 @@ ${report.resultsText}` : '');
     }
     finalizeOrientationTraceLayers({
       orientation: 'vertical',
-      pendingBars: pendingIndividualSummaryBars,
-      pendingCaps: pendingIndividualSummaryIntervalCaps,
-      globalHalfSpan: globalIndividualSummaryHalfSpan,
       stackedErrorQueue,
       connectionMapsByTrace
     });
@@ -30062,10 +29880,7 @@ ${report.resultsText}` : '');
       if(trace){
         return xCenter(trace, idx);
       }
-      if(separatedSpacing && idx >= 0 && idx < separatedSpacing.centers.length){
-        return separatedSpacing.centers[idx];
-      }
-      return categoricalPlotStart + idx * (bandW + datasetGapPx) + bandW / 2;
+      return categoricalLayout.tickCenters[idx];
     };
     return {
       margin: marginLocal,
@@ -30090,7 +29905,6 @@ ${report.resultsText}` : '');
         commit: commitYLabelPosition,
         requiresBoundaryConstraint: hasBoxExplicitLabelPosition(yLabelPos)
       }],
-      annotationMinY,
       flipAxisTargetApplied: flipAxisLayout.applied,
       baseCanvasHeight,
       significanceViewportExtension: unresolvedDownShift,
@@ -30129,10 +29943,14 @@ ${report.resultsText}` : '');
       buildOrientationTraceRenderContext,
       cartesianRenderGeometry,
       checkpoint,
+      boxAutoRangeHint,
+      boxAutoRangeTickStart,
       connectPointsActive,
       createOrientationSwarmRenderer,
       debugEnabled,
       drawSession,
+      ymin,
+      ymax,
       ensureNegativeAutoAxisLowerPadding,
       errorBarWidthPx,
       finalizeOrientationTraceLayers,
@@ -30151,6 +29969,7 @@ ${report.resultsText}` : '');
       isResizeLiveCanvasPreview,
       labelTexts,
       logScale,
+      logBase,
       manualYMaxValue,
       manualYMinValue,
       maxLevelEstimate,
@@ -30299,8 +30118,12 @@ ${report.resultsText}` : '');
       let nextScale = buildAxisScale({
         dataMin: scaleDataMin,
         dataMax: scaleDataMax,
+        autoRangeDataMin: ymin,
+        autoRangeDataMax: ymax,
+        autoRangeHint: boxAutoRangeHint,
         manualMin: manualYMinValue,
         manualMax: manualYMaxValue,
+        tickStart: boxAutoRangeTickStart,
         targetTickCount: chartStyle.estimateTickCount(Math.max(plotWLocal, 40), { axis: 'x', fallback: 6 })
       });
       if(xIntervalSetting){
@@ -30317,8 +30140,8 @@ ${report.resultsText}` : '');
       return nextScale;
     };
     let yScale = buildHorizontalValueScale();
-    updateAxisTickFormatter(yScale.ticks.map(t => logScale ? Math.pow(10, t) : t));
-    const horizontalValueTickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
+    updateAxisTickFormatter(yScale.ticks.map(t => logScale ? invertBoxLogValue(t, logBase) : t));
+    const horizontalValueTickLabels = yScale.ticks.map(t => formatTick(logScale ? invertBoxLogValue(t, logBase) : t));
     const horizontalEndpointMargins = chartStyle.computeXAxisEndpointLabelMargins({
       labels: horizontalValueTickLabels,
       labelMeasureFont: yTickMeasureProfile.fontSpec,
@@ -30402,7 +30225,6 @@ ${report.resultsText}` : '');
       valueMarginStart: marginLocal.left,
       categoricalPlotSpan: plotHLocal,
       categoricalMarginStart: marginLocal.top,
-      plotDimensionLabel: 'plotHeight',
       linearProjector: ({ value, marginStart, plotLength, scale, valueRange }) => marginStart + ((value - scale.min) / valueRange) * plotLength,
       brokenProjector: ({ value, brokenScale, marginStart, plotLength }) => {
         for(let i = 0; i < brokenScale.segments.length; i++){
@@ -30472,9 +30294,6 @@ ${report.resultsText}` : '');
       ]
     });
     const categoricalLayout = runtime.categoricalLayout;
-
-    const bandH = categoricalLayout.bandSize;
-    const separatedSpacing = categoricalLayout.separatedSpacing;
 
     const plotTopY = marginLocal.top;
     const plotBottomY = categoricalLayout.plotEnd;
@@ -30608,7 +30427,7 @@ ${report.resultsText}` : '');
       const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(valueTickFontSize, xMajorTickLength, tickGap) : 0;
       const txt = addAxisElement('text',{ x, y: xAxisBottom + xMajorTickLength + tickGap + extra, 'font-size': valueTickFontSize, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
       txt.setAttribute('data-box-axis-tick', 'x');
-      txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
+      txt.textContent = formatTick(logScale ? invertBoxLogValue(t, logBase) : t);
       markFontEditable(txt, 'yTick');
       Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', valueTickFontSize);
       xMajorTickLabels.push({ pixel: x, node: txt });
@@ -30826,9 +30645,6 @@ ${report.resultsText}` : '');
     const connectionMapsByTrace = connectPointsActive ? new Array(traces.length).fill(null) : null;
     const annotationMaxByTrace = new Array(traces.length).fill(null);
     let annotationObstaclePaddingPx = annotationDataObstaclePadding;
-    const pendingIndividualSummaryBars = [];
-    const pendingIndividualSummaryIntervalCaps = [];
-    let globalIndividualSummaryHalfSpan = 0;
     for(let i = 0; i < traces.length; i++){
       if(!isBoxDrawTokenCurrent(drawSession, token)){
         boxLog('boxplot draw cancelled during render loop',{ token });
@@ -31041,20 +30857,12 @@ ${report.resultsText}` : '');
               })
             : false;
           if(!reusedSummaryGroup){
-            const swarm = swarmResult?.swarm;
-            const summaryRadius = swarmResult?.effectiveRadius != null
-              ? swarmResult.effectiveRadius
-              : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
             const summaryContext = prepareStripIndividualSummaryOverlay({
               createGroup: () => add('g',{ 'data-trace': i, 'data-style-trace': colorInfoH.styleIndex, 'data-summary': individualSummaryMode, 'data-color-index': colorInfoH.colorIndex }),
               onClick: handleBoxSummaryClick,
               localBand,
-              swarmResult,
-              pointRadius,
               traceIndex: i,
               styleTraceIndex: colorInfoH.styleIndex,
-              orientation: 'horizontal',
-              debugEnabled,
               getSummaryStyle,
               fillColor,
               borderColor,
@@ -31068,20 +30876,12 @@ ${report.resultsText}` : '');
               centerCoord: cy,
               valueToPixel: valueToX,
               summaryCap,
-              summaryRadius,
-              pointRadius,
               summaryPointHalfSpan,
               summaryStrokeWidth,
               summaryIntervalWidth,
               summaryStrokeAttrs,
               summaryAdd,
               summarySpec: t.__summarySpec,
-              pendingBars: pendingIndividualSummaryBars,
-              pendingCaps: pendingIndividualSummaryIntervalCaps,
-              getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
-              setGlobalHalfSpan: value => { globalIndividualSummaryHalfSpan = value; },
-              traceIndex: i,
-              mode: individualSummaryMode,
               debugEnabled
             });
             applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
@@ -31162,9 +30962,6 @@ ${report.resultsText}` : '');
     }
     finalizeOrientationTraceLayers({
       orientation: 'horizontal',
-      pendingBars: pendingIndividualSummaryBars,
-      pendingCaps: pendingIndividualSummaryIntervalCaps,
-      globalHalfSpan: globalIndividualSummaryHalfSpan,
       stackedErrorQueue,
       connectionMapsByTrace
     });
@@ -31173,10 +30970,7 @@ ${report.resultsText}` : '');
       if(trace){
         return categoryCenter(trace, idx);
       }
-      if(separatedSpacing && idx >= 0 && idx < separatedSpacing.centers.length){
-        return separatedSpacing.centers[idx];
-      }
-      return plotTopY + (idx + 0.5) * bandH;
+      return categoricalLayout.tickCenters[idx];
     };
     return {
       margin: marginLocal,
@@ -31260,6 +31054,7 @@ ${report.resultsText}` : '');
       showGrid,
       showFrame,
       logScale,
+      logBase,
       graphTypeRaw,
       individualSummaryMode,
       pointMode,
@@ -31289,6 +31084,8 @@ ${report.resultsText}` : '');
       computeStackedErrorExtents,
       manualYMinValue,
       manualYMaxValue,
+      boxAutoRangeHint,
+      boxAutoRangeTickStart,
       scaleDataMin,
       scaleDataMax,
       buildAxisScale,
@@ -31808,9 +31605,11 @@ ${report.resultsText}` : '');
         node.setAttribute('y', String(pointY - effectiveRadius));
         node.setAttribute('width', String(size));
         node.setAttribute('height', String(size));
-      }else if(shape === 'triangle'){
+      }else if(shape === 'triangle' || shape === 'triangle-down'){
         node = doc.createElementNS(NS, 'path');
-        const d = `M ${pointX} ${pointY - effectiveRadius} L ${pointX + effectiveRadius} ${pointY + effectiveRadius} L ${pointX - effectiveRadius} ${pointY + effectiveRadius} Z`;
+        const top = shape === 'triangle-down' ? pointY - effectiveRadius : pointY + effectiveRadius;
+        const apex = shape === 'triangle-down' ? pointY + effectiveRadius : pointY - effectiveRadius;
+        const d = `M ${pointX - effectiveRadius} ${top} L ${pointX + effectiveRadius} ${top} L ${pointX} ${apex} Z`;
         node.setAttribute('d', d);
       }else if(shape === 'diamond'){
         node = doc.createElementNS(NS, 'path');
@@ -32454,7 +32253,6 @@ ${report.resultsText}` : '');
       return Number.isFinite(minPitch) ? minPitch : null;
     };
     const computeCategoricalBandLayoutShared = (config = {}) => {
-      const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
       const plotSpan = Math.max(0, Number(config?.plotSpan) || 0);
       const marginStart = Number.isFinite(Number(config?.marginStart)) ? Number(config.marginStart) : 0;
       const axisCountLocal = Math.max(Number(config?.axisCount) || 0, 1);
@@ -32462,106 +32260,46 @@ ${report.resultsText}` : '');
       const grouped = config?.usesGroupedSpacing === true;
       const groupedList = Array.isArray(config?.groupedGroups) ? config.groupedGroups : [];
       const separatedUnits = config?.separatedCategoryUnits || null;
-      const plotDimensionLabel = typeof config?.plotDimensionLabel === 'string'
-        ? config.plotDimensionLabel
-        : (orientation === 'horizontal' ? 'plotHeight' : 'plotWidth');
-      const rawBand = plotSpan / axisCountLocal;
-      const datasetGapFraction = 0.06;
-      let gapPx = Math.max(2, Math.min(40, rawBand * datasetGapFraction));
-      let bandSize = (plotSpan - gapPx * Math.max(0, axisCountLocal - 1)) / axisCountLocal;
-      const requestedDatasetSpacing = getAxisDatasetSpacing(categoricalAxis);
-      let datasetSpacingScale = sanitizeXAxisDatasetSpacing(requestedDatasetSpacing);
-      if(datasetSpacingScale !== 1){
-        gapPx *= datasetSpacingScale;
-        bandSize *= datasetSpacingScale;
-        const requestedSpan = bandSize * axisCountLocal + gapPx * Math.max(0, axisCountLocal - 1);
-        if(requestedSpan > plotSpan && requestedSpan > 0){
-          const fitScale = plotSpan / requestedSpan;
-          gapPx *= fitScale;
-          bandSize *= fitScale;
-          datasetSpacingScale *= fitScale;
-          boxDebug('Debug: box categorical axis dataset spacing clamped to fit',{
-            axis: categoricalAxis,
-            requested: requestedDatasetSpacing,
-            applied: datasetSpacingScale,
-            fitScale,
-            requestedSpan,
-            [plotDimensionLabel]: plotSpan
-          });
-        }else{
-          boxDebug('Debug: box categorical axis dataset spacing applied',{
-            axis: categoricalAxis,
-            requested: requestedDatasetSpacing,
-            applied: datasetSpacingScale,
-            requestedSpan,
-            [plotDimensionLabel]: plotSpan
-          });
-        }
-      }
-      const totalGapSpace = gapPx * Math.max(0, axisCountLocal - 1);
-      const separatedSpanScale = Math.min(1, datasetSpacingScale);
-      const plotSpanForSpacing = Math.max(0, (plotSpan - totalGapSpace) * separatedSpanScale);
+      // A category pitch owns both edge reserves and symbol widths. No pixel
+      // caps: these proportions must survive every resize and orientation.
+      const datasetSpacingScale = sanitizeXAxisDatasetSpacing(getAxisDatasetSpacing(categoricalAxis));
+      const plotUsed = plotSpan * datasetSpacingScale;
       const separatedSpacing = separatedUnits
-        ? scaleSeparatedCategoryUnits(separatedUnits, plotSpanForSpacing, marginStart)
+        ? scaleSeparatedCategoryUnits(separatedUnits, plotUsed, marginStart)
         : null;
-      if(separatedSpacing && Number.isFinite(separatedSpacing.bandWidth) && separatedSpacing.bandWidth > 0){
-        bandSize = separatedSpacing.bandWidth;
-      }
-      const computedPlotSpan = separatedSpacing
-        ? Number(separatedSpacing.end) - Number(separatedSpacing.start)
-        : (bandSize * axisCountLocal + gapPx * Math.max(0, axisCountLocal - 1));
-      const plotUsed = Number.isFinite(computedPlotSpan) && computedPlotSpan > 0
-        ? Math.min(plotSpan, computedPlotSpan)
-        : plotSpan;
+      const bandSize = separatedSpacing
+        ? separatedSpacing.bandWidth
+        : plotUsed / (axisCountLocal - 1 + 2 * BOX_CATEGORY_EDGE_PITCH_FRACTION);
+      const edgeInset = bandSize * BOX_CATEGORY_EDGE_PITCH_FRACTION;
       const plotEnd = marginStart + plotUsed;
       const groupCountLocal = grouped ? Math.max(1, groupedList.length) : 1;
-      const clusterGap = grouped ? Math.min(bandSize * 0.25, 16) : 0;
-      let perGroupBand = grouped ? (bandSize - clusterGap) / groupCountLocal : bandSize;
-      if(!Number.isFinite(perGroupBand) || perGroupBand <= 0){
-        perGroupBand = bandSize / Math.max(groupCountLocal, 1);
-      }
-      const groupOffset = grouped ? (bandSize - perGroupBand * groupCountLocal) / 2 : 0;
+      const clusterGap = grouped ? bandSize * 0.25 : 0;
+      const perGroupBand = grouped ? (bandSize - clusterGap) / groupCountLocal : bandSize;
+      const groupOffset = grouped ? -perGroupBand * groupCountLocal / 2 : 0;
       const resolveCenter = (trace, traceIndex) => {
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
         if(grouped){
           const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
-          const bandStart = marginStart + categoryIdx * (bandSize + gapPx) + groupOffset;
+          const bandStart = marginStart + edgeInset + categoryIdx * bandSize + groupOffset;
           return bandStart + (groupIdx + 0.5) * perGroupBand;
         }
         if(separatedSpacing && categoryIdx >= 0 && categoryIdx < separatedSpacing.centers.length){
           return separatedSpacing.centers[categoryIdx];
         }
-        return marginStart + categoryIdx * (bandSize + gapPx) + bandSize / 2;
+        return marginStart + edgeInset + categoryIdx * bandSize;
       };
-      const resolveLocalBandSize = () => {
-        if(separatedSpacing){
-          return separatedSpacing.bandWidth;
-        }
-        return grouped ? perGroupBand : bandSize;
-      };
+      const resolveLocalBandSize = () => grouped ? perGroupBand : bandSize;
       const tickCenters = separatedSpacing
         ? separatedSpacing.centers.slice()
-        : Array.from({ length: axisCountLocal }, (_, i) => marginStart + i * (bandSize + gapPx) + bandSize / 2);
-      const axisHalfBand = separatedSpacing && Number.isFinite(separatedSpacing.halfBand)
-        ? separatedSpacing.halfBand
-        : Math.max(0, bandSize / 2);
+        : Array.from({ length: axisCountLocal }, (_, i) => marginStart + edgeInset + i * bandSize);
       return {
-        axisCount: axisCountLocal,
-        gapPx,
         bandSize,
-        datasetSpacingScale,
-        totalGapSpace,
         separatedSpacing,
         plotUsed,
         plotEnd,
-        groupCountLocal,
-        clusterGap,
-        perGroupBand,
-        groupOffset,
         resolveCenter,
         resolveLocalBandSize,
-        tickCenters,
-        axisHalfBand
+        tickCenters
       };
     };
     const buildValueAxisProjectionShared = (config = {}) => {
@@ -32632,7 +32370,7 @@ ${report.resultsText}` : '');
             scale: logScale ? 'log' : 'linear',
             domainMin: logScale ? dataMin : null,
             domainMax: logScale ? dataMax : null,
-            logBase: 10,
+            logBase,
             subdivisions: minorSubdivisions
           }).filter(value => isValueVisible(value))
         : [];
@@ -32652,15 +32390,13 @@ ${report.resultsText}` : '');
       const valueAxisId = config?.valueAxis === 'x' ? 'x' : 'y';
       const categoricalAxis = state.flipAxes ? 'y' : 'x';
       const categoricalLayout = computeCategoricalBandLayoutShared({
-        orientation,
         plotSpan: config?.categoricalPlotSpan,
         marginStart: config?.categoricalMarginStart,
         axisCount: axisLabels.length,
         categoricalAxis,
         separatedCategoryUnits,
         usesGroupedSpacing,
-        groupedGroups,
-        plotDimensionLabel: config?.plotDimensionLabel
+        groupedGroups
       });
       const valueAxis = buildValueAxisProjectionShared({
         axis: valueAxisId,
@@ -32864,13 +32600,6 @@ ${report.resultsText}` : '');
     };
     const finalizeOrientationTraceLayers = (config = {}) => {
       const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
-      normalizePendingIndividualSummarySpans({
-        orientation,
-        pendingBars: config?.pendingBars,
-        pendingCaps: config?.pendingCaps,
-        globalHalfSpan: config?.globalHalfSpan,
-        debugEnabled
-      });
       renderStackedErrorQueueForOrientation(orientation, config?.stackedErrorQueue);
       if(connectPointsActive && config?.connectionMapsByTrace){
         drawBoxPointConnectionsFromTraceMaps(config.connectionMapsByTrace, { orientation });
@@ -33252,14 +32981,12 @@ ${report.resultsText}` : '');
         upperBodyEdge,
         config.valuePixels.wMax,
         strokeWidth,
-        config.strokeWidthEffective,
         strokePattern
       );
       const adjustedLowerBodyEdge = insetSummaryOverlayEndpointFromBodyEdge(
         lowerBodyEdge,
         config.valuePixels.wMin,
         strokeWidth,
-        config.strokeWidthEffective,
         strokePattern
       );
       const segments = isHorizontal
@@ -33272,7 +32999,7 @@ ${report.resultsText}` : '');
             { x1: config.centerCoord, y1: adjustedLowerBodyEdge, x2: config.centerCoord, y2: config.valuePixels.wMin }
           ];
       if(showCaps){
-        const cap = Math.max(6, config.boxSpan * 0.4);
+        const cap = config.boxSpan * BOX_WHISKER_CAP_BODY_FRACTION;
         if(isHorizontal){
           segments.push(
             { x1: config.valuePixels.wMin, y1: config.centerCoord - cap / 2, x2: config.valuePixels.wMin, y2: config.centerCoord + cap / 2 },
@@ -33338,7 +33065,7 @@ ${report.resultsText}` : '');
       if(!errorExtents){
         return;
       }
-      const cap = Math.max(6, config.boxSpan * 0.4);
+      const cap = config.boxSpan * BOX_WHISKER_CAP_BODY_FRACTION;
       const interval = resolveDisplayedBarErrorInterval(
         errorExtents.segmentEnd,
         errorExtents.lowValue,
@@ -33359,7 +33086,6 @@ ${report.resultsText}` : '');
             bodyEdgePixel,
             endPixel,
             config.overlayStroke.effectiveWidth(config.overlayStroke.baseStroke),
-            config.strokeWidthEffective,
             config.overlayStroke.pattern
           );
       if(config.orientation === 'horizontal'){
@@ -33386,7 +33112,7 @@ ${report.resultsText}` : '');
     };
     const renderUnstackedBarError = (config = {}) => {
       const isHorizontal = config.orientation === 'horizontal';
-      const cap = Math.max(6, config.boxSpan * 0.4);
+      const cap = config.boxSpan * BOX_WHISKER_CAP_BODY_FRACTION;
       const interval = resolveDisplayedBarErrorInterval(
         config.centerValue,
         config.summarySpec?.lowValue,
@@ -33408,7 +33134,6 @@ ${report.resultsText}` : '');
             bodyEdgePx,
             endPx,
             errorLineWidth,
-            config.strokeWidthEffective,
             config.overlayStroke.pattern
           );
       const segments = svgGeometry.buildOrthogonalCappedLineSegments({
@@ -33453,47 +33178,12 @@ ${report.resultsText}` : '');
       const endPx = config.valueToPixel(barEndValue);
       const rawStart = Math.min(startPx, endPx);
       const rawEnd = Math.max(startPx, endPx);
-      const strokeInset = config.strokeWidthEffective > 0 ? config.strokeWidthEffective / 2 : 0;
       const baselineIsLowerPixel = startPx >= endPx;
       const baselineIsLeftPixel = startPx <= endPx;
-      const valueEdgeStart = baselineIsLowerPixel ? rawStart + strokeInset : rawStart;
-      const valueEdgeEnd = baselineIsLowerPixel ? rawEnd : rawEnd - strokeInset;
-      let valueRectStart = valueEdgeStart;
-      let valueRectEnd = valueEdgeEnd;
-      if(valueRectEnd < valueRectStart){
-        const mid = (rawStart + rawEnd) / 2;
-        valueRectStart = mid;
-        valueRectEnd = mid;
-      }
-      let categoryRectStart = config.spanStart;
-      let categoryRectEnd = config.spanEnd;
-      if(isHorizontal){
-        categoryRectStart += strokeInset;
-        categoryRectEnd -= strokeInset;
-        if(categoryRectEnd < categoryRectStart){
-          const mid = (config.spanStart + config.spanEnd) / 2;
-          categoryRectStart = mid;
-          categoryRectEnd = mid;
-        }
-      }
       const barBounds = isHorizontal
-        ? {
-            left: baselineIsLeftPixel ? rawStart : valueRectStart,
-            top: categoryRectStart,
-            right: baselineIsLeftPixel ? valueRectEnd : rawEnd,
-            bottom: categoryRectEnd,
-            openSide: baselineIsLeftPixel ? 'left' : 'right'
-          }
-        : {
-            left: config.spanStart,
-            top: baselineIsLowerPixel ? valueRectStart : rawStart,
-            right: config.spanStart + config.boxSpan,
-            bottom: baselineIsLowerPixel ? rawEnd : valueRectEnd,
-            openSide: baselineIsLowerPixel ? 'bottom' : 'top'
-          };
-      const bodyValueEdgePixel = isHorizontal
-        ? (baselineIsLeftPixel ? valueRectEnd : valueRectStart)
-        : (baselineIsLowerPixel ? valueRectStart : valueRectEnd);
+        ? { left: rawStart, top: config.spanStart, right: rawEnd, bottom: config.spanEnd, openSide: baselineIsLeftPixel ? 'left' : 'right' }
+        : { left: config.spanStart, top: rawStart, right: config.spanEnd, bottom: rawEnd, openSide: baselineIsLowerPixel ? 'bottom' : 'top' };
+      const bodyValueEdgePixel = endPx;
       const barAttrs = {
         d: chartStyle.buildOpenRectPath
           ? chartStyle.buildOpenRectPath(barBounds, barBounds.openSide)
@@ -33507,33 +33197,6 @@ ${report.resultsText}` : '');
       applyShapeOpacityAttrs(barAttrs, config.opacityOverride, config.strokeWidthEffective);
       const barShape = add('path', barAttrs);
       attachBoxShapeHandler(barShape);
-      if(isHorizontal){
-        boxLog('Debug: box bar horizontal bounds adjusted',{
-          index: traceIndex,
-          rawLeft: rawStart,
-          rawRight: rawEnd,
-          rectX: valueRectStart,
-          rectRight: valueRectEnd,
-          strokeInset,
-          rectY: categoryRectStart,
-          rectBottom: categoryRectEnd,
-          summaryMode: summarySpec?.mode,
-          centerValue,
-          hasSpread
-        });
-      }else{
-        boxLog('Debug: box bar vertical bounds adjusted',{
-          index: traceIndex,
-          rawTop: rawStart,
-          rawBottom: rawEnd,
-          rectY: valueRectStart,
-          rectBottom: valueRectEnd,
-          strokeInset,
-          summaryMode: summarySpec?.mode,
-          centerValue,
-          hasSpread
-        });
-      }
       let maxVisualValue = Math.max(barStartValue, barEndValue);
       if(hasSpread){
         if(isStackedLayout){
@@ -33732,6 +33395,8 @@ ${report.resultsText}` : '');
       cartesianRenderGeometry,
       checkpoint,
       connectPointsActive,
+      ymin,
+      ymax,
       createOrientationSwarmRenderer,
       debugEnabled,
       drawOpts,
@@ -33754,8 +33419,11 @@ ${report.resultsText}` : '');
       isResizeLiveCanvasPreview,
       labelTexts,
       logScale,
+      logBase,
       manualYMaxValue,
       manualYMinValue,
+      boxAutoRangeHint,
+      boxAutoRangeTickStart,
       maxLevelEstimate,
       overlayPointRadius,
       pointMode,
@@ -33928,6 +33596,104 @@ ${report.resultsText}` : '');
     return true;
   }
 
+  function clearBoxPrismAxisLengthTarget(session){
+    const geometry = getBoxGraphGeometryForOwner(session);
+    if(!geometry?.plot?.prismAxisTargetPx){
+      return false;
+    }
+    updateBoxGraphGeometry({ plot: { prismAxisTargetPx: null } }, {
+      session,
+      reason: 'prism-axis-length-target-consumed'
+    });
+    return true;
+  }
+
+  function applyBoxPrismAxisLengthTarget(options = {}){
+    const session = options.session || null;
+    const plan = options.plan || null;
+    const target = options.target || null;
+    const svgBox = options.svgBox || els.svgBox || null;
+    if(!session || !plan?.axisFrameModel || !target || !svgBox){
+      return { applied: false, reason: 'incomplete-axis-length-target' };
+    }
+    const xLength = Number(target.x);
+    const yLength = Number(target.y);
+    if(!Number.isFinite(xLength) || xLength <= 0 || !Number.isFinite(yLength) || yLength <= 0){
+      return { applied: false, reason: 'invalid-axis-length-target' };
+    }
+    const currentAxisX = Number(plan.axisLengths?.x);
+    const currentAxisY = Number(plan.axisLengths?.y);
+    if(Number.isFinite(currentAxisX) && Number.isFinite(currentAxisY)
+      && Math.abs(currentAxisX - xLength) <= 0.75
+      && Math.abs(currentAxisY - yLength) <= 0.75){
+      clearBoxPrismAxisLengthTarget(session);
+      return { applied: false, alreadyCorrect: true };
+    }
+    const frameSize = Shared.cartesianLayout?.resolveFrameSizeForAxisLengths?.(plan, { x: xLength, y: yLength });
+    if(!frameSize){
+      return { applied: false, reason: 'invalid-axis-frame-model' };
+    }
+    const canvasWidth = frameSize.width;
+    const canvasHeight = frameSize.height;
+    const frame = resolveBoxSvgBoxBaseSize(svgBox);
+    const frameChrome = Shared.cartesianLayout?.resolveFrameChromeForDrawableSize?.(svgBox, {
+      width: options.viewportWidth,
+      height: options.viewportHeight
+    });
+    if(!frameChrome){
+      return { applied: false, reason: 'invalid-axis-frame-chrome' };
+    }
+    const frameChromeWidth = frameChrome.width;
+    const frameChromeHeight = frameChrome.height;
+    const targetWidth = Math.max(50, Math.round(canvasWidth + frameChromeWidth));
+    const targetHeight = Math.max(40, Math.round(canvasHeight + frameChromeHeight));
+    const changed = !Number.isFinite(Number(frame.width))
+      || !Number.isFinite(Number(frame.height))
+      || Math.abs(Number(frame.width) - targetWidth) > 0.75
+      || Math.abs(Number(frame.height) - targetHeight) > 0.75;
+    if(!changed){
+      clearBoxPrismAxisLengthTarget(session);
+      return { applied: false, alreadyCorrect: true, targetWidth, targetHeight };
+    }
+    if(typeof Shared.applyResizableBoxSize !== 'function'){
+      return { applied: false, reason: 'missing-shared-resizer' };
+    }
+    const reason = 'prism-axis-length-import';
+    const resizeResult = Shared.applyResizableBoxSize(svgBox, {
+      axis: 'both',
+      width: targetWidth,
+      height: targetHeight,
+      forceExact: true,
+      preserveAspectLock: true,
+      updateAspectRatio: true,
+      updateDefaults: false,
+      authorityMode: 'transient',
+      reason
+    });
+    if(!resizeResult){
+      return { applied: false, reason: 'axis-length-resize-failed' };
+    }
+    commitBoxGraphFrame({
+      widthPx: targetWidth,
+      heightPx: targetHeight,
+      aspectRatio: targetWidth / targetHeight
+    }, {
+      svgBox,
+      session,
+      commitLayout: true,
+      writeStyle: true,
+      reason
+    });
+    // Keep the target until the follow-up layout confirms the rendered axes.
+    // The first frame solve can shift margins slightly when long labels settle.
+    scheduleBoxDrawForSession(session, {
+      force: true,
+      renderImpact: 'layout',
+      reason: 'prism-axis-length-import-followup'
+    });
+    return { applied: true, targetWidth, targetHeight, resizeResult };
+  }
+
   function normalizeBoxBoundaryLabels(bindings, svg){
     if(!svg || typeof Shared.constrainSvgLabelPosition !== 'function' || !Array.isArray(bindings)){
       return;
@@ -33987,6 +33753,7 @@ ${report.resultsText}` : '');
       showLegend,
       isFlipped,
       logScale,
+      logBase,
       legendRenderer,
       legendGapPx,
       traces,
@@ -34046,6 +33813,20 @@ ${report.resultsText}` : '');
       legendExtension: legendViewportExtension,
       titleBlocks
     });
+    const importedAxisTarget = getBoxGraphGeometryForOwner(drawSession)?.plot?.prismAxisTargetPx || null;
+    if(importedAxisTarget){
+      const resize = applyBoxPrismAxisLengthTarget({
+        session: drawSession,
+        plan: boxCartesianPlan,
+        target: importedAxisTarget,
+        svgBox: els.svgBox,
+        viewportWidth,
+        viewportHeight
+      });
+      if(resize.applied){
+        return { traceCount: traces.length, axisLengthResizeQueued: true };
+      }
+    }
     // Preserve reserve values as owner-scoped runtime diagnostics for the stats
     // overlay and tests, but never use them as frame or persistence authority.
     applyBoxViewportExtensions({
@@ -34173,12 +33954,9 @@ ${report.resultsText}` : '');
         entryCount: legendRenderer.entries.length
       });
     }
-    const annotationStyleForStatsBase = Number.isFinite(orientationResult.annotationMinY)
-      ? { ...annotationStyle, minY: orientationResult.annotationMinY }
-      : annotationStyle;
     const annotationStyleForStats = Number.isFinite(Number(orientationResult.annotationObstaclePaddingPx))
-      ? { ...annotationStyleForStatsBase, dataObstaclePadding: Math.max(annotationDataObstaclePadding, Number(orientationResult.annotationObstaclePaddingPx)) }
-      : annotationStyleForStatsBase;
+      ? { ...annotationStyle, dataObstaclePadding: Math.max(annotationDataObstaclePadding, Number(orientationResult.annotationObstaclePaddingPx)) }
+      : annotationStyle;
     const helpers = {
       xCenter: orientationResult.categoryCenter,
       categoryCenter: orientationResult.categoryCenter,
@@ -34186,7 +33964,8 @@ ${report.resultsText}` : '');
       valueToCoord: orientationResult.valueToCoord,
       annotationMaxByTrace: orientationResult.annotationMaxByTrace,
       dataTransform: {
-        type: logScale ? 'log10' : 'identity',
+        type: logScale ? `log${logBase}` : 'identity',
+        base: logScale ? logBase : null,
         plusOne: logScale && state.logPlusOne === true
       },
       annotationStyle: annotationStyleForStats,
@@ -34554,6 +34333,7 @@ ${report.resultsText}` : '');
     const showLegend = !!els.boxShowLegend?.checked;
     if(debugEnabled){ boxLog('Debug: box showLegend state',{ showLegend }); }
     const logScale = !!els.boxLogScale?.checked;
+    const logBase = normalizeBoxLogBase(drawSession?.state?.controls?.logBase ?? els.boxLogBase?.value);
     const graphTypeRaw = els.boxGraphType?.value || 'strip';
     const annotationClearanceMin = Math.max(
       6,
@@ -35138,7 +34918,7 @@ ${report.resultsText}` : '');
     }
     const needSortedValues = graphTypeRaw === 'violin';
     const transformModeKey = logScale
-      ? (state.logPlusOne ? 'log-plus-one' : 'log')
+      ? `${state.logPlusOne ? 'log-plus-one' : 'log'}:${logBase}`
       : 'linear';
     const canReuseTransformCache = !!(
       canUseCachedDrawInput
@@ -35178,7 +34958,7 @@ ${report.resultsText}` : '');
       }else if(logPlusOne){
         const transformed = new Array(traces.length);
         traces.forEach((t, idx) => {
-          const nextY = Array.isArray(t?.rawY) ? t.rawY.map(v => Number.isFinite(v) ? Math.log10(v + 1) : v) : [];
+          const nextY = Array.isArray(t?.rawY) ? t.rawY.map(v => Number.isFinite(v) ? transformBoxLogValue(v, logBase, true) : v) : [];
           t.y = nextY;
           transformed[idx] = nextY;
         });
@@ -35189,7 +34969,7 @@ ${report.resultsText}` : '');
       }else{
         const transformed = new Array(traces.length);
         traces.forEach((t, idx) => {
-          const nextY = Array.isArray(t?.rawY) ? t.rawY.map(v => Number.isFinite(v) ? Math.log10(v) : v) : [];
+          const nextY = Array.isArray(t?.rawY) ? t.rawY.map(v => Number.isFinite(v) ? transformBoxLogValue(v, logBase) : v) : [];
           t.y = nextY;
           transformed[idx] = nextY;
         });
@@ -35610,8 +35390,8 @@ ${report.resultsText}` : '');
         });
       }
     }
-    if(isFinite(userYMin)) ymin = logScale ? Math.log10(userYMin) : userYMin;
-    if(isFinite(userYMax)) ymax = logScale ? Math.log10(userYMax) : userYMax;
+    if(isFinite(userYMin)) ymin = logScale ? transformBoxLogValue(userYMin, logBase) : userYMin;
+    if(isFinite(userYMax)) ymax = logScale ? transformBoxLogValue(userYMax, logBase) : userYMax;
     boxLog('boxplot axis override',{ userYMin, userYMax, ymin, ymax });
     boxLog('boxplot range',{ ymin, ymax });
     if(graphTypeRaw === 'bar' && !logScale){
@@ -35621,8 +35401,21 @@ ${report.resultsText}` : '');
       ymax = Math.max(ymax, 0);
       boxLog('Debug: box bar axis zero clamp',{ beforeYMin, beforeYMax, ymin, ymax });
     }
-    const manualYMinValue = Number.isFinite(userYMin) ? (logScale ? Math.log10(userYMin) : userYMin) : null;
-    const manualYMaxValue = Number.isFinite(userYMax) ? (logScale ? Math.log10(userYMax) : userYMax) : null;
+    const manualYMinValue = Number.isFinite(userYMin) ? (logScale ? transformBoxLogValue(userYMin, logBase) : userYMin) : null;
+    const manualYMaxValue = Number.isFinite(userYMax) ? (logScale ? transformBoxLogValue(userYMax, logBase) : userYMax) : null;
+    const drawAxisSettings = drawSession?.state?.layout?.axisSettings || ensureAxisSettings();
+    const normalizedAutoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(drawAxisSettings.y?.autoRangeHint) || null;
+    const boxAutoRangeHint = normalizedAutoRangeHint
+      ? (logScale
+        ? {
+            ...normalizedAutoRangeHint,
+            min: transformBoxLogValue(normalizedAutoRangeHint.min, logBase),
+            max: transformBoxLogValue(normalizedAutoRangeHint.max, logBase)
+          }
+        : normalizedAutoRangeHint)
+      : null;
+    const configuredBoxTickStart = normalizeBoxAxisTickStart(drawAxisSettings.y?.tickStart);
+    const boxAutoRangeTickStart = configuredBoxTickStart ?? boxAutoRangeHint?.tickStart;
     const shouldAutoClampPositiveNonBarAxisToZero = (
       graphTypeRaw !== 'bar'
       && !logScale
@@ -35664,8 +35457,8 @@ ${report.resultsText}` : '');
       const applied = axisTickTools.applyLogTicks(scale, {
         manualMin: Number.isFinite(manualYMinValue) ? manualYMinValue : null,
         manualMax: Number.isFinite(manualYMaxValue) ? manualYMaxValue : null,
-        fallbackMin: ymin,
-        fallbackMax: ymax
+        fallbackMin: boxAutoRangeHint ? null : ymin,
+        fallbackMax: boxAutoRangeHint ? null : ymax
       });
       if(applied && Shared.isDebugEnabled?.()){
         boxLog('Debug: box log tick override',{ tickCount: scale.ticks.length, orientation: state.flipAxes ? 'horizontal' : 'vertical' });
@@ -35673,7 +35466,10 @@ ${report.resultsText}` : '');
       return applied;
     };
     const ensureNegativeAutoAxisLowerPadding = scale => {
-      if(!shouldAutoPadNegativeNonBarAxisLowerBound || !scale || Number.isFinite(manualYMinValue)){
+      if(!shouldAutoPadNegativeNonBarAxisLowerBound || !scale || Number.isFinite(manualYMinValue)
+        || (boxAutoRangeHint
+          && Math.abs(Number(scale.min) - boxAutoRangeHint.min) <= 1e-9
+          && Math.abs(Number(scale.max) - boxAutoRangeHint.max) <= 1e-9)){
         return scale;
       }
       const currentMin = Number(scale.min);
@@ -35823,6 +35619,7 @@ ${report.resultsText}` : '');
       showGrid,
       showFrame,
       logScale,
+      logBase,
       graphTypeRaw,
       individualSummaryMode,
       pointMode,
@@ -35853,6 +35650,8 @@ ${report.resultsText}` : '');
       computeStackedErrorExtents,
       manualYMinValue,
       manualYMaxValue,
+      boxAutoRangeHint,
+      boxAutoRangeTickStart,
       scaleDataMin,
       scaleDataMax,
       buildAxisScale,
@@ -35884,6 +35683,7 @@ ${report.resultsText}` : '');
         pointMode,
         isFlipped,
         logScale,
+        logBase,
         legendRenderer,
         legendGapPx,
         traces,
@@ -35911,6 +35711,10 @@ ${report.resultsText}` : '');
         gridLayer
       }
     });
+    if(renderedFrame?.finalization?.axisLengthResizeQueued === true){
+      drawOutcome = 'cancelled';
+      return false;
+    }
     if(!renderedFrame?.finalization || !isBoxDrawTokenCurrent(drawSession, token)){
       drawOutcome = 'cancelled';
       return false;
@@ -36158,6 +35962,7 @@ ${report.resultsText}` : '');
         showFrame: controlSnapshot.showFrame,
         showLegend: els.boxShowLegend ? controlSnapshot.showLegend : getDefaultBoxShowLegend(state.tableFormat),
         logScale: controlSnapshot.logScale,
+        logBase: controlSnapshot.logBase,
         logPlusOne:!!state.logPlusOne,
         graphType: controlSnapshot.graphType,
         groupLayout: state.groupLayout,
@@ -36215,6 +36020,14 @@ ${report.resultsText}` : '');
             x: axisSnapshot.x?.tickInterval ?? null,
             y: axisSnapshot.y?.tickInterval ?? null
           },
+          tickStart: {
+            x: axisSnapshot.x?.tickStart ?? null,
+            y: axisSnapshot.y?.tickStart ?? null
+          },
+        autoRangeHint: {
+          x: axisSnapshot.x?.autoRangeHint ?? null,
+          y: axisSnapshot.y?.autoRangeHint ?? null
+        },
           majorTickLength: {
             x: axisSnapshot.x?.majorTickLength ?? null,
             y: axisSnapshot.y?.majorTickLength ?? null
@@ -36281,6 +36094,7 @@ ${report.resultsText}` : '');
           advisor: cloneSimple(payloadStatsAdvisor) || { open: false, answers: {} },
           resultsTab: state.statsResultsTab==='comparisons' ? 'comparisons' : 'overall',
           groupedAnalysis: state.groupedStats?.analysis,
+          rowRandomMethodStale: payloadStatsResults.rowRandomMethodStale===true,
           groupedComparisonScope: sanitizeGroupedComparisonScope(state.groupedStats?.comparisonScope),
           groupedMultiplicityFamily: sanitizeGroupedMultiplicityFamily(state.groupedStats?.multiplicityFamily),
           selectedColumns,
@@ -36753,6 +36567,7 @@ ${report.resultsText}` : '');
         : getDefaultBoxShowLegend(incomingTableFormat);
     }
     els.boxLogScale.checked=!!c.logScale;
+    syncBoxLogBaseControl(!!c.logScale, c.logBase);
     state.logPlusOne=!!c.logPlusOne;
     els.boxGraphType.value=c.graphType||els.boxGraphType.value;
     state.currentGraphType = normalizeBoxGraphType(els.boxGraphType.value);
@@ -37059,6 +36874,12 @@ ${report.resultsText}` : '');
       const tickY = tickCfg.y;
       axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Number(tickX) : null;
       axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
+      const tickStartCfg = axisCfg.tickStart || {};
+      ['x', 'y'].forEach(axis => {
+        axisState[axis].tickStart = normalizeBoxAxisTickStart(tickStartCfg[axis]);
+        const autoRangeHint = axisCfg.autoRangeHint?.[axis] ?? axisCfg[`autoRangeHint${axis.toUpperCase()}`];
+        axisState[axis].autoRangeHint = chartStyle.axisTicks?.normalizeAutoRangeHint?.(autoRangeHint) || null;
+      });
       const majorTickLengthCfg = axisCfg.majorTickLength || {};
       const majorTickLengthX = majorTickLengthCfg.x ?? axisCfg.majorTickLengthX ?? axisCfg.xMajorTickLength;
       const majorTickLengthY = majorTickLengthCfg.y ?? axisCfg.majorTickLengthY ?? axisCfg.yMajorTickLength;
@@ -37348,11 +37169,21 @@ ${report.resultsText}` : '');
         let restoredComputedStats = false;
         if(c.stats && typeof c.stats === 'object'){
           if(c.stats.deferredModel){
+            const staleRowRandom=isLegacyRowRandomStatsResult({
+              analysisId:c.stats.groupedAnalysis,
+              deferredModel:c.stats.deferredModel
+            },c.stats.groupedAnalysis);
             updateBoxStatsResultsFields(payloadSession, results => {
-              results.deferredModel = cloneSimple(c.stats.deferredModel) || null;
-              results.deferredContextSignature = c.stats.deferredContextSignature || null;
-              results.deferredContextVersion = Number(c.stats.deferredContextVersion) || 0;
-              results.deferredAutoShowSignificance = c.stats.deferredAutoShowSignificance === true;
+              results.deferredModel = staleRowRandom?null:(cloneSimple(c.stats.deferredModel) || null);
+              results.deferredContextSignature = staleRowRandom?null:(c.stats.deferredContextSignature || null);
+              results.deferredContextVersion = staleRowRandom?0:(Number(c.stats.deferredContextVersion) || 0);
+              results.deferredAutoShowSignificance = !staleRowRandom && c.stats.deferredAutoShowSignificance === true;
+              if(staleRowRandom){
+                results.rowRandomMethodStale=true;
+                results.analysisId='rowRandomMixed';
+                results.lastRunVersion=0;
+                results.status=STALE_BOX_CALCULATION_STATUS;
+              }
             }, { mirrorActive: false });
           }
           const savedVersionRaw = Number(c.stats.lastRunVersion);
@@ -37374,6 +37205,7 @@ ${report.resultsText}` : '');
           }, {
             tabId: payloadSession?.tabId || resolveBoxExplicitOrBoundTabId() || null,
             session: payloadSession,
+            analysisId:c.stats.groupedAnalysis,
             matrix: obj.data || null,
             reason: 'payload-load-stats-results'
           });
@@ -37384,9 +37216,13 @@ ${report.resultsText}` : '');
           });
           const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
           if((savedVersion > 0 || hasSavedStatsContent) && restoredResults && (hasResults || hasSavedStatsContent)){
-            setStatsStatus(savedVersion > 0 ? 'Statistics up to date.' : STALE_BOX_STATS_STATUS);
+            const canonicalResults=getBoxStatsResultsState(payloadSession);
+            const statsReady=canonicalResults.lastRunVersion>0
+              && canonicalResults.lastRunVersion===canonicalResults.version
+              && canonicalResults.rowRandomMethodStale!==true;
+            setStatsStatus(statsReady ? 'Statistics up to date.' : (canonicalResults.status || STALE_BOX_STATS_STATUS));
             updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
-            updateSignificanceControlState({ statsReady: savedVersion > 0 });
+            updateSignificanceControlState({ statsReady });
             updateBoxSignificanceResultsState(payloadSession, next => {
               next.statsRestoredNeedsSignificanceReapply = false;
             });
@@ -38278,6 +38114,7 @@ ${report.resultsText}` : '');
       && targetTabId
       && targetTabId !== activeTabId
       && symbolGeometry.isRenderCacheCurrent(tab.renderCache?.cache)
+      && getBoxRenderCacheMetadata(tab.renderCache?.cache)?.renderGeometryVersion === BOX_RENDER_GEOMETRY_VERSION
       && tab.renderCache?.cache?.plot?.fragment
       && typeof tab.renderCache.cache.plot.fragment.querySelector === 'function'
     );
@@ -39226,7 +39063,6 @@ ${report.resultsText}` : '');
       estimateGroupedMultipleComparisonCount:(data,options={})=>estimateGroupedMultipleComparisonCount(data,options || {}),
       analyzeRowWiseTTests:data=>analyzeRowWiseTTests(data),
       analyzeGroupedMultipleComparisons:data=>analyzeGroupedMultipleComparisons(data),
-      analyzeRowRandomMixedModel:data=>analyzeRowRandomMixedModel(data),
       computeStatsForTest: async () => {
         const tabId = getActiveBoxWorkspaceTabId() || getBoxProjectionTabId() || null;
         ensureBoxStatsContextForActiveData(tabId, 'test-compute-stats');

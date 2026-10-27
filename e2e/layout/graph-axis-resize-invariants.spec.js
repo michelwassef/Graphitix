@@ -42,7 +42,7 @@ async function waitForGraphSvg(page, pageId) {
 
 async function unlockRatio(page, component) {
   const { pageId } = component;
-  await page.waitForSelector(`#${pageId}:not([hidden]) .svgbox .resizer-aspect-checkbox`, { timeout: 30_000, state: 'attached' });
+  await page.waitForSelector(`#${pageId}:not([hidden]) .graph-controls-header .resizer-aspect-checkbox`, { timeout: 30_000, state: 'attached' });
   await page.evaluate(({ pageId }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
     const constraintInputs = Array.from(root?.querySelectorAll?.('.resizer-axeslength-checkbox') || []);
@@ -59,7 +59,7 @@ async function unlockRatio(page, component) {
   });
   await page.evaluate(({ pageId }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
-    const checkbox = root?.querySelector?.('.svgbox .resizer-aspect-checkbox');
+    const checkbox = root?.querySelector?.('.graph-controls-header .resizer-aspect-checkbox');
     if(checkbox && checkbox.checked){
       checkbox.checked = false;
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
@@ -177,7 +177,10 @@ for (const component of CARTESIAN_AXIS_COMPONENTS) {
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await openComponentFromWelcome(page, component, { first: true, loadExample: true });
-    const ready = () => waitForComponentOwnerReady(page, component, { requireMountedRoot: true, requireIdle: true });
+    const ready = async () => {
+      await waitForComponentOwnerReady(page, component, { requireMountedRoot: true, requirePublished: true, requireIdle: true });
+      await waitForGraphSvg(page, component.pageId);
+    };
     await ready();
     await page.evaluate(({ pageId }) => {
       const input = document.querySelector(`#${pageId}:not([hidden]) .resizer-aspect-checkbox`);

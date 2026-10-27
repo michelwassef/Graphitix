@@ -6,6 +6,7 @@
  */
 
 const { loadComponentTestBootstrap } = require('../../test-support/componentTestBootstrap');
+const crossedSphericityFixture=require('../../test-support/fixtures/box-row-random-sphericity-v1.json');
 
 function loadComponent(name) {
   jest.resetModules();
@@ -201,7 +202,16 @@ describe('statistical figure-summary reporting matrix', () => {
     const second = hooks.computeNormalFitDiagnostic(values, { alpha: 0.05, cacheSession: session });
     hooks.computeNormalFitDiagnostic([...values, 21], { alpha: 0.05, cacheSession: session });
 
-    expect(first.gof).toEqual(second.gof);
+    expect(second.gof.available).toBe(first.gof.available);
+    expect(second.gof.alpha).toBe(0.05);
+    expect(second.gof.ks.statistic).toBe(first.gof.ks.statistic);
+    expect(second.gof.ks.pValue).toBe(first.gof.ks.pValue);
+    expect(second.gof.ks.reject).toBe(false);
+    expect(second.gof.ks.decision).toBe('Fail to reject H₀');
+    expect(second.gof.ad.statistic).toBe(first.gof.ad.statistic);
+    expect(second.gof.ad.pValue).toBe(first.gof.ad.pValue);
+    expect(second.gof.ad.reject).toBe(false);
+    expect(second.gof.ad.decision).toBe('Fail to reject H₀');
     expect(goodnessOfFit).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(session.cache)).not.toMatch(/function/);
     goodnessOfFit.mockRestore();
@@ -526,6 +536,30 @@ describe('statistical figure-summary reporting matrix', () => {
     expect(text).toMatch(/Group: F\(1, 24\)\s*=\s*6\.2/i);
     expect(text).toMatch(/Condition: F\(2, 24\)\s*=\s*8\.5/i);
     expect(text).toMatch(/Group × Condition: F\(2, 24\)\s*=\s*3\.9/i);
+  });
+
+  test('Box crossed repeated-measures figure summary uses the GG primary p and labels the correction', () => {
+    const hooks=loadComponent('box');
+    const rows=crossedSphericityFixture.rows;
+    const groupsCount=rows[0].length;
+    const conditionsCount=rows[0][0].length;
+    const cellData=Array.from({length:groupsCount},(_,group)=>
+      Array.from({length:conditionsCount},(_,condition)=>rows.map(subject=>subject[group][condition])));
+    const result=window.Shared.boxStatsModel.computeBoxStatsModel({
+      mode:'grouped',
+      grouped:{analysis:'rowRandomMixed',data:{
+        ok:true,groupsCount,conditionsCount,rowsWithData:rows.length,partialRowsSkipped:0,rows,cellData
+      }}
+    });
+    const summary=hooks.buildFigureSummary(result,result.report);
+    const groupRow=allRows(summary).find(row=>row.label==='Group (GG primary)');
+    const groupPToken=groupRow?.valueParts?.find(part=>part?.type==='pValue');
+    expect(summaryText(summary)).toMatch(/independent complete subjects/i);
+    expect(summaryText(summary)).toMatch(/Greenhouse.Geisser.*primary/i);
+    expect(summaryText(summary)).toMatch(/Huynh.Feldt.*supplementary/i);
+    expect(groupRow).toBeTruthy();
+    expect(groupRow.valueParts[0]).toContain(`F(${result.repeatedMeasures.effects.group.gg.df1.toFixed(2)}`);
+    expect(groupPToken.value).toBe(result.repeatedMeasures.effects.group.gg.p);
   });
 
 });

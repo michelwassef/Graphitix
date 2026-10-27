@@ -601,6 +601,32 @@
         "A11Y.help-center"
       ],
       "owner": "forced-colors"
+    },
+    {
+      "context": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "selector": ".ag-theme-balham .hot-clipboard-outline-edge",
+      "property": "animation-duration",
+      "value": "var(--hot-clipboard-outline-speed)",
+      "reason": "Keep the copied-cell perimeter animation visible under the global reduced-motion rule.",
+      "evidence": [
+        "A11Y.reduced-motion-clipboard-outline"
+      ],
+      "owner": "reduced-motion"
+    },
+    {
+      "context": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "selector": ".ag-theme-balham .hot-clipboard-outline-edge",
+      "property": "animation-iteration-count",
+      "value": "infinite",
+      "reason": "Keep the copied-cell perimeter animation visible under the global reduced-motion rule.",
+      "evidence": [
+        "A11Y.reduced-motion-clipboard-outline"
+      ],
+      "owner": "reduced-motion"
     }
   ]
 }

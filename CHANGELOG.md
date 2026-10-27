@@ -1,3 +1,179 @@
+## 2026-10-27 — Save dropped graph files to their original location
+
+- Welcome now captures Chrome's native file handle during a `.graph` drop and passes it through the same document restore path as Browse/Open. Save can request write access on its own click, including after the file has stayed open for a while.
+- Browsers that cannot supply a handle still open the contents. Save explains how to preserve edits through Save As, instead of recommending reopening the original over unsaved work.
+- Regression coverage uses a native Chromium file drop, delayed toolbar Save, and unavailable-handle cases. Permission renewal and writes are simulated; the actual browser drop and file handle are real.
+
+## 2026-10-27 — Preserve Scatter automatic tick placement
+
+- Keep absent tick origins null during normalization, payload hydration and Prism import, matching Line and Box. Explicit zero and custom origins remain numeric.
+- Verify both rendered axes with absent/blank/missing, zero and custom origins, including payload capture and archive reopen.
+
+## 2026-10-27 — Preserve Box comparison spacing after axis edits
+
+- Remove the obsolete top-boundary clamp that collapsed comparison levels; let the existing content envelope contain the complete annotations.
+- Preserve unset tick origins through Box normalization, hydration and import; retain an explicitly chosen zero.
+- Version Box render geometry so older cached figures redraw from owner state. Cover mixed-sign data, manual bounds, zero origins and stale-cache rejection.
+
+## 2026-10-27 — Import Prism bar error bars and log Y scales
+
+- Apply Prism box border color and calibrated width to its outline, median, and whiskers; apply Bar error-bar color and width per dataset.
+- Decode linear, log10, and log2 axis records and import Box Y-axis base and saved range into the owner session and rendered graph.
+- Decode Prism's axis number-format flag independently from its logarithmic base; preserve Decimal labels on log axes and Scientific labels only when selected.
+- Verify controlled baseline, red-border, red/5 pt error-bar, log2, log2 Scientific, and log10 Prism samples in Jest and Chromium.
+
+## 2026-10-26 — Scope Prism axis stroke decoding
+
+- Pair Prism axis stroke records with their adjacent tick records so per-series Box/Bar borders cannot obscure axis thickness or tick length.
+- Add a regression with 16 per-series border records and verify the six graphs in `Documents/testnew2.prism` decode 2 pt or 1 pt axes with Normal ticks.
+- Verify all 54 Prism import tests.
+
+## 2026-10-26 — Match derived Prism graph series and trace imports
+
+- Associate Prism XY and Survival graphs with their source tables using unique titles and validated series names when graph IDs are derived; use the same checks for current-graph selection.
+- Preserve series ordering for nonzero contiguous Prism indexes and map grouped individual-value mode to Strip.
+- Preserve per-group Survival curve colors when Prism stores them in `BarBoxBordercolor` and leaves `connectlinecolor` at its shared default.
+- Add opt-in import tracing for decoded settings, graph association, and style-handler/write-through status. Enable it with `window.Shared.tableImport.setPrismImportTrace(true)`.
+- Verify the multi-table fixture, trace opt-in behavior, and binary reader contract.
+
+## 2026-10-26 — Preserve indexed Prism Line styles and widths
+
+- Match per-series style, connection and width records to their stored dataset IDs even when Prism saves them in reverse order. Keep matched PZFX styles associated with the same table columns.
+- Import Line Auto as 0.5 pt and decode explicit 1 pt and 4 pt widths through the calibrated Graphitix pixel conversion. Preserve each dataset's marker shape and color.
+- Verify the controlled Prism imports in 51 Jest cases and eight Chromium cases, including rendered widths and marker assignments.
+
+## 2026-10-26 — Preserve Prism automatic axis ranges on import
+
+- Keep Prism's saved automatic bounds and tick anchors as separate, owner-scoped hints; render them while leaving manual limit controls blank. Apply the hint only while current data fit inside it, and clear it when that owner's data or manual limits change.
+- Verify exact automatic ranges and labels in Line, Scatter, Box and Survival, including Prism's percentage-to-probability conversion for Survival.
+
+## 2026-10-26 — Finish Prism import ownership and graph typing
+
+- Persist delayed Prism import styles and table metadata through the shared owner-session path for Box, Scatter, Line, Pie and Survival. Cover reactivation and payload state in Chromium.
+- Allow large graphs to settle at the sequential multi-table import boundary before continuing to the next table.
+- Remove unversioned fixed-offset subtype scanning. Read Bar, Box, Strip and Violin only from the typed `0x0013` graph record; leave unknown types unset.
+- Match PZFX graph sections across multiple Templates when table and graph titles identify one unique match. Keep duplicate matches unstyled.
+- Bound Prism graph ZIP extraction before decompression.
+
+## 2026-10-26 — Match PZFX template graphs to tables
+
+- Split graph sections from PZFX project templates and associate them only with a single-table/single-graph pair or a uniquely titled table/graph pair with matching series records.
+- Apply decoded graph type, axes, typography and series styles for matched PZFX imports; verify six single-table pairs, Line/Pie/Survival pairs and all six graphs in the multi-table `testfile` pair against `.prism` imports.
+- Confirm both `.prism` and `.pzfx` mixed-type demo projects render the connected XY graph as Line in Chromium.
+- Keep ambiguous or unsupported template associations unstyled and tracked in `issues.txt`.
+
+## 2026-10-26 — Import Prism Survival curve styles
+
+- Map a one-table Survival graph's plotted series to its unique source groups and import confirmed Prism 10.1.2 line colors and widths (Auto, 1 pt, 2 pt).
+- Verify imported group labels and rendered per-group widths/colors against baseline and 1 pt controlled files.
+
+## 2026-10-25 — Inward Box borders and native vector clipping
+
+- Keep Bar, Box, Notched Box and Violin outlines fixed as borders grow inward, using one shared SVG geometry helper. Preserve semantic thickness in formatting and live edits; keep individual value point borders unchanged. Normalize Bar geometry and whisker joins across orientations.
+- Preserve transformed and nested rectangular/path clips as native PDF/EMF clipping operations instead of trimming stroke centre lines or rasterizing curved borders. Remove the retired rectangular geometry-clipping code.
+- Correct EMF's null-pen stock identifier to `0x80000008`, preventing unintended fill/background outlines; validated against the Microsoft EMF StockObject enumeration.
+- Version Box border caches and redraw older geometry from owner state. Cover pixel bounds, thickness edits, redraw, native exports, clone clip identities, resize and archive reopen.
+
+## 2026-10-25 — Box summary and whisker proportions
+
+- Set Bar, Box, Notched Box and Individual Values whisker caps to half their symbol/summary width, without pixel floors, in both orientations and grouped layouts.
+- Give Individual Values mean/median marks the same categorical width as bar/box symbols. Remove point-spread sizing, the redundant cross-trace width pass and duplicate median strokes.
+- Extend Chromium geometry coverage to check cap and summary widths during resizing and after release.
+
+## 2026-10-25 — Box category spacing and symbol widths
+
+- Keep both category-axis end spaces at two-thirds of tick spacing for every Box graph type and orientation, including grouped layouts. At full symbol width, the empty end gaps equal the gaps between neighboring symbols.
+- Size bars, boxes and violin bodies from category spacing, with a maximum width of two-thirds of that spacing. Remove fixed pixel limits so resizing preserves proportions; retain narrower side-point summaries and group separation.
+- Cover single/multiple categories, both orientations, grouped layouts and live/final resize geometry in Chromium.
+
+## 2026-10-25 — Import Prism axis tick lengths
+
+- Decode controlled Prism X/Y tick records and apply the confirmed Normal (8 px) and Short (6 px) lengths on import. The stored `3.0` and `2.0` values have no explicit unit marker.
+- Validate the baseline and Y-axis Short sample in parser, importer, and Chromium rendering checks.
+
+## 2026-10-25 — Apply Prism XY graph styles to Scatter and Line
+
+- Share Prism axis/font conversions across Box, Scatter and Line; apply decoded axis lengths, calibrated thickness, tick presets, tick-label and axis-title fonts, and dataset-specific symbol size, shape and color during XY imports.
+- Fix imported axis sizing by deriving frame chrome in unzoomed base coordinates and applying Prism axis dimensions without aspect-ratio reduction.
+- Verify Scatter and Line axis/style imports in Chromium, including a Treated-only red size-9 square and distinct downward triangles. Axis visibility, frame/grid, tick direction and log scales remain tracked in issue 82.
+
+## 2026-10-25 — Distinguish Prism bar and box graphs
+
+- Read the controlled column graph signature from the typed `0x0013` record. The bar and box files now import as `bar` and `box`, and their per-series styles report the same graph family.
+- Decode point overlay separately from bar graph type; the plain bar stays unoverlaid, while the paired overlay sample imports individual points.
+- Add the two user samples to the controlled fixtures and verify metadata plus the selected Box graph type in Chromium.
+
+## 2026-10-25 — Import Prism bar and box body styles
+
+- Decode each column series fill, border color and border width from its typed style record. Apply the settings to the matching Bar or Box series, preserving fill transparency and leaving other datasets unchanged. Box imports apply the same width to each box, median and whisker.
+- Decode width 18 as 2 Prism points and 12 as 1 point, then apply the axis calibration equation directly; these become 2.1558 and 1.4376 CSS px. Zero remains no border. Box median and whisker widths share the calibrated value.
+
+## 2026-10-25 — Import Prism axis tick-label fonts
+
+- Decode X/Y tick-label font size and bold state from controlled Prism 10.1.2 axis records and apply them to the owning Box tab.
+- Confirm 11/14 pt and bold/nonbold changes independently on each axis in parser, import, and Chromium checks.
+
+## 2026-10-25 — Route Prism XY graphs from connected series
+
+- Decode the per-series connecting-lines flag from controlled Prism 10.1.2 graph records and match it only to the graph's exact table datasets.
+- Route connected XY graphs to Line and unconnected graphs to Scatter, independent of whether the table stores individual values or replicates.
+- Preserve raw XY values while shaping them for the selected component; cover a same-table Prism pair in importer and Chromium tests.
+- Default PZFX XY tables to Scatter until the project-level graph bundle can be linked safely to each table.
+
+## 2026-10-25 — Preserve Prism XY replicate data imports
+
+- Stop using the XY per-series mode field to guess strip or box graphs; ordinary line graphs use the same value.
+- Route XY data by its graph connections; connected replicate series remain separate in Line, while unconnected data uses Scatter.
+- Persist Prism replicate counts and condition labels in the owning Line session so imported replicate columns remain grouped under their conditions.
+- Add importer and browser regressions for `example-file-line-y-axis.prism`.
+- Retire the changed-size browser claim based on the unsupported XY replicate sample; verify marker size with a supported Column sample.
+
+## 2026-10-25 — Complete statistics audit verification
+
+- Add a formal rank-time proportional-hazards score test to converged, non-regularized Cox results, with global and Holm-adjusted term tests. Ignore fully blank Survival rows so they do not inflate exclusions or block safe legacy-result migration.
+- Add independent Python bootstrap comparisons for KS/AD p-values and a logit-scale ROC interval reference. Return unavailable GOF inference before resampling when a fitted CDF cannot produce finite statistics. Keep the Box paired-comparison oracle fixture estimable rather than using zero-variance differences.
+- Expand the `stats` lane to run shared-statistics unit suites alongside all statistical-oracle suites. Its final run passes 8 suites / 57 oracle tests and 6 suites / 63 unit tests. Survival integration passes 8/8; Box stats/tab-isolation passes 13/13; focused Pie legacy restore and Box significance-geometry browser checks pass.
+- Verify Pie v2/v3 statistics restore, Box log-scale significance geometry, and test-inventory generation. Add independent coverage for the unavailable ROC interval when a class has one observation.
+- Implement the Box lognormal repeated-measures workflow with complete-subject alignment, GG-primary/HF-supplementary inference, geometric-mean ratios, explicit nominal-interval and covariance limits, owner-persisted reports, and independent SciPy plus archive-reopen coverage.
+- TOST core calculations are available and oracle-checked, but user-facing persisted equivalence/non-inferiority workflows remain open. Nonlinear-curve ROUT also remains open; see `issues.txt` and §15 of the audit.
+
+## 2026-10-25 — Move statistical guidance into reproducibility reports
+
+- Heatmap controls retain a concise cue; the copyable Methods report explains test calibration, pair handling, and the computable multiplicity family. Initial draws and correction changes now use the same computable-p family, and unavailable adjusted cells remain null in both matrix directions.
+- Box grouped-analysis controls now use short cues. Methods text reports row-random and nested-model assumptions and error terms, plus the selected multiple-comparison scope, family, and correction.
+- Validation: Heatmap correlation integration (6 tests), grouped Box model contract, three focused Chromium report/reopen checks, and testing-inventory validation passed.
+
+## 2026-10-25 - Correct effect-specific sphericity in Box row-random repeated measures
+
+- Calculate separate Group, Condition, and Group × Condition contrast-space covariances and GG/HF corrections. Use GG as primary inference, render HF as supplementary, and label uncorrected results as reference values.
+- Share the stable contrast-space correction with one-way repeated measures; center and normalize its SS calculation, replace the absolute zero-error cutoff, and return unavailable inference when no within-subject error variance can be estimated. Mark old cached row-random results stale after the method-version change; preserve current results and tab ownership on reopen.
+- Remove the unused component-local row-random ANOVA and incomplete-data GLS implementations; the production and worker paths now use the shared model.
+- Validate with an independent NumPy/SciPy/statsmodels fixture plus targeted advisor, model, worker, figure-summary, persistence, and tab-isolation checks. R/afex cross-check was unavailable because Rscript is not installed.
+
+## 2026-10-25 - Share responsive workspace layout across all components
+
+- Align graph controls and full-width Statistics using one pane-size-driven layout. Controls shrink beside the figure to a 300-pixel minimum, stop growing at 600 pixels, and only then does the shared right-pane content expand when the figure keeps growing.
+- Keep figures, export footers, notes, and Statistics on the same content track. Oversized figures use the right pane's bottom horizontal scrollbar; saved figure dimensions and exports remain independent of workspace layout.
+- Replace repeated component layout overrides with shared rules. Keep checkbox labels together and wrap Histogram fit controls by their actual card width.
+- Fix a Survival advisor scope error that could leave its graph blank. Update layout regressions for the shared wrappers and real browser zoom.
+- Make the Pages readiness check reject tracked publication artifacts without mistaking ignored local build scratch folders for committed files.
+- Validation: the 11-workspace resize and browser-zoom matrix, GitHub Pages readiness/build check, and release-rendering smoke gate passed. Full Jest suites were not run.
+
+## 2026-10-25 - Audit the statistics surface against current best practice
+
+- Add `audits/statistics-audit-2026-10-25.md`: a graded audit (P0-P3) of every statistical procedure, the shared numerical primitives, the "Help me choose" advisors, and the statistical test/oracle suite.
+- Confirm one release-blocking inference defect: Kaplan-Meier, log-rank, Gehan-Breslow-Wilcoxon, and trend tests ignore delayed entry while the Cox model honors it, so the same table yields a valid Cox fit and an invalid log-rank p-value without warning.
+- Confirm methodological gaps rather than wrong defaults elsewhere: no proportional-hazards test behind reported Cox hazard ratios, no equivalence/TOST route, no exact test for sparse proportions, hard-coded 95% intervals, and a Yates-corrected Pie chi-square that the advisor describes as uncorrected.
+- Record rehearsal findings rather than claims: Welch default, tie-aware rank tests, correct Holm/BH family adjustment, log-log Kaplan-Meier limits, DeLong variance/covariance, and refitting goodness-of-fit bootstrap were verified correct, while goodness-of-fit p-values have no numerical gate and the latent analytic Anderson-Darling exponential branch is invalid but unreachable from the UI.
+- Validation: `npm run test:stats` passed 8 suites / 52 tests; findings and evidence recorded in `issues.txt` (11 entries). No code changed.
+
+## 2026-10-25 - Correct audit findings and repair statistical reporting
+
+- Added delayed-entry risk sets to Survival KM, log-rank variants, and Cox; use strict entry/exit comparisons, validate event codes and entry times, use selected confidence levels, and disclose censoring, entry, EPV, and PH-test limits.
+- Added sparse-count exact inference to Pie and disabled implicit Yates correction. Corrected degenerate t inference, Heatmap adjustment families, ROC interval/cutoff caveats, GO provenance, Line guidance, and goodness-of-fit calibration. The row-random two-way model now discloses its uncorrected sphericity assumption; effect-specific correction remains open.
+- Corrected audit claims for Monte Carlo +1 p-values, paired-row alignment, paired contrasts, and Holm-only Venn adjustment; appended a scholarly-source review and remaining larger feature gaps to the audit.
+- Added legacy Survival-result migration guards for excluded invalid rows. Syntax checks only; no test suites were run.
+
 ## 2026-10-24 - Correct audited statistical inference and guidance
 
 - Preserve Box statistics reports and selected columns through archive hydration; keep all restored selection state in the owning session.

@@ -56,6 +56,11 @@
   const EMR_POLYPOLYGON = 0x00000008;
   const EMR_EXTCREATEFONTINDIRECTW = 0x00000052;
   const EMR_EXTTEXTOUTW = 0x00000054;
+  const EMR_SAVEDC = 33;
+  const EMR_RESTOREDC = 34;
+  const EMR_BEGINPATH = 59;
+  const EMR_ENDPATH = 60;
+  const EMR_SELECTCLIPPATH = 67;
   const EMR_SETTEXTCOLOR = 0x00000018;
   const SRCCOPY = 0x00CC0020;
   const DIB_RGB_COLORS = 0x00000000;
@@ -65,7 +70,7 @@
   const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
   const GEOMETRY_EPSILON = 1e-6;
   const NULL_BRUSH_HANDLE = 0x80000005;
-  const NULL_PEN_HANDLE = 0x80000009;
+  const NULL_PEN_HANDLE = 0x80000008;
   const SETPOLYFILLMODE_ALTERNATE = 1;
   const SETPOLYFILLMODE_WINDING = 2;
 
@@ -1538,40 +1543,6 @@
 
 
 
-  function normalizeRect(rect) {
-    if (!rect) return null;
-    const left = Math.min(rect.left, rect.right);
-    const right = Math.max(rect.left, rect.right);
-    const top = Math.min(rect.top, rect.bottom);
-    const bottom = Math.max(rect.top, rect.bottom);
-    if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
-      return null;
-    }
-    if (right - left <= GEOMETRY_EPSILON || bottom - top <= GEOMETRY_EPSILON) {
-      return null;
-    }
-    return { left, right, top, bottom };
-  }
-
-  function transformRectPoints(rect, matrix) {
-    if (!rect) return null;
-    const corners = [
-      { x: rect.left, y: rect.top },
-      { x: rect.right, y: rect.top },
-      { x: rect.right, y: rect.bottom },
-      { x: rect.left, y: rect.bottom }
-    ];
-    const transformed = corners.map(pt => applyMatrixToPoint(matrix, pt.x, pt.y));
-    const xs = transformed.map(pt => pt.x);
-    const ys = transformed.map(pt => pt.y);
-    return normalizeRect({
-      left: Math.min(...xs),
-      right: Math.max(...xs),
-      top: Math.min(...ys),
-      bottom: Math.max(...ys)
-    });
-  }
-
   function resolveClipPathReference(value) {
     if (!value || typeof value !== 'string') {
       return null;
@@ -1585,198 +1556,6 @@
       return null;
     }
     return match[2] ? match[2].trim() : null;
-  }
-
-  function clipSegmentToRect(x0, y0, x1, y1, rect) {
-    let t0 = 0;
-    let t1 = 1;
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-
-    const update = (p, q) => {
-      if (Math.abs(p) < GEOMETRY_EPSILON) {
-        return q >= 0;
-      }
-      const r = q / p;
-      if (p < 0) {
-        if (r > t1) return false;
-        if (r > t0) t0 = r;
-      } else {
-        if (r < t0) return false;
-        if (r < t1) t1 = r;
-      }
-      return true;
-    };
-
-    if (!update(-dx, x0 - rect.left)) return null;
-    if (!update(dx, rect.right - x0)) return null;
-    if (!update(-dy, y0 - rect.top)) return null;
-    if (!update(dy, rect.bottom - y0)) return null;
-
-    return {
-      x0: x0 + t0 * dx,
-      y0: y0 + t0 * dy,
-      x1: x0 + t1 * dx,
-      y1: y0 + t1 * dy
-    };
-  }
-
-  function pointsInsideRect(points, rect, closed) {
-    if (!points || !points.length || !rect) {
-      return false;
-    }
-    const end = closed && points.length > 1 ? points.length - 1 : points.length;
-    for (let i = 0; i < end; i++) {
-      const pt = points[i];
-      if (pt.x < rect.left - GEOMETRY_EPSILON || pt.x > rect.right + GEOMETRY_EPSILON ||
-          pt.y < rect.top - GEOMETRY_EPSILON || pt.y > rect.bottom + GEOMETRY_EPSILON) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  function clipPolygon(points, rect) {
-    if (!points || points.length === 0) {
-      return [];
-    }
-    const clipAgainst = (input, isInside, intersect) => {
-      const output = [];
-      if (!input.length) {
-        return output;
-      }
-      let prev = input[input.length - 1];
-      let prevInside = isInside(prev);
-      for (let i = 0; i < input.length; i++) {
-        const current = input[i];
-        const inside = isInside(current);
-        if (inside) {
-          if (!prevInside) {
-            output.push(intersect(prev, current));
-          }
-          output.push(current);
-        } else if (prevInside) {
-          output.push(intersect(prev, current));
-        }
-        prev = current;
-        prevInside = inside;
-      }
-      return output;
-    };
-
-    let output = points;
-    output = clipAgainst(output, pt => pt.x >= rect.left, (p1, p2) => {
-      const t = (rect.left - p1.x) / (p2.x - p1.x);
-      return { x: rect.left, y: p1.y + (p2.y - p1.y) * t };
-    });
-    output = clipAgainst(output, pt => pt.x <= rect.right, (p1, p2) => {
-      const t = (rect.right - p1.x) / (p2.x - p1.x);
-      return { x: rect.right, y: p1.y + (p2.y - p1.y) * t };
-    });
-    output = clipAgainst(output, pt => pt.y >= rect.top, (p1, p2) => {
-      const t = (rect.top - p1.y) / (p2.y - p1.y);
-      return { x: p1.x + (p2.x - p1.x) * t, y: rect.top };
-    });
-    output = clipAgainst(output, pt => pt.y <= rect.bottom, (p1, p2) => {
-      const t = (rect.bottom - p1.y) / (p2.y - p1.y);
-      return { x: p1.x + (p2.x - p1.x) * t, y: rect.bottom };
-    });
-    return output;
-  }
-
-  function pointsRoughlyEqual(a, b) {
-    return Math.abs(a.x - b.x) <= GEOMETRY_EPSILON && Math.abs(a.y - b.y) <= GEOMETRY_EPSILON;
-  }
-
-  function clipPolyline(points, rect) {
-    if (!points || points.length < 2) {
-      return [];
-    }
-    const results = [];
-    let current = null;
-    for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      const clipped = clipSegmentToRect(prev.x, prev.y, curr.x, curr.y, rect);
-      if (!clipped) {
-        if (current && current.points.length > 1) {
-          results.push(current);
-        }
-        current = null;
-        continue;
-      }
-      if (!current) {
-        current = { closed: false, points: [] };
-        current.points.push({ x: clipped.x0, y: clipped.y0 });
-      } else {
-        const last = current.points[current.points.length - 1];
-        if (!pointsRoughlyEqual(last, { x: clipped.x0, y: clipped.y0 })) {
-          current.points.push({ x: clipped.x0, y: clipped.y0 });
-        }
-      }
-      current.points.push({ x: clipped.x1, y: clipped.y1 });
-    }
-    if (current && current.points.length > 1) {
-      results.push(current);
-    }
-    return results;
-  }
-
-  function clipSubpathsToRect(subpaths, rect) {
-    if (!rect || !subpaths || !subpaths.length) {
-      return subpaths;
-    }
-    const normalizedRect = normalizeRect(rect);
-    if (!normalizedRect) {
-      return subpaths;
-    }
-    let changed = false;
-    const result = [];
-    for (const subpath of subpaths) {
-      if (!subpath || !subpath.points || !subpath.points.length) {
-        continue;
-      }
-      if (subpath.closed) {
-        if (pointsInsideRect(subpath.points, normalizedRect, true)) {
-          result.push(subpath);
-          continue;
-        }
-        const rawPoints = subpath.points;
-        const basePoints = rawPoints.length > 1 && pointsRoughlyEqual(rawPoints[0], rawPoints[rawPoints.length - 1])
-          ? rawPoints.slice(0, rawPoints.length - 1)
-          : rawPoints.slice();
-        const clipped = clipPolygon(basePoints, normalizedRect);
-        if (clipped.length < 3) {
-          changed = true;
-          continue;
-        }
-        const closedPoints = clipped.slice();
-        const first = closedPoints[0];
-        const last = closedPoints[closedPoints.length - 1];
-        if (!pointsRoughlyEqual(first, last)) {
-          closedPoints.push({ x: first.x, y: first.y });
-        }
-        result.push({ closed: true, points: closedPoints });
-        changed = true;
-      } else {
-        if (pointsInsideRect(subpath.points, normalizedRect, false)) {
-          result.push(subpath);
-          continue;
-        }
-        const segments = clipPolyline(subpath.points, normalizedRect);
-        if (!segments.length) {
-          changed = true;
-          continue;
-        }
-        for (const seg of segments) {
-          if (seg.points.length >= 2) {
-            result.push({ closed: false, points: seg.points });
-          }
-        }
-        changed = true;
-      }
-    }
-    return changed ? result : subpaths;
   }
 
   function computeScaleFromMatrix(matrix) {
@@ -2200,32 +1979,48 @@
         continue;
       }
       const clipTransform = parseTransformAttribute(clipPath.getAttribute('transform'));
-      let rect = null;
-      let rectTransform = clipTransform || IDENTITY_MATRIX;
-      for (let child = clipPath.firstElementChild; child; child = child.nextElementChild) {
-        const tag = child.tagName ? child.tagName.toLowerCase() : '';
-        if (tag === 'rect') {
+      const subpaths = [];
+      let fillRule = null;
+      let valid = true;
+      for(let child = clipPath.firstElementChild; child; child = child.nextElementSibling){
+        const tag = child.tagName.toLowerCase();
+        let paths;
+        if(tag === 'path'){
+          paths = flattenPath(parsePathData(child.getAttribute('d') || ''));
+        }else if(tag === 'rect'){
           const x = parseSvgNumber(child.getAttribute('x'), 0);
           const y = parseSvgNumber(child.getAttribute('y'), 0);
-          const width = parseSvgNumber(child.getAttribute('width'), 0);
-          const height = parseSvgNumber(child.getAttribute('height'), 0);
-          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-            continue;
-          }
-          rect = { left: x, top: y, right: x + width, bottom: y + height };
-          const childTransform = parseTransformAttribute(child.getAttribute('transform'));
-          if (childTransform && childTransform !== IDENTITY_MATRIX) {
-            rectTransform = multiplyMatrices(rectTransform, childTransform);
-          }
+          const w = parseSvgNumber(child.getAttribute('width'), 0);
+          const h = parseSvgNumber(child.getAttribute('height'), 0);
+          let rx = Math.max(0, parseSvgNumber(child.getAttribute('rx'), 0));
+          let ry = Math.max(0, parseSvgNumber(child.getAttribute('ry'), 0));
+          if(rx && !ry) ry = rx;
+          if(ry && !rx) rx = ry;
+          rx = Math.min(rx, w / 2);
+          ry = Math.min(ry, h / 2);
+          if(!(w > 0 && h > 0)){ valid = false; break; }
+          const d = rx && ry
+            ? `M ${x+rx} ${y} H ${x+w-rx} A ${rx} ${ry} 0 0 1 ${x+w} ${y+ry} V ${y+h-ry} A ${rx} ${ry} 0 0 1 ${x+w-rx} ${y+h} H ${x+rx} A ${rx} ${ry} 0 0 1 ${x} ${y+h-ry} V ${y+ry} A ${rx} ${ry} 0 0 1 ${x+rx} ${y} Z`
+            : `M ${x} ${y} H ${x+w} V ${y+h} H ${x} Z`;
+          paths = flattenPath(parsePathData(d));
+        }else{
+          valid = false;
           break;
         }
+        const rule = child.getAttribute('clip-rule') || clipPath.getAttribute('clip-rule') || 'nonzero';
+        // A clip is the union of its children. Separate children can overlap;
+        // keep their union semantics rather than applying an even-odd XOR.
+        if(fillRule !== null){ valid = false; break; }
+        fillRule = rule;
+        const matrix = multiplyMatrices(clipTransform || IDENTITY_MATRIX, parseTransformAttribute(child.getAttribute('transform')) || IDENTITY_MATRIX);
+        subpaths.push(...transformSubpaths(paths.map(path => ({ ...path, closed: true })), matrix));
       }
-      if (!rect) {
+      if(!valid || !subpaths.length){
         unsupported = true;
         clipMap.set(id, { unsupported: true });
-        continue;
+      }else{
+        clipMap.set(id, { subpaths, fillRule });
       }
-      clipMap.set(id, { type: 'rect', rect, transform: rectTransform });
     }
     return { map: clipMap, unsupported };
   }
@@ -2412,30 +2207,17 @@
     let vectorUnsupportedReason = clipRegistry.unsupported ? 'unsupported-clip-path' : null;
     const gradientDefs = collectLinearGradients(svgElement);
 
-    const resolveClipRect = (style, matrix) => {
-      if (!style?.clipPath) {
-        return null;
-      }
-      const ref = resolveClipPathReference(style.clipPath);
-      if (!ref) {
-        return null;
-      }
-      const def = clipPaths.get(ref);
-      if (!def || def.unsupported) {
+    const resolveClip = (value, matrix) => {
+      const ref = resolveClipPathReference(value);
+      const def = ref && clipPaths.get(ref);
+      if(!def || def.unsupported){
         vectorUnsupported = true;
         return null;
       }
-      if (def.type !== 'rect') {
-        vectorUnsupported = true;
-        return null;
-      }
-      const effectiveMatrix = matrix
-        ? multiplyMatrices(matrix, def.transform || IDENTITY_MATRIX)
-        : (def.transform || IDENTITY_MATRIX);
-      return transformRectPoints(def.rect, effectiveMatrix);
+      return { subpaths: transformSubpaths(def.subpaths, matrix), fillRule: def.fillRule };
     };
 
-    const traverse = (node, matrix, style) => {
+    const traverse = (node, matrix, style, inheritedClips = []) => {
       if (!node || node.nodeType !== 1) {
         return;
       }
@@ -2453,10 +2235,14 @@
       }
       const transformAttr = node.getAttribute('transform');
       const combinedMatrix = transformAttr ? multiplyMatrices(matrix, parseTransformAttribute(transformAttr)) : matrix;
+      const localClip = node.getAttribute('clip-path') || node.style?.clipPath;
+      const clip = localClip && localClip !== 'none' ? resolveClip(localClip, combinedMatrix) : null;
+      const clips = clip ? inheritedClips.concat(clip) : inheritedClips;
+
 
       if (tag === 'g' || tag === 'svg' || tag === 'symbol' || tag === 'a') {
         for (let child = node.firstElementChild; child; child = child.nextElementSibling) {
-          traverse(child, combinedMatrix, nextStyle);
+          traverse(child, combinedMatrix, nextStyle, clips);
         }
         return;
       }
@@ -2471,22 +2257,20 @@
             const tx = parseSvgNumber(node.getAttribute('x'), 0);
             const ty = parseSvgNumber(node.getAttribute('y'), 0);
             const useMatrix = tx || ty ? multiplyMatrices(combinedMatrix, [1, 0, 0, 1, tx, ty]) : combinedMatrix;
-            traverse(referenced, useMatrix, nextStyle);
+            traverse(referenced, useMatrix, nextStyle, clips);
             visited.delete(referenced);
           }
         }
         return;
       }
 
-      const clipRect = resolveClipRect(nextStyle, combinedMatrix);
       const pushPathShape = subpaths => {
         if (!subpaths || !subpaths.length) return;
         const transformed = transformSubpaths(subpaths, combinedMatrix);
-        const clipped = clipRect ? clipSubpathsToRect(transformed, clipRect) : transformed;
-        if (!clipped || !clipped.length) {
+        if (!transformed.length) {
           return;
         }
-        const bounds = computeSubpathsBounds(clipped);
+        const bounds = computeSubpathsBounds(transformed);
         let fill = nextStyle.fill;
         const paintRef = resolvePaintServerReference(fill);
         if (paintRef && gradientDefs.size && bounds) {
@@ -2506,7 +2290,8 @@
         const dashOffset = nextStyle.strokeDashoffset ? nextStyle.strokeDashoffset * strokeScale : 0;
         shapes.push({
           type: 'path',
-          subpaths: clipped,
+          clips,
+          subpaths: transformed,
           fill,
           fillOpacity: nextStyle.fillOpacity,
           stroke: nextStyle.stroke,
@@ -2651,6 +2436,7 @@
           const descent = fontSize * 0.2;
           shapes.push({
             type: 'text',
+            clips,
             text,
             position,
             scaleX,
@@ -3006,6 +2792,19 @@
       });
     };
 
+    const pushClips = clips => {
+      if(!clips?.length) return false;
+      addRecord(EMR_SAVEDC, 8); // EMR_SAVEDC
+      for(const clip of clips){
+        addRecord(EMR_BEGINPATH, 8); // EMR_BEGINPATH
+        emitPolyPolygon(clip.subpaths, NULL_BRUSH_HANDLE, clip.fillRule === 'evenodd' ? SETPOLYFILLMODE_ALTERNATE : SETPOLYFILLMODE_WINDING);
+        addRecord(EMR_ENDPATH, 8); // EMR_ENDPATH
+        addRecord(EMR_SELECTCLIPPATH, 12, (view, offset) => view.setUint32(offset, 1, true)); // EMR_SELECTCLIPPATH / RGN_AND
+      }
+      return true;
+    };
+    const popClips = () => addRecord(EMR_RESTOREDC, 12, (view, offset) => view.setInt32(offset, -1, true)); // EMR_RESTOREDC
+
     const emitText = (descriptor, fontHandle, colorRef) => {
       addRecord(EMR_SETTEXTCOLOR, 12, (view, offset) => {
         view.setUint32(offset, colorRef >>> 0, true);
@@ -3150,6 +2949,8 @@
       emitPolyPolyline,
       drawRectangle,
       emitText,
+      pushClips,
+      popClips,
       finalize
     };
   }
@@ -3201,45 +3002,50 @@
     writer.drawRectangle(backgroundBrush, 0, 0, scene.width * coordinateScale, scene.height * coordinateScale);
 
     for (const shape of scene.shapes) {
-      if (shape.type === 'path') {
-        const fillColor = resolvePaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color, background);
-        const strokeColor = resolvePaintColor(shape.stroke, shape.strokeOpacity, shape.opacity, shape.color, background);
-        if (fillColor) {
-          const brushHandle = writer.ensureBrush(encodeColorRef(fillColor));
-          const fillMode = shape.fillRule === 'evenodd' ? SETPOLYFILLMODE_ALTERNATE : SETPOLYFILLMODE_WINDING;
-          writer.emitPolyPolygon(scaleSubpathsForEmf(shape.subpaths), brushHandle, fillMode);
+      const clipped = writer.pushClips((shape.clips || []).map(clip => ({ ...clip, subpaths: scaleSubpathsForEmf(clip.subpaths) })));
+      try {
+        if (shape.type === 'path') {
+          const fillColor = resolvePaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color, background);
+          const strokeColor = resolvePaintColor(shape.stroke, shape.strokeOpacity, shape.opacity, shape.color, background);
+          if (fillColor) {
+            const brushHandle = writer.ensureBrush(encodeColorRef(fillColor));
+            const fillMode = shape.fillRule === 'evenodd' ? SETPOLYFILLMODE_ALTERNATE : SETPOLYFILLMODE_WINDING;
+            writer.emitPolyPolygon(scaleSubpathsForEmf(shape.subpaths), brushHandle, fillMode);
+          }
+          if (strokeColor && shape.strokeWidth > 0) {
+            const penHandle = writer.ensurePen(encodeColorRef(strokeColor), shape.strokeWidth * coordinateScale);
+            writer.emitPolyPolyline(scaleSubpathsForEmf(shape.subpaths), penHandle);
+          }
+        } else if (shape.type === 'text') {
+          const fillColor = resolvePaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color, background);
+          if (!fillColor) {
+            continue;
+          }
+          const scaleX = Math.abs(shape.scaleX || 1);
+          const scaleY = Math.abs(shape.scaleY || 1);
+          const rawFontScale = scaleY > GEOMETRY_EPSILON ? scaleY : scaleX;
+          const fontScale = rawFontScale > GEOMETRY_EPSILON ? rawFontScale : 1;
+          const fontHandle = writer.ensureFont({
+            fontFamily: shape.fontFamily,
+            fontSize: shape.fontSize * (fontScale || 1) * coordinateScale,
+            fontWeight: normalizeFontWeight(shape.fontWeight),
+            fontStyle: shape.fontStyle,
+            escapement: Math.round((-shape.rotation * 1800) / Math.PI)
+          });
+          writer.emitText({
+            text: shape.text,
+            position: {
+              x: (shape.position?.x || 0) * coordinateScale,
+              y: (shape.position?.y || 0) * coordinateScale
+            },
+            rotation: shape.rotation,
+            width: shape.width * scaleX * coordinateScale,
+            ascent: shape.ascent * fontScale * coordinateScale,
+            descent: shape.descent * fontScale * coordinateScale
+          }, fontHandle, encodeColorRef(fillColor));
         }
-        if (strokeColor && shape.strokeWidth > 0) {
-          const penHandle = writer.ensurePen(encodeColorRef(strokeColor), shape.strokeWidth * coordinateScale);
-          writer.emitPolyPolyline(scaleSubpathsForEmf(shape.subpaths), penHandle);
-        }
-      } else if (shape.type === 'text') {
-        const fillColor = resolvePaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color, background);
-        if (!fillColor) {
-          continue;
-        }
-        const scaleX = Math.abs(shape.scaleX || 1);
-        const scaleY = Math.abs(shape.scaleY || 1);
-        const rawFontScale = scaleY > GEOMETRY_EPSILON ? scaleY : scaleX;
-        const fontScale = rawFontScale > GEOMETRY_EPSILON ? rawFontScale : 1;
-        const fontHandle = writer.ensureFont({
-          fontFamily: shape.fontFamily,
-          fontSize: shape.fontSize * (fontScale || 1) * coordinateScale,
-          fontWeight: normalizeFontWeight(shape.fontWeight),
-          fontStyle: shape.fontStyle,
-          escapement: Math.round((-shape.rotation * 1800) / Math.PI)
-        });
-        writer.emitText({
-          text: shape.text,
-          position: {
-            x: (shape.position?.x || 0) * coordinateScale,
-            y: (shape.position?.y || 0) * coordinateScale
-          },
-          rotation: shape.rotation,
-          width: shape.width * scaleX * coordinateScale,
-          ascent: shape.ascent * fontScale * coordinateScale,
-          descent: shape.descent * fontScale * coordinateScale
-        }, fontHandle, encodeColorRef(fillColor));
+      } finally {
+        if(clipped) writer.popClips();
       }
     }
 
@@ -5277,6 +5083,14 @@
       }
     };
 
+    const emitClips = clips => {
+      for(const clip of clips || []){
+        emitPath(clip.subpaths);
+        push(clip.fillRule === 'evenodd' ? 'W*' : 'W');
+        push('n');
+      }
+    };
+
     for (const shape of scene.shapes) {
       if (shape.type === 'path') {
         const isGradientFill = !!(shape.fill && typeof shape.fill === 'object' && shape.fill.type === 'linear-gradient');
@@ -5298,6 +5112,7 @@
           : (fillPaint?.alpha ?? 1);
         const gKey = registerGState(fillAlpha, strokePaint?.alpha ?? 1);
         push('q');
+        emitClips(shape.clips);
         if (gKey) {
           push(`/${gKey} gs`);
         }
@@ -5367,6 +5182,7 @@
         const posX = convertX(shape.position?.x || 0);
         const posY = convertY(shape.position?.y || 0);
         push('q');
+        emitClips(shape.clips);
         if (gKey) {
           push(`/${gKey} gs`);
         }

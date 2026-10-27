@@ -42,6 +42,7 @@ test('PCA legend remains inside the published SVG content envelope', async ({ pa
       trayLeft: trayRect.left,
       paddingLeft: Number.parseFloat(style.paddingLeft) || 0,
       paddingRight: Number.parseFloat(style.paddingRight) || 0,
+      controlInset: Number.parseFloat(style.getPropertyValue('--graph-control-inset-inline')) || 0,
       baseWidth: Number(svg.dataset.graphContentBaseWidth) || 0,
       legendReserve: Number(svg.dataset.legendReserveWidth) || 0,
       contentReserve: Number(svg.dataset.graphContentReserveRight) || 0,
@@ -53,5 +54,8 @@ test('PCA legend remains inside the published SVG content envelope', async ({ pa
   expect(metrics.legendRight, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.envelopeRight + 1);
   expect(Math.abs(metrics.contentReserve - metrics.planReserve), JSON.stringify(metrics)).toBeLessThanOrEqual(1);
   expect(metrics.envelopeRight - metrics.legendRight, JSON.stringify(metrics)).toBeLessThanOrEqual(24);
-  expect(Math.abs((metrics.trayLeft - metrics.envelopeLeft) - 12), JSON.stringify(metrics)).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs((metrics.trayLeft - metrics.envelopeLeft) - metrics.controlInset),
+    JSON.stringify(metrics)
+  ).toBeLessThanOrEqual(2);
 });

@@ -6,6 +6,10 @@ const { chromium } = require('@playwright/test');
 /* global chrome */
 
 async function launchChromiumAtBrowserZoom(options = {}) {
+  const viewport = {
+    width: Number(options.width) || 1280,
+    height: Number(options.height) || 900
+  };
   const extensionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graphitix-browser-zoom-'));
   fs.writeFileSync(path.join(extensionDir, 'manifest.json'), JSON.stringify({
     manifest_version: 3,
@@ -22,10 +26,7 @@ async function launchChromiumAtBrowserZoom(options = {}) {
     context = await chromium.launchPersistentContext('', {
       channel: 'chromium',
       headless: true,
-      viewport: {
-        width: Number(options.width) || 1280,
-        height: Number(options.height) || 900
-      },
+      viewport,
       args: [
         `--disable-extensions-except=${extensionDir}`,
         `--load-extension=${extensionDir}`
@@ -45,10 +46,10 @@ async function launchChromiumAtBrowserZoom(options = {}) {
           await chrome.tabs.setZoom(tab.id, factor);
           return chrome.tabs.getZoom(tab.id);
         }, zoomFactor);
-        await page.waitForFunction(factor => (
+        await page.waitForFunction(({ factor, width }) => (
           Math.abs(window.devicePixelRatio - factor) < 0.1
-          && window.innerWidth <= Math.floor(1280 / factor) + 2
-        ), zoomFactor, { timeout: 10_000 });
+          && Math.abs(window.innerWidth - Math.floor(width / factor)) <= 2
+        ), { factor: zoomFactor, width: viewport.width }, { timeout: 10_000 });
       },
       async close() {
         await context?.close();

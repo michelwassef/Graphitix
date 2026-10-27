@@ -251,7 +251,7 @@
       test: PIE_STATS_DEFAULT_TEST,
       correction: PIE_STATS_DEFAULT_CORRECTION,
       sparseThreshold: PIE_STATS_DEFAULT_SPARSE_THRESHOLD,
-      yatesCorrection: true,
+      yatesCorrection: false,
       referenceColumn: null,
       valueColumn: null,
       expectedColumn: null,
@@ -278,7 +278,7 @@
       test: PIE_STATS_DEFAULT_TEST,
       correction: PIE_STATS_DEFAULT_CORRECTION,
       sparseThreshold: PIE_STATS_DEFAULT_SPARSE_THRESHOLD,
-      yatesCorrection: true,
+      yatesCorrection: false,
       referenceColumn: null,
       valueColumn: null,
       expectedColumn: null,
@@ -309,6 +309,9 @@
       startAngle: '0',
       borderColor: '#ffffff',
       borderWidth: 0,
+      outerBorderEnabled: false,
+      outerBorderColor: '#000000',
+      outerBorderWidth: '0',
       fontSize: String(DEFAULT_PIE_FONT_SIZE_PT),
       fontStyles: null,
       valueColumn: '',
@@ -769,7 +772,7 @@ let state = {
       test: sanitizePieStatsTest(source.test),
       correction: sanitizePieStatsCorrection(source.correction),
       sparseThreshold: sanitizePieStatsSparseThreshold(source.sparseThreshold),
-      yatesCorrection: source.yatesCorrection !== false,
+      yatesCorrection: source.yatesCorrection === true,
       referenceColumn: parsePieColumnIndex(source.referenceColumn),
       valueColumn: parsePieColumnIndex(source.valueColumn),
       expectedColumn: parsePieColumnIndex(source.expectedColumn),
@@ -1573,6 +1576,9 @@ let state = {
       startAngle: '0',
       borderColor: '#ffffff',
       borderWidth: '1',
+      outerBorderEnabled: false,
+      outerBorderColor: '#000000',
+      outerBorderWidth: '0',
       fontSize: String(DEFAULT_PIE_FONT_SIZE_PT)
     };
   }
@@ -1592,6 +1598,9 @@ let state = {
       startAngle: src.startAngle != null ? String(src.startAngle) : defaults.startAngle,
       borderColor: src.borderColor != null ? String(src.borderColor) : defaults.borderColor,
       borderWidth: src.borderWidth != null ? String(src.borderWidth) : defaults.borderWidth,
+      outerBorderEnabled: src.outerBorderEnabled === true,
+      outerBorderColor: src.outerBorderColor != null ? String(src.outerBorderColor) : defaults.outerBorderColor,
+      outerBorderWidth: src.outerBorderWidth != null ? String(src.outerBorderWidth) : defaults.outerBorderWidth,
       fontSize: src.fontSize != null ? String(src.fontSize) : defaults.fontSize
     };
   }
@@ -2923,7 +2932,7 @@ let state = {
   }
 
   function sanitizePieStatsTest(value){
-    const allowed = new Set(['chi-square', 'g-test', 'auto']);
+    const allowed = new Set(['chi-square', 'g-test', 'exact', 'auto']);
     return allowed.has(value) ? value : PIE_STATS_DEFAULT_TEST;
   }
 
@@ -2933,6 +2942,191 @@ let state = {
       return numeric;
     }
     return PIE_STATS_DEFAULT_SPARSE_THRESHOLD;
+  }
+
+  const PIE_EXACT_TABLE_LIMIT = 100000;
+  const PIE_EXACT_NODE_LIMIT = 1000000;
+
+  function pieLogFactorial(value){
+    const numeric = Number(value);
+    return Number.isSafeInteger(numeric) && numeric >= 0 && typeof Shared.stats?.logGamma === 'function'
+      ? Shared.stats.logGamma(numeric + 1)
+      : NaN;
+  }
+
+  function addPieLogProbabilities(left, right){
+    if(left === -Infinity) return right;
+    if(right === -Infinity) return left;
+    const high = Math.max(left, right);
+    const low = Math.min(left, right);
+    return high + Math.log1p(Math.exp(low - high));
+  }
+
+  function enumeratePieContingencyTables(rowSums, colSums, visit){
+    const rowCount = rowSums.length;
+    const colCount = colSums.length;
+    const table = Array.from({ length: rowCount }, () => new Array(colCount).fill(0));
+    const remainingColumns = colSums.slice();
+    const result = { count: 0, exceeded: false, workExceeded: false, nodes: 0 };
+    const visitCompleted = () => {
+      result.count += 1;
+      if(result.count > PIE_EXACT_TABLE_LIMIT){
+        result.exceeded = true;
+        return;
+      }
+      visit(table);
+    };
+
+    function allocateRow(rowIndex){
+      if(result.exceeded || result.workExceeded) return;
+      result.nodes += 1;
+      if(result.nodes > PIE_EXACT_NODE_LIMIT){ result.workExceeded = true; return; }
+      if(rowIndex === rowCount - 1){
+        if(remainingColumns.reduce((sum, value) => sum + value, 0) !== rowSums[rowIndex]) return;
+        if(remainingColumns.some(value => value < 0)) return;
+        table[rowIndex] = remainingColumns.slice();
+        visitCompleted();
+        return;
+      }
+      const futureRowsTotal = rowSums.slice(rowIndex + 1).reduce((sum, value) => sum + value, 0);
+      function allocateCell(colIndex, rowRemaining){
+        if(result.exceeded || result.workExceeded) return;
+        result.nodes += 1;
+        if(result.nodes > PIE_EXACT_NODE_LIMIT){ result.workExceeded = true; return; }
+        if(colIndex === colCount - 1){
+          const value = rowRemaining;
+          if(value < 0 || value > remainingColumns[colIndex]
+            || remainingColumns[colIndex] - value > futureRowsTotal) return;
+          table[rowIndex][colIndex] = value;
+          remainingColumns[colIndex] -= value;
+          allocateRow(rowIndex + 1);
+          remainingColumns[colIndex] += value;
+          return;
+        }
+        const laterColumnsTotal = remainingColumns.slice(colIndex + 1).reduce((sum, value) => sum + value, 0);
+        const minimum = Math.max(0, rowRemaining - laterColumnsTotal, remainingColumns[colIndex] - futureRowsTotal);
+        const maximum = Math.min(rowRemaining, remainingColumns[colIndex]);
+        for(let value = minimum; value <= maximum && !result.exceeded && !result.workExceeded; value += 1){
+          table[rowIndex][colIndex] = value;
+          remainingColumns[colIndex] -= value;
+          allocateCell(colIndex + 1, rowRemaining - value);
+          remainingColumns[colIndex] += value;
+        }
+      }
+      allocateCell(0, rowSums[rowIndex]);
+    }
+
+    allocateRow(0);
+    return result;
+  }
+
+  function exactPieContingencyPValue(rows, rowSums, colSums, total){
+    if(!rows.every(row => row.every(value => Number.isSafeInteger(value) && value >= 0))
+      || !rowSums.every(Number.isSafeInteger) || !colSums.every(Number.isSafeInteger)
+      || !Number.isSafeInteger(total)){
+      return { available: false, message: 'Exact conditional inference requires non-negative integer counts.' };
+    }
+    const factorialCache = new Map();
+    const logFactorial = value => {
+      if(!factorialCache.has(value)) factorialCache.set(value, pieLogFactorial(value));
+      return factorialCache.get(value);
+    };
+    const logRowFactorials = rowSums.map(logFactorial);
+    const logColumnFactorials = colSums.map(logFactorial);
+    const logTotalFactorial = logFactorial(total);
+    if([...logRowFactorials, ...logColumnFactorials, logTotalFactorial].some(value => !Number.isFinite(value))){
+      return { available: false, message: 'Exact conditional inference is unavailable for these count totals.' };
+    }
+    const logProbabilityBase = logRowFactorials.reduce((sum, value) => sum + value, 0)
+      + logColumnFactorials.reduce((sum, value) => sum + value, 0) - logTotalFactorial;
+    let observedLogProbability = logProbabilityBase;
+    rows.forEach(row => row.forEach(value => { observedLogProbability -= logFactorial(value); }));
+    let tailLogProbability = -Infinity;
+    const enumeration = enumeratePieContingencyTables(rowSums, colSums, candidate => {
+      let logProbability = logProbabilityBase;
+      candidate.forEach(row => row.forEach(value => { logProbability -= logFactorial(value); }));
+      if(logProbability <= observedLogProbability + 1e-12){
+        tailLogProbability = addPieLogProbabilities(tailLogProbability, logProbability);
+      }
+    });
+    if(enumeration.exceeded){
+      return { available: false, message: `Exact conditional inference exceeds the ${PIE_EXACT_TABLE_LIMIT.toLocaleString()}-table calculation limit.` };
+    }
+    if(enumeration.workExceeded){
+      return { available: false, message: `Exact conditional inference exceeds the ${PIE_EXACT_NODE_LIMIT.toLocaleString()}-step calculation limit.` };
+    }
+    return { available: true, pValue: tailLogProbability === -Infinity ? 0 : Math.min(1, Math.exp(tailLogProbability)), iterations: enumeration.count };
+  }
+
+  function exactPieGofPValue(observed, expected, observedStatistic, total){
+    if(!observed.every(value => Number.isSafeInteger(value) && value >= 0) || !Number.isSafeInteger(total)){
+      return { available: false, message: 'Exact multinomial inference requires non-negative integer observed counts.' };
+    }
+    const probabilities = expected.map(value => value / total);
+    if(probabilities.some(value => !Number.isFinite(value) || value < 0)
+      || Math.abs(probabilities.reduce((sum, value) => sum + value, 0) - 1) > 1e-9){
+      return { available: false, message: 'Exact multinomial inference requires valid expected proportions.' };
+    }
+    const factorialCache = new Map();
+    const logFactorial = value => {
+      if(!factorialCache.has(value)) factorialCache.set(value, pieLogFactorial(value));
+      return factorialCache.get(value);
+    };
+    const observedLogProbabilityBase = logFactorial(total);
+    if(!Number.isFinite(observedLogProbabilityBase)){
+      return { available: false, message: 'Exact multinomial inference is unavailable for this count total.' };
+    }
+    const logProbability = counts => {
+      let value = observedLogProbabilityBase;
+      for(let index = 0; index < counts.length; index += 1){
+        value -= logFactorial(counts[index]);
+        if(counts[index] > 0){
+          if(probabilities[index] === 0) return -Infinity;
+          value += counts[index] * Math.log(probabilities[index]);
+        }
+      }
+      return value;
+    };
+    const observedLogProbability = logProbability(observed);
+    if(observedLogProbability === -Infinity){
+      return { available: true, pValue: 0, iterations: 0 };
+    }
+    let tailLogProbability = -Infinity;
+    let count = 0;
+    let nodes = 0;
+    let exceeded = false;
+    let workExceeded = false;
+    const counts = new Array(observed.length).fill(0);
+    function allocateCategory(index, remaining){
+      if(exceeded || workExceeded) return;
+      nodes += 1;
+      if(nodes > PIE_EXACT_NODE_LIMIT){ workExceeded = true; return; }
+      if(index === counts.length - 1){
+        counts[index] = remaining;
+        count += 1;
+        if(count > PIE_EXACT_TABLE_LIMIT){ exceeded = true; return; }
+        const statistic = counts.reduce((sum, value, category) => {
+          const expectedValue = expected[category];
+          return expectedValue > 0 ? sum + Math.pow(value - expectedValue, 2) / expectedValue : (value ? Infinity : sum);
+        }, 0);
+        if(statistic >= observedStatistic - 1e-12){
+          tailLogProbability = addPieLogProbabilities(tailLogProbability, logProbability(counts));
+        }
+        return;
+      }
+      for(let value = 0; value <= remaining && !exceeded && !workExceeded; value += 1){
+        counts[index] = value;
+        allocateCategory(index + 1, remaining - value);
+      }
+    }
+    allocateCategory(0, total);
+    if(exceeded){
+      return { available: false, message: `Exact multinomial inference exceeds the ${PIE_EXACT_TABLE_LIMIT.toLocaleString()}-table calculation limit.` };
+    }
+    if(workExceeded){
+      return { available: false, message: `Exact multinomial inference exceeds the ${PIE_EXACT_NODE_LIMIT.toLocaleString()}-step calculation limit.` };
+    }
+    return { available: true, pValue: tailLogProbability === -Infinity ? 0 : Math.min(1, Math.exp(tailLogProbability)), iterations: count };
   }
 
   function parsePieColumnIndex(value){
@@ -3328,7 +3522,7 @@ let state = {
     stats.test = sanitizePieStatsTest(stats.test);
     stats.correction = sanitizePieStatsCorrection(stats.correction);
     stats.sparseThreshold = sanitizePieStatsSparseThreshold(stats.sparseThreshold);
-    stats.yatesCorrection = stats.yatesCorrection !== false;
+    stats.yatesCorrection = stats.yatesCorrection === true;
     stats.resultsTab = sanitizePieStatsResultsTab(stats.resultsTab);
   }
 
@@ -3593,7 +3787,7 @@ let state = {
     const completeRows=sourceRows===rows.length;
     const validCounts = completeRows && rows.length>=2 && rows.every(row => selected.every(index => Number.isInteger(row.values[index]) && row.values[index]>=0));
     const dataset = buildPieContingencyDataset(dataModel, selected);
-    const contingency = computePieContingencyTest(dataset.rows, { method:'chi-square', sparseThreshold, yatesCorrection:false });
+    const contingency = computePieContingencyTest(dataset.rows, { diagnosticsOnly:true, sparseThreshold });
     const pairResults=new Map();
     const comparisonValidity={};
     const comparisonCounts={};
@@ -3603,7 +3797,7 @@ let state = {
       const results=pairs.map(pair=>{
         if(!pairResults.has(pair.key)){
           const counts=buildPieContingencyDataset(dataModel,[pair.a,pair.b]);
-          pairResults.set(pair.key,computePieContingencyTest(counts.rows,{method:'chi-square',sparseThreshold,yatesCorrection:false}));
+          pairResults.set(pair.key,computePieContingencyTest(counts.rows,{diagnosticsOnly:true,sparseThreshold}));
         }
         return pairResults.get(pair.key);
       });
@@ -3613,7 +3807,7 @@ let state = {
     const expected = selected.includes(stats.expectedColumn) && stats.expectedColumn!==observed
       ? stats.expectedColumn : selected.find(index => index!==observed);
     const gofData = buildPieGofDataset(dataModel, observed, expected);
-    const gof = computePieGofStats(gofData.observed, gofData.expected, { method:'chi-square' });
+    const gof = computePieGofStats(gofData.observed, gofData.expected, { diagnosticsOnly:true, sparseThreshold });
     const validGof = completeRows && gofData.observed.length>=2 && !gofData.skipped && gofData.observed.every(Number.isInteger);
     return {
       selectedCount:selected.length,
@@ -3683,7 +3877,7 @@ let state = {
       questions.push({
         id: 'sparse',
         prompt: 'For GOF, do you expect sparse categories?',
-        help: 'Both available tests use asymptotic calibration. A G-test does not resolve sparse expected counts.',
+        help: 'Auto selects exact multinomial inference for sparse expected counts; exact calculations stop if the search exceeds the supported limit.',
         options: [
           { value: 'yes', label: 'Yes' },
           { value: 'no', label: 'No' },
@@ -3706,20 +3900,15 @@ let state = {
     if(answers.objective==='gof'){
       const gof = context.gof || {};
       if(!gof.ok){ return blocked(gof.message || 'Choose valid observed and expected counts with matching totals, or use a single observed column for equal expected proportions.'); }
-      if(answers.sparse!=='no' || gof.sparse){
-        return blocked('Sparse expected counts need suitable exact or resampled calibration. Both available GOF tests are asymptotic; changing to G does not solve this. No suitable one-click recommendation is available.');
-      }
+      const test = answers.sparse !== 'no' || gof.sparse ? 'exact' : 'auto';
       return { ready:true,
-        summary:`Use chi-square goodness-of-fit for ${gof.observedLabel} against ${gof.equalProportions?'equal expected proportions':gof.expectedLabel}.`,
+        summary:`Use ${test === 'exact' ? 'exact multinomial' : 'automatic'} goodness-of-fit for ${gof.observedLabel} against ${gof.equalProportions?'equal expected proportions':gof.expectedLabel}.`,
         rationale:['Observed counts are tested against explicitly identified expected counts with matching totals.'],
-        warnings:['Observations must be independent counts of mutually exclusive categories. Expected values must be specified independently of the observed sample, or fitted-parameter degrees of freedom need a suitable analysis.'],
-        apply:{ scope:'gof', test:'chi-square', valueColumn:gof.valueColumn, expectedColumn:gof.expectedColumn } };
+        warnings:['Observations must be independent counts of mutually exclusive categories. Expected values must be specified independently of the observed sample, or fitted-parameter degrees of freedom need a suitable analysis. Exact enumeration is limited to 100,000 possible count vectors and 1,000,000 search steps.'],
+        apply:{ scope:'gof', test, valueColumn:gof.valueColumn, expectedColumn:gof.expectedColumn } };
     }
     if(context.selectedCount<2 || !context.validCounts || !context.contingency?.ok){
       return blocked('Select at least two conditions with complete, non-negative integer counts and at least two categories. Empty margins and skipped cells cannot support this recommendation.');
-    }
-    if(answers.sparse!=='no' || context.sparseConcern){
-      return blocked('Sparse expected counts need suitable exact or resampled calibration. Switching from chi-square to G still uses an asymptotic approximation. No suitable one-click recommendation is available.');
     }
     const scope = ['all','reference','custom'].includes(answers.scope) ? answers.scope : null;
     if(!scope){ return blocked('Choose the comparison family.'); }
@@ -3727,13 +3916,13 @@ let state = {
     if(!count){ return blocked('Select at least one valid custom pair before applying this comparison family.'); }
     const family=context.comparisonValidity[scope];
     if(!family.ok){ return blocked('Each requested pair needs complete categories and non-empty margins. Review the comparison family.'); }
-    if(family.sparse){ return blocked('At least one requested pair has sparse expected counts even if the overall table is adequate. Its asymptotic chi-square or G-test needs suitable exact or resampled calibration; no one-click recommendation is available.'); }
     const correction = count>1 ? 'holm' : 'none';
+    const test = answers.sparse !== 'no' || context.sparseConcern || family.sparse ? 'exact' : 'auto';
     return { ready:true,
-      summary:`Use chi-square homogeneity with ${scope==='reference'?'reference':scope==='custom'?'custom':'all pairwise'} comparisons and ${count>1?'Holm correction':'one unadjusted comparison'}.`,
+      summary:`Use ${test === 'exact' ? 'exact conditional' : 'automatic'} homogeneity tests with ${scope==='reference'?'reference':scope==='custom'?'custom':'all pairwise'} comparisons and ${count>1?'Holm correction':'one unadjusted comparison'}.`,
       rationale:['The overall homogeneity test and the selected pairwise family answer distinct questions.'],
-      warnings:['Observations must be independent counts of mutually exclusive categories. Report effect sizes alongside p-values.'],
-      apply:{ scope, test:'chi-square', correction, yatesCorrection:true } };
+      warnings:['Observations must be independent counts of mutually exclusive categories. Report effect sizes alongside p-values. Exact enumeration is limited to 100,000 possible tables and 1,000,000 search steps per test.'],
+      apply:{ scope, test, correction, yatesCorrection:false } };
   }
 
   function renderPieStatsAdvisor(controls, session = null){
@@ -3797,9 +3986,11 @@ let state = {
     };
     const activeTestLabel = activeStats.test === 'g-test'
       ? 'G-test'
-      : activeStats.test === 'auto'
-        ? 'Automatic test selection'
-        : 'Chi-square';
+      : activeStats.test === 'exact'
+        ? 'Exact test'
+        : activeStats.test === 'auto'
+          ? 'Automatic test selection'
+          : 'Chi-square';
     const activeComparisonCount = estimatePieStatsComparisonCount();
     const activeCorrectionLabel = activeStats.scope === 'gof' || activeComparisonCount <= 1
       ? 'multiplicity correction not required'
@@ -3969,7 +4160,7 @@ let state = {
     (dataModel?.rows || []).forEach(row => {
       const observedValue = toNumericPValue(row.values?.[observedIndex]);
       const expectedValue = equalProportions ? null : toNumericPValue(row.values?.[expectedIndex]);
-      if(!Number.isFinite(observedValue) || observedValue < 0 || (!equalProportions && (!Number.isFinite(expectedValue) || expectedValue <= 0))){
+      if(!Number.isFinite(observedValue) || observedValue < 0 || (!equalProportions && (!Number.isFinite(expectedValue) || expectedValue < 0))){
         skipped += 1;
         return;
       }
@@ -3993,18 +4184,22 @@ let state = {
   }
 
   function computePieContingencyTest(table, options = {}){
-    const rows = Array.isArray(table) ? table : [];
-    const rowCount = rows.length;
-    const colCount = rowCount ? rows[0].length : 0;
+    const sourceRows = Array.isArray(table) ? table : [];
+    const rowCount = sourceRows.length;
+    const colCount = rowCount && Array.isArray(sourceRows[0]) ? sourceRows[0].length : 0;
     if(rowCount < 2 || colCount < 2){
       return { ok: false, message: 'At least two categories and two conditions are required.' };
     }
+    if(sourceRows.some(row => !Array.isArray(row) || row.length !== colCount)){
+      return { ok: false, message: 'Every category must have a count for each selected condition.' };
+    }
+    const rows = sourceRows.map(row => row.map(toNumericPValue));
     const rowSums = new Array(rowCount).fill(0);
     const colSums = new Array(colCount).fill(0);
     let total = 0;
     for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
       for(let colIndex = 0; colIndex < colCount; colIndex += 1){
-        const value = toNumericPValue(rows[rowIndex][colIndex]);
+        const value = rows[rowIndex][colIndex];
         if(!Number.isFinite(value) || value < 0){
           return { ok: false, message: 'Counts must be finite and non-negative.' };
         }
@@ -4033,7 +4228,21 @@ let state = {
       }
     }
     const method = sanitizePieStatsTest(options.method);
-    const testMethod = method === 'auto' ? 'chi-square' : method;
+    if(options.diagnosticsOnly === true){
+      return {
+        ok: true,
+        method: 'diagnostics',
+        total,
+        rowCount,
+        colCount,
+        sparseCellCount,
+        sparseThreshold,
+        minExpected: Number.isFinite(minExpected) ? minExpected : NaN
+      };
+    }
+    const testMethod = method === 'auto'
+      ? (sparseCellCount > 0 ? 'exact' : 'chi-square')
+      : method;
     const useYates = !!options.yatesCorrection && testMethod === 'chi-square' && rowCount === 2 && colCount === 2;
     let statistic = 0;
     let pearsonStatistic = 0;
@@ -4042,9 +4251,18 @@ let state = {
         const obs = rows[rowIndex][colIndex];
         const exp = expected[rowIndex][colIndex];
         if(exp > 0) pearsonStatistic += Math.pow(obs-exp,2)/exp;
+        else if(obs > 0) pearsonStatistic = Infinity;
       }
     }
-    if(testMethod === 'g-test'){
+    let exactResult = null;
+    if(testMethod === 'exact'){
+      exactResult = exactPieContingencyPValue(rows, rowSums, colSums, total);
+      if(!exactResult.available){ return { ok: false, message: exactResult.message }; }
+      statistic = pearsonStatistic;
+    }else if(testMethod === 'g-test'){
+      if(sparseCellCount > 0){
+        return { ok: false, message: 'Expected counts are sparse for the configured threshold. Select Exact or Auto for exact conditional inference.' };
+      }
       for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
         for(let colIndex = 0; colIndex < colCount; colIndex += 1){
           const obs = rows[rowIndex][colIndex];
@@ -4061,6 +4279,9 @@ let state = {
         }
       }
     }else{
+      if(sparseCellCount > 0){
+        return { ok: false, message: 'Expected counts are sparse for the configured threshold. Select Exact or Auto for exact conditional inference.' };
+      }
       for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
         for(let colIndex = 0; colIndex < colCount; colIndex += 1){
           const obs = rows[rowIndex][colIndex];
@@ -4080,8 +4301,10 @@ let state = {
         }
       }
     }
-    const df = Math.max(1, (rowCount - 1) * (colCount - 1));
-    const pValue = pieChiSquareUpperTailPValue(statistic, df);
+    const df = testMethod === 'exact' ? null : Math.max(1, (rowCount - 1) * (colCount - 1));
+    const pValue = testMethod === 'exact'
+      ? exactResult.pValue
+      : pieChiSquareUpperTailPValue(statistic, df);
     const minDim = Math.min(rowCount - 1, colCount - 1);
     const cramersV = minDim > 0 && total > 0 ? Math.sqrt(pearsonStatistic / (total * minDim)) : NaN;
     return {
@@ -4098,7 +4321,9 @@ let state = {
       sparseThreshold,
       minExpected: Number.isFinite(minExpected) ? minExpected : NaN,
       cramersV,
-      yatesApplied: useYates
+      yatesApplied: useYates,
+      calibration: testMethod === 'exact' ? 'Fisher–Freeman–Halton exact conditional' : 'chi-square asymptotic',
+      iterations: exactResult?.iterations ?? null
     };
   }
 
@@ -4111,8 +4336,9 @@ let state = {
     if(obs.length !== exp.length){
       return { ok: false, message: 'Observed and expected vectors must have the same length.' };
     }
-    if(exp.some(value => !Number.isFinite(value) || value <= 0) || obs.some(value => !Number.isFinite(value) || value < 0)){
-      return { ok: false, message: 'Observed values must be non-negative and expected values must be positive.' };
+    if(exp.some(value => !Number.isFinite(value) || value < 0) || obs.some(value => !Number.isFinite(value) || value < 0)
+      || exp.every(value => value === 0)){
+      return { ok: false, message: 'Observed values must be non-negative and expected counts must be non-negative with a positive total.' };
     }
     const observedTotal = obs.reduce((sum, value) => sum + value, 0);
     const expectedTotal = exp.reduce((sum, value) => sum + value, 0);
@@ -4123,17 +4349,33 @@ let state = {
     if(Math.abs(observedTotal - expectedTotal) > totalTolerance){
       return { ok: false, message: `Expected counts must sum to the observed total (${observedTotal}). Enter expected counts, not unscaled proportions.` };
     }
+    const sparseThreshold = sanitizePieStatsSparseThreshold(options.sparseThreshold);
+    const sparse = exp.some(value => value < sparseThreshold);
+    if(options.diagnosticsOnly === true){
+      return { ok: true, method: 'diagnostics', categories: obs.length, total: observedTotal, sparse };
+    }
     const method = sanitizePieStatsTest(options.method);
-    const testMethod = method === 'auto' ? 'chi-square' : method;
-    const pearsonStatistic = obs.reduce((sum, value, index) => (
-      sum + Math.pow(value - exp[index], 2) / exp[index]
-    ), 0);
-    const gStatistic = obs.reduce((sum, value, index) => (
-      value > 0 ? sum + 2 * value * Math.log(value / exp[index]) : sum
-    ), 0);
+    const testMethod = method === 'auto' ? (sparse ? 'exact' : 'chi-square') : method;
+    const pearsonStatistic = obs.reduce((sum, value, index) => {
+      if(exp[index] === 0) return value > 0 ? Infinity : sum;
+      return sum + Math.pow(value - exp[index], 2) / exp[index];
+    }, 0);
+    const gStatistic = obs.reduce((sum, value, index) => {
+      if(value === 0) return sum;
+      return exp[index] > 0 ? sum + 2 * value * Math.log(value / exp[index]) : Infinity;
+    }, 0);
     const statistic = testMethod === 'g-test' ? gStatistic : pearsonStatistic;
-    const df = Math.max(1, obs.length - 1);
-    const pValue = pieChiSquareUpperTailPValue(statistic, df);
+    let exactResult = null;
+    if(testMethod === 'exact'){
+      exactResult = exactPieGofPValue(obs, exp, pearsonStatistic, observedTotal);
+      if(!exactResult.available){ return { ok: false, message: exactResult.message }; }
+    }else if(sparse){
+      return { ok: false, message: 'Expected counts are sparse for the configured threshold. Select Exact or Auto for exact multinomial inference.' };
+    }
+    const df = testMethod === 'exact' ? null : Math.max(1, obs.length - 1);
+    const pValue = testMethod === 'exact'
+      ? exactResult.pValue
+      : pieChiSquareUpperTailPValue(statistic, df);
     const total = observedTotal;
     const cohensW = total > 0 ? Math.sqrt(pearsonStatistic / total) : NaN;
     return {
@@ -4146,7 +4388,9 @@ let state = {
       pValue,
       cohensW,
       categories: obs.length,
-      total
+      total,
+      calibration: testMethod === 'exact' ? 'exact multinomial Pearson-tail' : 'chi-square asymptotic',
+      iterations: exactResult?.iterations ?? null
     };
   }
 
@@ -4162,7 +4406,10 @@ let state = {
       const result = computePieGofStats(dataset.observed, dataset.expected, { method: stats.test });
       if(!result.ok){ return []; }
       const test = result.method === 'g-test' ? 'G' : 'χ²';
-      return [`${test}(${result.df}) = ${formatPieStatNumber(result.statistic, 2)}; ${formatPiePExpression(result.pValue)}; Cohen's w = ${formatPieStatNumber(result.cohensW, 2)}`];
+      const statistic = result.method === 'exact'
+        ? `Pearson χ² = ${formatPieStatNumber(result.statistic, 2)}`
+        : `${test}(${result.df}) = ${formatPieStatNumber(result.statistic, 2)}`;
+      return [`${statistic}; ${formatPiePExpression(result.pValue)} (${result.calibration}); Cohen's w = ${formatPieStatNumber(result.cohensW, 2)}`];
     }
     const selected = Array.from(stats.selectedCols || []).map(Number).filter(Number.isInteger).sort((a, b) => a - b);
     if(selected.length < 2){
@@ -4176,7 +4423,10 @@ let state = {
     });
     if(!result.ok){ return []; }
     const test = result.method === 'g-test' ? 'G' : 'χ²';
-    return [`${test}(${result.df}) = ${formatPieStatNumber(result.statistic, 2)}; ${formatPiePExpression(result.pValue)}; Cramer's V = ${formatPieStatNumber(result.cramersV, 2)}`];
+    const statistic = result.method === 'exact'
+      ? `Pearson χ² = ${formatPieStatNumber(result.statistic, 2)}`
+      : `${test}(${result.df}) = ${formatPieStatNumber(result.statistic, 2)}`;
+    return [`${statistic}; ${formatPiePExpression(result.pValue)} (${result.calibration}); Cramer's V = ${formatPieStatNumber(result.cramersV, 2)}`];
   }
 
   function renderPiePlotStatsAnnotation(svg, data, controls, geometry = {}, drawSession = null){
@@ -4231,7 +4481,11 @@ let state = {
     const summary = model.summary;
     const scope = sanitizePieStatsScope(statsConfig?.scope);
     const isGTest = /g-test/i.test(String(summary.testLabel || ''));
+    const isExactTest = summary.method === 'exact';
     const statisticSymbol = isGTest ? 'G' : 'χ²';
+    const overallStatistic = isExactTest
+      ? `Pearson χ² = ${summary.statistic}`
+      : `${statisticSymbol}(${summary.df}) = ${summary.statistic}`;
     const overallP = toNumericPValue(summary.pValueRaw);
     const overallN = Number(summary.total);
     const alpha = Number(options.alpha);
@@ -4239,8 +4493,8 @@ let state = {
     const analysisRows = [{
       label: 'Analysis',
       value: scope === 'gof'
-        ? `${summary.testLabel} · ${summary.df} df · ${String(model.expectedSource || 'specified expectations') === 'equal-proportions' ? 'equal expected proportions' : 'specified expected counts'}`
-        : `${summary.testLabel} · ${summary.df} df · ${Array.isArray(model.pairs) ? model.pairs.length : 0} configured pairwise comparison${Array.isArray(model.pairs) && model.pairs.length === 1 ? '' : 's'}`
+      ? `${summary.testLabel}${isExactTest ? '' : ` · ${summary.df} df`} · ${String(model.expectedSource || 'specified expectations') === 'equal-proportions' ? 'equal expected proportions' : 'specified expected counts'}`
+      : `${summary.testLabel}${isExactTest ? '' : ` · ${summary.df} df`} · ${Array.isArray(model.pairs) ? model.pairs.length : 0} configured pairwise comparison${Array.isArray(model.pairs) && model.pairs.length === 1 ? '' : 's'}`
     }];
     if(Number.isFinite(alpha)){
       analysisRows.push({ label:'Decision threshold', value:`α = ${formatPieStatNumber(alpha, 3)}` });
@@ -4249,7 +4503,7 @@ let state = {
     const resultRows = [{
       label: scope === 'gof' ? 'Overall fit' : 'Overall association',
       valueParts: [
-        `${statisticSymbol}(${summary.df}) = ${summary.statistic}`,
+        overallStatistic,
         ...(Number.isFinite(overallN) ? [`; N = ${summary.total}`] : []),
         ...(isValidPValue(overallP) ? ['; p = ', Shared.statsReporting?.pValue?.(overallP, {
           fallback:String(summary.pValue || formatPiePValue(overallP)),
@@ -4289,8 +4543,11 @@ let state = {
           resultRows.push({ label, value: row.note || 'Pairwise test unavailable.' });
           return;
         }
+        const pairStatistic = row.method === 'exact'
+          ? `Pearson χ² = ${row.statistic}`
+          : `${row.method === 'g-test' ? 'G' : 'χ²'}(${row.df}) = ${row.statistic}`;
         const parts = [
-          `${statisticSymbol}(${row.df}) = ${row.statistic}`,
+          `${row.testLabel || ''}: ${pairStatistic}`,
           '; raw p = ',
           Shared.statsReporting?.pValue?.(row.pValueRaw, { fallback:String(row.pValue || formatPiePValue(row.pValueRaw)) }) || String(row.pValue || formatPiePValue(row.pValueRaw))
         ];
@@ -4391,7 +4648,7 @@ let state = {
     const summaryRows = [
       { metric: 'Test', value: model.summary.testLabel },
       ...(model.summary.comparisonLabel ? [{ metric: 'Conditions', value: model.summary.comparisonLabel }] : []),
-      { metric: 'Statistic', value: model.summary.statistic },
+      { metric: 'Statistic', value: model.summary.method === 'exact' ? `Pearson χ² = ${model.summary.statistic}` : model.summary.statistic },
       { metric: 'df', value: model.summary.df },
       ...(Number.isFinite(Number(model.summary.total)) ? [{ metric: 'N', value: model.summary.total }] : []),
       {
@@ -4429,6 +4686,7 @@ let state = {
           { key: 'right', label: 'Condition B', align: 'left' },
           { key: 'categories', label: 'Categories', align: 'right' },
           { key: 'total', label: 'Total count', align: 'right' },
+          { key: 'testLabel', label: 'Test', align: 'left' },
           { key: 'statistic', label: 'Statistic', align: 'right' },
           { key: 'df', label: 'df', align: 'right' },
           {
@@ -4503,9 +4761,12 @@ let state = {
         renderedModel = {
           summary: {
             caption: 'Goodness-of-fit test',
-            testLabel: gof.method === 'g-test' ? 'G-test (likelihood ratio)' : 'Chi-square goodness-of-fit',
+            testLabel: gof.method === 'g-test'
+              ? 'G-test (likelihood ratio)'
+              : gof.method === 'exact' ? 'Exact multinomial goodness-of-fit (Pearson-tail)' : 'Chi-square goodness-of-fit',
+            method: gof.method,
             statistic: formatPieStatNumber(gof.statistic, 4),
-            df: String(gof.df),
+            df: gof.df == null ? 'Not applicable (exact calibration)' : String(gof.df),
             total: formatPieStatNumber(gof.total, 0),
             pValue: formatPiePValue(gof.pValue),
             pValueRaw: gof.pValue,
@@ -4517,6 +4778,7 @@ let state = {
                 ? `Compared ${observedMeta.label} with equal expected proportions across ${gof.categories} categories.`
                 : `Compared ${observedMeta.label} to ${expectedMeta.label} across ${gof.categories} categories.`,
               `Significance level: α = ${formatPieStatNumber(alpha, 3)}.`,
+              gof.iterations != null ? `${gof.calibration} evaluated ${gof.iterations.toLocaleString()} possible count vectors.` : null,
               dataset.skipped ? `${dataset.skipped} row${dataset.skipped === 1 ? '' : 's'} were excluded due to missing or invalid values.` : null
             ].filter(Boolean)
           },
@@ -4569,7 +4831,8 @@ let state = {
               categories: String(dataset.rows.length),
               total: 'N/A',
               statistic: 'N/A',
-              df: 'N/A',
+            df: 'N/A',
+              testLabel: 'Not available',
               pValue: 'N/A',
               pRaw: NaN,
               cramersV: 'N/A',
@@ -4583,33 +4846,34 @@ let state = {
             categories: String(dataset.rows.length),
             total: formatPieStatNumber(result.total, 0),
             statistic: formatPieStatNumber(result.statistic, 4),
-            df: String(result.df),
+            df: result.df == null ? 'Not applicable (exact calibration)' : String(result.df),
             pValue: formatPiePValue(result.pValue),
             pRaw: isValidPValue(result.pValue) ? toNumericPValue(result.pValue) : NaN,
             cramersV: formatPieStatNumber(result.cramersV, 4),
             sparseCellCount: result.sparseCellCount,
-            yatesApplied: result.yatesApplied
+            yatesApplied: result.yatesApplied,
+            iterations: result.iterations,
+            method: result.method,
+            testLabel: result.method === 'exact'
+              ? 'Fisher–Freeman–Halton exact'
+              : result.method === 'g-test' ? 'G-test (likelihood ratio)' : 'Pearson chi-square'
           });
         });
         const rawPValues = pairResults.map(row => row.pRaw);
-        const finitePValues = rawPValues.filter(isValidPValue);
-        const effectiveCorrection = finitePValues.length > 1 ? sanitizePieStatsCorrection(stats.correction) : 'none';
+        const effectiveCorrection = pairResults.length > 1 ? sanitizePieStatsCorrection(stats.correction) : 'none';
+        const adjustmentInputs = rawPValues.map(value => isValidPValue(value) ? value : 1);
         let adjusted = [];
-        if(finitePValues.length > 1 && Shared.stats && typeof Shared.stats.adjustPValues === 'function'){
-          adjusted = Shared.stats.adjustPValues(finitePValues, { method: effectiveCorrection });
+        if(pairResults.length > 1 && Shared.stats && typeof Shared.stats.adjustPValues === 'function'){
+          adjusted = Shared.stats.adjustPValues(adjustmentInputs, { method: effectiveCorrection });
         }else{
-          adjusted = finitePValues.slice();
+          adjusted = adjustmentInputs.slice();
         }
-        let adjustedIndex = 0;
-        pairResults.forEach(row => {
+        pairResults.forEach((row, index) => {
           row.pValueRaw = row.pRaw;
-          if(isValidPValue(row.pRaw)){
-            const adjustedValue = adjusted[adjustedIndex];
-            adjustedIndex += 1;
-            row.pAdjustedRaw = isValidPValue(adjustedValue) ? toNumericPValue(adjustedValue) : row.pRaw;
-          }else{
-            row.pAdjustedRaw = NaN;
-          }
+          const adjustedValue = adjusted[index];
+          row.pAdjustedRaw = isValidPValue(row.pValueRaw)
+            ? (isValidPValue(adjustedValue) ? toNumericPValue(adjustedValue) : row.pValueRaw)
+            : (effectiveCorrection !== 'none' ? 1 : NaN);
           row.pAdjusted = isValidPValue(row.pAdjustedRaw) ? formatPiePValue(row.pAdjustedRaw) : 'N/A';
           delete row.pRaw;
         });
@@ -4632,10 +4896,14 @@ let state = {
         renderedModel = {
           summary: {
             caption: 'Overall test summary',
-            testLabel: overall.method === 'g-test' ? 'G-test (likelihood ratio)' : 'Chi-square test of homogeneity',
+            testLabel: overall.method === 'g-test'
+              ? 'G-test (likelihood ratio)'
+              : overall.method === 'exact' ? 'Fisher–Freeman–Halton exact conditional test' : 'Chi-square test of homogeneity',
+            method: overall.method,
+            yatesApplied: overall.yatesApplied,
             comparisonLabel: pairMatchesOverall ? `${onlyPair.left} vs ${onlyPair.right}` : null,
             statistic: formatPieStatNumber(overall.statistic, 4),
-            df: String(overall.df),
+            df: overall.df == null ? 'Not applicable (exact calibration)' : String(overall.df),
             total: formatPieStatNumber(overall.total, 0),
             pValue: formatPiePValue(overall.pValue),
             pValueRaw: overall.pValue,
@@ -4647,7 +4915,8 @@ let state = {
               `Overall-test significance level: α = ${formatPieStatNumber(alpha, 3)}.`,
               overallDataset.skipped ? `${overallDataset.skipped} row${overallDataset.skipped === 1 ? '' : 's'} were excluded due to missing or invalid values.` : null,
               `Cells with expected count < ${overall.sparseThreshold}: ${overall.sparseCellCount}.`,
-              overall.yatesApplied ? 'Yates continuity correction was applied (2×2 chi-square).' : null
+              overall.yatesApplied ? 'Yates continuity correction was applied (2×2 chi-square).' : null,
+              overall.iterations != null ? `${overall.calibration} evaluated ${overall.iterations.toLocaleString()} possible tables.` : null
             ].filter(Boolean)
           },
           pairs: pairResults,
@@ -4660,13 +4929,13 @@ let state = {
           pairInferenceSpec,
           pairFootnotes: [
             pairResults.some(row => row.yatesApplied) ? 'Yates continuity correction was applied for eligible 2×2 pairwise tables.' : null,
-            correctionMeta?.footnote && finitePValues.length > 1 ? correctionMeta.footnote(finitePValues.length) : null,
+            correctionMeta?.footnote && pairResults.length > 1 ? correctionMeta.footnote(pairResults.length) : null,
             pairInferenceSpec.criterion === 'fdr'
               ? `Discoveries use target FDR = ${formatPieStatNumber(targetFdr, 3)} and ${String(effectiveCorrection).toUpperCase()}-adjusted p-values.`
               : `Pairwise decisions use ${pairInferenceSpec.errorControl === 'fwer' ? 'family-wise ' : ''}α = ${formatPieStatNumber(alpha, 3)}.`
           ].filter(Boolean)
         };
-        updatePieStatsCorrectionSummary(finitePValues.length, effectiveCorrection);
+        updatePieStatsCorrectionSummary(pairResults.length, effectiveCorrection);
       }
       renderPieStatsModel(renderedModel, statsSession);
       ensurePieStatsReportHost(getPieNodeById('pieStatsResults'));
@@ -4685,7 +4954,11 @@ let state = {
           completedInferenceSnapshot.comparisons = renderedModel.pairInferenceSpec;
         }
         const reportMethods = [
-          `Categorical count data were analyzed with ${renderedModel.summary.testLabel}.`,
+          `Categorical count data were analyzed with ${renderedModel.summary.testLabel}${renderedModel.summary.method === 'exact' ? ` (${stats.scope === 'gof' ? 'exact multinomial Pearson-tail calibration' : 'conditional probability-ordered calibration'})` : ''}.`,
+          stats.test === 'auto' ? 'Auto selects exact inference when any expected cell count is below the configured sparse threshold; otherwise it uses Pearson chi-square.' : null,
+          renderedModel.pairs?.some(row => row.method === 'exact')
+            ? 'Sparse pairwise tables used conditional exact calibration; the two-sided conditional p-value sums tables no more likely than the observed table. Exact enumeration is bounded by 100,000 tables and 1,000,000 search steps.'
+            : null,
           stats.scope === 'gof'
             ? (renderedModel.expectedSource === 'equal-proportions'
               ? 'Observed counts were compared with equal expected proportions across retained categories.'
@@ -4693,11 +4966,11 @@ let state = {
             : 'A contingency table was built from selected condition columns and category rows to test whether category proportions differed between conditions.',
           'Counts were parsed as numeric non-negative values; rows with missing, invalid, or incompatible expected values were excluded before analysis.',
           stats.scope !== 'gof' ? `Expected-count diagnostics used the sparse-cell threshold ${formatPieStatNumber(stats.sparseThreshold, 3)}.` : null,
-          stats.scope !== 'gof' && stats.yatesCorrection ? 'Yates continuity correction was applied automatically for eligible 2×2 chi-square tables.' : null,
+          stats.scope !== 'gof' && (renderedModel.summary.yatesApplied || renderedModel.pairs?.some(row => row.yatesApplied)) ? 'Yates continuity correction was applied for eligible 2×2 chi-square tables.' : null,
           stats.scope !== 'gof' && Array.isArray(renderedModel.pairs) && renderedModel.pairs.length
             ? (renderedModel.pairInferenceSpec?.method === 'none'
               ? 'One pairwise comparison was reported without a multiplicity adjustment.'
-              : `Configured pairwise condition comparisons used the same test family, with ${reportCorrectionMeta?.label || reportCorrectionMeta?.shortLabel || reportCorrectionMethod} multiplicity control across the reported pairwise family.`)
+              : `Configured pairwise condition comparisons used ${stats.test === 'auto' ? 'automatic method selection' : 'the selected test'}, with ${reportCorrectionMeta?.label || reportCorrectionMeta?.shortLabel || reportCorrectionMethod} multiplicity control across all ${renderedModel.pairs.length} configured comparisons${renderedModel.pairs.some(row => !isValidPValue(row.pValueRaw)) ? '; comparisons unavailable for exact enumeration were assigned p = 1 for adjustment' : ''}.`)
             : null,
           `The overall-test significance level was α = ${formatPieStatNumber(alpha, 3)}.`,
           stats.scope !== 'gof' && renderedModel.pairInferenceSpec?.criterion === 'fdr'
@@ -4706,10 +4979,10 @@ let state = {
         ].filter(Boolean).join(' ');
         Shared.statsReporting.appendReportPanel(getPieNodeById('pieStatsResults'), {
           methodsText: reportMethods,
-          resultsText: `${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, ${formatPiePExpression(primaryPValue)}.`,
+          resultsText: `${renderedModel.summary.caption}: ${renderedModel.summary.method === 'exact' ? `Pearson χ² = ${renderedModel.summary.statistic}` : `statistic = ${renderedModel.summary.statistic}${renderedModel.summary.df ? `, df = ${renderedModel.summary.df}` : ''}`}, ${formatPiePExpression(primaryPValue)}.`,
           figureSummary: buildPieFigureSummary(renderedModel, stats, { alpha, targetFdr }),
           resultsParts: [
-            `${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, p = `,
+            `${renderedModel.summary.caption}: ${renderedModel.summary.method === 'exact' ? `Pearson χ² = ${renderedModel.summary.statistic}` : `statistic = ${renderedModel.summary.statistic}${renderedModel.summary.df ? `, df = ${renderedModel.summary.df}` : ''}`}, p = `,
             {
               type: 'pValue',
               value: primaryPValue,
@@ -4877,6 +5150,7 @@ let state = {
     [
       { value: 'chi-square', label: 'Chi-square' },
       { value: 'g-test', label: 'G-test (likelihood ratio)' },
+      { value: 'exact', label: 'Exact conditional / multinomial' },
       { value: 'auto', label: 'Auto' }
     ].forEach(entry => {
       const option = document.createElement('option');
@@ -5840,29 +6114,96 @@ let state = {
       const fileName = pieFileInput.files?.[0]?.name || '';
       pieDebug('Debug: pie import start',{fileName}); // Debug: import start trace
       try{
-        const applyPiePrismStyle = style => {
+        const applyPiePrismStyle = (style, meta = {}) => {
           if(!style || typeof style !== 'object'){
             return;
           }
+          const styleOwner = (meta.tabId
+            ? getPieSession(meta.tabId, { tabId: meta.tabId, reason: 'pie-prism-style-owner' }, { create: false })
+            : null) || ownerSession || getPieProjectionSession({ reason: 'pie-projection-mutation' });
+          const ownerActive = isPieSessionActive(styleOwner);
           const title = style.title != null ? String(style.title).trim() : '';
           const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
           const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
           const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
           const fontSizeValue = Number(style.fontSize);
           if(title){
-            state.titleText = title;
+            patchPieVisualState(styleOwner, { titleText: title }, { reason: 'pie-prism-style-title' });
           }
           const pieFontInput = getPieNodeById('pieFontSize');
           const pieFontSizeVal = getPieNodeById('pieFontSizeVal');
-          if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && pieFontInput){
-            pieFontInput.value = String(fontSizeValue);
-            if(pieFontInput.dataset){
-              pieFontInput.dataset.fontBasePt = String(fontSizeValue);
+          if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && styleOwner?.state){
+            styleOwner.state.controls = normalizePieRuntimeControls({
+              ...(styleOwner.state.controls || {}),
+              fontSize: String(fontSizeValue)
+            });
+            styleOwner.updatedAt = Date.now();
+            if(ownerActive && pieFontInput){
+              pieFontInput.value = String(fontSizeValue);
+              if(pieFontInput.dataset){
+                pieFontInput.dataset.fontBasePt = String(fontSizeValue);
+              }
+              chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: fontSizeValue, input: pieFontInput, manual: true });
             }
-            chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: fontSizeValue, input: pieFontInput, manual: true });
           }
           if(axisColor){
-            updateAxisColor(axisColor);
+            mutateAxisSettingsForOwner(styleOwner, 'pie-prism-axis-color', settings => { settings.color = axisColor; });
+          }
+          const prismAxisStyle = tableImport.resolvePrismAxisStyle?.(style);
+          if(prismAxisStyle?.strokeWidth != null){
+            mutateAxisSettingsForOwner(styleOwner, 'pie-prism-axis-thickness', settings => { settings.strokeWidth = prismAxisStyle.strokeWidth; });
+          }
+          Object.entries(prismAxisStyle?.tickLengths || {}).forEach(([axis, length]) => {
+            if(axis === 'x' || axis === 'y'){
+              mutateAxisSettingsForOwner(styleOwner, `pie-prism-${axis}-tick-length`, settings => { settings[axis].majorTickLength = length; });
+            }
+          });
+          if(style.pieBorder?.outer && styleOwner?.state){
+            const outer = style.pieBorder.outer;
+            const color = outer.color?.opacity >= 1
+              ? String(outer.color.hex || '#000000')
+              : `rgba(${(outer.color?.rgba || [0, 0, 0, 255]).slice(0, 3).join(', ')}, ${Number(outer.color?.opacity) || 0})`;
+            const nextControls = normalizePieRuntimeControls({
+              ...(styleOwner.state.controls || {}),
+              outerBorderEnabled: outer.enabled === true,
+              outerBorderColor: color,
+              outerBorderWidth: String(outer.thickness?.cssPixels ?? 0)
+            });
+            styleOwner.state.controls = nextControls;
+            styleOwner.updatedAt = Date.now();
+            if(isPieSessionActive(styleOwner)){
+              state.controls = nextControls;
+            }
+          }
+          if(Array.isArray(style.pieSlices) && style.pieSlices.length){
+            const hot = styleOwner?.managers?.hot || state.hot;
+            const matrix = typeof hot?.getData === 'function' ? hot.getData() : [];
+            const nextColors = { ...(styleOwner?.state?.colors || state.colors || {}) };
+            style.pieSlices.forEach(slice => {
+              const index = Number(slice?.index);
+              const color = slice?.fillColor;
+              const label = Array.isArray(matrix?.[index + 1])
+                ? String(matrix[index + 1][0] ?? '').trim() : '';
+              if(!Number.isInteger(index) || index < 0 || !label
+                || !Array.isArray(color?.rgba) || color.rgba.length !== 4){
+                return;
+              }
+              const [red, green, blue] = color.rgba.map(value => Math.max(0, Math.min(255, Number(value) || 0)));
+              const opacity = Number(color.opacity);
+              if(!Number.isFinite(opacity)){
+                return;
+              }
+              nextColors[label] = opacity >= 1
+                ? String(color.hex || '')
+                : `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, opacity))})`;
+            });
+            if(styleOwner?.state){
+              styleOwner.state.colors = nextColors;
+              styleOwner.updatedAt = Date.now();
+            }
+            if(!styleOwner || isPieSessionActive(styleOwner)){
+              state.colors = nextColors;
+            }
           }
           if(fontFamily || fontColor){
             const graphStyle = {};
@@ -5872,21 +6213,59 @@ let state = {
             if(fontColor){
               graphStyle.fill = fontColor;
             }
-            importFontStyles('pie', { __graph__: graphStyle }, { tabId: ownerSession?.tabId || getPieProjectionTabId() || null });
+            importFontStyles('pie', { __graph__: graphStyle }, { tabId: styleOwner?.tabId || getPieProjectionTabId() || null });
+          }
+          const fontStyles = tableImport.resolvePrismFontStyles?.(style) || {};
+          if(Object.keys(fontStyles).length){
+            importFontStyles('pie', fontStyles, { tabId: styleOwner?.tabId || getPieProjectionTabId() || null, prune: false });
           }
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             pieDebug('Debug: pie prism style applied', { title, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
           }
-          capturePieSessionStateFromActive(ownerSession || getPieProjectionSession({ reason: 'pie-projection-mutation' }), { reason: 'import-prism-style', captureStats: false });
-          schedulePieDrawForSession(ownerSession || getActivePieSessionForState(), { force: true, reason: 'import-prism-style', renderImpact: 'layout', tabId: ownerSession?.tabId || undefined });
+          capturePieSessionStateFromActive(styleOwner, { reason: 'import-prism-style', captureStats: false });
+          schedulePieDrawForSession(styleOwner || getActivePieSessionForState(), { force: true, reason: 'import-prism-style', renderImpact: 'layout', tabId: styleOwner?.tabId || undefined });
+          if(!ownerActive && styleOwner?.state){
+            const axisSettings = normalizeOwnedAxisSettings(styleOwner.state.axisSettings);
+            const controls = normalizePieRuntimeControls(styleOwner.state.controls || {});
+            return { payloadPatch: { config: {
+              ...(title ? { title } : {}),
+              ...(Number.isFinite(fontSizeValue) && fontSizeValue > 0 ? { fontSize: String(fontSizeValue) } : {}),
+              colors: cloneSimple(styleOwner.state.colors) || {},
+              outerBorderEnabled: controls.outerBorderEnabled === true,
+              outerBorderColor: controls.outerBorderColor || '#000000',
+              outerBorderWidth: Math.max(0, Number.parseFloat(controls.outerBorderWidth) || 0),
+              fontStyles: exportFontStyles('pie', { tabId: styleOwner.tabId }) || {},
+              axis: {
+                strokeWidth: axisSettings.strokeWidth,
+                color: axisSettings.color,
+                tickIntervalX: axisSettings.x?.tickInterval ?? null,
+                tickIntervalY: axisSettings.y?.tickInterval ?? null,
+                majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
+                majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
+                xLabelAngle: axisSettings.x?.labelAngle ?? null,
+                minorTicksX: axisSettings.x?.minorTicks ?? false,
+                minorTicksY: axisSettings.y?.minorTicks ?? false,
+                minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
+                minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions)
+              }
+            } } };
+          }
+          return true;
         };
         const result = await tableImport.openFile(pieFileInput,{
+          componentKey: 'pie',
           hot: ownerSession?.managers?.hot || state.ensureHotForActiveTab?.() || state.hot,
           minCols: PIE_DEFAULT_COLS,
           minRows: PIE_DEFAULT_ROWS,
           scheduleDraw: options => schedulePieDrawForSession(ownerSession || getActivePieSessionForState(), { ...(options || {}), reason: options?.reason || 'pie-import-load', renderImpact: 'structural', tabId: ownerSession?.tabId || undefined }),
           debugLabel: 'pie',
           onPrismStyle: applyPiePrismStyle,
+          onOwnerInactive: (inactiveResult, meta = {}) => {
+            const styleResult = inactiveResult?.prismStyle
+              ? applyPiePrismStyle(inactiveResult.prismStyle, { tabId: meta.tabId || ownerSession?.tabId })
+              : null;
+            return styleResult?.payloadPatch ? styleResult : null;
+          },
           onProcessed: info => {
             pieDebug('Debug: pie tableImport processed', info || {}); // Debug: processed callback
           }
@@ -6110,7 +6489,7 @@ let state = {
       state.titleText = typeof config.title === 'string' ? config.title : 'Proportion graph';
       state.axisTitleOverrides = normalizePieAxisTitleOverrides(config.axisTitleOverrides);
       const nextControls = { ...(state.controls || {}) };
-      ['chartType', 'startAngle', 'borderColor', 'borderWidth', 'fontSize'].forEach(key => {
+      ['chartType', 'startAngle', 'borderColor', 'borderWidth', 'outerBorderEnabled', 'outerBorderColor', 'outerBorderWidth', 'fontSize'].forEach(key => {
         if(config[key] != null){
           nextControls[key] = config[key];
         }
@@ -6223,6 +6602,9 @@ let state = {
         startAngle: controls.startAngle,
         borderColor: controls.borderColor || '#ffffff',
         borderWidth: Number.isFinite(borderWidthVal) ? borderWidthVal : 0,
+        outerBorderEnabled: controls.outerBorderEnabled === true,
+        outerBorderColor: controls.outerBorderColor || '#000000',
+        outerBorderWidth: Math.max(0, Number.parseFloat(controls.outerBorderWidth) || 0),
         fontSize: controls.fontSize || String(DEFAULT_PIE_FONT_SIZE_PT),
         fontStyles: (exportFontStyles('pie', { tabId: ownerSession?.tabId || getPieProjectionTabId() || null }) || undefined),
         valueColumn: statsConfig.valueColumn != null ? String(statsConfig.valueColumn) : '',
@@ -6559,6 +6941,10 @@ let state = {
     const borderColor = controls.borderColor || '#ffffff';
     const borderWidthBase = Number.parseFloat(controls.borderWidth) || 0;
     const borderWidth = chartStyle.scaleStrokeWidth(borderWidthBase, styleScaleInfo, { context: 'pie-border', min: 0 });
+    const outerBorderEnabled = controls.outerBorderEnabled === true;
+    const outerBorderColor = controls.outerBorderColor || '#000000';
+    const outerBorderWidthBase = Math.max(0, Number.parseFloat(controls.outerBorderWidth) || 0);
+    const outerBorderWidth = chartStyle.scaleStrokeWidth(outerBorderWidthBase, styleScaleInfo, { context: 'pie-outer-border', min: 0 });
     pieDebug('Debug: pie border settings',{ borderColor, borderWidthBase, borderWidth });
     const showPerc=!!controls.showPercents;
     const showFrame=!!controls.showFrame;
@@ -7541,6 +7927,18 @@ let state = {
         }
         startAngle=endAngle;
       });
+      if(outerBorderEnabled && outerBorderWidth > 0){
+        const perimeter = doc.createElementNS(NS, 'circle');
+        perimeter.setAttribute('cx', cx);
+        perimeter.setAttribute('cy', cy);
+        perimeter.setAttribute('r', effectiveR);
+        perimeter.setAttribute('fill', 'none');
+        perimeter.setAttribute('stroke', outerBorderColor);
+        perimeter.setAttribute('stroke-width', outerBorderWidth);
+        perimeter.setAttribute('data-pie-outer-border', 'true');
+        perimeter.setAttribute('pointer-events', 'none');
+        (radialDataLayer || svg).appendChild(perimeter);
+      }
       const seriesLabel=document.createElementNS(NS,'text');
       seriesLabel.setAttribute('x',cx);
       const seriesLabelY = cy + effectiveR + seriesLabelOffset;
